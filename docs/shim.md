@@ -138,6 +138,29 @@ surveyed plugin has been compiled against the headers or loaded. The declaration
 to engine behavior. The counts are token counts. The SHM-13 fixture checks magic API contracts
 with test doubles, not the live game state. No sample plugin has been compiled against the
 headers, and the declarations are not linked to engine behavior.
+SHM-14 adds `RE/World.h` and the matching MIT Rust boundary in `world.rs`.
+`PlayerCharacter` reads player identity, position and actor values from the
+world provider. `ProcessLists` lists actor forms whose runtime actor state is
+built. The game crate implements that provider against its `World` form table.
+`ObjectRefHandle` and `ProjectileHandle` retain their 32-bit CommonLib-shaped
+representation. The current interface addresses live references by `FormKey`
+so file and object identity remain distinct. Projectile runtime access returns
+the typed `ProjectileRuntime` unsupported-hook result. Binary patch hooks are
+also identified as unsupported. These declarations remain a source-level API,
+with no C++ to Rust ABI or binary hook mechanism.
+
+The contracts follow the local alandtse CommonLibSSE-NG declarations in
+`include/RE/B/BSPointerHandle.h`, `include/RE/P/PlayerCharacter.h`,
+`include/RE/P/ProcessLists.h` and `include/RE/P/Projectile.h`. They preserve
+the handle width, player read shape, process actor collection and projectile
+type while adapting reads to engine-owned state.
+
+## Untested
+
+The SHM-01 and SHM-14 tests compile generated umbrella headers with a C++20 compiler and check
+C++ signatures for the Rust methods they project. SHM-14 also exercises player and process-list
+reads against a synthetic live `World`. No sample plugin has been compiled against the headers,
+and the declarations have no C++ to Rust ABI. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

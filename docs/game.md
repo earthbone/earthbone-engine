@@ -261,6 +261,17 @@ after a physics step, and rendering reads the resulting placement in the same
 tick. It writes the existing saved fields, so the world save format is
 unchanged. A late pose from a disabled or deleted body is rejected.
 
+**CommonLib world reads.** The MIT `soe-commonlib-shim` boundary exposes
+player identity, player position and actor values, plus the actor forms whose
+runtime state is built. `World` implements these reads directly through its
+player, reference and actor methods. The shim's `FormKey` retains both load
+order file and object identity. It does not keep a parallel copy of world
+state. Projectile runtime access returns an explicit unsupported-hook result
+because projectile simulation is not implemented. The matching local
+CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
+`ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
+shim exposes source-level C++ declarations only, without an FFI bridge.
+
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
 (scaled by a steal multiplier against the stolen item's value), escape

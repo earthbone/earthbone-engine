@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_01_generated_headers_match_the_rust_surface_map() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 10);
+    assert_eq!(generated.len(), 13);
     for (relative, expected) in generated {
         let path = include.join(relative);
         let actual = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -50,6 +50,22 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
             "missing Rust reference API {declaration}"
         );
     }
+    let world = fs::read_to_string(include.join("RE/World.h")).unwrap();
+    for declaration in [
+        "struct FormKey",
+        "struct ProjectileHandle",
+        "class PlayerCharacter",
+        "class ProcessLists",
+        "class Projectile",
+    ] {
+        assert!(
+            world.contains(declaration),
+            "missing SHM-14 world API {declaration}"
+        );
+    }
+    let world_types = fs::read_to_string(include.join("RE/WorldTypes.h")).unwrap();
+    assert!(world_types.contains("enum class UnsupportedHook"));
+    assert!(world_types.contains("ProjectileRuntime") && world_types.contains("BinaryPatch"));
     let math = fs::read_to_string(include.join("RE/Math.h")).unwrap();
     for declaration in [
         "struct NiPoint3",

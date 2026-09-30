@@ -236,7 +236,8 @@ const RE_WORLD_TYPES: &str = r#"// Generated from crates/commonlib-shim/src/worl
 namespace RE {
 enum class UnsupportedHook {
     FormCreation, InventoryMutation, ItemSelection, ItemListUpdate,
-    BinaryAddress, VtablePatch, UnsupportedEquipOption
+    BinaryAddress, VtablePatch, UnsupportedEquipOption,
+    ProjectileRuntime, BinaryPatch
 };
 struct SettingValue {
     enum class Kind { Bool, Int, Float, String };
@@ -280,6 +281,102 @@ public:
     virtual std::optional<HitData> resolve_hit(FormId attacker, FormId target, FormId weapon) = 0;
     virtual UnsupportedHookInfo unsupported_hook(const std::string& type_name, const std::string& hook_name) const = 0;
 };
+} // namespace RE
+"#;
+
+const RE_WORLD: &str = r#"// Generated from crates/commonlib-shim/src/world.rs. Do not edit.
+#pragma once
+#include "RE/Reference.h"
+#include "RE/WorldTypes.h"
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace RE {
+struct FormKey { std::uint16_t file; std::uint32_t object; };
+struct ProjectileHandle { std::uint32_t value; };
+struct Position { float x; float y; float z; };
+class WorldState {
+public:
+    virtual ~WorldState() = default;
+    virtual std::optional<FormKey> player() = 0;
+    virtual std::vector<FormKey> loaded_actors() const = 0;
+    virtual std::optional<Position> reference_position(FormKey form) = 0;
+    virtual std::optional<float> actor_value(FormKey form, const char* name) = 0;
+    virtual std::optional<bool> actor_is_dead(FormKey form) = 0;
+};
+class PlayerCharacter {
+public:
+    explicit PlayerCharacter(WorldState& world) : world_(world) {}
+    std::optional<FormKey> form_key() { return world_.player(); }
+    std::optional<Position> position() {
+        const auto id = world_.player();
+        return id ? world_.reference_position(*id) : std::nullopt;
+    }
+    std::optional<float> actor_value(const char* name) {
+        const auto id = world_.player();
+        return id ? world_.actor_value(*id, name) : std::nullopt;
+    }
+private:
+    WorldState& world_;
+};
+class ProcessLists {
+public:
+    explicit ProcessLists(const WorldState& world) : world_(world) {}
+    std::vector<FormKey> actor_forms() const { return world_.loaded_actors(); }
+private:
+    const WorldState& world_;
+};
+class Projectile {
+public:
+    explicit Projectile(ProjectileHandle handle) : handle_(handle) {}
+    UnsupportedHook runtime() const noexcept { return UnsupportedHook::ProjectileRuntime; }
+    ProjectileHandle handle() const noexcept { return handle_; }
+private:
+    ProjectileHandle handle_;
+};
+struct IFormFactory {
+    std::string name;
+    FormType form_type;
+    FormType GetFormType() const noexcept { return form_type; }
+    const char* GetFormName() const noexcept { return name.c_str(); }
+    UnsupportedHook Create() const noexcept { return UnsupportedHook::FormCreation; }
+};
+struct InventoryEntryData {
+    FormId object;
+    std::int32_t count_delta;
+    std::vector<std::uint8_t> extra_types;
+    bool worn;
+};
+struct InventoryChanges {
+    FormId owner;
+    std::vector<InventoryEntryData> entries;
+    std::vector<std::pair<FormId, std::int32_t>> totals;
+    std::int32_t GetItemCount(FormId object) const {
+        for (const auto& total : totals) if (total.first.value == object.value) return total.second;
+        return 0;
+    }
+    UnsupportedHook AddEntryData(const InventoryEntryData&) const noexcept { return UnsupportedHook::InventoryMutation; }
+};
+struct ItemList {
+    std::vector<InventoryEntryData> items;
+    UnsupportedHook GetSelectedItem() const noexcept { return UnsupportedHook::ItemSelection; }
+    UnsupportedHook Update() const noexcept { return UnsupportedHook::ItemListUpdate; }
+};
+enum class ReferenceKind { Actor, Reference };
+struct LookupReferenceByHandleResult { FormId form_id; ReferenceKind kind; };
+class ReferenceResolver {
+public:
+    virtual ~ReferenceResolver() = default;
+    virtual bool lookup_reference_by_handle(ObjectRefHandle handle,
+                                            LookupReferenceByHandleResult& result) const = 0;
+};
+inline bool LookupReferenceByHandle(const ReferenceResolver& resolver, ObjectRefHandle handle,
+                                    LookupReferenceByHandleResult& result) {
+    return resolver.lookup_reference_by_handle(handle, result);
+}
 } // namespace RE
 "#;
 
@@ -390,59 +487,6 @@ private:
 } // namespace RE
 ";
 
-const RE_WORLD: &str = r#"// Generated from crates/commonlib-shim/src/world.rs. Do not edit.
-#pragma once
-#include "RE/Reference.h"
-#include "RE/WorldTypes.h"
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <vector>
-
-namespace RE {
-struct IFormFactory {
-    std::string name;
-    FormType form_type;
-    FormType GetFormType() const noexcept { return form_type; }
-    const char* GetFormName() const noexcept { return name.c_str(); }
-    UnsupportedHook Create() const noexcept { return UnsupportedHook::FormCreation; }
-};
-struct InventoryEntryData {
-    FormId object;
-    std::int32_t count_delta;
-    std::vector<std::uint8_t> extra_types;
-    bool worn;
-};
-struct InventoryChanges {
-    FormId owner;
-    std::vector<InventoryEntryData> entries;
-    std::vector<std::pair<FormId, std::int32_t>> totals;
-    std::int32_t GetItemCount(FormId object) const {
-        for (const auto& total : totals) if (total.first.value == object.value) return total.second;
-        return 0;
-    }
-    UnsupportedHook AddEntryData(const InventoryEntryData&) const noexcept { return UnsupportedHook::InventoryMutation; }
-};
-struct ItemList {
-    std::vector<InventoryEntryData> items;
-    UnsupportedHook GetSelectedItem() const noexcept { return UnsupportedHook::ItemSelection; }
-    UnsupportedHook Update() const noexcept { return UnsupportedHook::ItemListUpdate; }
-};
-enum class ReferenceKind { Actor, Reference };
-struct LookupReferenceByHandleResult { FormId form_id; ReferenceKind kind; };
-class ReferenceResolver {
-public:
-    virtual ~ReferenceResolver() = default;
-    virtual bool lookup_reference_by_handle(ObjectRefHandle handle,
-                                            LookupReferenceByHandleResult& result) const = 0;
-};
-inline bool LookupReferenceByHandle(const ReferenceResolver& resolver, ObjectRefHandle handle,
-                                    LookupReferenceByHandleResult& result) {
-    return resolver.lookup_reference_by_handle(handle, result);
-}
-} // namespace RE
-"#;
-
 const SKSE_INTERFACES: &str = r#"// Generated from crates/commonlib-shim/src/skse.rs. Do not edit.
 #pragma once
 #include "RE/Form.h"
@@ -523,12 +567,12 @@ const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
     ("RE/Magic.h", RE_MAGIC),
+    ("RE/World.h", RE_WORLD),
     ("RE/Math.h", RE_MATH),
     ("RE/WorldTypes.h", RE_WORLD_TYPES),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/World.h", RE_WORLD),
     ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Magic.h\"\n#include \"RE/WorldTypes.h\"\n#include \"RE/World.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/Plugin.h", SKSE_PLUGIN),
