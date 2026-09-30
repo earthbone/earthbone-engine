@@ -9,14 +9,14 @@ use std::process::Command;
 use soe_papyrus::pex::{self, Function, Script};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FunctionShape {
+pub struct FunctionShape {
     params: Vec<String>,
     instructions: usize,
 }
 
-type FunctionKey = (String, String, String);
+pub type FunctionKey = (String, String, String, String);
 
-fn pex_functions(script: &Script) -> BTreeMap<FunctionKey, FunctionShape> {
+pub fn pex_functions(script: &Script) -> BTreeMap<FunctionKey, FunctionShape> {
     let mut functions = BTreeMap::new();
     for object in &script.objects {
         for state in &object.states {
@@ -26,16 +26,31 @@ fn pex_functions(script: &Script) -> BTreeMap<FunctionKey, FunctionShape> {
                     &object.name,
                     &state.name,
                     &function.name,
+                    "",
                     function,
                 );
             }
         }
         for property in &object.properties {
             if let Some(function) = &property.getter {
-                add_function(&mut functions, &object.name, "", "get", function);
+                add_function(
+                    &mut functions,
+                    &object.name,
+                    "",
+                    "get",
+                    &property.name,
+                    function,
+                );
             }
             if let Some(function) = &property.setter {
-                add_function(&mut functions, &object.name, "", "set", function);
+                add_function(
+                    &mut functions,
+                    &object.name,
+                    "",
+                    "set",
+                    &property.name,
+                    function,
+                );
             }
         }
     }
@@ -47,6 +62,7 @@ fn add_function(
     object: &str,
     state: &str,
     name: &str,
+    property: &str,
     function: &Function,
 ) {
     functions.insert(
@@ -54,6 +70,7 @@ fn add_function(
             object.to_ascii_lowercase(),
             state.to_ascii_lowercase(),
             name.to_ascii_lowercase(),
+            property.to_ascii_lowercase(),
         ),
         FunctionShape {
             params: function
@@ -66,9 +83,10 @@ fn add_function(
     );
 }
 
-fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionShape> {
+pub fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionShape> {
     let mut result = BTreeMap::new();
-    let (mut object, mut state, mut function) = (String::new(), String::new(), String::new());
+    let (mut object, mut state, mut function, mut property) =
+        (String::new(), String::new(), String::new(), String::new());
     let (mut params, mut instructions) = (Vec::new(), 0usize);
     let mut in_code = false;
 
@@ -80,6 +98,14 @@ fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionShape>
                 .next()
                 .unwrap_or_default()
                 .to_owned();
+        } else if let Some(rest) = line.strip_prefix(".property ") {
+            property = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+        } else if line == ".endProperty" {
+            property.clear();
         } else if line == ".state" {
             state.clear();
         } else if let Some(rest) = line.strip_prefix(".state ") {
@@ -112,6 +138,7 @@ fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionShape>
                         object.to_ascii_lowercase(),
                         state.to_ascii_lowercase(),
                         function.to_ascii_lowercase(),
+                        property.to_ascii_lowercase(),
                     ),
                     FunctionShape {
                         params: params.clone(),
@@ -127,7 +154,7 @@ fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionShape>
     result
 }
 
-fn differences(
+pub fn differences(
     source: &BTreeMap<FunctionKey, FunctionShape>,
     decoded: &BTreeMap<FunctionKey, FunctionShape>,
 ) -> Vec<String> {
@@ -136,8 +163,8 @@ fn differences(
         .filter_map(|key| match (source.get(key), decoded.get(key)) {
             (Some(left), Some(right)) if left == right => None,
             (left, right) => Some(format!(
-                "{}::{}::{} PEX={left:?} Champollion={right:?}",
-                key.0, key.1, key.2
+                "{}::{}::{}::{} PEX={left:?} Champollion={right:?}",
+                key.0, key.1, key.2, key.3
             )),
         })
         .collect()
@@ -225,7 +252,12 @@ fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
     let assembly = ".object Example Quest\n .state Running\n  .function Tick\n   .param amount int\n   .code\n    IADD x y z\n    RETURN x\n   .endCode\n  .endFunction ;Tick\n .endState\n.endObject\n";
     let functions = champollion_functions(assembly);
     assert_eq!(
-        functions.get(&("example".into(), "running".into(), "tick".into())),
+        functions.get(&(
+            "example".into(),
+            "running".into(),
+            "tick".into(),
+            String::new(),
+        )),
         Some(&FunctionShape {
             params: vec!["int".into()],
             instructions: 2,
@@ -236,7 +268,12 @@ fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
 #[test]
 fn tst_10_champollion_reports_unmatched_loaded_functions() {
     let pex = BTreeMap::from([(
-        ("example".into(), String::new(), "tick".into()),
+        (
+            "example".into(),
+            String::new(),
+            "tick".into(),
+            String::new(),
+        ),
         FunctionShape {
             params: vec!["int".into()],
             instructions: 2,
@@ -245,7 +282,7 @@ fn tst_10_champollion_reports_unmatched_loaded_functions() {
     let decoded = BTreeMap::new();
     assert_eq!(
         differences(&pex, &decoded),
-        vec!["example::::tick PEX=Some(FunctionShape { params: [\"int\"], instructions: 2 }) Champollion=None"]
+        vec!["example::::tick:: PEX=Some(FunctionShape { params: [\"int\"], instructions: 2 }) Champollion=None"]
     );
 }
 
