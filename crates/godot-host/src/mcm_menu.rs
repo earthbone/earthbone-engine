@@ -25,6 +25,103 @@ enum ActiveDialog {
     Color(u32),
 }
 
+/// One key conflict reported through SkyUI's key-map callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyConflict {
+    /// The conflicting vanilla or mod control name, or an empty string.
+    pub control: String,
+    /// The registered mod config name, or an empty string for vanilla controls.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModKeyConfig {
+    name: String,
+    controls: Vec<(i32, String)>,
+}
+
+/// Vanilla and registered mod control maps used when a key is remapped.
+///
+/// Lookup order matches `SKI_ConfigManager.psc`: query vanilla controls first,
+/// then each mod config in its registration order, stopping at the first hit.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KeyConflictScanner {
+    vanilla_controls: Vec<(i32, String)>,
+    mod_configs: Vec<ModKeyConfig>,
+}
+
+impl KeyConflictScanner {
+    /// Add or replace a vanilla control mapping.
+    pub fn set_vanilla_control(&mut self, key_code: i32, control: impl Into<String>) {
+        set_control(&mut self.vanilla_controls, key_code, control.into());
+    }
+
+    /// Register a mod config and return its stable registration index.
+    pub fn register_mod_config(&mut self, name: impl Into<String>) -> usize {
+        self.mod_configs.push(ModKeyConfig {
+            name: name.into(),
+            controls: Vec::new(),
+        });
+        self.mod_configs.len() - 1
+    }
+
+    /// Set a config's custom control mapping, returning false for an invalid index.
+    pub fn set_custom_control(
+        &mut self,
+        config_index: usize,
+        key_code: i32,
+        control: impl Into<String>,
+    ) -> bool {
+        let Some(config) = self.mod_configs.get_mut(config_index) else {
+            return false;
+        };
+        set_control(&mut config.controls, key_code, control.into());
+        true
+    }
+
+    /// Find the first vanilla or mod control mapped to this key code.
+    #[must_use]
+    pub fn conflict(&self, key_code: i32) -> KeyConflict {
+        if let Some((_, control)) = self
+            .vanilla_controls
+            .iter()
+            .find(|(mapped_code, control)| *mapped_code == key_code && !control.is_empty())
+        {
+            return KeyConflict {
+                control: control.clone(),
+                name: String::new(),
+            };
+        }
+        for config in &self.mod_configs {
+            if let Some((_, control)) = config
+                .controls
+                .iter()
+                .find(|(mapped_code, control)| *mapped_code == key_code && !control.is_empty())
+            {
+                return KeyConflict {
+                    control: control.clone(),
+                    name: config.name.clone(),
+                };
+            }
+        }
+        KeyConflict {
+            control: String::new(),
+            name: String::new(),
+        }
+    }
+}
+
+fn set_control(controls: &mut Vec<(i32, String)>, key_code: i32, control: String) {
+    if let Some((_, current)) = controls
+        .iter_mut()
+        .find(|(mapped_code, _)| *mapped_code == key_code)
+    {
+        *current = control;
+    } else {
+        controls.push((key_code, control));
+    }
+}
+
 /// The option row types supported by the MCM presenter.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptionKind {
@@ -467,6 +564,26 @@ impl ConfigPage {
             ],
         );
         true
+    }
+
+    /// Scan vanilla and registered mod controls before sending the key-map callback.
+    pub fn remap_key_scanned(
+        &self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+        key_code: i32,
+        scanner: &KeyConflictScanner,
+    ) -> bool {
+        let conflict = scanner.conflict(key_code);
+        self.remap_key(
+            game,
+            script,
+            id,
+            key_code,
+            &conflict.control,
+            &conflict.name,
+        )
     }
 
     /// Open a color dialog and request its start and default colors from the config script.

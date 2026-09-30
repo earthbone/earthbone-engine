@@ -2270,10 +2270,15 @@ value with `set_color_value`. Cancel clears the active dialog without sending
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. Its Scaleform-bound presenter cannot serve the chosen
-native Godot UI, so this host models the public callback contract. Synthetic
-tests cover callback eligibility, conflict arguments at the API boundary,
-acceptance and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
+first, then registered mod config mappings in registration order. A vanilla
+match has an empty config name, and a mod match reports that config's name.
+`remap_key_scanned` performs this lookup before dispatching the callback. The
+manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
+so this host models the public callback contract and the manager's conflict
+lookup. Synthetic tests cover callback eligibility, vanilla and mod conflict
+precedence, callback arguments, acceptance and cancellation without Skyrim
+data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
