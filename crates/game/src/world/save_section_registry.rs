@@ -33,6 +33,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
+    Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -76,6 +77,20 @@ fn read_sit_procedure(
 ) -> Result<(), soe_papyrus::VmError> {
     if reader.bool()? {
         state.ai.procedure = crate::ai::Procedure::Sit;
+    }
+    Ok(())
+}
+
+fn write_use_weapon_procedure(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.bool(state.ai.procedure == crate::ai::Procedure::UseWeapon);
+}
+
+fn read_use_weapon_procedure(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        state.ai.procedure = crate::ai::Procedure::UseWeapon;
     }
     Ok(())
 }

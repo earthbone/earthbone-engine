@@ -809,7 +809,8 @@ The tooling helper `procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.
-Versions 4 through 15 remain readable. They have no tree cursor, so their
+SOEW version 37 also saves the UseWeapon procedure tag. Versions 4 through 36
+remain readable. Saves before version 16 have no tree cursor, so their
 selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
@@ -852,8 +853,13 @@ charges magicka, and applies the effects before the package branch completes.
 An unresolved target or an ineligible or unaffordable spell leaves the branch
 active as `Procedure::Unsupported`. The procedure adds no saved cast state.
 Every other procedure name is `Procedure::Unsupported` and the actor stands
-where it is. Location
-kinds near reference, in cell, near package start, near editor location,
+where it is. `UseWeapon` sends one ordinary melee contact through
+`World::melee_hit` against the actor's current combat target, preferring its
+right hand weapon and then its left. It completes its tree branch after the
+attempt. The shared combat path validates equipment and combat modifiers and
+queues hit events. The procedure state is stored in the `AI-36` actor section
+under the version 37 table. Location kinds near reference, in cell, near package start,
+near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.

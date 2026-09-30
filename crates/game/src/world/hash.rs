@@ -295,6 +295,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
+        Procedure::UseWeapon => h.u8(9),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);

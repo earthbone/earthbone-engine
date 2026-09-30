@@ -81,6 +81,8 @@ pub enum Procedure {
     Sit,
     Patrol,
     UseMagic,
+    /// Issue one ordinary contact against the actor's current combat target.
+    UseWeapon,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -797,6 +799,7 @@ fn begin_procedure(
         | Procedure::Shout
         | Procedure::Patrol
         | Procedure::UseMagic
+        | Procedure::UseWeapon
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1332,6 +1335,27 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     } else {
         tree::enter(world, actor, &mut ai, &mut *alloc);
     }
+    if ai.procedure == Procedure::UseWeapon && ai.tree.as_ref().is_some_and(|tree| tree.active) {
+        let target = world.actor(actor).and_then(|state| state.combat_target);
+        let weapon = world
+            .hand_weapon(actor, crate::combat::Hand::Right)
+            .or_else(|| world.hand_weapon(actor, crate::combat::Hand::Left));
+        if let (Some(target), Some(weapon)) = (target, weapon) {
+            let _ = world.melee_hit(
+                crate::combat::MeleeHit {
+                    attacker: actor,
+                    target,
+                    weapon,
+                    is_bash: false,
+                    is_power_attack: false,
+                },
+                Vec::new(),
+                Vec::new(),
+                alloc,
+            );
+        }
+        tree::succeeded(world, &mut ai);
+    }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
     }
@@ -1537,7 +1561,7 @@ fn write_record_state_inner(w: &mut Writer, a: &AiState, include_sit: bool) {
         None => w.bool(false),
     }
     match &a.procedure {
-        Procedure::None | Procedure::UseMagic => w.u8(0),
+        Procedure::None | Procedure::UseMagic | Procedure::UseWeapon => w.u8(0),
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),

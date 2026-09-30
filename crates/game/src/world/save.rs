@@ -70,6 +70,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
 /// pending quest lifecycle tasks and unresolved records. The native game save
 /// envelope records dependency provenance.
+/// Version 37 also stores the AI-36 UseWeapon package procedure in the named
+/// actor section table without changing the version or reusing another tag.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
