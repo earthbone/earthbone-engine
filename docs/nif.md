@@ -36,6 +36,11 @@ declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
 `../engine-refs/nifxml/nif.xml` and nifly's `BSLODTriShape::Sync` in
 `../engine-refs/nifly/src/Geometry.cpp`.
 
+`BSSegmentedTriShape` is read through its `NiTriShape` geometry prefix. Its
+segment table is skipped with the trailing fields, while the mesh output keeps
+the complete triangle list and shape name. Object LOD rendering currently
+draws that full list for each selected BTO block.
+
 ## Layers
 
 - `stream`: bounds-checked little-endian reads. Every count that sizes an

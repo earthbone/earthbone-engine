@@ -57,6 +57,9 @@ const ARRIVAL_DISTANCE: f32 = 4.0;
 const EVALUATION_INTERVAL: f64 = 1.0;
 /// A sandbox with no radius wanders this far around its center.
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
+/// Combat movement stops within this distance of the selected target.
+const COMBAT_ARRIVAL_DISTANCE: f32 = 4.0;
+type PlannedPath = (Vec<[f32; 3]>, Vec<Option<GlobalFormId>>);
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const WKMV: Tag = Tag::new(b"WKMV");
@@ -997,20 +1000,261 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if world.is_player(actor) {
             continue;
         }
-        let Some(a) = world.actor(actor) else {
+        let Some((dead, unconscious)) = world.actor(actor).map(|a| (a.dead, a.unconscious)) else {
             continue;
         };
-        if a.dead || a.unconscious {
+        if dead || unconscious {
             continue;
         }
-        let due = a.ai.package.is_none()
-            || a.ai.reevaluate
-            || now - a.ai.last_evaluation >= EVALUATION_INTERVAL;
+        if ignores_combat(world, actor) {
+            clear_combat_engagement(world, actor);
+        }
+        let active_target = combat_target(world, actor);
+        if active_target.is_some() && !ignores_combat(world, actor) {
+            let due = world.actor(actor).is_some_and(|a| {
+                a.ai.reevaluate || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+            });
+            if due {
+                evaluate(world, actor, alloc);
+            }
+            if !ignores_combat(world, actor) && combat_target(world, actor).is_some() {
+                pursue_combat_target(world, actor, dt as f32);
+                continue;
+            }
+        } else if !ignores_combat(world, actor) && acquire_combat_target(world, actor) {
+            pursue_combat_target(world, actor, dt as f32);
+            continue;
+        }
+        let due = world.actor(actor).is_some_and(|a| {
+            a.ai.package.is_none()
+                || a.ai.reevaluate
+                || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+        });
         if due {
             evaluate(world, actor, alloc);
         }
-        step(world, actor, dt as f32);
+        step(world, actor, dt as f32, alloc);
     }
+}
+
+fn ignores_combat(world: &mut World, actor: GlobalFormId) -> bool {
+    world
+        .actor(actor)
+        .and_then(|state| state.ai.package)
+        .and_then(|id| package(world, id))
+        .is_some_and(|pack| pack.has_flag(flags::IGNORE_COMBAT))
+}
+
+fn clear_combat_engagement(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        if !state.in_combat && state.combat_target.is_none() {
+            return;
+        }
+        state.in_combat = false;
+        state.combat_target = None;
+        state.ai.reevaluate = true;
+        state.ai.path.clear();
+        state.ai.path_cells.clear();
+        state.ai.destination = None;
+        state.ai.arrived = false;
+    }
+}
+
+/// Drop dead or missing targets, otherwise return the current target.
+fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
+    let target = world
+        .actor(actor)
+        .filter(|state| state.in_combat)
+        .and_then(|state| state.combat_target);
+    let target = target?;
+    let valid = world.actor(target).is_some_and(|state| !state.dead);
+    if valid {
+        return Some(target);
+    }
+    clear_combat_engagement(world, actor);
+    if let Some(state) = world.actor(actor) {
+        state.ai.reevaluate = true;
+    }
+    None
+}
+
+/// Acquire the nearest detected target for an aggressive actor.
+fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
+    if world
+        .actor(actor)
+        .is_none_or(|state| state.dead || state.unconscious)
+    {
+        return false;
+    }
+    let aggression = world.actor_value(actor, "aggression");
+    if aggression < 1.0 {
+        return false;
+    }
+    if ignores_combat(world, actor) {
+        return false;
+    }
+    let Some(from) = world.reference(actor).map(|reference| reference.position) else {
+        return false;
+    };
+    let mut candidates = world.loaded_actors();
+    candidates.sort();
+    let mut best: Option<(GlobalFormId, f32)> = None;
+    for target in candidates {
+        if target == actor
+            || world
+                .actor(target)
+                .is_none_or(|state| state.dead || state.unconscious || state.teammate)
+            || !world.awareness(actor, target).is_some_and(|awareness| {
+                awareness.level == crate::detection::DetectionLevel::Combat
+            })
+        {
+            continue;
+        }
+        let Some(position) = world.reference(target).map(|reference| reference.position) else {
+            continue;
+        };
+        let candidate = (target, distance(from, position));
+        if best.is_none_or(|current| {
+            candidate
+                .1
+                .total_cmp(&current.1)
+                .then_with(|| candidate.0.cmp(&current.0))
+                .is_lt()
+        }) {
+            best = Some(candidate);
+        }
+    }
+    let target = best.map(|(target, _)| target);
+    let Some(target) = target else {
+        return false;
+    };
+    if let Some(state) = world.actor(actor) {
+        state.in_combat = true;
+        state.combat_target = Some(target);
+        state.ai.reevaluate = true;
+        state.ai.path.clear();
+        state.ai.path_cells.clear();
+        state.ai.destination = None;
+        state.ai.arrived = false;
+    }
+    true
+}
+
+/// Advance an engaged actor along the shared vanilla NAVM graph.
+fn pursue_combat_target(world: &mut World, actor: GlobalFormId, dt: f32) {
+    let Some(target) = combat_target(world, actor) else {
+        return;
+    };
+    let Some((mut position, mut cell)) = world
+        .reference(actor)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some((destination, target_cell)) = world
+        .reference(target)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some(speed) = world
+        .actor(actor)
+        .map(|state| state.ai.speed)
+        .filter(|speed| *speed > 0.0)
+        .or_else(|| Some(movement_speed(world, actor, speed::RUN)))
+    else {
+        return;
+    };
+    let remaining = distance(position, destination);
+    let Some(state) = world.actor(actor) else {
+        return;
+    };
+    if remaining <= COMBAT_ARRIVAL_DISTANCE {
+        state.ai.destination = Some(destination);
+        state.ai.path.clear();
+        state.ai.path_cells.clear();
+        state.ai.arrived = true;
+        return;
+    }
+    let mut ai = std::mem::take(&mut state.ai);
+    if ai
+        .destination
+        .is_none_or(|old| distance(old, destination) > COMBAT_ARRIVAL_DISTANCE)
+        || ai.path.is_empty()
+    {
+        let Some((path, cells)) = plan_combat(world, position, destination, target_cell) else {
+            if let Some(state) = world.actor(actor) {
+                state.ai = ai;
+            }
+            return;
+        };
+        ai.destination = Some(destination);
+        ai.path = path;
+        ai.path_cells = cells;
+    }
+    let mut budget = speed * dt.max(0.0);
+    while budget > 0.0 && !ai.path.is_empty() {
+        let next = ai.path[0];
+        let d = distance(position, next);
+        if d <= budget {
+            position = next;
+            budget -= d;
+            ai.path.remove(0);
+            if let Some(Some(next_cell)) = ai.path_cells.first() {
+                cell = Some(*next_cell);
+            }
+            if !ai.path_cells.is_empty() {
+                ai.path_cells.remove(0);
+            }
+        } else if d > 0.0 {
+            let fraction = budget / d;
+            position = std::array::from_fn(|axis| {
+                position[axis] + (next[axis] - position[axis]) * fraction
+            });
+            budget = 0.0;
+        } else {
+            ai.path.remove(0);
+            if !ai.path_cells.is_empty() {
+                ai.path_cells.remove(0);
+            }
+        }
+    }
+    ai.arrived = distance(position, destination) <= COMBAT_ARRIVAL_DISTANCE;
+    if let Some(reference) = world.reference(actor) {
+        reference.position = position;
+        if cell.is_some() {
+            reference.cell = cell;
+        }
+    }
+    if let Some(state) = world.actor(actor) {
+        state.ai = ai;
+    }
+}
+
+/// Plan combat movement only when the vanilla navmesh contains a route.
+fn plan_combat(
+    world: &mut World,
+    from: [f32; 3],
+    to: [f32; 3],
+    to_cell: Option<GlobalFormId>,
+) -> Option<PlannedPath> {
+    ensure_nav_graph(world);
+    let path = world.ai.nav.as_ref()?.find_path_between(from, to)?;
+    let cells = path
+        .point_nodes
+        .iter()
+        .skip(1)
+        .map(|node| {
+            world
+                .ai
+                .nav_cells
+                .get(node.mesh as usize)
+                .copied()
+                .flatten()
+                .or(to_cell)
+        })
+        .collect();
+    Some((path.points[1..].to_vec(), cells))
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -1025,7 +1269,7 @@ fn plan(
     from: [f32; 3],
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
-) -> (Vec<[f32; 3]>, Vec<Option<GlobalFormId>>) {
+) -> PlannedPath {
     ensure_nav_graph(world);
     let (Some(graph), nav_cells) = (world.ai.nav.as_ref(), &world.ai.nav_cells) else {
         return (vec![to], vec![to_cell]);
@@ -1042,7 +1286,7 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
-fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
+fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
@@ -1067,11 +1311,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
-            Procedure::Sandbox => {
-                if hours >= ai.dwell_until {
-                    ai.arrived = false;
-                    ai.destination = None;
-                }
+            Procedure::Sandbox if hours >= ai.dwell_until => {
+                ai.arrived = false;
+                ai.destination = None;
             }
             Procedure::Sleep => ai.sleeping = true,
             _ => {}
@@ -1184,7 +1426,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         }
     }
     if ai.procedure == Procedure::Patrol {
-        patrol::tick(world, &mut ai);
+        patrol::tick(world, actor, &mut ai, alloc);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;

@@ -27,7 +27,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use crate::pex::{Function, Object, Opcode, Operand, Script};
-use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
+use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
 
 /// The most elements `ArrayCreate` will allocate.
 ///
@@ -72,6 +72,7 @@ pub enum VmError {
         class: String,
         name: String,
     },
+    IncompatibleScript(String),
     Pex(String),
     /// A saved state that cannot be read or does not match the loaded scripts.
     State(String),
@@ -92,6 +93,9 @@ impl fmt::Display for VmError {
             VmError::UnknownObject(o) => write!(f, "object {} does not exist", o.0),
             VmError::UnknownFunction { class, name } => {
                 write!(f, "{class} has no function {name}")
+            }
+            VmError::IncompatibleScript(script) => {
+                write!(f, "script {script} differs from the saved definition")
             }
             VmError::Pex(e) => write!(f, "{e}"),
             VmError::State(e) => write!(f, "saved state: {e}"),
@@ -372,6 +376,9 @@ impl NativeRegistry {
 /// them.
 struct LoadedScript {
     name: String,
+    game_id: u16,
+    major: u8,
+    minor: u8,
     source_fingerprint: Option<[u8; 32]>,
     parent: Option<String>,
     object: Object,
@@ -471,6 +478,7 @@ pub struct Vm {
     menu_time: f64,
     game_hours: f64,
     profiling: Rc<RefCell<Profiler>>,
+    suspended_state: Option<Vec<u8>>,
 }
 
 impl Vm {
@@ -491,6 +499,7 @@ impl Vm {
 
     pub fn load(&mut self, script: Script) {
         self.load_with_fingerprint(script, None);
+        let _ = self.resume_suspended_state();
     }
 
     fn load_with_fingerprint(&mut self, script: Script, source_fingerprint: Option<[u8; 32]>) {
@@ -530,6 +539,9 @@ impl Vm {
             };
             let loaded = LoadedScript {
                 name: name.clone(),
+                game_id: script.header.game_id,
+                major: script.header.major,
+                minor: script.header.minor,
                 source_fingerprint,
                 parent,
                 object,
@@ -546,7 +558,36 @@ impl Vm {
     pub fn load_bytes(&mut self, data: &[u8]) -> Result<(), VmError> {
         let script = crate::pex::parse(data).map_err(|e| VmError::Pex(e.to_string()))?;
         self.load_with_fingerprint(script, Some(Sha256::digest(data).into()));
+        let _ = self.resume_suspended_state()?;
         Ok(())
+    }
+
+    /// Whether saved VM state is waiting for compatible script definitions.
+    #[must_use]
+    pub fn has_suspended_state(&self) -> bool {
+        self.suspended_state.is_some()
+    }
+
+    /// Try to reconnect the preserved state after loading more scripts.
+    ///
+    /// # Errors
+    /// The suspended bytes are malformed or otherwise invalid for this VM.
+    pub fn resume_suspended_state(&mut self) -> Result<bool, VmError> {
+        let Some(bytes) = self.suspended_state.clone() else {
+            return Ok(false);
+        };
+        match self.load_state_inner(&bytes) {
+            Ok(()) => {
+                self.suspended_state = None;
+                Ok(true)
+            }
+            Err(
+                VmError::UnknownScript(_)
+                | VmError::UnknownFunction { .. }
+                | VmError::IncompatibleScript(_),
+            ) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     /// Loaded script names and SHA-256 PEX source fingerprints, sorted by
@@ -1067,6 +1108,7 @@ impl Vm {
                 let parts: Vec<String> = items.iter().map(|v| self.describe(v)).collect();
                 format!("[{}]", parts.join(", "))
             }
+            Value::Struct(s) => format!("[Struct {}]", s.name),
             other => other.to_string(),
         }
     }

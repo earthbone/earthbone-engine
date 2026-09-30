@@ -69,6 +69,44 @@ fn condition_only_transition_is_polled_without_an_event() {
 }
 
 #[test]
+fn anm_49_authored_math_functions_select_a_guard_branch() {
+    let graph = guarded(
+        "cond(clamp(pow(2, 3), 0, 9) == 8 && sind(30) == .5, 1, 0) > 0",
+        1,
+    );
+    let clips = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+    vm.send_event(1);
+    vm.update(0.0);
+    assert_eq!(current(&vm), 1);
+    assert!(vm.unsupported().conditions.is_empty());
+}
+
+#[test]
+fn anm_49_random_guard_replays_from_the_interpreter_seed() {
+    let mut graph = guarded("randrange(-1, 1) < 0", 1);
+    let NodeKind::StateMachine(sm) = &mut graph.nodes[graph.root.unwrap().0].kind else {
+        panic!("machine");
+    };
+    let mut back = sm.states[0].transitions[0].clone();
+    back.to_state_id = 0;
+    back.event_id = -1;
+    sm.states[1].transitions.push(back);
+    let clips = ClipLibrary::new();
+    let mut first = Interpreter::new(&graph, &clips, Vec::new());
+    let mut replay = Interpreter::new(&graph, &clips, Vec::new());
+    for _ in 0..8 {
+        first.send_event(1);
+        replay.send_event(1);
+        first.update(0.0);
+        replay.update(0.0);
+        assert_eq!(current(&first), current(&replay));
+    }
+    assert!(first.unsupported().conditions.is_empty());
+    assert!(replay.unsupported().conditions.is_empty());
+}
+
+#[test]
 fn unknown_and_malformed_guards_block_and_report_once() {
     let clips = ClipLibrary::new();
     for condition in [

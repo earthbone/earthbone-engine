@@ -511,6 +511,9 @@ impl World {
                         r.opened = true;
                     }
                 }
+                Some([b'F', b'U', b'R', b'N']) => {
+                    self.activate_furniture(target, activator);
+                }
                 _ => {}
             }
         }

@@ -4,8 +4,10 @@
 //! The public API remains on Vm and uses the same single scheduler.
 
 use super::{
-    ArrayRef, ElementKind, Opcode, Operand, ThreadState, Value, Vm, MAX_ARRAY_LEN, MAX_STRING_LEN,
+    operand_to_value, ArrayRef, ElementKind, Opcode, Operand, StructRef, ThreadState, Value, Vm,
+    MAX_ARRAY_LEN, MAX_STRING_LEN,
 };
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 impl Vm {
@@ -313,6 +315,77 @@ impl Vm {
                     }
                 }
             }
+            ArrayAdd => match vals[0].as_array() {
+                None => self.err(t, "cannot add to a None array"),
+                Some(array) => {
+                    let count = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    if count > 0 {
+                        let count = count as usize;
+                        if count > MAX_ARRAY_LEN.saturating_sub(items.len()) {
+                            self.err(t, "array length limit exceeded by Add");
+                        } else {
+                            let value = self.cast_to_kind(&vals[1], array.kind);
+                            let new_len = items.len() + count;
+                            items.resize(new_len, value);
+                        }
+                    }
+                }
+            },
+            ArrayInsert => match vals[0].as_array() {
+                None => self.err(t, "cannot insert into a None array"),
+                Some(array) => {
+                    let index = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    match usize::try_from(index).ok().filter(|i| *i <= items.len()) {
+                        Some(index) if items.len() < MAX_ARRAY_LEN => {
+                            let value = self.cast_to_kind(&vals[1], array.kind);
+                            items.insert(index, value);
+                        }
+                        Some(_) => self.err(t, "array length limit exceeded by Insert"),
+                        None => self.err(
+                            t,
+                            &format!(
+                                "array insert index {index} out of range, length {}",
+                                items.len()
+                            ),
+                        ),
+                    }
+                }
+            },
+            ArrayRemoveLast => match vals[0].as_array() {
+                None => self.err(t, "cannot remove from a None array"),
+                Some(array) => {
+                    array.items.borrow_mut().pop();
+                }
+            },
+            ArrayRemove => match vals[0].as_array() {
+                None => self.err(t, "cannot remove from a None array"),
+                Some(array) => {
+                    let index = vals[1].as_int();
+                    let count = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    if count > 0 {
+                        match usize::try_from(index).ok().filter(|i| *i < items.len()) {
+                            Some(index) => {
+                                let end = index.saturating_add(count as usize).min(items.len());
+                                items.drain(index..end);
+                            }
+                            None => self.err(
+                                t,
+                                &format!(
+                                    "array remove index {index} out of range, length {}",
+                                    items.len()
+                                ),
+                            ),
+                        }
+                    }
+                }
+            },
+            ArrayClear => match vals[0].as_array() {
+                None => self.err(t, "cannot clear a None array"),
+                Some(array) => array.items.borrow_mut().clear(),
+            },
             ArrayFindElement | ArrayRFindElement => {
                 let reverse = op == ArrayRFindElement;
                 let found = match vals[0].as_array() {
@@ -340,18 +413,207 @@ impl Vm {
                 };
                 set(self, 1, Value::Int(found));
             }
-            Is
-            | StructCreate
-            | StructGet
-            | StructSet
-            | ArrayFindStruct
-            | ArrayRFindStruct
-            | ArrayAdd
-            | ArrayInsert
-            | ArrayRemoveLast
-            | ArrayRemove
-            | ArrayClear
-            | ArrayGetAllMatchingStructs => {
+            Is => {
+                let supported = self.threads[t]
+                    .frames
+                    .last()
+                    .and_then(|f| f.script.as_ref())
+                    .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
+                if supported {
+                    let target = match args.get(2) {
+                        Some(Operand::Identifier(name) | Operand::Str(name))
+                            if !name.is_empty() =>
+                        {
+                            Some(name.as_str())
+                        }
+                        _ => None,
+                    };
+                    let Some(target) = target else {
+                        self.err(t, "Is type operand must be a nonempty name");
+                        set(self, 0, Value::Bool(false));
+                        return;
+                    };
+                    let matches = match vals[1].as_object() {
+                        None if vals[1].is_none() => false,
+                        None => {
+                            self.err(t, "Is operand must be an object or None");
+                            false
+                        }
+                        Some(object) => self.object_is(object, target),
+                    };
+                    set(self, 0, Value::Bool(matches));
+                } else {
+                    self.err(t, "Is requires a Fallout 4 3.9 or newer script");
+                    set(self, 0, Value::Bool(false));
+                }
+            }
+            StructCreate => {
+                let (supported, script, dest) = {
+                    let frame = self.threads[t].frames.last().unwrap();
+                    (
+                        frame
+                            .script
+                            .as_ref()
+                            .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9),
+                        frame.script.clone(),
+                        dest_name(0),
+                    )
+                };
+                if !supported {
+                    self.err(t, "struct_create requires a Fallout 4 3.9 or newer script");
+                    set(self, 0, Value::None);
+                } else if let (Some(script), Some(dest)) = (script, dest) {
+                    let struct_name = {
+                        let frame = self.threads[t].frames.last().unwrap();
+                        Self::type_of(&self.instances, frame, &dest)
+                    };
+                    let definition = struct_name.as_deref().and_then(|name| {
+                        script.object.structs.iter().find(|s| {
+                            s.name.eq_ignore_ascii_case(name)
+                                || format!("{}.{}", script.name, s.name).eq_ignore_ascii_case(name)
+                        })
+                    });
+                    if let Some(definition) = definition {
+                        let fields = definition
+                            .members
+                            .iter()
+                            .map(|member| {
+                                (
+                                    member.name.to_ascii_lowercase(),
+                                    Self::cast_to_type(
+                                        &operand_to_value(&member.default, Some(&member.type_name)),
+                                        &member.type_name,
+                                    ),
+                                )
+                            })
+                            .collect::<BTreeMap<_, _>>();
+                        set(
+                            self,
+                            0,
+                            Value::Struct(StructRef::new(definition.name.clone(), fields)),
+                        );
+                    } else {
+                        self.err(t, "struct_create destination has no declared struct type");
+                        set(self, 0, Value::None);
+                    }
+                } else {
+                    self.err(t, "struct_create destination must be an identifier");
+                }
+            }
+            StructGet => {
+                let supported = self.threads[t]
+                    .frames
+                    .last()
+                    .and_then(|f| f.script.as_ref())
+                    .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
+                let field = name_at(2).to_ascii_lowercase();
+                if !supported {
+                    self.err(t, "struct_get requires a Fallout 4 3.9 or newer script");
+                    set(self, 0, Value::None);
+                } else if let Value::Struct(s) = &vals[1] {
+                    let member =
+                        self.threads[t]
+                            .frames
+                            .last()
+                            .and_then(|f| f.script.as_ref())
+                            .and_then(|script| {
+                                script.object.structs.iter().find(|definition| {
+                                    definition.name.eq_ignore_ascii_case(&s.name)
+                                })
+                            })
+                            .and_then(|definition| {
+                                definition
+                                    .members
+                                    .iter()
+                                    .find(|member| member.name.eq_ignore_ascii_case(&field))
+                            });
+                    if let Some(member) = member {
+                        let destination_type = {
+                            let frame = self.threads[t].frames.last().unwrap();
+                            dest_name(0)
+                                .and_then(|dest| Self::type_of(&self.instances, frame, &dest))
+                        };
+                        if destination_type
+                            .as_deref()
+                            .is_some_and(|target| !target.eq_ignore_ascii_case(&member.type_name))
+                        {
+                            self.err(
+                                t,
+                                &format!("struct member {field} type does not match destination"),
+                            );
+                            set(self, 0, Value::None);
+                        } else if let Some(value) = s.fields.borrow().get(&field).cloned() {
+                            set(self, 0, value);
+                        } else {
+                            self.err(t, &format!("struct {} has no member {field}", s.name));
+                            set(self, 0, Value::None);
+                        }
+                    } else {
+                        self.err(t, &format!("struct {} has no member {field}", s.name));
+                        set(self, 0, Value::None);
+                    }
+                } else {
+                    self.err(t, "struct_get operand must be a struct");
+                    set(self, 0, Value::None);
+                }
+            }
+            StructSet => {
+                let supported = self.threads[t]
+                    .frames
+                    .last()
+                    .and_then(|f| f.script.as_ref())
+                    .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
+                let field = name_at(1).to_ascii_lowercase();
+                if !supported {
+                    self.err(t, "struct_set requires a Fallout 4 3.9 or newer script");
+                } else if let Value::Struct(s) = &vals[0] {
+                    let member =
+                        self.threads[t]
+                            .frames
+                            .last()
+                            .and_then(|f| f.script.as_ref())
+                            .and_then(|script| {
+                                script.object.structs.iter().find(|definition| {
+                                    definition.name.eq_ignore_ascii_case(&s.name)
+                                })
+                            })
+                            .and_then(|definition| {
+                                definition
+                                    .members
+                                    .iter()
+                                    .find(|member| member.name.eq_ignore_ascii_case(&field))
+                            });
+                    let Some(member) = member else {
+                        self.err(t, &format!("struct {} has no member {field}", s.name));
+                        return;
+                    };
+                    if member.is_const {
+                        self.err(t, &format!("struct member {field} is const"));
+                        return;
+                    }
+                    if !Self::matches_declared_type(&vals[2], &member.type_name, &s.name) {
+                        self.err(
+                            t,
+                            &format!(
+                                "value of type {} does not match struct member {} type {}",
+                                vals[2].type_name(),
+                                field,
+                                member.type_name
+                            ),
+                        );
+                        return;
+                    }
+                    let mut fields = s.fields.borrow_mut();
+                    if let Some(slot) = fields.get_mut(&field) {
+                        *slot = vals[2].clone();
+                    } else {
+                        self.err(t, &format!("struct {} has no member {field}", s.name));
+                    }
+                } else {
+                    self.err(t, "struct_set operand must be a struct");
+                }
+            }
+            ArrayFindStruct | ArrayRFindStruct | ArrayGetAllMatchingStructs => {
                 self.err(
                     t,
                     &format!("opcode {op:?} is a Fallout 4 opcode, not supported"),
@@ -360,6 +622,41 @@ impl Vm {
                 thread.frames.clear();
                 thread.state = ThreadState::Done;
             }
+        }
+    }
+
+    fn object_is(&self, object: super::ObjectId, target: &str) -> bool {
+        self.class_names(object)
+            .iter()
+            .any(|class| class.eq_ignore_ascii_case(target))
+    }
+
+    fn cast_to_type(value: &Value, target: &str) -> Value {
+        match target.to_ascii_lowercase().as_str() {
+            "int" => Value::Int(value.as_int()),
+            "float" => Value::Float(value.as_float()),
+            "bool" => Value::Bool(value.as_bool()),
+            "string" => Value::string(&value.to_string()),
+            _ if target.ends_with("[]") => value.clone(),
+            _ => value.clone(),
+        }
+    }
+
+    fn matches_declared_type(value: &Value, target: &str, struct_name: &str) -> bool {
+        match target.to_ascii_lowercase().as_str() {
+            "int" => matches!(value, Value::Int(_)),
+            "float" => matches!(value, Value::Float(_)),
+            "bool" => matches!(value, Value::Bool(_)),
+            "string" => matches!(value, Value::Str(_)),
+            name if name.ends_with("[]") => matches!(value, Value::None | Value::Array(_)),
+            name if name
+                .rsplit('.')
+                .next()
+                .is_some_and(|n| n.eq_ignore_ascii_case(struct_name)) =>
+            {
+                matches!(value, Value::None | Value::Struct(_))
+            }
+            _ => matches!(value, Value::None | Value::Object(_)),
         }
     }
 

@@ -43,6 +43,28 @@ pub struct NavmeshRecordExtra {
     pub full_name_changed: bool,
 }
 
+/// Plugin-relative identity for a record retained while its plugin is absent.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnresolvedRecordId {
+    /// Original plugin filename, compared without ASCII case.
+    pub plugin: String,
+    /// Whether the identity came from the light-plugin list.
+    pub light: bool,
+    /// Local object number in the plugin's regular or light identity space.
+    pub object: u32,
+}
+
+/// Opaque source data retained without binding it into the live form table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnresolvedRecord {
+    /// Stable plugin-relative identity of the unavailable record.
+    pub id: UnresolvedRecordId,
+    /// Original change-form or record payload bytes.
+    pub payload: Vec<u8>,
+    /// Original plugin-relative identities referenced by the payload.
+    pub links: Vec<UnresolvedRecordId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -124,6 +146,30 @@ impl RecordOverride {
 }
 
 impl World {
+    /// Retain opaque data for a record whose plugin is not available to the live
+    /// load order. The data is kept separately from resolved forms.
+    ///
+    /// # Errors
+    /// Empty plugin names, invalid regular or light object numbers, or a
+    /// duplicate identity.
+    pub fn retain_unresolved_record(&mut self, mut record: UnresolvedRecord) -> Result<(), String> {
+        normalize_unresolved_id(&mut record.id)?;
+        for link in &mut record.links {
+            normalize_unresolved_id(link)?;
+        }
+        if self.unresolved_records.contains_key(&record.id) {
+            return Err("unresolved record identity already exists".into());
+        }
+        self.unresolved_records.insert(record.id.clone(), record);
+        Ok(())
+    }
+
+    /// Return opaque records retained for plugins absent from the live table.
+    #[must_use]
+    pub fn unresolved_records(&self) -> &BTreeMap<UnresolvedRecordId, UnresolvedRecord> {
+        &self.unresolved_records
+    }
+
     pub(super) fn record_text_localized(&self, id: GlobalFormId, tag: Tag) -> bool {
         if tag == T(b"FULL") && self.record_overrides.get(&id).is_some_and(|r| r.plain_full) {
             return false;
@@ -151,4 +197,16 @@ impl World {
     pub fn restored_navmesh_extra(&self, id: GlobalFormId) -> Option<NavmeshRecordExtra> {
         self.record_overrides.get(&id)?.navmesh
     }
+}
+
+pub(super) fn normalize_unresolved_id(id: &mut UnresolvedRecordId) -> Result<(), String> {
+    id.plugin = id.plugin.to_ascii_lowercase();
+    if id.plugin.is_empty() || id.plugin.contains(['/', '\\', '\0']) {
+        return Err("invalid unresolved plugin name".into());
+    }
+    let limit = if id.light { 0xFFF } else { 0xFF_FFFF };
+    if id.object == 0 || id.object > limit {
+        return Err("unresolved object number is outside its identity space".into());
+    }
+    Ok(())
 }
