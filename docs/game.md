@@ -2149,9 +2149,12 @@ same pair refresh one host effect instead of adding another.
 The vanilla `EffectShader.psc` in the local SKSE script corpus documents the
 negative infinite-duration convention. xEdit's `wbDefinitionsTES5.pas`
 identifies EFSH as Effect Shader and shows MGEF's hit and enchant shader links.
-No EffectShader page exists in the local CK wiki corpus. The host currently
-draws one temporary emissive sphere at the target reference placement. It
-does not parse EFSH textures, colors, blend modes or fade curves.
+The UESP EFSH page documents its texture slots and fade groups. No EffectShader
+page exists in the local CK wiki corpus. Play requests carry the winning EFSH
+fill texture, first membrane color key, source and destination blend values,
+and fill alpha timing to the host. Missing or malformed fields use neutral
+defaults. Particle data, palette and edge textures, and skin-only filtering
+are not represented in the request.
 
 ### Telekinesis prerequisite audit, MAG-41
 
