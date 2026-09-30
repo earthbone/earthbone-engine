@@ -387,6 +387,10 @@ fn test_plugin_for_race(race: Record) -> Plugin {
             },
         )
         .sub(T(b"RNAM"), RACE.to_le_bytes())
+        .sub(
+            T(b"AIDT"),
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
         .sub(T(b"PKID"), FLEE_PACKAGE.to_le_bytes()),
     );
     p.push_top(

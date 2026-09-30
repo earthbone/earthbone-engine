@@ -61,6 +61,7 @@ requires both forms to be actors. Functions 396 `GetCauseofDeath`, 397
 an explicit unsupported-function error. The local CK condition pages do not
 specify usable return contracts for those functions. xEdit's condition table
 and the CK `GetCombatTarget` page informed the implemented target predicate.
+
 - `ObjectReference.CreateDetectionEvent` queues one sound at the calling
   reference's current cell and position with the supplied actor owner. Sound
   levels above 100 remain valid. Invalid actors, references and negative levels
