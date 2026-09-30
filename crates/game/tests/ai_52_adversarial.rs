@@ -164,6 +164,9 @@ fn ai_52_legacy_conditions_diagnose_missing_contracts_and_invalid_context() {
 fn unsupported_legacy_condition_is_diagnosed_once_per_evaluation() {
     let game = fixture();
     for _ in 0..3 {
-        assert_eq!(evaluate(&game, &condition(407, 0, 0.0)), Err(conditions::Error::Function(407)));
+        assert_eq!(
+            evaluate(&game, &condition(407, 0, 0.0)),
+            Err(conditions::Error::Function(407))
+        );
     }
 }

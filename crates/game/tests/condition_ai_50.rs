@@ -100,6 +100,10 @@ fn ai_50_weapon_out_and_torch_conditions_read_equipped_actor_state() {
         evaluate(id(0x901), &condition(263, 0, 0.0), &game),
         Err(conditions::Error::Form(id(0x901)))
     );
+    assert_eq!(
+        evaluate(id(0x901), &condition(306, 0, 0.0), &game),
+        Err(conditions::Error::Form(id(0x901)))
+    );
 }
 
 #[test]
