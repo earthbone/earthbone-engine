@@ -409,6 +409,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.graph_ints.len());
+    for (k, v) in &a.graph_ints {
+        h.str(k);
+        h.i32(*v);
+    }
     h.len(a.skill_experience.len());
     for (skill, experience) in &a.skill_experience {
         h.str(skill);

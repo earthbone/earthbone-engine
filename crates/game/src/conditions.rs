@@ -169,6 +169,7 @@ pub fn supports_function(function: u16) -> bool {
             | 683
             | 698
             | 704
+            | 675
             | 636
             | 660
             | 723
@@ -340,17 +341,20 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             let form = resolve(world, context.owner, raw, None)?;
-            if world.tag_of(form) != Some(Tag(*b"SPEL")) {
+            if world.tag_of(form) == Some(Tag(*b"MGEF")) {
+                boolean(false)
+            } else if world.tag_of(form) != Some(Tag(*b"SPEL")) {
                 return Err(Error::StateContract(c.function));
+            } else {
+                let player = world.player();
+                boolean(
+                    world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .spells
+                        .contains(&form),
+                )
             }
-            let player = world.player();
-            boolean(
-                world
-                    .actor(player)
-                    .ok_or(Error::Form(player))?
-                    .spells
-                    .contains(&form),
-            )
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
@@ -570,6 +574,16 @@ fn function_value(
                 .get(&name.to_ascii_lowercase())
                 .copied()
                 .ok_or_else(|| Error::Variable(name.into()))?
+        }
+        675 => {
+            let name = c.strings[0]
+                .as_deref()
+                .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            *actor
+                .graph_ints
+                .get(&name.to_ascii_lowercase())
+                .ok_or_else(|| Error::Variable(name.into()))? as f32
         }
         568 => {
             no_parameter(c)?;
@@ -802,7 +816,7 @@ fn function_value(
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
         }
-        644 | 675 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
+        644 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }

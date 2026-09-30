@@ -128,7 +128,7 @@ fn ai_67_pathing_current_speed_is_zero_without_a_path_and_reads_package_speed() 
 #[test]
 fn ai_67_conditions_without_runtime_contract_return_explicit_diagnostics() {
     let game = fixture();
-    for function in [644, 675, 684, 714, 730] {
+    for function in [644, 684, 714, 730] {
         let condition = condition(function, 0, 1.0);
         assert!(!conditions::supports_function(function), "{function}");
         assert_eq!(

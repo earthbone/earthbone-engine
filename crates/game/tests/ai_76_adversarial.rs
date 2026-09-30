@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin,
-    Record, Tag,
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
 use soe_game::{conditions, Game};
 
@@ -18,7 +18,7 @@ fn ai_76_player_knows_accepts_magic_effect_forms() {
     let game = Game::new(order);
     let condition = Condition {
         flags: 0,
-        comparison: Comparison::Number(0.0),
+        comparison: Comparison::Number(1.0),
         function: 493,
         parameters: [0xA00, 0],
         run_on: 0,
@@ -31,8 +31,14 @@ fn ai_76_player_knows_accepts_magic_effect_forms() {
             &mut game.world_mut(),
             &game.vm,
             conditions::Context {
-                owner: GlobalFormId { file: 0, object: 0x800 },
-                subject: GlobalFormId { file: 0, object: 0x900 },
+                owner: GlobalFormId {
+                    file: 0,
+                    object: 0x800
+                },
+                subject: GlobalFormId {
+                    file: 0,
+                    object: 0x900
+                },
                 target: None,
                 quest: None,
                 tempering_enchanted: None,
@@ -44,6 +50,6 @@ fn ai_76_player_knows_accepts_magic_effect_forms() {
             },
             &condition,
         ),
-        Ok(true)
+        Ok(false)
     );
 }

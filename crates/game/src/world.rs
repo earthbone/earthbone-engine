@@ -275,6 +275,8 @@ pub struct ActorState {
     /// Behavior graph floats set through `SetSubGraphFloatVariable`, keyed
     /// by lowercase name.
     pub graph_floats: BTreeMap<String, f32>,
+    /// Integer values reported by the live behavior graph, keyed by lowercase name.
+    pub graph_ints: BTreeMap<String, i32>,
     /// `SetAllowFlying`, the Dawnguard dragon riding flag.
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.

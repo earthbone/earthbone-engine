@@ -1572,6 +1572,9 @@ UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`; the remaining requested CK pages are absent.
+GetGraphVariableInt (675) reads a named integer in the actor's live graph state,
+case-insensitively, and reports missing names and non-actor subjects. Its
+integer state is transient host input and is not saved.
 The skymp evaluator's unknown-function success and unresolved target mapping
 were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
@@ -3003,8 +3006,8 @@ The gameplay CTDA evaluator implements IsProtected (476) from the subject's
 NPC base state and PlayerKnows (493) for spells held in the player's spell
 set. IsProtected rejects parameters and non-actor subjects. PlayerKnows
 rejects malformed forms and extra parameters, compares known spells with the
-player's current spell set, and returns a state contract diagnostic for other
-form types because their known flags are not represented by runtime state.
+player's current spell set, and returns false for an MGEF with no represented
+known state. It returns a state contract diagnostic for other form types.
 
 The local xEdit `wbConditionFunctions` table declares these function indices
 and parameter types. CK's `ActorBase_Script.wikitext` documents the protected
