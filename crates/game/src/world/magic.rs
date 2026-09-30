@@ -293,7 +293,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -329,6 +329,8 @@ impl World {
                     }
                     changes.push((name.to_string(), amount));
                 }
+            } else if data.archetype == 6 {
+                changes.push(("aggression".to_string(), -magnitude));
             }
             // An ingestible's effects carry the same dispel archetype and
             // keyword flags a cast spell's do.
@@ -486,7 +488,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 10 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | 10 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -527,6 +529,8 @@ impl World {
                     }
                     changes.push((name.to_string(), amount));
                 }
+            } else if data.archetype == 6 {
+                changes.push(("aggression".to_string(), -magnitude));
             }
             let summon_base = if data.archetype == 18 {
                 let base = self
