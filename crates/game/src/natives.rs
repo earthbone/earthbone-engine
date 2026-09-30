@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 367;
+pub const NATIVE_COUNT: usize = 369;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1060,6 +1060,16 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsInCombat", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.in_combat)));
+    method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
+        i32::from(world.actor(me).is_some_and(|a| a.in_combat))
+    ));
+    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(
+        if world.actor(me).is_some_and(|a| a.ai.sleeping) {
+            3
+        } else {
+            0
+        }
+    ));
     method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
         world.evaluate_package(me, alloc!(call));
         none()
@@ -3251,8 +3261,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Actor", "HasLOS", true),
-        ("Actor", "PathToReference", true),
+        ("Actor", "HasLOS", false),
+        ("Actor", "PathToReference", false),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
@@ -3279,8 +3289,6 @@ fn stubs(vm: &mut Vm) -> usize {
     let ints: &[(&str, &str, i32)] = &[
         ("ObjectReference", "GetTriggerObjectCount", 0),
         ("ObjectReference", "GetCurrentDestructionStage", 0),
-        ("Actor", "GetCombatState", 0),
-        ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
         ("Actor", "GetFlyingState", 0),
         ("Location", "GetRefTypeAliveCount", 0),
