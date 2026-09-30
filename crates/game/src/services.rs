@@ -114,6 +114,8 @@ pub fn resolve_vendor_service(
                 quest: None,
                 tempering_enchanted: None,
                 tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             },
             &conditions,
         )?;

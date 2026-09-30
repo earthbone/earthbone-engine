@@ -770,6 +770,8 @@ impl Game {
             quest: Some(quest),
             tempering_enchanted: None,
             tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &quest_conditions)? {
             return Ok(Candidates {
@@ -858,6 +860,8 @@ impl Game {
             quest: Some(quest),
             tempering_enchanted: None,
             tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         };
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);

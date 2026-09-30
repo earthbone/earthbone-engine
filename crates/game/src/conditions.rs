@@ -24,6 +24,10 @@ pub struct Context {
     pub quest: Option<GlobalFormId>,
     pub tempering_enchanted: Option<bool>,
     pub tempering_item: Option<GlobalFormId>,
+    /// Poison selection for an alchemy perk entry point.
+    pub alchemy_making_poison: Option<bool>,
+    /// Effect currently tested by an alchemy perk entry point.
+    pub alchemy_effect: Option<GlobalFormId>,
 }
 
 /// A condition could not be evaluated. It must not be treated as true.
@@ -51,6 +55,10 @@ pub enum Error {
     TemperingContext,
     #[error("condition item health extra is malformed or non-finite")]
     ItemHealth,
+    #[error("condition function {0} has no usable runtime contract in the local sources")]
+    Contract(u16),
+    #[error("condition function {0} requires alchemy entry-point context")]
+    AlchemyContext(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -148,6 +156,12 @@ pub fn supports_function(function: u16) -> bool {
             | 636
             | 660
             | 723
+            | 214
+            | 223
+            | 378
+            | 500
+            | 501
+            | 570
     )
 }
 
@@ -416,6 +430,60 @@ fn function_value(
                     .is_some_and(|actor| actor.equipped.contains(&item)),
             )
         }
+        101 | 552 => return Err(Error::Contract(c.function)),
+        214 => {
+            no_parameter_tail(c)?;
+            let effect = resolve(world, context.owner, raw, Some(*b"MGEF"))?;
+            boolean(world.has_magic_effect(subject, effect))
+        }
+        223 => {
+            no_parameter_tail(c)?;
+            let item = resolve(world, context.owner, raw, None)?;
+            if !matches!(world.tag_of(item), Some(Tag(tag)) if [*b"SPEL", *b"ALCH", *b"ENCH", *b"SHOU", *b"SCRL"].contains(&tag))
+            {
+                return Err(Error::Form(item));
+            }
+            boolean(
+                world
+                    .active_effects()
+                    .any(|effect| effect.target == subject && effect.spell == item),
+            )
+        }
+        378 => {
+            no_parameter_tail(c)?;
+            let shout = resolve(world, context.owner, raw, Some(*b"SHOU"))?;
+            boolean(
+                world
+                    .actor(subject)
+                    .is_some_and(|actor| actor.shouts.contains(&shout)),
+            )
+        }
+        500 => {
+            no_parameter(c)?;
+            boolean(
+                context
+                    .alchemy_making_poison
+                    .ok_or(Error::AlchemyContext(c.function))?,
+            )
+        }
+        501 => {
+            no_parameter_tail(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let effect = context
+                .alchemy_effect
+                .ok_or(Error::AlchemyContext(c.function))?;
+            boolean(world.has_keyword(effect, keyword))
+        }
+        570 => {
+            no_parameter_tail(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            match raw {
+                0 => boolean(actor.left_spell.is_some()),
+                1 => boolean(actor.right_spell.is_some()),
+                2 => boolean(actor.equipped_shout.is_some()),
+                _ => return Err(Error::Parameter(c.function, raw)),
+            }
+        }
         264 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
             boolean(
@@ -599,6 +667,15 @@ fn item_health_percent(world: &mut World, subject: GlobalFormId) -> Result<f32, 
         Ok(quality.max(1.0))
     } else {
         Err(Error::ItemHealth)
+    }
+}
+
+/// These predicates consume parameter 1 and reject any value in parameter 2.
+fn no_parameter_tail(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
     }
 }
 

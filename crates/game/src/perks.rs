@@ -67,6 +67,10 @@ pub struct EntryPointContext {
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
     pub tempering_item: Option<GlobalFormId>,
+    /// Poison selection for alchemy perk entry points.
+    pub alchemy_making_poison: Option<bool>,
+    /// Effect currently checked by alchemy perk entry points.
+    pub alchemy_effect: Option<GlobalFormId>,
 }
 
 /// The decoded fields needed by an entry point handler.
@@ -354,6 +358,8 @@ fn entry_conditions(
             quest: context.quest,
             tempering_enchanted: None,
             tempering_item: context.tempering_item,
+            alchemy_making_poison: context.alchemy_making_poison,
+            alchemy_effect: context.alchemy_effect,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -448,6 +454,8 @@ impl Game {
             quest: None,
             tempering_enchanted: None,
             tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

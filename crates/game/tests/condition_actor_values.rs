@@ -62,6 +62,8 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             quest: None,
             tempering_enchanted: None,
             tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         },
         c,
     )

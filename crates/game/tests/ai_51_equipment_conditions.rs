@@ -105,6 +105,8 @@ fn evaluate(
             quest: None,
             tempering_enchanted: None,
             tempering_item: item,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         },
         condition,
     )
@@ -194,6 +196,8 @@ fn ai_51_perk_dispatch_passes_tempering_item_into_entry_conditions() {
         target: None,
         quest: None,
         tempering_item: Some(id(GREAT_SWORD)),
+        alchemy_making_poison: None,
+        alchemy_effect: None,
     };
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context),

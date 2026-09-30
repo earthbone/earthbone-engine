@@ -390,6 +390,8 @@ impl World {
                 quest: None,
                 tempering_enchanted: None,
                 tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -1162,6 +1164,8 @@ impl World {
                 quest: None,
                 tempering_enchanted: None,
                 tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
