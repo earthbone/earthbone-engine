@@ -111,6 +111,16 @@ impl PlayerNode {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+            }
+        }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {

@@ -277,6 +277,10 @@ impl PlayerNode {
     #[func]
     pub fn close_menu(&mut self) -> bool {
         let closing_dialogue = self.menu.title() == Some("Dialogue");
+        if self.menu.title() == Some("Race") {
+            self.race_choice = None;
+            self.appearance_choice = None;
+        }
         if !self.menu.close() {
             return false;
         }

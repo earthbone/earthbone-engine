@@ -282,6 +282,10 @@ pub struct ActorState {
     pub werewolf: bool,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
+    /// Player character head parts selected in the race menu, keyed by HDPT type.
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    /// Player character morph controls selected in the race menu.
+    pub face_morphs: BTreeMap<String, f32>,
     /// `SetCriticalStage`, the death-by-critical stages.
     pub critical_stage: i32,
     /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.
@@ -366,6 +370,13 @@ pub struct ActorBaseState {
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub dead_count: i32,
+}
+
+/// A host menu request raised by a Papyrus native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuRequest {
+    /// Open the player's race and sex selection screen.
+    Race,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -527,6 +538,8 @@ pub struct World {
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Host-facing requests raised by UI natives. These are transient commands.
+    pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
@@ -635,6 +648,7 @@ impl World {
             story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
