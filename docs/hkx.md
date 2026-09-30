@@ -383,6 +383,11 @@ What each node does:
   `hkbExpressionDataArray.json` and `hkbExpressionData.json`. The runtime
   evaluator uses this crate's scalar `Expression` parser because serde-hkx
   describes serialized fields but does not execute them.
+- `hkbRotateCharacterModifier` accumulates `degreesPerSecond` times
+  `speedMultiplier` and elapsed frame time while enabled, then applies the
+  resulting angle around `axisOfRotation` to the generated root orientation.
+  Its serialized fields and offsets follow
+  `serde-hkx/assets/classes/hkbRotateCharacterModifier.json`.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
