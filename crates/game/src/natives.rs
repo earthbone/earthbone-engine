@@ -3454,8 +3454,6 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let ints: &[(&str, &str, i32)] = &[
-        ("ObjectReference", "GetTriggerObjectCount", 0),
-        ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetCombatState", 0),
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
@@ -3481,10 +3479,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("ObjectReference", "KnockAreaEffect"),
-        ("ObjectReference", "PushActorAway"),
-        ("ObjectReference", "ClearDestruction"),
-        ("ObjectReference", "DamageObject"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
@@ -3537,11 +3531,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
-        ("ObjectReference", "TranslateTo"),
-        ("ObjectReference", "SplineTranslateTo"),
-        ("ObjectReference", "StopTranslation"),
-        ("ObjectReference", "CreateDetectionEvent"),
-        ("ObjectReference", "Reset"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),

@@ -75,11 +75,12 @@ impl World {
         let reference_state = self.reference_ref(reference)?;
         let (_, stages) = destruction_data(self, reference)?;
         let stage_number = usize::try_from(reference_state.destruction_stage).ok()?;
-        let stage = stages.get(stage_number)?;
-        if stage.model_index == 0 {
-            return None;
-        }
-        stage.model.clone()
+        stages
+            .get(..=stage_number)?
+            .iter()
+            .rev()
+            .find(|stage| stage.model_index != 0 && stage.model.is_some())
+            .and_then(|stage| stage.model.clone())
     }
 
     /// Apply external damage and queue one stage-change event per crossed stage.

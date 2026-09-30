@@ -300,24 +300,57 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut bad_flags = before.clone();
     let at = bad_flags.len() - 48 - extra_sections;
     bad_flags[at] |= 1;
-    // `legacy` had both references' own save-section tables stripped above
-    // (2 bytes each), which `before` still carries, so add the 4 bytes back
-    // to land on the same absolute offset, where the reference extras block
-    // begins.
-    let start = legacy.len() + 4;
-    // The extras block is followed by the package cursor block, so repeat the
-    // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 39 - extra_sections];
+    let target = id(0, 0x100);
+    let state = world.reference_ref(target).unwrap();
+    let mut entry_pattern = Vec::new();
+    entry_pattern.extend(target.file.to_le_bytes());
+    entry_pattern.extend(target.object.to_le_bytes());
+    entry_pattern.push(u8::from(state.owner_rank.is_some()));
+    if let Some(rank) = state.owner_rank {
+        entry_pattern.extend(rank.to_le_bytes());
+    }
+    if let Some(global) = state.owner_global {
+        entry_pattern.push(1);
+        entry_pattern.extend(global.file.to_le_bytes());
+        entry_pattern.extend(global.object.to_le_bytes());
+    } else {
+        entry_pattern.push(0);
+    }
+    if let Some(lock) = state.lock_extra {
+        entry_pattern.push(1);
+        if let Some(key) = lock.key {
+            entry_pattern.push(1);
+            entry_pattern.extend(key.file.to_le_bytes());
+            entry_pattern.extend(key.object.to_le_bytes());
+        } else {
+            entry_pattern.push(0);
+        }
+        entry_pattern.push(lock.flags);
+        entry_pattern.extend(lock.unknown[0].to_le_bytes());
+        entry_pattern.extend(lock.unknown[1].to_le_bytes());
+    } else {
+        entry_pattern.push(0);
+    }
+    let entry_positions: Vec<_> = before
+        .windows(entry_pattern.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == entry_pattern).then_some(offset))
+        .collect();
+    assert_eq!(entry_positions.len(), 1, "lock extra entry is unique");
+    let entry_at = entry_positions[0];
+    let start = entry_at - 4;
+    assert_eq!(&before[start..entry_at], &1u32.to_le_bytes());
+    let entry = &before[entry_at..entry_at + entry_pattern.len()];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 39..]);
-    assert!(world
-        .load_state(&duplicate)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate reference extras"));
+    duplicate.extend_from_slice(&before[entry_at + entry.len()..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
+    assert!(
+        duplicate_error.contains("duplicate reference extras"),
+        "{duplicate_error}"
+    );
     let mut bad_key = before.clone();
     let at = bad_key.len() - 27 - extra_sections;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());

@@ -113,6 +113,7 @@ impl World {
         for cell in entering {
             let cold = !self.cell_is_resident(cell);
             out.loaded += self.prefetch_cell(cell);
+            self.mark_cell_3d_loaded(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -157,6 +158,7 @@ impl World {
         for cell in unique {
             let cold = !self.cell_is_resident(cell);
             loaded += self.prefetch_cell(cell);
+            self.mark_cell_3d_loaded(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -238,16 +240,22 @@ impl World {
         let mut built = 0;
         for id in ids {
             if self.refs.contains_key(&id) {
-                self.loaded_3d_references.insert(id);
                 continue;
             }
             if self.reference(id).is_some() {
                 built += 1;
-                self.loaded_3d_references.insert(id);
             }
         }
         self.streamed_cells.insert(cell);
         built
+    }
+
+    fn mark_cell_3d_loaded(&mut self, cell: GlobalFormId) {
+        for id in self.cell_reference_ids(cell) {
+            if self.refs.contains_key(&id) {
+                self.loaded_3d_references.insert(id);
+            }
+        }
     }
 
     /// Whether the cell's 3D is in memory, which is what decides

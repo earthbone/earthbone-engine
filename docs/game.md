@@ -158,9 +158,10 @@ record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
 `OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
 disable the reference, mark it destroyed, or ignore external damage. The
-active DSTD model-stage index selects a DMDL path through
-`World::destruction_model`; a host can use that path in place of the base
-model. `GetCurrentDestructionStage` returns `-1` before a stage and the
+`World::destruction_model` returns the latest nonzero-stage DMDL through the
+current stage, so later stages without a replacement keep the last model. A
+host can use that path in place of the base model.
+`GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1`. Health and stage are
 saved in the reference-level `CMB-37` section. DEST field widths and flags

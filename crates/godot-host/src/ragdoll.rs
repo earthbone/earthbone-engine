@@ -185,6 +185,7 @@ impl ActorRenderMode {
 }
 
 /// Whether a bound actor should render with a live ragdoll.
+#[cfg(any(feature = "godot", test))]
 pub(crate) const fn actor_uses_ragdoll(
     dead: bool,
     unconscious: bool,
