@@ -280,40 +280,11 @@ fn rich_world(namespace: u16) -> World {
     world
 }
 
-fn optional_form_bytes(id: Option<GlobalFormId>) -> Vec<u8> {
-    let mut bytes = vec![u8::from(id.is_some())];
-    if let Some(id) = id {
-        bytes.extend_from_slice(&id.file.to_le_bytes());
-        bytes.extend_from_slice(&id.object.to_le_bytes());
-    }
-    bytes
-}
-
-fn remove_new_ai_fields(
-    bytes: &mut Vec<u8>,
-    bed_sentinel: GlobalFormId,
-    original_bed: Option<GlobalFormId>,
-    found_sentinel: GlobalFormId,
-) {
-    let mut found_marker = optional_form_bytes(Some(found_sentinel));
-    found_marker.push(1);
-    let found_at = bytes
-        .windows(found_marker.len())
-        .position(|window| window == found_marker)
-        .expect("Find and DialogueActivate state is serialized");
-    bytes.drain(found_at..found_at + found_marker.len());
-
-    let bed_marker = optional_form_bytes(Some(bed_sentinel));
-    let bed_at = bytes
-        .windows(bed_marker.len())
-        .position(|window| window == bed_marker)
-        .expect("bed sentinel is serialized");
-    assert_eq!(&bytes[bed_at - 3..bed_at - 1], &[1, 1]);
-    bytes.drain(bed_at - 3..bed_at - 1);
-    bytes.splice(
-        bed_at - 2..bed_at - 2 + bed_marker.len(),
-        optional_form_bytes(original_bed),
-    );
+fn remove_actor_sections(bytes: &mut Vec<u8>, actor: &ActorState) {
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, actor, ACTOR_SECTIONS);
+    let sections_at = bytes.len() - sections.out.len();
+    bytes.truncate(sections_at);
 }
 
 /// Save `world` the way a version 23 engine would, without the exclusive
@@ -327,24 +298,7 @@ fn remove_new_ai_fields(
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
-    let mut ai_fields = Vec::new();
     for (index, id) in ids.iter().enumerate() {
-        let bed_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xC000_0000 + index as u32,
-        };
-        let found_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xC100_0000 + index as u32,
-        };
-        let ai = &mut world.actors.get_mut(id).unwrap().ai;
-        let original_bed = ai.bed.replace(bed_sentinel);
-        ai.force_greet_started = true;
-        ai.activate_started = true;
-        ai.found_reference = Some(found_sentinel);
-        ai.dialogue_activate_started = true;
-        ai_fields.push((bed_sentinel, original_bed, found_sentinel));
-
         let sentinel = GlobalFormId {
             file: u16::MAX,
             object: 0xF000_0000 + index as u32,
@@ -446,21 +400,13 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
-    for (id, (_, original_bed, _)) in ids.iter().zip(&ai_fields) {
+    for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
-        actor.ai.bed = *original_bed;
-        actor.ai.force_greet_started = false;
-        actor.ai.activate_started = false;
-        actor.ai.found_reference = None;
-        actor.ai.dialogue_activate_started = false;
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
-    }
-    for (bed_sentinel, original_bed, found_sentinel) in ai_fields {
-        remove_new_ai_fields(&mut bytes, bed_sentinel, original_bed, found_sentinel);
     }
     for marker in markers {
         let at = bytes
@@ -696,12 +642,7 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
     actor.ai.dialogue_activate_started = true;
     let mut writer = Writer::new();
     write_actor_state(&mut writer, &actor);
-    remove_new_ai_fields(
-        &mut writer.out,
-        bed_sentinel,
-        Some(bed_sentinel),
-        found_sentinel,
-    );
+    remove_actor_sections(&mut writer.out, &actor);
     actor.ai.force_greet_started = false;
     actor.ai.activate_started = false;
     actor.ai.found_reference = None;
