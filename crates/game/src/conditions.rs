@@ -202,6 +202,9 @@ pub fn supports_function(function: u16) -> bool {
             | 629
             | 630
             | 639
+            | 619
+            | 623
+            | 633
             | 655
             | 659
             | 683
@@ -353,6 +356,13 @@ fn boolean(value: bool) -> f32 {
     } else {
         0.0
     }
+}
+
+fn actor_context(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<&mut crate::world::ActorState, Error> {
+    world.actor(subject).ok_or(Error::Form(subject))
 }
 
 fn location_ref_type_count(
@@ -1359,6 +1369,28 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             boolean(world.distance(subject, other) <= maximum_distance)
+        }
+        619 => {
+            let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
+            if axis >= 3 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            actor_context(world, subject)?;
+            Err(Error::Contract(c.function))?
+        }
+        623 => {
+            no_parameter(c)?;
+            actor_context(world, subject)?;
+            Err(Error::Contract(c.function))?
+        }
+        633 => {
+            no_parameter(c)?;
+            let actor = actor_context(world, subject)?;
+            match actor.flying_state {
+                Some(state @ 0..=4) => f32::from(state),
+                Some(_) => return Err(Error::StateContract(c.function)),
+                None => return Err(Error::Unavailable(c.function)),
+            }
         }
         444 => {
             no_second_parameter(c)?;
