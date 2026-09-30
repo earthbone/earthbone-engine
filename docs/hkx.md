@@ -269,8 +269,10 @@ Per frame, for one graph instance:
 3. Drain the event queue into the state machines, outermost first. A
    matching transition with a satisfied interval and condition starts a
    transition effect: a blending effect crossfades the two generator
-   outputs over `duration` with the given curve, a generator effect plays
-   a third generator in between. `max_simultaneous_transitions` bounds
+   outputs over `duration` with the given curve. A generator effect blends
+   into its authored transition generator, samples it until it ends, then
+   blends into the destination. Its separate blend-in and blend-out
+   durations control the two joins. `max_simultaneous_transitions` bounds
    nesting. Exit notify events fire for the state left, enter notify
    events for the state entered.
 4. Update generators bottom up with the frame's delta time. Clips
@@ -347,8 +349,12 @@ What each node does:
   A blending transition effect with a duration crossfades the old and new
   generators with `blend_curve` (0 smooth, 1 linear, 2 linear to smooth, 3
   smooth to linear) and keeps the old one active until it ends. Without
-  an effect the switch is a cut. Exit and enter notify events and the
-  state-change event are raised.
+  an effect the switch is a cut. A generator transition effect blends into
+  its authored generator for `blendInDuration`, samples it until the
+  generator reports its end, then blends to the destination for
+  `blendOutDuration`. Exit and enter notify events and the state-change
+  event are raised. The `serde-hkx` class declarations provide the serialized
+  generator pointer and both duration fields used by this path.
 - `hkbClipGenerator`: local time advances by `playbackSpeed` times `dt`.
   Mode 0 stops at the end, 1 loops, 2 follows `userControlledTimeFraction`,
   3 ping pongs. Triggers fire when the playhead crosses their time, end
