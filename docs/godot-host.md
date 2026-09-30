@@ -1140,14 +1140,24 @@ first one measured Bethesda's content rather than this crate's conversion. The
 survey is what separates the two: if the decoder were broken, most of the 60
 would be silent, and 57 are not.
 
-### Untested
+### Live dialogue mixer check
 
-The last step, a speaker. These tests prove the chain up to the exact bytes
-`AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
-device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
-`open_data` pointed at the install, and `play_effect` called with a footstep
-path. Footsteps are driven by the character controller. Dialogue response
-audio is now driven by the dialogue menu.
+`godot/dlg_11_audio_test.gd`, launched by
+`crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
+through `SoundBank::open_data`. The script starts a response at the speaker
+position, captures nonzero samples from Godot's master mixer, stops that
+player, starts a replacement at a second position, and captures its output.
+This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
+Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
+newer executable and the release extension exists at
+`target/release/libsoe_godot_host.so`; otherwise it reports a skip. Build the
+extension with `cargo build -p soe-godot-host --release` before running it.
+
+The capture proves Godot's mixer received both voice buffers. It does not
+prove that a physical speaker or headset produced audible output. That still
+needs a windowed run with installed data and a `SoundBank` in the tree.
+Footsteps are driven by the character controller. Dialogue response audio is
+now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
 their VFS from resolved profile archives and loose roots. Both direct paths
 retain the supplied data directory. The selected
