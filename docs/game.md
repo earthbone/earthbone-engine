@@ -2549,6 +2549,9 @@ Invalid deadlines and Patrol tags under older headers are rejected before
 world replacement. Vanilla ESS Patrol state is not restored by this change.
 
 Local xEdit PACK PKC2/PTDA and REFR XLKR/XPRD/XPPA/INAM/PDTO supply the layouts.
+PTDA type 4 carries an alias ID. The UESP PACK description confirms the target
+and count fields, while the CK package target pages were not present in the
+local corpus.
 Mutagen's `Records/Common Subrecords/Patrol.xml` confirms the patrol group.
 The parser distinguishes patrol INAM from the earlier image-space INAM and
 accepts null topic placeholders. The primary author's
@@ -2560,15 +2563,21 @@ walker, so this implementation extends the existing actor driver.
 
 The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
-AI-90 establishes StaticPathing and omitted-input defaults. AI-91 covers
-additional target modes, including aliases and object-list results from AI-33.
-Requested actions, mounted or static modes, additional targets and malformed
-inputs report Unsupported. They are not silently treated as ordinary walking.
+AI-90 establishes StaticPathing and omitted-input defaults. AI-91 resolves a
+PTDA alias through the package's owning quest and selects the alias's reference
+as the route start. That resolved global form identity is saved with Patrol
+progress, so an alias into an overriding plugin retains its namespace after
+reload. Object-list or Find-derived starts remain unsupported because AI-33's
+Find procedure, which owns that selected-reference result, is not present in
+this worktree. Object IDs, object types and other unsupported targets report
+Unsupported rather than being treated as ordinary walking.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
-field contexts and invalid state. These are headless synthetic behavior checks.
+field contexts, invalid state, and
+`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`.
+These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.
 
