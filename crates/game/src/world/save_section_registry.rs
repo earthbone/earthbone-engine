@@ -93,6 +93,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -103,6 +104,34 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
     Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
+
+fn write_known_magic_effects(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(state.known_forms.len());
+    for form in &state.known_forms {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_known_magic_effects(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(soe_papyrus::VmError::State(
+            "AI-76 known form count exceeds remaining bytes".into(),
+        ));
+    }
+    for _ in 0..count {
+        state.known_forms.insert(super::save::read_form_id(reader)?);
+    }
+    Ok(())
+}
 
 fn write_package_overrides(
     state: &ActorState,
