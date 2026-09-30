@@ -1526,7 +1526,7 @@ AI-56 adds `GetInZone`, `GetVelocity`, `GetMapMarkerVisible`,
 `GetLockIsBroken`, `HasRefType`, `LocationHasKeyword`, `LocationHasRefType` and
 `GetIsEditorLocation`. Encounter-zone checks compare the subject's resolved
 zone with an `ECZN` parameter. Map-marker visibility reads the reference's
-`AddToMap` state. Reference-type checks read `XLRT`; location ref-type checks
+`AddToMap` state. Reference-type checks read `XLRT`, and location ref-type checks
 read the location's added and master special-reference lists. Location keyword
 checks use the subject's current location. Editor-location checks use the
 reference's authored location, including its cell fallback. `GetVelocity`
