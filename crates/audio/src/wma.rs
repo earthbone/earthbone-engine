@@ -86,7 +86,8 @@ impl WmaDecoder for Native {
         } else {
             let decoded_bytes = parsed.decoded_bytes();
             let frame_bytes = u64::from(parsed.format.decoded_frame_bytes());
-            if decoded_bytes == 0
+            if frame_bytes == 0
+                || decoded_bytes == 0
                 || decoded_bytes > 128 * 1024 * 1024
                 || decoded_bytes % frame_bytes != 0
             {

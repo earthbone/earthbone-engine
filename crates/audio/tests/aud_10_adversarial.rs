@@ -25,11 +25,7 @@ fn fixture(output: &str) -> (String, std::path::PathBuf, std::path::PathBuf) {
     );
     std::fs::write(&program, script).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    (
-        program.to_string_lossy().into_owned(),
-        program,
-        captured,
-    )
+    (program.to_string_lossy().into_owned(), program, captured)
 }
 
 fn response(text: Option<Text>) -> Response {
@@ -56,7 +52,8 @@ fn pcm() -> Pcm {
 #[test]
 fn aud_10_plain_info_text_is_passed_verbatim_as_the_dialog_hint() {
     let text = "I'm here.\nWait for me!";
-    let output = r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.0,"end":0.1,"value":"B"}]}"#;
+    let output =
+        r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.0,"end":0.1,"value":"B"}]}"#;
     let (program, script, captured) = fixture(output);
     Rhubarb::at(program)
         .visemes_for_response(&pcm(), &response(Some(Text::Plain(text.to_string()))))
@@ -69,7 +66,8 @@ fn aud_10_plain_info_text_is_passed_verbatim_as_the_dialog_hint() {
 
 #[test]
 fn aud_10_missing_or_localized_info_text_uses_audio_only_recognition() {
-    let output = r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.0,"end":0.1,"value":"B"}]}"#;
+    let output =
+        r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.0,"end":0.1,"value":"B"}]}"#;
     for text in [None, Some(Text::Localized(0x1234))] {
         let (program, script, captured) = fixture(output);
         Rhubarb::at(program)
@@ -82,11 +80,15 @@ fn aud_10_missing_or_localized_info_text_uses_audio_only_recognition() {
 
 #[test]
 fn aud_10_rejects_cues_that_do_not_cover_the_reported_track_duration() {
-    let output = r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.02,"end":0.08,"value":"B"}]}"#;
+    let output =
+        r#"{"metadata":{"duration":0.1},"mouthCues":[{"start":0.02,"end":0.08,"value":"B"}]}"#;
     let (program, script, captured) = fixture(output);
     let result = Rhubarb::at(program).visemes_for_response(&pcm(), &response(None));
 
-    assert!(result.is_err(), "Rhubarb cues failed to cover the full recording");
+    assert!(
+        result.is_err(),
+        "Rhubarb cues failed to cover the full recording"
+    );
     std::fs::remove_file(script).unwrap();
     let _ = std::fs::remove_file(captured);
 }

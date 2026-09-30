@@ -166,12 +166,35 @@ fn parse_json(text: &str) -> Result<VisemeTrack> {
             .ok_or_else(|| Error::Decode(format!("unknown mouth shape {value:?}")))?;
         out.push(MouthCue { start, end, shape });
     }
+    let duration = if duration > 0.0 {
+        duration
+    } else {
+        out.last().map_or(0.0, |c| c.end)
+    };
+    if !duration.is_finite() || duration <= 0.0 {
+        return Err(Error::Decode(
+            "rhubarb track has invalid duration".to_string(),
+        ));
+    }
+    if out.is_empty() || out[0].start != 0.0 || out.last().is_none_or(|cue| cue.end != duration) {
+        return Err(Error::Decode(
+            "rhubarb cues do not cover the complete track duration".to_string(),
+        ));
+    }
+    if out.iter().enumerate().any(|(index, cue)| {
+        !cue.start.is_finite()
+            || !cue.end.is_finite()
+            || cue.start < 0.0
+            || cue.end <= cue.start
+            || cue.end > duration
+            || (index > 0 && out[index - 1].end != cue.start)
+    }) {
+        return Err(Error::Decode(
+            "rhubarb cues are invalid or do not tile the track".to_string(),
+        ));
+    }
     Ok(VisemeTrack {
-        duration: if duration > 0.0 {
-            duration
-        } else {
-            out.last().map_or(0.0, |c| c.end)
-        },
+        duration,
         cues: out,
     })
 }

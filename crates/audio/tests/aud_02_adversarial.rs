@@ -34,8 +34,14 @@ fn aud_02_zero_decoded_frame_size_returns_an_error_without_panicking() {
     let file = xwma(WMAUDIO2, 1, 7, 1, vec![2], &[0]);
     let result = std::panic::catch_unwind(|| Native.decode_xwma(&file));
 
-    assert!(result.is_ok(), "malformed frame size panicked during validation");
-    assert!(result.unwrap().is_err(), "malformed frame size was accepted");
+    assert!(
+        result.is_ok(),
+        "malformed frame size panicked during validation"
+    );
+    assert!(
+        result.unwrap().is_err(),
+        "malformed frame size was accepted"
+    );
 }
 
 #[test]
