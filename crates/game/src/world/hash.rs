@@ -49,9 +49,8 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
-    /// What the mod data files attached, distributed and swapped. Distribution
-    /// rolls a chance from the world generator, so this part moving between
-    /// two runs of one seed is a real divergence and not noise.
+    /// What the mod data files attached, distributed and swapped, including
+    /// retained actor-specific deterministic distribution rules.
     pub mod_data: u64,
 }
 
@@ -141,6 +140,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.position);
     point(h, s.rotation);
     h.f32(s.scale);
+    h.u32(s.record_flags);
     h.bool(s.enabled);
     h.bool(s.persistent);
     h.bool(s.deleted);
@@ -188,6 +188,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -370,6 +371,9 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.restrained,
         a.arrested,
@@ -836,10 +840,40 @@ impl World {
                 h.bool(d.on_death);
             }
         }
+        h.len(self.mod_data.actor_rules.len());
+        for rule in &self.mod_data.actor_rules {
+            form(&mut h, rule.base);
+            form(&mut h, rule.what);
+            h.u64(rule.distribution.line_seed);
+            h.f32(rule.distribution.chance);
+            h.i32(rule.count);
+            h.str(&format!("{:?}", rule.distribution));
+        }
         h.len(self.mod_data.base_swaps.len());
         for (from, to) in &self.mod_data.base_swaps {
             form(&mut h, *from);
             form(&mut h, *to);
+        }
+        for (from, chance) in &self.mod_data.base_swap_chances {
+            form(&mut h, *from);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        h.len(self.mod_data.reference_swaps.len());
+        for (reference, to) in &self.mod_data.reference_swaps {
+            form(&mut h, *reference);
+            form(&mut h, *to);
+        }
+        for (reference, chance) in &self.mod_data.reference_swap_chances {
+            form(&mut h, *reference);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        for (target, properties) in &self.mod_data.properties {
+            form(&mut h, *target);
+            h.str(&format!("{properties:?}"));
         }
         let mod_data = h.finish();
 

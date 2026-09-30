@@ -144,7 +144,7 @@ yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
-| `src/*` unit | 60 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity |
+| `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
 
 ## Not done
