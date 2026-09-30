@@ -9,10 +9,8 @@ use soe_hkx::Packfile;
 
 fn guarded(source: &str) -> soe_hkx::behavior::BehaviorGraph {
     let bytes = common::graph(&common::Root::Machine, "idle", "walk");
-    let mut graph = soe_hkx::behavior::BehaviorGraph::from_packfile(
-        &Packfile::parse(&bytes).unwrap(),
-    )
-    .unwrap();
+    let mut graph =
+        soe_hkx::behavior::BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
     let NodeKind::StateMachine(machine) = &mut graph.nodes[graph.root.unwrap().0].kind else {
         panic!("fixture root is not a state machine");
     };

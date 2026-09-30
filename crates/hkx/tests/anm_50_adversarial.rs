@@ -9,12 +9,16 @@ use soe_hkx::Packfile;
 
 fn guarded(source: &str) -> soe_hkx::behavior::BehaviorGraph {
     let bytes = common::graph(&common::Root::Machine, "idle", "stagger");
-    let mut graph = soe_hkx::behavior::BehaviorGraph::from_packfile(
-        &Packfile::parse(&bytes).unwrap(),
-    )
-    .unwrap();
+    let mut graph =
+        soe_hkx::behavior::BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
     graph.data.variable_names = vec!["staggerDirection".into(), "staggerMagnitude".into()];
-    graph.data.variable_infos = vec![VariableInfo { ty: VariableType::Real, ..Default::default() }; 2];
+    graph.data.variable_infos = vec![
+        VariableInfo {
+            ty: VariableType::Real,
+            ..Default::default()
+        };
+        2
+    ];
     let NodeKind::StateMachine(machine) = &mut graph.nodes[graph.root.unwrap().0].kind else {
         panic!("fixture root is not a state machine");
     };
@@ -30,7 +34,8 @@ fn current(vm: &Interpreter<'_>) -> i32 {
 
 #[test]
 fn shipped_troll_guard_respects_strict_magnitude_and_direction_bounds() {
-    let source = "(staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7)";
+    let source =
+        "(staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7)";
     let graph = guarded(source);
     let clips = ClipLibrary::new();
     for (direction, magnitude, expected) in [
@@ -48,14 +53,20 @@ fn shipped_troll_guard_respects_strict_magnitude_and_direction_bounds() {
         vm.variables.set_by_name("staggerMagnitude", magnitude);
         vm.send_event(1);
         vm.update(0.0);
-        assert_eq!(current(&vm), expected, "direction={direction}, magnitude={magnitude}");
+        assert_eq!(
+            current(&vm),
+            expected,
+            "direction={direction}, magnitude={magnitude}"
+        );
         assert!(vm.unsupported().conditions.is_empty());
     }
 }
 
 #[test]
 fn comma_comparison_can_be_nested_and_or_composed_without_widening_bounds() {
-    let graph = guarded("(staggerMagnitude > .3 , <= .7) && (staggerDirection < .25 || staggerDirection > .75)");
+    let graph = guarded(
+        "(staggerMagnitude > .3 , <= .7) && (staggerDirection < .25 || staggerDirection > .75)",
+    );
     let clips = ClipLibrary::new();
     for (direction, magnitude, expected) in [
         (0.1, 0.7, 1),
@@ -90,8 +101,9 @@ fn installed_troll_expression_is_the_guard_checked_at_both_magnitude_bounds() {
         eprintln!("SKYRIM_DATA not set, skipping installed troll behavior check");
         return;
     };
-    let archive = soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
-        .expect("animation archive opens");
+    let archive =
+        soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
+            .expect("animation archive opens");
     let bytes = archive
         .read("meshes/actors/troll/behaviors/trollbehavior.hkx")
         .expect("troll behavior is present");
