@@ -13,6 +13,7 @@ use soe_hkx::animation::SplineCompressedAnimation;
 use soe_hkx::behavior::{BehaviorGraph, NodeId, NodeKind};
 use soe_hkx::interp::{Clip, ClipLibrary, Event, Interpreter};
 use soe_hkx::spline::encode;
+use soe_hkx::writer::PackfileBuilder;
 use soe_hkx::{Packfile, QsTransform};
 
 const FRAMES: usize = 31;
@@ -105,8 +106,89 @@ fn load(root: &Root) -> BehaviorGraph {
     BehaviorGraph::from_packfile(&pf).unwrap()
 }
 
+fn offset_graph() -> BehaviorGraph {
+    let mut builder = PackfileBuilder::new();
+    let container = builder.object("hkRootLevelContainer", 16);
+    let graph = builder.object("hkbBehaviorGraph", 304);
+    let variant = builder.array_structs(container, 0, 24, 1);
+    builder.string(variant, 0, "hkbBehaviorGraph");
+    builder.string(variant, 8, "hkbBehaviorGraph");
+    builder.ptr(variant, 16, graph);
+    let data = builder.object("hkbBehaviorGraphData", 128);
+    let strings = builder.object("hkbBehaviorGraphStringData", 80);
+    let values = builder.object("hkbVariableValueSet", 64);
+    builder.ptr(graph, 136, data);
+    builder.ptr(data, 120, strings);
+    builder.ptr(data, 112, values);
+    builder.array_strings(strings, 48, &["Offset"]);
+    let info = builder.array_structs(data, 32, 6, 1);
+    builder.set_i8(info, 4, 4);
+    builder.array_i32(values, 16, &[0.0f32.to_bits() as i32]);
+
+    let base = builder.object("hkbClipGenerator", 272);
+    builder.string(base, 56, "Base");
+    builder.string(base, 72, "base");
+    builder.set_f32(base, 100, 1.0);
+    builder.set_i8(base, 114, 1);
+    let offset = builder.object("hkbClipGenerator", 272);
+    builder.string(offset, 56, "Offset");
+    builder.string(offset, 72, "offset");
+    builder.set_f32(offset, 100, 1.0);
+    builder.set_i8(offset, 114, 1);
+
+    let offset_generator = builder.object("BSOffsetAnimationGenerator", 176);
+    builder.string(offset_generator, 56, "OffsetGenerator");
+    builder.ptr(graph, 128, offset_generator);
+    builder.ptr(offset_generator, 80, base);
+    builder.ptr(offset_generator, 96, offset);
+    builder.set_f32(offset_generator, 108, 0.0);
+    builder.set_f32(offset_generator, 112, 1.0);
+    let bindings = builder.object("hkbVariableBindingSet", 40);
+    builder.ptr(offset_generator, 16, bindings);
+    let binding = builder.array_structs(bindings, 16, 40, 1);
+    builder.string(binding, 0, "fOffsetVariable");
+    builder.set_i32(binding, 28, 0);
+    builder.set_i32(bindings, 32, -1);
+
+    let bytes = builder.finish();
+    let packfile = Packfile::parse(&bytes).unwrap();
+    BehaviorGraph::from_packfile(&packfile).unwrap()
+}
+
 fn clip_named(g: &BehaviorGraph, name: &str) -> NodeId {
     g.find_by_name(name).unwrap().id
+}
+
+#[test]
+fn anm_18_bound_offset_samples_the_offset_clip_over_the_base_pose() {
+    let graph = offset_graph();
+    let mut clips = ClipLibrary::new();
+    clips.insert(linear_clip("base", 10.0, 30.0));
+    clips.insert(linear_clip("offset", 2.0, 6.0));
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    assert!(vm.variables.set_by_name("Offset", 0.5));
+
+    let output = vm.update(0.5);
+
+    assert!(close(output.pose[1].translation[0], 22.0));
+    assert_eq!(vm.bound_count(), 1);
+    assert_eq!(vm.active_clips().len(), 2);
+}
+
+#[test]
+fn anm_18_offset_range_clamps_values_at_both_ends() {
+    for (value, expected) in [(-1.0, 20.0), (2.0, 24.0)] {
+        let graph = offset_graph();
+        let mut clips = ClipLibrary::new();
+        clips.insert(linear_clip("base", 10.0, 30.0));
+        clips.insert(linear_clip("offset", 2.0, 6.0));
+        let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+        assert!(vm.variables.set_by_name("Offset", value));
+
+        let output = vm.update(0.5);
+
+        assert!(close(output.pose[1].translation[0], expected));
+    }
 }
 
 #[test]
@@ -480,7 +562,6 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
 
 #[test]
 fn nonempty_bone_mask_without_payload_is_rejected() {
-    use soe_hkx::writer::PackfileBuilder;
     let mut builder = PackfileBuilder::new();
     let mask = builder.object("hkbBoneWeightArray", 64);
     builder.set_i32(mask, 56, 1);

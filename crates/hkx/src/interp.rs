@@ -323,6 +323,7 @@ enum Target {
     PlaybackSpeed,
     UserControlledTimeFraction,
     BlendParameter,
+    OffsetVariable,
     ChildWeight(usize),
     SelectedGeneratorIndex,
     Enable,
@@ -423,6 +424,7 @@ struct Runtime {
     timer_fired: bool,
     timer_updated_frame: u64,
     blend_parameter: Option<f32>,
+    offset_variable: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
     enabled: Option<bool>,
@@ -490,6 +492,77 @@ fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
 fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
+    }
+}
+
+fn offset_amount(value: f32, start: f32, end: f32) -> f32 {
+    if !value.is_finite() || !start.is_finite() || !end.is_finite() {
+        return 0.0;
+    }
+    if start == end {
+        return if value >= end { 1.0 } else { 0.0 };
+    }
+    ((value - start) / (end - start)).clamp(0.0, 1.0)
+}
+
+fn apply_pose_offset(base: &mut Output, offset: &Output, amount: f32) {
+    if amount == 0.0 {
+        return;
+    }
+    for (base, offset) in base.pose.iter_mut().zip(&offset.pose) {
+        for (base, offset) in base.translation[..3]
+            .iter_mut()
+            .zip(&offset.translation[..3])
+        {
+            *base += offset * amount;
+        }
+        let delta = scaled_rotation(offset.rotation, amount);
+        base.rotation = multiply_rotation(base.rotation, delta);
+        for (base, offset) in base.scale[..3].iter_mut().zip(&offset.scale[..3]) {
+            *base *= 1.0 + (offset - 1.0) * amount;
+        }
+    }
+}
+
+fn scaled_rotation(mut rotation: [f32; 4], amount: f32) -> [f32; 4] {
+    if rotation[3] < 0.0 {
+        for component in &mut rotation {
+            *component = -*component;
+        }
+    }
+    let mut result = [
+        rotation[0] * amount,
+        rotation[1] * amount,
+        rotation[2] * amount,
+        1.0 + (rotation[3] - 1.0) * amount,
+    ];
+    normalize_rotation(&mut result);
+    result
+}
+
+fn multiply_rotation(left: [f32; 4], right: [f32; 4]) -> [f32; 4] {
+    let [x1, y1, z1, w1] = left;
+    let [x2, y2, z2, w2] = right;
+    let mut result = [
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+    ];
+    normalize_rotation(&mut result);
+    result
+}
+
+fn normalize_rotation(rotation: &mut [f32; 4]) {
+    let norm = rotation
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if norm > f32::EPSILON {
+        for value in rotation {
+            *value /= norm;
+        }
     }
 }
 
@@ -718,6 +791,9 @@ impl<'a> Interpreter<'a> {
                     Some(Target::UserControlledTimeFraction)
                 }
                 ("blendParameter", None, NodeKind::Blender(_)) => Some(Target::BlendParameter),
+                ("fOffsetVariable", None, NodeKind::OffsetAnimation { .. }) => {
+                    Some(Target::OffsetVariable)
+                }
                 ("weight", Some(i), NodeKind::Blender(_)) => Some(Target::ChildWeight(i)),
                 ("selectedGeneratorIndex", None, NodeKind::ManualSelector { .. }) => {
                     Some(Target::SelectedGeneratorIndex)
@@ -1043,6 +1119,7 @@ impl<'a> Interpreter<'a> {
                 Target::PlaybackSpeed => rt.playback_speed = Some(value),
                 Target::UserControlledTimeFraction => rt.user_fraction = Some(value),
                 Target::BlendParameter => rt.blend_parameter = Some(value),
+                Target::OffsetVariable => rt.offset_variable = Some(value),
                 Target::ChildWeight(i) => {
                     if let Some(w) = rt.child_weights.get_mut(i) {
                         *w = Some(value);
@@ -1459,10 +1536,6 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::OffsetAnimation {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
@@ -1473,6 +1546,18 @@ impl<'a> Interpreter<'a> {
             } => {
                 if let Some(g) = generator {
                     self.activate(*g);
+                }
+            }
+            NodeKind::OffsetAnimation {
+                default_generator,
+                offset_clip_generator,
+                ..
+            } => {
+                if let Some(generator) = default_generator {
+                    self.activate(*generator);
+                }
+                if let Some(generator) = offset_clip_generator {
+                    self.activate(*generator);
                 }
             }
             NodeKind::BehaviorReference { resolved, .. } => {
@@ -1961,10 +2046,6 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::OffsetAnimation {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
@@ -1976,6 +2057,28 @@ impl<'a> Interpreter<'a> {
                 Some(g) => self.generate(*g, dt),
                 None => self.reference_output(),
             },
+            NodeKind::OffsetAnimation {
+                default_generator,
+                offset_clip_generator,
+                offset_variable,
+                offset_range_start,
+                offset_range_end,
+            } => {
+                let mut base = default_generator
+                    .map(|generator| self.generate(generator, dt))
+                    .unwrap_or_else(|| self.reference_output());
+                let Some(offset_generator) = offset_clip_generator else {
+                    return base;
+                };
+                let offset = self.generate(*offset_generator, dt);
+                if offset.weight <= 0.0 {
+                    return base;
+                }
+                let value = self.nodes[id.0].offset_variable.unwrap_or(*offset_variable);
+                let amount = offset_amount(value, *offset_range_start, *offset_range_end);
+                apply_pose_offset(&mut base, &offset, amount);
+                base
+            }
             // A linked reference is a pass-through to the graph that was
             // spliced under it. An unlinked one has nothing to play and is
             // reported, which is what holds the vanilla standing idle silent
