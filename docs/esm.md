@@ -45,7 +45,9 @@ order. `winner` is the last one, which is the rule the game, xEdit and Mutagen a
 `overridden` lists the ids whose winner is not their owner.
 
 `Plugin::set_masters` reorders existing masters or adds new ones while retaining
-all current masters. It relocates record FormIDs, FormID group labels, TES4
+all current masters. It relocates valid master and plugin-self FormIDs while
+preserving null, light-plugin and out-of-range unresolved FormIDs. It relocates
+record FormIDs, FormID group labels, TES4
 `ONAM`, and recognized four-byte links in the typed world record set. It updates
 the TES4 `MAST` and paired `DATA` entries, keeping existing master data with its
 name. Duplicate and removed masters, malformed recognized links and lists over

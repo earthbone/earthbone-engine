@@ -77,10 +77,13 @@ mod record_overrides;
 mod skins;
 mod temporary_npc;
 pub use record_overrides::{NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra};
+pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -423,6 +426,8 @@ pub struct QuestState {
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
     pub journal: crate::quest::state::Journal,
     pub runtime: crate::quest::state::Runtime,
+    /// A saved start or stop promotion task that has not completed.
+    pub lifecycle_task: Option<crate::quest::state::LifecycleTask>,
 }
 
 /// Work a native asked the VM to do.
@@ -475,6 +480,8 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    unresolved_records:
+        BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -566,9 +573,13 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    /// Effect records and magnitudes for potions created by alchemy.
+    pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
@@ -600,6 +611,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
@@ -663,8 +675,11 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            brewed_potions: BTreeMap::new(),
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
             detection_events: Vec::new(),
         }
     }

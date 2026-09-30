@@ -1623,6 +1623,21 @@ quests, reporting nine missing script attachments. These are not resolved
 by the host integration. No rendered-image or speaker-output claim follows
 from the headless test.
 
+## Lockpick activation requests (HST-03)
+
+When player activation reaches a locked, non-key-only reference without a
+matching key, `PlayerNode` retains its FormID as the pending lockpick target if
+the player carries a `Lockpick`. `pending_lockpick` exposes the target and
+authored lock level to an interaction UI. `resolve_pending_lockpick` applies
+the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
+deferred activation, while failure consumes a pick and leaves the reference
+locked. Keyed activation remains on the regular game path.
+
+The UI-08 draft is absent from this worktree, so no lockpick minigame is
+presented and the player cannot resolve the pending request through the
+current host controls. The public host methods provide the handoff point. No
+Godot interaction test exercises that handoff yet.
+
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
 also removed unused mutable bindings in the benchmark and navmesh test,

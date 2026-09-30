@@ -239,6 +239,67 @@ impl ChangeForm {
         Ok(Some(stages))
     }
 
+    /// Decode the source-defined BOOK saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn book_change(&self) -> Result<Option<BookChange>> {
+        if self.record_type() != "BOOK" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::BOOK_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "BOOK change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(BookChange {
+            form_flags,
+            value_changed: self.change_flags & book_note_key_flags::VALUE != 0,
+            full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
+            teaches_skill: self.change_flags & book_note_key_flags::BOOK_TEACHES != 0,
+            read: self.change_flags & book_note_key_flags::BOOK_READ != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
+    /// Decode the source-defined KEYM saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn key_change(&self) -> Result<Option<KeyChange>> {
+        if self.record_type() != "KEYM" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::KEY_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "KEYM change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(KeyChange {
+            form_flags,
+            value_changed: self.change_flags & book_note_key_flags::VALUE != 0,
+            full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
+    /// Decode the source-defined NOTE saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn note_change(&self) -> Result<Option<NoteChange>> {
+        if self.record_type() != "NOTE" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::NOTE_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "NOTE change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(NoteChange {
+            form_flags,
+            read: self.change_flags & book_note_key_flags::NOTE_READ != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
     /// Decode CLAS form flags and the tag-skills change marker.
     ///
     /// # Errors
@@ -337,6 +398,89 @@ impl ChangeForm {
         }))
     }
 
+    /// Decode ACTI, TACT and DOOR base-object change fields.
+    ///
+    /// xEdit defines zero-byte markers for value, full-name and TACT speaker
+    /// changes. The optional form flags are the only payload bytes these
+    /// records define.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn activator_change(&self) -> Result<Option<ActivatorChange>> {
+        let source_flags = match self.record_type() {
+            "ACTI" | "DOOR" => 0b111,
+            "TACT" => 0x0080_0007,
+            _ => return Ok(None),
+        };
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "activator change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(ActivatorChange {
+            form_flags,
+            value_changed: self.change_flags & 2 != 0,
+            full_name_changed: self.change_flags & 4 != 0,
+            speaker_changed: self.record_type() == "TACT" && self.change_flags & (1 << 23) != 0,
+            other_flags: self.change_flags & !source_flags,
+        }))
+    }
+
+    /// Decode INGR form flags and the ingredient-use change marker.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn ingredient_change(&self) -> Result<Option<IngredientChange>> {
+        if self.record_type() != "INGR" {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "INGR change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(IngredientChange {
+            form_flags,
+            ingredient_use_changed: self.change_flags & (1 << 31) != 0,
+            other_flags: self.change_flags & 0x7FFF_FFFE,
+        }))
+    }
+
+    /// Decode ALCH form flags and base-object change markers.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn alchemy_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "ALCH" {
+            return Ok(None);
+        }
+        self.base_object_change("ALCH change").map(Some)
+    }
+
+    /// Decode ENCH form flags and base-object change markers.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn enchantment_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "ENCH" {
+            return Ok(None);
+        }
+        self.base_object_change("ENCH change").map(Some)
+    }
+
+    fn base_object_change(&self, region: &'static str) -> Result<BaseObjectChange> {
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, region);
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(BaseObjectChange {
+            form_flags,
+            value_changed: self.change_flags & 2 != 0,
+            fullname_changed: self.change_flags & 4 != 0,
+            other_flags: self.change_flags & !7,
+            base_object_value_changed: false,
+            base_object_fullname_changed: false,
+            unnamed_flags: 0,
+        })
+    }
     /// Decode the saved package flags and their zero-byte markers.
     ///
     /// # Errors
@@ -376,6 +520,40 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
+        }))
+    }
+    /// Decode the source-defined WOOP payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn word_of_power_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("WOOP")
+    }
+
+    /// Decode the source-defined MGEF payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn magic_effect_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("MGEF")
+    }
+
+    fn word_magic_change(&self, expected: &'static str) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != expected {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "base object change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(BaseObjectChange {
+            form_flags,
+            value_changed: self.change_flags & (1 << 1) != 0,
+            fullname_changed: self.change_flags & (1 << 2) != 0,
+            other_flags: self.change_flags & !0b111,
+            base_object_value_changed: self.change_flags & (1 << 1) != 0,
+            base_object_fullname_changed: self.change_flags & (1 << 2) != 0,
+            unnamed_flags: self.change_flags & !0b111,
         }))
     }
     /// Decode the CELL fields whose serialized layouts xEdit defines.
@@ -481,6 +659,224 @@ impl ChangeForm {
             change_flags: self.change_flags,
             opaque_payload: cursor.rest().to_vec(),
         }))
+    }
+}
+
+/// Change flags for BOOK, KEYM and NOTE saved forms.
+pub mod book_note_key_flags {
+    /// Presence of the six-byte form-flags section.
+    pub const FORM: u32 = 1;
+    /// xEdit marks this base-object field changed without payload bytes.
+    pub const VALUE: u32 = 1 << 1;
+    /// xEdit marks this base-object field changed without payload bytes.
+    pub const FULL_NAME: u32 = 1 << 2;
+    /// BOOK teaches a skill, with no payload bytes.
+    pub const BOOK_TEACHES: u32 = 1 << 5;
+    /// BOOK has been read, with no payload bytes.
+    pub const BOOK_READ: u32 = 1 << 6;
+    /// NOTE has been read, with no payload bytes.
+    pub const NOTE_READ: u32 = 1 << 31;
+    /// Flags represented by the BOOK change decoder.
+    pub const BOOK_KNOWN: u32 = FORM | VALUE | FULL_NAME | BOOK_TEACHES | BOOK_READ;
+    /// Flags represented by the KEYM change decoder.
+    pub const KEY_KNOWN: u32 = FORM | VALUE | FULL_NAME;
+    /// Flags represented by the NOTE change decoder.
+    pub const NOTE_KNOWN: u32 = FORM | NOTE_READ;
+}
+
+/// Typed BOOK saved fields. The named markers consume no payload bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BookChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub teaches_skill: bool,
+    pub read: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl BookChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.value_changed, book_note_key_flags::VALUE)
+            | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
+            | optional_flag(self.teaches_skill, book_note_key_flags::BOOK_TEACHES)
+            | optional_flag(self.read, book_note_key_flags::BOOK_READ)
+    }
+
+    /// Rebuild the BOOK payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+/// Typed KEYM saved fields. The named base-object markers consume no bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl KeyChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.value_changed, book_note_key_flags::VALUE)
+            | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
+    }
+
+    /// Rebuild the KEYM payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+/// Typed NOTE saved fields. The read marker consumes no payload bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoteChange {
+    pub form_flags: Option<FormFlags>,
+    pub read: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl NoteChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.read, book_note_key_flags::NOTE_READ)
+    }
+
+    /// Rebuild the NOTE payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+fn optional_flag(present: bool, flag: u32) -> u32 {
+    if present {
+        flag
+    } else {
+        0
+    }
+}
+
+/// Saved ACTI, TACT and DOOR change markers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActivatorChange {
+    /// The optional six-byte form flags section.
+    pub form_flags: Option<FormFlags>,
+    /// Whether the source marks the zero-byte base-object value field changed.
+    pub value_changed: bool,
+    /// Whether the source marks the zero-byte full-name field changed.
+    pub full_name_changed: bool,
+    /// Whether the TACT zero-byte speaker field is marked changed.
+    pub speaker_changed: bool,
+    /// Bits xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
+}
+
+impl ActivatorChange {
+    /// Rebuild the record's change flag word.
+    pub fn change_flags(self, record_type: &str) -> Result<u32> {
+        let speaker = if self.speaker_changed {
+            if record_type != "TACT" {
+                return Err(invalid_record("speaker marker belongs only to TACT"));
+            }
+            1 << 23
+        } else {
+            0
+        };
+        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
+            return Err(invalid_record("unsupported activator change type"));
+        }
+        Ok(u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+            | speaker
+            | self.other_flags)
+    }
+
+    /// Rebuild the source-defined payload bytes.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved INGR sections. The ingredient-use marker has no payload in xEdit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IngredientChange {
+    pub form_flags: Option<FormFlags>,
+    pub ingredient_use_changed: bool,
+    /// Bits that xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
+}
+
+impl IngredientChange {
+    /// Rebuild all source-defined and unnamed change bits.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.ingredient_use_changed) << 31)
+            | self.other_flags
+    }
+
+    /// Rebuild the typed payload.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved base-object sections. Marker bits carry no payload in xEdit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BaseObjectChange {
+    pub form_flags: Option<FormFlags>,
+    /// Value marker, also exposed under the legacy WOOP/MGEF field name below.
+    pub value_changed: bool,
+    /// Full-name marker, also exposed under the legacy WOOP/MGEF field name below.
+    pub fullname_changed: bool,
+    /// Bits that xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
+    /// WOOP/MGEF alias for `value_changed`.
+    pub base_object_value_changed: bool,
+    /// WOOP/MGEF alias for `fullname_changed`.
+    pub base_object_fullname_changed: bool,
+    /// WOOP/MGEF alias for `other_flags`.
+    pub unnamed_flags: u32,
+}
+
+impl BaseObjectChange {
+    /// Rebuild all source-defined and unnamed change bits.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed || self.base_object_value_changed) << 1)
+            | (u32::from(self.fullname_changed || self.base_object_fullname_changed) << 2)
+            | self.other_flags
+            | self.unnamed_flags
+    }
+
+    /// Rebuild the typed payload.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
     }
 }
 
@@ -1137,83 +1533,4 @@ pub fn quest_payload(stages: &[QuestStage]) -> Option<Vec<u8>> {
         out.push(stage.status);
     }
     Some(out)
-}
-
-#[cfg(test)]
-mod sav_11_tests {
-    use super::{ChangeForm, TYPES};
-    use crate::cursor::{Cursor, RefId};
-
-    fn projectile_change(type_index: u8, flags: u32) -> ChangeForm {
-        ChangeForm {
-            form: RefId::from_bytes([0x40, 0, 1]),
-            change_flags: flags,
-            type_field: type_index,
-            version: 78,
-            uncompressed_len: 0,
-            data: vec![0x01, 0x23, 0x45, 0x67],
-        }
-    }
-
-    #[test]
-    fn sav_11_projectile_headers_and_payload_bytes_round_trip_for_each_flag_word() {
-        let flags = [
-            0,
-            1 << 0,
-            1 << 1,
-            1 << 2,
-            1 << 3,
-            1 << 4,
-            1 << 5,
-            1 << 6,
-            1 << 7,
-            1 << 10,
-            1 << 11,
-            1 << 12,
-            1 << 21,
-            1 << 22,
-            1 << 23,
-            1 << 25,
-            1 << 26,
-            1 << 27,
-            1 << 28,
-            1 << 29,
-            1 << 30,
-            1 << 31,
-            0x1000_0002,
-            u32::MAX,
-        ];
-        for type_index in 2..=4 {
-            for change_flags in flags {
-                let original = projectile_change(type_index, change_flags);
-                let mut bytes = Vec::new();
-                original.write(&mut bytes);
-
-                let mut cursor = Cursor::new(&bytes, "SAV-11 change form");
-                let decoded = ChangeForm::read(&mut cursor).unwrap();
-                assert_eq!(decoded.record_type(), TYPES[type_index as usize]);
-                assert_eq!(decoded.change_flags, change_flags);
-                assert_eq!(decoded.version, original.version);
-                assert_eq!(decoded.data, original.data);
-                let mut reencoded = Vec::new();
-                decoded.write(&mut reencoded);
-                assert_eq!(reencoded, bytes);
-            }
-        }
-    }
-
-    #[test]
-    fn sav_11_truncated_projectile_headers_and_payloads_are_rejected() {
-        for type_index in 2..=4 {
-            let mut bytes = Vec::new();
-            projectile_change(type_index, 1 << 1).write(&mut bytes);
-            for end in 0..bytes.len() {
-                let mut cursor = Cursor::new(&bytes[..end], "SAV-11 change form");
-                assert!(
-                    ChangeForm::read(&mut cursor).is_err(),
-                    "type {type_index} accepted a prefix ending at byte {end}"
-                );
-            }
-        }
-    }
 }

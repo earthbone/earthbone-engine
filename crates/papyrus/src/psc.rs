@@ -362,6 +362,7 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
                 variables.push(Variable {
                     name: auto_var.clone(),
                     type_name: type_name.clone(),
+                    is_const: false,
                     user_flags: 0,
                     default: match type_name.as_str() {
                         "Int" => Operand::Int(0),
@@ -413,12 +414,16 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
             byte_order: ByteOrder::Big,
         },
         user_flags,
+        property_groups: Vec::new(),
+        struct_orders: Vec::new(),
         objects: vec![Object {
             name: name.to_string(),
             parent,
             docstring: String::new(),
             user_flags: flags,
+            is_const: false,
             auto_state: String::new(),
+            structs: Vec::new(),
             variables,
             properties,
             states: vec![State {

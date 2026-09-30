@@ -384,8 +384,9 @@ one selected round. It queues the ordinary OnItemRemoved inventory event and
 returns a transient `FlightRequest` with normalized direction and record-backed
 flight fields. A rejected request leaves ammunition unchanged. The host's
 `RangedRelease` captures the weapon at draw start and invokes that transaction
-only on `bowRelease`; `attackStop` and `bowCancel` clear the armed shot. Flight
-movement is described under CMB-22. No runtime or save field was added.
+only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. CMB-22
+covers flight movement and contact handling. Projectile damage and `OnHit`
+events remain out of scope. No runtime or save field was added.
 
 Sources read for CMB-08:
 
@@ -759,26 +760,31 @@ dies to a non-player caster). Their own comments name the threshold, 20, and
 bleedout without death as the documented contract, which the implementation
 now meets, so they fail against it and are left for review unchanged.
 
-## Combat actor-value modifiers, CMB-15 in progress
+## Combat actor-value modifiers, CMB-15
 
 The intrinsic AttackDamageMult milestone uses the shared actor-value store,
 including its default, native reads and mutations, and serialization. There
 is no combat-private multiplier cache and no save-format change. An older
 save without the entry receives the documented default. Saved explicit
 values are retained. The value is applied after weapon skill scaling and
-before armor and difficulty reduction. Its exact floating-point rounding
-relative to the original runtime remains unmeasured.
+before armor and difficulty reduction. Invalid negative and overflowing
+values reject a hit before health or events change. Its exact floating-point
+rounding relative to the original runtime remains unmeasured.
 
 Local CommonLibSSE and skymp actor-value enums identify AttackDamageMult as
 154. The [Skills-based Damage and Magnitude Multipliers author](https://www.nexusmods.com/skyrim/mods/21828)
 documents its native default of 1 and its damage-multiplier role. That public
 mod description supplies the behavior missing from the local enum declarations.
-The four `cmb_15` combat tests cover shared components, armor and difficulty
+The five `cmb_15` combat tests cover shared components, armor and difficulty
 composition, explicit zero, unarmed damage, save/load, overflow and rejection
-without health or event changes.
+without health or event changes. They also check every PERK-driven combat
+modifier actor value on both attacker and target.
 
-CMB-15 remains unfinished because the skill Mod and PowerMod values are
-PERK inputs, not intrinsic percentage multipliers. The installed five-master
+The skill Mod and PowerMod values are not applied because they are PERK
+inputs, not intrinsic percentage multipliers. Actors with any OneHanded,
+TwoHanded, Marksman, LightArmor or HeavyArmor modifier or power modifier
+actor value are rejected before damage or events change. These checks use the
+canonical actor-value names in the shared store. The installed five-master
 survey finds PerkSkillBoosts at 0:0CF788 and AlchemySkillBoosts at 0:0A725C.
 Both use function 14, multiply by one plus actor value times coefficient.
 OneHanded, TwoHanded and Marksman modifier entries use ModAttackDamage with
@@ -787,11 +793,11 @@ ModIncomingDamage with coefficient -0.01. Their conditions and priorities
 come from the winning PERK records. Hardcoding those effects into armor
 rating would ignore record edits and apply the wrong term. The
 `combat_modifier_survey` example prints the relevant subrecords using the
-existing plugin reader, without copying installed assets.
+existing plugin reader, without copying installed assets. Applying these
+PERK effects requires the CMB-09 entry point evaluator.
 
-CMB-15 now depends on CMB-09 so those modifiers will execute through the perk
-path. They continue to reject pending that work. `docs/combat-perks.md`
-records the dispatch prerequisites and the ordering evidence still needed.
+`docs/combat-perks.md` records the dispatch prerequisites and the ordering
+evidence still needed.
 
 ## Stagger from hit magnitude, CMB-14
 

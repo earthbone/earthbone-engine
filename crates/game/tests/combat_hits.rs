@@ -345,6 +345,40 @@ fn cmb_15_invalid_damage_mult_rejects_without_health_or_event_changes() {
 }
 
 #[test]
+fn cmb_15_perk_driven_combat_modifiers_reject_without_applying_a_hit() {
+    let names = [
+        "onehandedmodifier",
+        "twohandedmodifier",
+        "marksmanmodifier",
+        "onehandedpowermodifier",
+        "twohandedpowermodifier",
+        "marksmanpowermodifier",
+        "lightarmormodifier",
+        "heavyarmormodifier",
+        "lightarmorpowermodifier",
+        "heavyarmorpowermodifier",
+    ];
+    for actor in [0x14, 0x901] {
+        for name in names {
+            let mut game = fixture(vec![]);
+            warm_combat_actor_base(&mut game);
+            game.world_mut()
+                .set_actor_value(id(actor), name, 10.)
+                .unwrap();
+            let before = game.save_state().unwrap();
+            assert!(
+                matches!(
+                    game.melee_hit(hit(0x14, 0x901)),
+                    Err(Error::Unsupported("combat actor-value multipliers"))
+                ),
+                "{name} on actor {actor:#x} must remain gated until its PERK effects are evaluated"
+            );
+            assert_eq!(game.save_state().unwrap(), before, "{name} changed state");
+        }
+    }
+}
+
+#[test]
 fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
     let parsed = Weapon::from_record(&weapon(0xA00, 27, 8)).unwrap();
     assert_eq!(

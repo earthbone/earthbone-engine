@@ -364,6 +364,13 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::EvaluateExpression { expressions, .. } => {
+            for expression in expressions {
+                expression.assignment_variable_index =
+                    map.variable(expression.assignment_variable_index);
+                expression.assignment_event_index = map.event(expression.assignment_event_index);
+            }
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
@@ -511,7 +518,7 @@ impl BehaviorGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::behavior::{BehaviorGraphData, Node, VariableValueSet};
+    use crate::behavior::{BehaviorGraphData, ExpressionData, Node, VariableValueSet};
 
     fn data(events: &[&str], variables: &[&str]) -> BehaviorGraphData {
         BehaviorGraphData {
@@ -598,6 +605,40 @@ mod tests {
             panic!("expected the spliced clip");
         };
         assert_eq!(c.triggers[0].event.id, 0);
+    }
+
+    #[test]
+    fn anm_40_linked_expression_targets_follow_symbol_maps() {
+        let mut parent = reference_graph();
+        let expression = ExpressionData {
+            expression: "subVar".into(),
+            assignment_variable_index: 0,
+            assignment_event_index: 0,
+            event_mode: 0,
+        };
+        let sub = BehaviorGraph {
+            name: "expression subgraph".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: data(&["subOnly", "shared"], &["subVar", "Speed"]),
+            nodes: vec![node(
+                0,
+                "evaluate",
+                "hkbEvaluateExpressionModifier",
+                NodeKind::EvaluateExpression {
+                    enable: true,
+                    expressions: vec![expression],
+                },
+            )],
+        };
+
+        parent.link_reference(NodeId(0), sub).unwrap();
+
+        let NodeKind::EvaluateExpression { expressions, .. } = &parent.nodes[1].kind else {
+            panic!("linked expression modifier was not retained");
+        };
+        assert_eq!(expressions[0].assignment_variable_index, 1);
+        assert_eq!(expressions[0].assignment_event_index, 2);
     }
 
     #[test]

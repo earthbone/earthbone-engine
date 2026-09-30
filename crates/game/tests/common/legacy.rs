@@ -173,9 +173,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
 
         // The right spell field is immediately followed by this actor's
         // named save-section table, which a pre-version-37 writer never
-        // emitted.
-        let actor_table = right_spell_offsets[0] + right_spell_marker.len();
-        fields.push((actor_table, section_table_len(&bytes, actor_table)));
+        // emitted. Read each length so this stays correct as sections are
+        // added to the actor registry.
+        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((table_offset, section_table_len(&bytes, table_offset)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the named
@@ -199,6 +200,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -250,6 +252,7 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
     for (offset, len) in offsets {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -269,6 +272,49 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
         cursor += 4 + payload_len;
     }
     cursor - start
+}
+
+/// Remove the world save-section table appended at the end of a version 37
+/// save when constructing a pre-version-37 fixture.
+#[allow(dead_code)]
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
+    let start = (0..bytes.len())
+        .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
+        .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
+    bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+}
+
+#[allow(dead_code)]
+fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    let count = usize::from(u16::from_le_bytes([
+        *bytes.get(cursor)?,
+        *bytes.get(cursor.checked_add(1)?)?,
+    ]));
+    cursor = cursor.checked_add(2)?;
+    for _ in 0..count {
+        let name_len = usize::from(*bytes.get(cursor)?);
+        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let payload_len = usize::try_from(u32::from_le_bytes([
+            *bytes.get(cursor)?,
+            *bytes.get(cursor.checked_add(1)?)?,
+            *bytes.get(cursor.checked_add(2)?)?,
+            *bytes.get(cursor.checked_add(3)?)?,
+        ]))
+        .ok()?;
+        cursor = cursor.checked_add(4)?.checked_add(payload_len)?;
+        if cursor > bytes.len() {
+            return None;
+        }
+    }
+    Some(cursor)
 }
 
 /// One actor's replaced fields and the sentinels written in their place.
