@@ -2143,6 +2143,42 @@ Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
 
+### MCM text and toggle rows, UI-11
+
+`mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
+It returns SkyUI option IDs using the page number in the high byte and a slot
+from 0 to 127 in the low byte. `set_enabled` changes the disabled flag while
+preserving other option flags. Hidden rows are omitted from presentation, and
+disabled rows remain visible without accepting selection. `render_rows`
+builds native Godot labels, buttons and check buttons. A selected enabled row
+sends one Papyrus `OnOptionSelect(int)` event with its option ID to the
+configured script form.
+
+The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
+option types, disabled and hidden flags, page-strided option IDs, 128 positions
+per page and selection event shape. Godot Controls replace its Scaleform
+presentation under the project intent. UI-05 script registration and page
+lifecycle work is not present in this worktree, so the option model and
+presenter are callable host pieces rather than a complete unmodified MCM script
+execution path. UI-11 tests exercise their protocol without Skyrim data.
+
+### MCM slider and menu dialogs, UI-12
+
+`ConfigPage` also stores slider rows with their current value, authored minimum,
+maximum and interval, and menu rows with their choices and selected value.
+Selecting a slider or menu row dispatches `OnOptionSliderOpen(int)` or
+`OnOptionMenuOpen(int)`. The returned dialog parameters use the row's current
+value as both slider start and default, and the current menu choice as both
+menu start and default. Accepting a slider clamps to its authored range and
+snaps to its interval before updating the row and dispatching
+`OnOptionSliderAccept(int, float)`. Accepting a menu updates the displayed
+choice and dispatches `OnOptionMenuAccept(int, int)` with its choice index.
+Cancelling closes the dialog without changing the row or dispatching an accept
+event. `SKI_ConfigBase.psc` defines no cancel event. The callback names and
+arguments match that source, while `SKI_ConfigManager.psc` confirms the manager
+routes slider and menu selection and acceptance to those callbacks. The
+`ui_12` fixtures use synthetic scripts and do not require Skyrim data.
+
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
 physics, camera input and activation do not advance. The game clock, ordinary
