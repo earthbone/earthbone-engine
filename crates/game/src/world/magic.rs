@@ -70,6 +70,15 @@ pub struct DetectedActor {
     pub hit_shader: Option<GlobalFormId>,
 }
 
+/// A route exposed by an active Guide effect for the player's current objective.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuideRoute {
+    pub quest: GlobalFormId,
+    pub objective: u16,
+    pub destination: GlobalFormId,
+    pub points: Vec<[f32; 3]>,
+}
+
 /// A spell was rejected before any of its effects were applied.
 #[derive(Debug, thiserror::Error)]
 pub enum MagicError {
@@ -239,6 +248,97 @@ impl World {
         self.active_effects.get(&id)
     }
 
+    /// Find the current route supplied by a Guide effect on the player.
+    ///
+    /// The route follows the highest-priority running quest's first displayed
+    /// objective that has a live reference target. Expired effects disappear
+    /// from the active-effect table, which clears this result without saved
+    /// route state.
+    #[must_use]
+    pub fn guide_route(&mut self) -> Option<GuideRoute> {
+        let player = self.player();
+        let guided = self.active_effects.values().any(|effect| {
+            effect.target == player
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 25)
+        });
+        if !guided {
+            return None;
+        }
+
+        let mut candidates: Vec<_> = self
+            .quests
+            .iter()
+            .filter(|(_, quest)| quest.running && quest.active && !quest.completed && !quest.failed)
+            .flat_map(|(&quest_id, quest)| {
+                quest
+                    .def
+                    .objectives
+                    .iter()
+                    .filter(|objective| {
+                        quest.objectives.get(&objective.index).is_some_and(|state| {
+                            state.displayed && !state.completed && !state.failed
+                        })
+                    })
+                    .map(move |objective| {
+                        (
+                            quest_id,
+                            quest.def.priority,
+                            objective.index,
+                            objective.targets.clone(),
+                        )
+                    })
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)).then(a.2.cmp(&b.2)));
+
+        let player_position = self.reference(player)?.position;
+        for (quest, _, objective, targets) in candidates {
+            let mut destinations = Vec::new();
+            for (alias, _) in targets {
+                let Ok(alias) = u32::try_from(alias) else {
+                    continue;
+                };
+                let Some(destination) = self.alias_ref(quest, alias) else {
+                    continue;
+                };
+                let Some(reference) = self.reference(destination) else {
+                    continue;
+                };
+                if reference.enabled
+                    && !reference.deleted
+                    && reference.position.iter().all(|n| n.is_finite())
+                {
+                    let delta = [
+                        reference.position[0] - player_position[0],
+                        reference.position[1] - player_position[1],
+                        reference.position[2] - player_position[2],
+                    ];
+                    destinations.push((
+                        delta.iter().map(|n| n * n).sum::<f32>(),
+                        destination,
+                        reference.position,
+                    ));
+                }
+            }
+            destinations.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let Some((_, destination, position)) = destinations.into_iter().next() else {
+                continue;
+            };
+            let points = crate::ai::path_points(self, player_position, position);
+            if !points.is_empty() && points.iter().flatten().all(|n| n.is_finite()) {
+                return Some(GuideRoute {
+                    quest,
+                    objective,
+                    destination,
+                    points,
+                });
+            }
+        }
+        None
+    }
+
     /// Read the current winning SPEL definition.
     pub fn spell(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
@@ -373,7 +473,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | PARALYSIS_ARCHETYPE) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | PARALYSIS_ARCHETYPE | 25) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -592,6 +692,7 @@ impl World {
                     | PARALYSIS_ARCHETYPE
                     | REANIMATE_ARCHETYPE
                     | SOUL_TRAP_ARCHETYPE
+                    | 25
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }

@@ -210,6 +210,7 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         "an actor with no hand spells must write two unset presence bytes after its crime set"
     );
     bytes.drain(offsets[0]..end + 2);
+    bytes.truncate(bytes.len() - 4);
     let visit_count = bytes.len() - 12;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);

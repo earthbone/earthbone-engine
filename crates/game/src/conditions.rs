@@ -102,6 +102,7 @@ pub fn supports_function(function: u16) -> bool {
     matches!(
         function,
         1 | 14
+            | 123
             | 128
             | 277
             | 408
@@ -338,6 +339,12 @@ fn function_value(
                     .current()
                     != 0.0,
             )
+        }
+        123 => {
+            // IsGreetingPlayer (wbDefinitionsTES5.pas:290) takes no parameters.
+            // Its subject is true during automatic ForceGreet selection.
+            no_parameter(c)?;
+            boolean(world.dialogue.greeting_actor == Some(subject))
         }
         225 | 315 => {
             // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
