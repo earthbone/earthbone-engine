@@ -20,11 +20,11 @@
 //! exercise this field. This file builds its own weapon record with a
 //! configurable Stagger fraction instead.
 
-use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::MeleeHit, Game};
-
 #[path = "common/legacy.rs"]
 mod legacy;
+
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::{combat::MeleeHit, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -404,6 +404,8 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             world.actor(actor).unwrap().stagger_end_time = Some(value);
         }
     }
+    // Strip paired reference tables. The actor tables are removed with the
+    // stagger and later versioned fields below.
     let mut bytes =
         legacy::without_recent_ai_fields(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
     for (_, value) in sentinels {
@@ -435,13 +437,25 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             [0, 0],
             "an actor with no hand spells must write two unset presence bytes after its crime set"
         );
-        bytes.drain(positions[0]..end + 6);
+        // The right spell field is immediately followed by this actor's own
+        // named save-section table, which a version 28 writer never emitted.
+        let section_start = end + 6;
+        let section_len = legacy::section_table_len(&bytes, section_start);
+        bytes.drain(positions[0]..section_start + section_len);
     }
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    legacy::strip_world_sections(&mut bytes);
+    // The scene runtime count (version 36), the now-unconditional detection
+    // pool count (version 37) are the last two fields, eight bytes together,
+    // all past where a version 28 save ends.
+    bytes.truncate(bytes.len() - 8);
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 
     let loaded = fixture(

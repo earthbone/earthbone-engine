@@ -1,10 +1,14 @@
 # Combat perk dispatch prerequisites
 
-CMB-09 depends on PRG-08. Both rows are blocked on an observed or published
-execution contract for priority ties, rank selection and operation placement.
-The following research was completed on 2026-09-20. It is not an implemented
-perk evaluator. CMB-15 depends on CMB-09 because skill modifier actor values
-are inputs to the winning skill-boost PERK records.
+CMB-09 consumes PRG-08's dispatcher for the ModAttackDamage and
+ModIncomingDamage handlers. It applies supported numeric operations in the
+dispatcher's current winning-record and source-section order. The following
+research was completed on 2026-09-20. Priority ties, cross-perk acquisition
+ordering and rank selection remain unresolved. This handler places outgoing
+and incoming modifiers before armor and other damage reductions, a local
+execution choice that still needs a reference-runtime trace. CMB-15 depends on
+CMB-09 because skill modifier actor values are inputs to the winning
+skill-boost PERK records.
 
 ## Established format contract
 

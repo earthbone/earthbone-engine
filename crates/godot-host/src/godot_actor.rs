@@ -22,13 +22,17 @@ use std::sync::Arc;
 use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
+use soe_game::combat::{Error as CombatError, Hand};
 use soe_hkx::interp::Interpreter;
 use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
+use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
+use crate::godot_ragdoll::LiveRagdoll;
+use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
 /// The archives a character reads from, in load order.
@@ -62,6 +66,37 @@ struct AppearanceBinding {
     source: Arc<DataSource>,
     actor: soe_esm::GlobalFormId,
     cache: crate::actor::AppearanceCache,
+    stagger: StaggerTracker,
+    animation_cursor: AnimationEventCursor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaggerGraphEvent {
+    Start,
+    Stop,
+}
+
+#[derive(Default)]
+struct StaggerTracker {
+    last_deadline: Option<f64>,
+    active: bool,
+}
+
+impl StaggerTracker {
+    fn observe(&mut self, deadline: Option<f64>, now: f64) -> Option<StaggerGraphEvent> {
+        if self.last_deadline != deadline {
+            self.last_deadline = deadline;
+            if deadline.is_some_and(|until| until > now) {
+                self.active = true;
+                return Some(StaggerGraphEvent::Start);
+            }
+        }
+        if self.active && deadline.is_some_and(|until| until <= now) {
+            self.active = false;
+            return Some(StaggerGraphEvent::Stop);
+        }
+        None
+    }
 }
 
 /// One animated character. Call `load_character`, then let it process.
@@ -86,8 +121,11 @@ pub struct SkinnedActorNode {
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
+    uploaded_skins: Vec<Transform3D>,
     stats: VarDictionary,
     elapsed: f64,
+    ragdoll_map: Option<RagdollBoneMap>,
+    ragdoll: Option<LiveRagdoll>,
 }
 
 #[godot_api]
@@ -104,16 +142,28 @@ impl INode3D for SkinnedActorNode {
             meshes: Vec::new(),
             model: Vec::new(),
             skins: Vec::new(),
+            uploaded_skins: Vec::new(),
             stats: VarDictionary::new(),
             elapsed: 0.0,
+            ragdoll_map: None,
+            ragdoll: None,
         }
     }
 
     fn exit_tree(&mut self) {
+        if let Some(mut ragdoll) = self.ragdoll.take() {
+            ragdoll.free();
+        }
         self.free_rids();
     }
 
     fn process(&mut self, delta: f64) {
+        self.sync_death_rendering();
+        if self.ragdoll.is_some() {
+            self.refresh_appearance();
+            self.push_pose();
+            return;
+        }
         if !self.playing {
             self.refresh_appearance();
             return;
@@ -139,20 +189,44 @@ impl SkinnedActorNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_character(&mut self, data_dir: GString, mesh_path: GString) -> bool {
+        self.load_character_with_behavior(
+            &data_dir.to_string(),
+            &mesh_path.to_string(),
+            crate::actor::MASTER_BEHAVIOR,
+        )
+    }
+
+    /// Load the vanilla one-handed attack graph on this character rig.
+    /// Its authored markers are emitted through `animation_event`.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn load_melee_character(&mut self, data_dir: GString, mesh_path: GString) -> bool {
+        self.load_character_with_behavior(
+            &data_dir.to_string(),
+            &mesh_path.to_string(),
+            crate::actor::ONE_HAND_BEHAVIOR,
+        )
+    }
+
+    fn load_character_with_behavior(
+        &mut self,
+        data_dir: &str,
+        mesh_path: &str,
+        behavior: &str,
+    ) -> bool {
         if self.assets.is_some() {
             godot_error!("SkinnedActorNode: already loaded, make another node");
             return false;
         }
-        let dir = data_dir.to_string();
         let mut vfs = Vfs::new();
         for name in ARCHIVES {
-            let path = Path::new(&dir).join(name);
+            let path = Path::new(data_dir).join(name);
             if let Err(e) = vfs.add_archive_path(&path) {
                 godot_error!("SkinnedActorNode: {}: {e}", path.display());
                 return false;
             }
         }
-        let mut assets = match ActorAssets::load(&vfs, &mesh_path.to_string()) {
+        let mut assets = match ActorAssets::load_with_behavior(&vfs, mesh_path, behavior) {
             Ok(a) => a,
             Err(e) => {
                 godot_error!("SkinnedActorNode: {e}");
@@ -180,6 +254,10 @@ impl SkinnedActorNode {
             assets.skeleton.reference_pose.clone(),
         ));
         self.assets = Some(assets);
+        self.ragdoll_map = assets
+            .ragdoll
+            .as_ref()
+            .map(|ragdoll| RagdollBoneMap::new(&assets.skeleton, ragdoll));
         true
     }
 
@@ -252,22 +330,63 @@ impl SkinnedActorNode {
         }
     }
 
+    /// Send an authored event to this actor's behavior graph. The resulting
+    /// animation markers are emitted after their poses are installed.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn send_graph_event(&mut self, name: GString) -> bool {
+        self.vm
+            .as_mut()
+            .is_some_and(|vm| vm.send_event_named(&name.to_string()))
+    }
+
+    /// Set a named behavior variable before advancing the graph.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set_graph_variable(&mut self, name: GString, value: f32) -> bool {
+        value.is_finite()
+            && self
+                .vm
+                .as_mut()
+                .is_some_and(|vm| vm.variables.set_by_name(&name.to_string(), value))
+    }
+
     /// Advance by `delta` seconds and push the new pose. `_process` calls
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.sync_death_rendering();
         self.refresh_appearance();
+        if self.ragdoll.is_some() {
+            self.push_pose();
+            return;
+        }
+        let stagger_event = self.take_stagger_event();
+        let requests = self.take_animation_requests();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
+        match stagger_event {
+            Some(StaggerGraphEvent::Start) => {
+                vm.variables.set_by_name("staggerMagnitude", 1.0);
+                vm.send_event_named("staggerStart");
+            }
+            Some(StaggerGraphEvent::Stop) => {
+                vm.send_event_named("staggerStop");
+            }
+            None => {}
+        }
         let _span = soe_trace::Span::new("host.actor_tick", "host");
+        for request in requests {
+            vm.send_event_named(&request);
+        }
         vm.update(delta);
-        let events: Vec<GString> = vm
+        let mut events: Vec<String> = vm
             .take_events()
             .into_iter()
             .filter_map(|event| usize::try_from(event.id).ok())
             .filter_map(|id| assets.graph.data.event_names.get(id))
-            .map(GString::from)
+            .cloned()
             .collect();
         self.elapsed += f64::from(delta);
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
@@ -276,14 +395,20 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
-        for event in events {
-            self.signals().animation_event().emit(&event);
-        }
+        report_graph_events(&mut events, |event| {
+            self.signals().animation_event().emit(&GString::from(event));
+        });
     }
 
     fn push_pose(&mut self) {
+        let placement = self
+            .ragdoll
+            .as_ref()
+            .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
+        self.uploaded_skins.clear();
         for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
+            server.instance_set_transform(rids.instance, placement);
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {
@@ -291,7 +416,20 @@ impl SkinnedActorNode {
                 return;
             }
             for (i, skin) in self.skins.iter().enumerate() {
-                server.skeleton_bone_set_transform(rids.skeleton, i as i32, to_transform3d(skin));
+                let mut pose = to_transform3d(skin);
+                if let (Some(ragdoll), Some(map), Some(Some(bone))) = (
+                    &self.ragdoll,
+                    &self.ragdoll_map,
+                    surface.map.skeleton_index.get(i),
+                ) {
+                    if let Some(Some(body)) = map.animated_to_body.get(*bone) {
+                        if let Some(delta) = ragdoll.local_delta(body.0) {
+                            pose = delta * pose;
+                        }
+                    }
+                }
+                server.skeleton_bone_set_transform(rids.skeleton, i as i32, pose);
+                self.uploaded_skins.push(pose);
             }
         }
     }
@@ -300,6 +438,30 @@ impl SkinnedActorNode {
     #[func]
     pub fn stats(&self) -> VarDictionary {
         self.stats.clone()
+    }
+
+    /// Whether the actor currently draws from animation or simulated bodies.
+    #[func]
+    pub fn render_mode(&self) -> GString {
+        GString::from(if self.ragdoll.is_some() {
+            "ragdoll"
+        } else {
+            "animated"
+        })
+    }
+
+    /// The Jolt body handles owned by this actor's current death ragdoll.
+    #[func]
+    pub fn ragdoll_bodies(&self) -> Array<Rid> {
+        self.ragdoll
+            .as_ref()
+            .map_or_else(Array::new, |r| r.bodies().iter().copied().collect())
+    }
+
+    /// Skin transforms most recently sent to RenderingServer, in surface order.
+    #[func]
+    pub fn uploaded_skin_poses(&self) -> Array<Transform3D> {
+        self.uploaded_skins.iter().copied().collect()
     }
 
     /// Seconds of animation played since the load.
@@ -339,6 +501,73 @@ impl SkinnedActorNode {
         GString::from(HUMAN_SKELETON)
     }
 
+    /// Named inputs and markers declared by the loaded behavior graph.
+    #[func]
+    pub fn graph_event_names(&self) -> PackedStringArray {
+        self.assets
+            .map(|assets| {
+                assets
+                    .graph
+                    .data
+                    .event_names
+                    .iter()
+                    .map(GString::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The armed hand's current animated weapon transform in world space.
+    /// Returns an empty dictionary when the rig has no usable pose.
+    #[func]
+    pub fn contact_weapon_pose(&self, left_hand: bool) -> VarDictionary {
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        let mut result = VarDictionary::new();
+        if let Ok(pose) = self.weapon_pose(hand) {
+            result.set("pose", pose);
+        }
+        result
+    }
+
+    /// World-space weapon node from the same animated pose sent to the
+    /// RenderingServer skeleton. A bound actor follows its shared placement.
+    ///
+    /// # Errors
+    /// The rig has no matching bone or has not installed a pose yet.
+    pub(crate) fn weapon_pose(&self, hand: Hand) -> Result<Transform3D, CombatError> {
+        let assets = self
+            .assets
+            .ok_or(CombatError::Unsupported("character rig is not loaded"))?;
+        let local = crate::combat::posed_weapon_bone(&assets.skeleton, &self.model, hand)?;
+        let placement = if let Some(binding) = &self.appearance {
+            let actor = binding
+                .world
+                .borrow_mut()
+                .contact_actors()
+                .into_iter()
+                .find(|actor| actor.actor == binding.actor)
+                .ok_or(CombatError::Unsupported("animated actor is not resident"))?;
+            let placed = crate::units::placement_to_godot(
+                crate::units::skyrim_euler_matrix(actor.rotation),
+                actor.position,
+                actor.scale,
+            );
+            to_transform3d(&Affine {
+                basis: placed.basis,
+                origin: [placed.origin.x, placed.origin.y, placed.origin.z],
+            })
+        } else {
+            self.base().get_global_transform()
+        };
+        Ok(placement * to_transform3d(&local))
+    }
+
+    /// The shared actor whose equipment and placement this rig displays.
+    #[must_use]
+    pub(crate) fn bound_actor(&self) -> Option<soe_esm::GlobalFormId> {
+        self.appearance.as_ref().map(|binding| binding.actor)
+    }
+
     /// The world to draw into, the same way `CellStreamerNode` finds it: the
     /// node's own viewport first, then the tree's root, because a `--script`
     /// run has no scene and the node's viewport can be empty.
@@ -357,6 +586,87 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
+    fn sync_death_rendering(&mut self) {
+        let Some(binding) = &self.appearance else {
+            return;
+        };
+        let dead = binding
+            .world
+            .borrow_mut()
+            .actor(binding.actor)
+            .is_some_and(|state| state.dead);
+        match (ActorRenderMode::for_dead(dead), self.ragdoll.is_some()) {
+            (ActorRenderMode::Ragdoll, false) => {
+                let (Some(assets), Some(map)) = (self.assets, &self.ragdoll_map) else {
+                    return;
+                };
+                let Some(source) = &assets.ragdoll else {
+                    return;
+                };
+                if self.model.is_empty() {
+                    if let Err(error) = to_model_space_into(
+                        &assets.skeleton,
+                        &assets.skeleton.reference_pose,
+                        &mut self.model,
+                    ) {
+                        godot_error!("SkinnedActorNode ragdoll pose: {error}");
+                        return;
+                    }
+                }
+                let Some(world) = self.base().get_world_3d() else {
+                    return;
+                };
+                let placement = self.actor_placement();
+                match LiveRagdoll::create(world.get_space(), placement, source, map, &self.model) {
+                    Ok(ragdoll) => self.ragdoll = Some(ragdoll),
+                    Err(error) => godot_error!("SkinnedActorNode ragdoll: {error}"),
+                }
+            }
+            (ActorRenderMode::Animated, true) => {
+                if let Some(mut ragdoll) = self.ragdoll.take() {
+                    ragdoll.free();
+                }
+                self.push_pose();
+            }
+            _ => {}
+        }
+    }
+
+    fn take_stagger_event(&mut self) -> Option<StaggerGraphEvent> {
+        let Some(binding) = &mut self.appearance else {
+            return None;
+        };
+        let mut world = binding.world.borrow_mut();
+        let deadline = world
+            .actor(binding.actor)
+            .and_then(|actor| actor.stagger_end_time);
+        binding.stagger.observe(deadline, world.clock.real_seconds)
+    }
+
+    fn actor_placement(&self) -> Transform3D {
+        let Some(binding) = &self.appearance else {
+            return self.base().get_global_transform();
+        };
+        let placement = binding
+            .world
+            .borrow_mut()
+            .contact_actors()
+            .into_iter()
+            .find(|entry| entry.actor == binding.actor);
+        let Some(actor) = placement else {
+            return self.base().get_global_transform();
+        };
+        let placed = crate::units::placement_to_godot(
+            crate::units::skyrim_euler_matrix(actor.rotation),
+            actor.position,
+            actor.scale,
+        );
+        to_transform3d(&Affine {
+            basis: placed.basis,
+            origin: [placed.origin.x, placed.origin.y, placed.origin.z],
+        })
+    }
+
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
     pub(crate) fn bind_appearance(
@@ -379,11 +689,17 @@ impl SkinnedActorNode {
             .map_err(|error| error.to_string())?
             .ok_or("initial appearance was not prepared")?;
         self.replace_surfaces(update.surfaces)?;
+        let animation_cursor = {
+            let world = world.borrow();
+            AnimationEventCursor::at_end(&world.animation_events)
+        };
         self.appearance = Some(AppearanceBinding {
             world,
             source,
             actor,
             cache,
+            stagger: StaggerTracker::default(),
+            animation_cursor,
         });
         Ok(())
     }
@@ -410,6 +726,16 @@ impl SkinnedActorNode {
         }
     }
 
+    fn take_animation_requests(&mut self) -> Vec<String> {
+        let Some(binding) = &mut self.appearance else {
+            return Vec::new();
+        };
+        let world = binding.world.borrow();
+        binding
+            .animation_cursor
+            .take_for(&world.animation_events, binding.actor)
+    }
+
     fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {
         let scenario = self.scenario().ok_or("actor has no rendering scenario")?;
         if self.model.is_empty() {
@@ -427,5 +753,40 @@ impl SkinnedActorNode {
         self.update_surface_stats();
         self.push_pose();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cmb_27_tests {
+    use super::{StaggerGraphEvent, StaggerTracker};
+
+    #[test]
+    fn cmb_27_stagger_deadline_sends_start_once_and_stop_at_expiry() {
+        let mut tracker = StaggerTracker::default();
+        assert_eq!(tracker.observe(None, 1.0), None);
+        assert_eq!(
+            tracker.observe(Some(2.0), 1.0),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(tracker.observe(Some(2.0), 1.5), None);
+        assert_eq!(
+            tracker.observe(Some(2.0), 2.0),
+            Some(StaggerGraphEvent::Stop)
+        );
+        assert_eq!(tracker.observe(Some(2.0), 2.1), None);
+    }
+
+    #[test]
+    fn cmb_27_a_new_hit_restarts_an_active_stagger_deadline_once() {
+        let mut tracker = StaggerTracker::default();
+        assert_eq!(
+            tracker.observe(Some(2.0), 1.0),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(
+            tracker.observe(Some(3.0), 1.5),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(tracker.observe(Some(3.0), 1.6), None);
     }
 }

@@ -7,6 +7,9 @@
 //! test at the end reads every `PACK` of the installed `Skyrim.esm` and
 //! evaluates the Prisoner's stack.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{self, AiState, Procedure};
@@ -928,17 +931,13 @@ fn the_driver_state_survives_a_save() {
 
 #[test]
 fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
     let started = std::time::Instant::now();
-    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
-    let mut order = LoadOrder::new();
-    order
-        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
-        .unwrap();
-    let game = Game::new(order);
+    let order = installed::load_order(&["Skyrim.esm"]).unwrap();
+    let game = Game::from_shared_order(order);
 
     let mut packages = 0usize;
     let mut templates = 0usize;
@@ -1107,21 +1106,18 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
 /// winning PACK record's VMAD subrecord.
 #[test]
 fn fmt_03_installed_pack_vmad_fragments_round_trip() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(format!("{data}/{name}")).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
+    ])
+    .unwrap();
 
     let mut with_fragments = 0;
     let mut saw_begin = false;

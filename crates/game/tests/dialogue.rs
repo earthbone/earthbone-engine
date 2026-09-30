@@ -4,6 +4,11 @@
 //! Conversations over authored DIAL groups, INFO conditions and VMAD fragments.
 //! Assertions cover quest state changes and response timing, not just parsing.
 
+#[path = "common/installed.rs"]
+mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::dialogue::Error;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
@@ -17,14 +22,17 @@ const SPEAKER: u32 = 0x100;
 const BASE: u32 = 0x500;
 const QUEST: u32 = 0x800;
 const OTHER_QUEST: u32 = 0x801;
+const GREETING_QUEST: u32 = 0x802;
 const TOPIC: u32 = 0x900;
 const LINKED_TOPIC: u32 = 0x901;
 const BLOCKING_TOPIC: u32 = 0x902;
 const EXCLUSIVE_A_TOPIC: u32 = 0x903;
 const EXCLUSIVE_B_TOPIC: u32 = 0x904;
 const OUTSIDE_TOPIC: u32 = 0x905;
+const GREETING_TOPIC: u32 = 0x906;
 const INFO: u32 = 0xA00;
 const SHARED: u32 = 0xA01;
+const GREETING_INFO: u32 = 0xA02;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -100,6 +108,35 @@ fn add_branch(plugin: &mut Plugin, topic: u32, quest: Vec<u8>, flags: u32) {
             .sub(T(b"DNAM"), flags.to_le_bytes())
             .sub(T(b"SNAM"), topic.to_le_bytes()),
     );
+}
+
+fn add_force_greet(plugin: &mut Plugin, priority: u8, condition: Option<Vec<u8>>) {
+    plugin.push_top(quest(GREETING_QUEST, priority));
+    let mut topic = topic(GREETING_TOPIC, GREETING_QUEST);
+    topic
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"SNAM"))
+        .unwrap()
+        .data = b"PFGT".to_vec();
+    add_branch(
+        plugin,
+        GREETING_TOPIC,
+        GREETING_QUEST.to_le_bytes().to_vec(),
+        1,
+    );
+    let mut greeting_info = info(GREETING_INFO, 0, &["Hello"], true);
+    if let Some(condition) = condition {
+        greeting_info = greeting_info.sub(T(b"CTDA"), condition);
+    }
+    let mut group = Group::new(GroupKind::Top(T(b"DIAL")));
+    group.entries.push(Entry::Record(plugin.push_record(topic)));
+    let mut children = Group::new(GroupKind::TopicChildren(GREETING_TOPIC));
+    children
+        .entries
+        .push(Entry::Record(plugin.push_record(greeting_info)));
+    group.entries.push(Entry::Group(children));
+    plugin.groups.push(group);
 }
 
 fn info(form: u32, flags: u16, lines: &[&str], scripts: bool) -> Record {
@@ -210,7 +247,11 @@ fn open(game: &mut Game) {
 }
 
 fn counter(game: &mut Game, variable: &str) -> i32 {
-    let object = game.object_of_form(id(INFO));
+    counter_on(game, INFO, variable)
+}
+
+fn counter_on(game: &mut Game, form: u32, variable: &str) -> i32 {
+    let object = game.object_of_form(id(form));
     game.vm
         .get_var(object, "TopicFragments", variable)
         .unwrap()
@@ -420,6 +461,52 @@ fn shared_response_data_does_not_transfer_fragments_or_ownership() {
     );
 }
 
+#[test]
+fn dlg_15_invisible_continue_chains_to_eligible_link_without_menu_or_replay() {
+    let first = info(INFO, 1 << 6, &["Continue"], true).sub(T(b"TCLT"), LINKED_TOPIC.to_le_bytes());
+    let ineligible =
+        info(INFO + 1, 0, &["Hidden"], true).sub(T(b"CTDA"), condition(72, BASE, 0.0, 0));
+    let eligible =
+        info(INFO + 2, 0, &["Follow-up"], true).sub(T(b"CTDA"), condition(72, BASE, 1.0, 0));
+    let mut plugin = plugin(vec![first]);
+    add_topic(
+        &mut plugin,
+        topic(LINKED_TOPIC, QUEST),
+        vec![ineligible, eligible],
+        false,
+    );
+    let mut game = game(plugin);
+    open(&mut game);
+
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.info, id(INFO));
+    let continuation = game.advance_dialogue().unwrap().unwrap();
+    assert_eq!(continuation.info, id(INFO + 2));
+    assert_eq!(continuation.text.as_deref(), Some("Follow-up"));
+    assert!(matches!(
+        game.dialogue_choices().unwrap_err(),
+        Error::State("response still playing")
+    ));
+
+    let fragment_count = |game: &mut Game, info: u32, variable: &str| {
+        let object = game.object_of_form(id(info));
+        game.vm
+            .get_var(object, "TopicFragments", variable)
+            .unwrap()
+            .as_int()
+    };
+    assert_eq!(fragment_count(&mut game, INFO, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO, "ends"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "ends"), 0);
+
+    assert!(game.advance_dialogue().unwrap().is_none());
+    assert_eq!(fragment_count(&mut game, INFO, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO, "ends"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "ends"), 1);
+}
+
 fn localized_table(text: &str, prefixed: bool) -> Vec<u8> {
     let mut data = Vec::new();
     if prefixed {
@@ -545,6 +632,81 @@ fn interrupted_response_does_not_run_end_fragment() {
     game.choose_dialogue(id(TOPIC)).unwrap();
     game.close_dialogue();
     assert_eq!(counter(&mut game, "ends"), 0);
+}
+
+#[test]
+fn dlg_21_higher_priority_eligible_greeting_interrupts_once_and_finishes_callbacks() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Current line"], true)]);
+    add_force_greet(&mut plugin, 80, None);
+    let mut game = game(plugin);
+    open(&mut game);
+    game.start_quest(id(GREETING_QUEST));
+    game.world_mut().drive_actor(id(SPEAKER));
+    game.choose_dialogue(id(TOPIC)).unwrap();
+
+    game.tick(0.0);
+    let (speaker, topic, current_info) = {
+        let world = game.world();
+        let session = world.dialogue_session().unwrap();
+        (session.speaker, session.topic, session.current_info)
+    };
+    assert_eq!(speaker, id(SPEAKER));
+    assert_eq!(topic, Some(id(GREETING_TOPIC)));
+    assert_eq!(current_info, Some(id(GREETING_INFO)));
+    assert_eq!(counter(&mut game, "ends"), 1);
+    assert_eq!(
+        game.world_mut()
+            .quest_state(id(GREETING_QUEST))
+            .unwrap()
+            .highest,
+        10
+    );
+    assert_eq!(counter_on(&mut game, GREETING_INFO, "begins"), 1);
+
+    game.tick(0.0);
+    assert_eq!(counter(&mut game, "ends"), 1);
+    assert_eq!(counter_on(&mut game, GREETING_INFO, "begins"), 1);
+    assert_eq!(
+        game.world_mut()
+            .quest_state(id(GREETING_QUEST))
+            .unwrap()
+            .highest,
+        10,
+        "the greeting edge must not replay its begin fragment"
+    );
+}
+
+#[test]
+fn dlg_21_lower_priority_or_ineligible_greeting_keeps_current_conversation() {
+    for (priority, greeting_condition) in [
+        (40, None),
+        (50, None),
+        (80, Some(condition(72, BASE + 1, 1.0, 0))),
+    ] {
+        let mut plugin = plugin(vec![info(INFO, 0, &["Current line"], true)]);
+        add_force_greet(&mut plugin, priority, greeting_condition);
+        let mut game = game(plugin);
+        open(&mut game);
+        game.start_quest(id(GREETING_QUEST));
+        game.world_mut().drive_actor(id(SPEAKER));
+        game.choose_dialogue(id(TOPIC)).unwrap();
+        game.tick(0.0);
+
+        {
+            let world = game.world();
+            let session = world.dialogue_session().unwrap();
+            assert_eq!(session.topic, Some(id(TOPIC)));
+            assert_eq!(session.current_info, Some(id(INFO)));
+        }
+        assert_eq!(counter(&mut game, "ends"), 0);
+        assert_eq!(
+            game.world_mut()
+                .quest_state(id(GREETING_QUEST))
+                .unwrap()
+                .highest,
+            0
+        );
+    }
 }
 
 #[test]
@@ -785,25 +947,18 @@ fn dlg_06_separate_interiors_do_not_share_dialogue_range() {
 
 #[test]
 fn dlg_06_installed_distance_record_drives_walk_away() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
-    let world = soe_game::World::new(order);
+    ])
+    .unwrap();
+    let world = soe_game::World::from_shared_order(order);
     let setting = world.form("fAIInDialogueModeWithPlayerDistance").unwrap();
     assert_eq!(
         world.game_setting("fAIInDialogueModeWithPlayerDistance"),
@@ -1151,7 +1306,13 @@ fn old_world_save_starts_without_dialogue_state() {
     let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
     let mut old = game.world().save_state();
     // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
-    old.truncate(old.len() - 67);
+    // The extra 6 bytes beyond the old 75 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. No actor or reference exists yet at this
+    // point, so neither carries its own section table to strip.
+    legacy::normalize_world_sections(&mut old);
+    old.truncate(old.len() - 81);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();
@@ -1554,22 +1715,19 @@ fn cell_and_location_keyword_conditions_follow_current_world_state() {
 
 #[test]
 fn installed_dialogue_preserves_ownership_fragments_and_order() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA unset, skipping installed dialogue survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let mut game = Game::new(order);
+    ])
+    .unwrap();
+    let mut game = Game::from_shared_order(order);
     let mut infos = 0;
     let mut fragments = 0;
     let mut topics = std::collections::BTreeSet::new();
@@ -1719,4 +1877,27 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
     for (reason, count) in rejected {
         eprintln!("  rejected {count}: {reason}");
     }
+}
+
+#[test]
+fn tst_14_dialogue_reuses_the_installed_parse_and_isolates_games() {
+    let masters = [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ];
+    let Some(order) = installed::load_order(&masters) else {
+        eprintln!("SKYRIM_DATA not set, skipping TST-14 installed parse check");
+        return;
+    };
+    let cached = installed::load_order(&masters).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&order, &cached));
+
+    let first = Game::from_shared_order(order);
+    let second = Game::from_shared_order(cached);
+    first.world_mut().perk_points = 9;
+    assert_eq!(first.world().perk_points, 9);
+    assert_eq!(second.world().perk_points, 0);
 }

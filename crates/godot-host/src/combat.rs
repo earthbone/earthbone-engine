@@ -4,10 +4,14 @@
 //! animation event tables. Spatial queries return the first obstruction.
 
 use soe_esm::GlobalFormId;
-use soe_game::combat::{Error, Hand, HitResult, MeleeHit};
+use soe_game::combat::{Error, FlightRequest, Hand, HitResult, MeleeHit};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
+use soe_hkx::skeleton::Skeleton;
+use soe_hkx::QsTransform;
+
+use crate::skinned::Affine;
 
 /// Convert decoded combat annotations to the graph's existing trigger model.
 /// The Havok clip flag 16 disables annotation conversion. Crop offsets follow
@@ -92,6 +96,57 @@ struct Swing {
 #[derive(Debug, Default)]
 pub struct MeleeContact {
     swing: Option<Swing>,
+}
+
+/// Armed bow or crossbow release, canceled without consuming ammunition.
+#[derive(Debug, Default)]
+pub struct RangedRelease {
+    shot: Option<(GlobalFormId, GlobalFormId)>,
+}
+
+impl RangedRelease {
+    /// Arm the actor's currently equipped bow or crossbow.
+    ///
+    /// # Errors
+    /// Missing ranged equipment or ammunition.
+    pub fn begin(&mut self, game: &mut Game, attacker: GlobalFormId) -> Result<(), Error> {
+        if self.shot.is_some() {
+            return Err(Error::Unsupported("projectile release already armed"));
+        }
+        let equipment = game.world_mut().ranged_equipment(attacker)?;
+        self.shot = Some((attacker, equipment.weapon));
+        Ok(())
+    }
+
+    /// Cancel a draw before its release event.
+    pub fn cancel(&mut self) {
+        self.shot = None;
+    }
+
+    /// Consume the armed shot only when the authored bow release event arrives.
+    ///
+    /// # Errors
+    /// Equipment changed or the game rejected the release transaction.
+    pub fn event(
+        &mut self,
+        game: &mut Game,
+        name: &str,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<Option<FlightRequest>, Error> {
+        if name == "attackStop" || name == "bowCancel" {
+            self.cancel();
+            return Ok(None);
+        }
+        if name != "bowRelease" {
+            return Ok(None);
+        }
+        let Some((attacker, weapon)) = self.shot.take() else {
+            return Ok(None);
+        };
+        game.release_projectile(attacker, weapon, origin, direction)
+            .map(Some)
+    }
 }
 
 impl MeleeContact {
@@ -184,6 +239,29 @@ pub fn weapon_bones(hand: Hand) -> &'static [&'static str] {
         Hand::Right => &["WEAPON", "Weapon", "NPC R Hand [RHnd]"],
         Hand::Left => &["SHIELD", "Shield", "NPC L Hand [LHnd]"],
     }
+}
+
+/// Find the armed weapon node in an animated model pose and convert its
+/// transform to Godot axes and metres. The pose is the same model-space buffer
+/// used to skin the actor, before inverse bind transforms are applied.
+///
+/// # Errors
+/// The rig has no weapon or hand node, or the pose is missing that bone.
+pub fn posed_weapon_bone(
+    skeleton: &Skeleton,
+    model: &[QsTransform],
+    hand: Hand,
+) -> Result<Affine, Error> {
+    let index = weapon_bones(hand)
+        .iter()
+        .find_map(|name| skeleton.bone_index(name))
+        .ok_or(Error::Unsupported(
+            "rig has no weapon bone for the swing hand",
+        ))?;
+    let pose = model
+        .get(index)
+        .ok_or(Error::Unsupported("animated weapon bone has no pose"))?;
+    Ok(Affine::from_qs(pose).to_godot())
 }
 
 /// A swing's blade as a segment from the weapon node's origin along its

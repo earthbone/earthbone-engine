@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "common/installed.rs"]
+mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
@@ -162,10 +167,14 @@ fn invalid_apply_and_pop_leave_the_existing_stack_unchanged() {
 fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     let mut game = game();
     let mut legacy = game.world().save_state();
+    legacy::normalize_world_sections(&mut legacy);
     // Version 24 is the last one written without an image-space block.
     legacy[4..6].copy_from_slice(&24u16.to_le_bytes());
-    // Drop the image-space block and the loose-item and zone blocks after it.
-    legacy.truncate(legacy.len() - 21);
+    // Drop the image-space block and the loose-item and zone blocks after it,
+    // plus detection's now-unconditional empty pool count (4 bytes) and the
+    // world-level save-section table version 37 added (2 bytes), both always
+    // present at the tail regardless of the simulated version.
+    legacy.truncate(legacy.len() - 35);
     game.world_mut()
         .crossfade_image_space(Some(id(1)), 0.0)
         .unwrap();
@@ -176,7 +185,7 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     let before = game.world().save_state();
     let mut corrupt = before.clone();
     // The fade duration ends eight bytes before the loose-item and zone blocks.
-    let offset = corrupt.len() - 12;
+    let offset = corrupt.len() - 16;
     corrupt[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(game.world_mut().load_state(&corrupt).is_err());
     assert_eq!(game.world().save_state(), before);
@@ -186,25 +195,17 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
 
 #[test]
 fn installed_imad_lifetimes_are_read_from_winning_records() {
-    let Ok(path) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_path) = std::env::var("SKYRIM_DATA") else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for file in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                file,
-                Plugin::parse(&std::fs::read(std::path::Path::new(&path).join(file)).unwrap())
-                    .unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let ids: Vec<_> = order
         .winners_of(Tag::new(b"IMAD"))
         .filter(|(_, record)| record.flags & 0x20 == 0)
@@ -214,7 +215,7 @@ fn installed_imad_lifetimes_are_read_from_winning_records() {
         !ids.is_empty(),
         "installed masters must contain IMAD records"
     );
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     for &id in &ids {
         game.world_mut().apply_image_space(id, 1.0).unwrap();
     }

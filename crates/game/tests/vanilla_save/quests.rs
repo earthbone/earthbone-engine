@@ -301,10 +301,15 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
         .journal
         .update_global(id(3, 0x800), -0.0);
     let mut bytes = game.world().save_state();
+    legacy::normalize_world_sections(&mut bytes);
     // CONTEXT: One quest extension: count, FormID, empty runtime, and one
     // journal instance with a single global and no alias text.
     let extension_bytes = 4 + 6 + 6 + 8 + 4 + 2 + 1 + 4 + 4 + 6 + 4;
-    bytes.truncate(bytes.len() - extension_bytes - 42);
+    // The extra 6 bytes beyond the old 50 are detection's now-unconditional
+    // empty pool count and the world-level save-section table version 37
+    // added, both always present at the tail regardless of the simulated
+    // version.
+    bytes.truncate(bytes.len() - extension_bytes - 56);
     bytes[4..6].copy_from_slice(&10_u16.to_le_bytes());
     let restored = fixture();
     restored.world_mut().load_state(&bytes).unwrap();
@@ -323,28 +328,21 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
 
 #[test]
 fn installed_quests_restore_stages_objectives_aliases_and_all_journal_instances() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping quest restoration corpus");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

@@ -7,8 +7,16 @@ use soe_game::world::World;
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
 /// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added. It also strips AI fields added in versions
-/// 37, 41, 42 and 43, so older headers see their matching actor layout.
+/// spell fields version 32 added, as well as the post-version-33 AI section.
+/// It also strips the named save-section table
+/// version 37 appends to the actor's own record and, since `World::actor`
+/// requires a paired reference (`self.reference(id)` with `is_actor` set), to
+/// that reference's record too, so both records end exactly where a
+/// pre-version-37 writer would have left them.
+///
+/// This file is pulled into many test binaries through `#[path]`, and each
+/// binary compiles its own copy. Only some of them call this particular
+/// helper, so the others see it as unused under `-D warnings`.
 #[allow(dead_code)]
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
@@ -46,20 +54,18 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             object: 0xC000_0000 + index as u32,
         };
         actor.right_spell = Some(right_spell_sentinel);
-        let bed_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xA000_0000 + index as u32,
-        };
-        let found_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xA100_0000 + index as u32,
-        };
-        let prior_bed = actor.ai.bed.replace(bed_sentinel);
-        let prior_force_greet = std::mem::replace(&mut actor.ai.force_greet_started, true);
-        let prior_activate = std::mem::replace(&mut actor.ai.activate_started, true);
-        let prior_found = actor.ai.found_reference.replace(found_sentinel);
-        let prior_dialogue_activate =
-            std::mem::replace(&mut actor.ai.dialogue_activate_started, true);
+
+        // Every actor built through the public API has a paired reference
+        // (`World::actor` requires `self.reference(id)` to already report
+        // `is_actor`), and that reference's own record also ends with a
+        // version 37 save-section table. `alpha` is the reference's last
+        // field before that table, so a unique value here locates it the
+        // same way the actor sentinels above locate the actor's own table.
+        let reference = world.reference(*id).unwrap();
+        let prior_alpha = reference.alpha;
+        let alpha_sentinel = 700_000.0 + index as f32;
+        reference.alpha = alpha_sentinel;
+
         saved.push(Saved {
             id: *id,
             prior_branch,
@@ -72,13 +78,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             left_spell_sentinel,
             prior_right_spell,
             right_spell_sentinel,
-            prior_bed,
-            bed_sentinel,
-            prior_force_greet,
-            prior_activate,
-            prior_found,
-            found_sentinel,
-            prior_dialogue_activate,
+            prior_alpha,
+            alpha_sentinel,
         });
     }
     let mut bytes = world.save_state();
@@ -89,11 +90,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         actor.witnessed_crimes = std::mem::take(&mut entry.prior_witnessed);
         actor.left_spell = entry.prior_left_spell;
         actor.right_spell = entry.prior_right_spell;
-        actor.ai.bed = entry.prior_bed;
-        actor.ai.force_greet_started = entry.prior_force_greet;
-        actor.ai.activate_started = entry.prior_activate;
-        actor.ai.found_reference = entry.prior_found;
-        actor.ai.dialogue_activate_started = entry.prior_dialogue_activate;
+        world.reference(entry.id).unwrap().alpha = entry.prior_alpha;
     }
     assert_eq!(
         world.state_hash(),
@@ -107,9 +104,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         witness_sentinel,
         left_spell_sentinel,
         right_spell_sentinel,
-        prior_bed,
-        bed_sentinel,
-        found_sentinel,
+        prior_alpha,
+        alpha_sentinel,
         ..
     } in saved
     {
@@ -122,7 +118,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             .filter_map(|(offset, window)| (window == marker).then_some(offset))
             .collect();
         assert_eq!(offsets.len(), 1, "exclusive sentinel is not unique");
-        fields.push((offsets[0], marker.len(), Vec::new()));
+        fields.push((offsets[0], marker.len()));
 
         let mut stagger_marker = vec![1];
         stagger_marker.extend_from_slice(&stagger_sentinel.to_le_bytes());
@@ -132,7 +128,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             .filter_map(|(offset, window)| (window == stagger_marker).then_some(offset))
             .collect();
         assert_eq!(stagger_offsets.len(), 1, "stagger sentinel is not unique");
-        fields.push((stagger_offsets[0], stagger_marker.len(), Vec::new()));
+        fields.push((stagger_offsets[0], stagger_marker.len()));
 
         let mut witness_marker = 1u32.to_le_bytes().to_vec();
         witness_marker.extend_from_slice(&witness_sentinel.file.to_le_bytes());
@@ -143,7 +139,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             .filter_map(|(offset, window)| (window == witness_marker).then_some(offset))
             .collect();
         assert_eq!(witness_offsets.len(), 1, "witness sentinel is not unique");
-        fields.push((witness_offsets[0], witness_marker.len(), Vec::new()));
+        fields.push((witness_offsets[0], witness_marker.len()));
 
         let mut left_spell_marker = vec![1];
         left_spell_marker.extend_from_slice(&left_spell_sentinel.file.to_le_bytes());
@@ -158,7 +154,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             1,
             "left spell sentinel is not unique"
         );
-        fields.push((left_spell_offsets[0], left_spell_marker.len(), Vec::new()));
+        fields.push((left_spell_offsets[0], left_spell_marker.len()));
 
         let mut right_spell_marker = vec![1];
         right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
@@ -173,123 +169,159 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             1,
             "right spell sentinel is not unique"
         );
-        fields.push((right_spell_offsets[0], right_spell_marker.len(), Vec::new()));
+        fields.push((right_spell_offsets[0], right_spell_marker.len()));
 
-        let mut found_marker = optional_form_bytes(Some(found_sentinel));
-        found_marker.push(1);
-        let found_at = bytes
-            .windows(found_marker.len())
-            .position(|window| window == found_marker)
-            .expect("Find and DialogueActivate sentinel is serialized");
-        fields.push((found_at, found_marker.len(), Vec::new()));
+        // The right spell field is immediately followed by this actor's
+        // named save-section table, which a pre-version-37 writer never
+        // emitted. Read each length so this stays correct as sections are
+        // added to the actor registry.
+        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((table_offset, section_table_len(&bytes, table_offset)));
 
-        let bed_marker = optional_form_bytes(Some(bed_sentinel));
-        let bed_at = bytes
-            .windows(bed_marker.len())
-            .position(|window| window == bed_marker)
-            .expect("bed sentinel is serialized");
-        assert_eq!(&bytes[bed_at - 3..bed_at - 1], &[1, 1]);
-        fields.push((bed_at - 3, 2, Vec::new()));
-        fields.push((bed_at, bed_marker.len(), optional_form_bytes(prior_bed)));
+        // `alpha` itself is not version gated, so unlike the fields above
+        // it must stay in the stream with its true value. Only the named
+        // save-section table that follows it is a version 37 addition and
+        // gets stripped. The marker bytes are overwritten back to
+        // `prior_alpha` in place rather than added to `fields`.
+        let alpha_marker = alpha_sentinel.to_le_bytes().to_vec();
+        let alpha_offsets: Vec<_> = bytes
+            .windows(alpha_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == alpha_marker).then_some(offset))
+            .collect();
+        assert_eq!(alpha_offsets.len(), 1, "alpha sentinel is not unique");
+        let alpha_offset = alpha_offsets[0];
+        bytes[alpha_offset..alpha_offset + alpha_marker.len()]
+            .copy_from_slice(&prior_alpha.to_le_bytes());
+        let reference_table = alpha_offset + alpha_marker.len();
+        fields.push((reference_table, section_table_len(&bytes, reference_table)));
     }
-    fields.sort_by_key(|(offset, _, _)| std::cmp::Reverse(*offset));
-    for (offset, len, replacement) in fields {
-        bytes.splice(offset..offset + len, replacement);
+    fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
+    for (offset, len) in fields {
+        bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
-fn optional_form_bytes(id: Option<GlobalFormId>) -> Vec<u8> {
-    let mut bytes = vec![u8::from(id.is_some())];
-    if let Some(id) = id {
-        bytes.extend_from_slice(&id.file.to_le_bytes());
-        bytes.extend_from_slice(&id.object.to_le_bytes());
-    }
-    bytes
-}
-
-/// Remove the AI fields added after SOEW version 33 while keeping other state.
+/// Strip the post-version-33 AI section and the paired reference sections
+/// while retaining the actor fields used by version 28 and later fixtures.
 #[allow(dead_code)]
 pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
+    without_ref_sections(world, actors)
+}
+
+/// Strip the named save-section table version 37 appends to a standalone
+/// reference's own record. `without_exclusive_branches` only locates this
+/// table for a reference paired with an actor, through the actor's own
+/// alpha value. A fixture that materializes a bare reference, such as an
+/// authored loose item never turned into an actor, calls this instead
+/// before truncating the rest of the buffer to an older header. Order does
+/// not matter, an empty slice is a no-op that still round trips the state.
+///
+/// Same cross-binary sharing as `without_exclusive_branches` above: only the
+/// binaries that fixture a bare reference call this one.
+#[allow(dead_code)]
+pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
     let mut saved = Vec::new();
-    for (index, id) in actors.iter().enumerate() {
-        let actor = world
-            .actor(*id)
-            .expect("legacy fixture actor is initialized");
-        let bed_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xA200_0000 + index as u32,
-        };
-        let found_sentinel = GlobalFormId {
-            file: u16::MAX,
-            object: 0xA300_0000 + index as u32,
-        };
-        let prior_bed = actor.ai.bed.replace(bed_sentinel);
-        let prior_force = std::mem::replace(&mut actor.ai.force_greet_started, true);
-        let prior_activate = std::mem::replace(&mut actor.ai.activate_started, true);
-        let prior_found = actor.ai.found_reference.replace(found_sentinel);
-        let prior_dialogue = std::mem::replace(&mut actor.ai.dialogue_activate_started, true);
-        saved.push((
-            *id,
-            bed_sentinel,
-            prior_bed,
-            prior_force,
-            prior_activate,
-            found_sentinel,
-            prior_found,
-            prior_dialogue,
-        ));
+    for (index, id) in refs.iter().enumerate() {
+        let reference = world.reference(*id).unwrap();
+        let prior_alpha = reference.alpha;
+        let alpha_sentinel = 800_000.0 + index as f32;
+        reference.alpha = alpha_sentinel;
+        saved.push((*id, prior_alpha, alpha_sentinel));
     }
     let mut bytes = world.save_state();
-    let mut fields = Vec::new();
-    for (
-        id,
-        bed_sentinel,
-        prior_bed,
-        prior_force,
-        prior_activate,
-        found_sentinel,
-        prior_found,
-        prior_dialogue,
-    ) in saved
-    {
-        let actor = world
-            .actor(id)
-            .expect("legacy fixture actor is initialized");
-        actor.ai.bed = prior_bed;
-        actor.ai.force_greet_started = prior_force;
-        actor.ai.activate_started = prior_activate;
-        actor.ai.found_reference = prior_found;
-        actor.ai.dialogue_activate_started = prior_dialogue;
-
-        let mut found_marker = optional_form_bytes(Some(found_sentinel));
-        found_marker.push(1);
-        let found_at = bytes
-            .windows(found_marker.len())
-            .position(|window| window == found_marker)
-            .expect("Find and DialogueActivate sentinel is serialized");
-        fields.push((found_at, found_marker.len(), Vec::new()));
-
-        let bed_marker = optional_form_bytes(Some(bed_sentinel));
-        let bed_at = bytes
-            .windows(bed_marker.len())
-            .position(|window| window == bed_marker)
-            .expect("bed sentinel is serialized");
-        assert_eq!(&bytes[bed_at - 3..bed_at - 1], &[1, 1]);
-        fields.push((bed_at - 3, 2, Vec::new()));
-        fields.push((bed_at, bed_marker.len(), optional_form_bytes(prior_bed)));
+    for (id, prior_alpha, _) in &saved {
+        world.reference(*id).unwrap().alpha = *prior_alpha;
     }
     assert_eq!(
         world.state_hash(),
         hash,
         "legacy fixture changed world state"
     );
-    fields.sort_by_key(|(offset, _, _)| std::cmp::Reverse(*offset));
-    for (offset, len, replacement) in fields {
-        bytes.splice(offset..offset + len, replacement);
+    let mut offsets = Vec::new();
+    for (_, prior_alpha, alpha_sentinel) in saved {
+        let marker = alpha_sentinel.to_le_bytes().to_vec();
+        let found: Vec<_> = bytes
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker).then_some(offset))
+            .collect();
+        assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
+        let offset = found[0];
+        bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
+        let table = offset + marker.len();
+        offsets.push((table, section_table_len(&bytes, table)));
     }
+    offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
+    for (offset, len) in offsets {
+        bytes.drain(offset..offset + len);
+    }
+    normalize_world_sections(&mut bytes);
     bytes
+}
+
+#[allow(dead_code)]
+pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
+    let count = usize::from(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
+    let mut cursor = start + 2;
+    for _ in 0..count {
+        let name_len = usize::from(bytes[cursor]);
+        cursor += 1 + name_len;
+        let payload_len = u32::from_le_bytes([
+            bytes[cursor],
+            bytes[cursor + 1],
+            bytes[cursor + 2],
+            bytes[cursor + 3],
+        ]) as usize;
+        cursor += 4 + payload_len;
+    }
+    cursor - start
+}
+
+/// Remove the world save-section table appended at the end of a version 37
+/// save when constructing a pre-version-37 fixture.
+#[allow(dead_code)]
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
+    let start = (0..bytes.len())
+        .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
+        .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
+    bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+}
+
+#[allow(dead_code)]
+fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    let count = usize::from(u16::from_le_bytes([
+        *bytes.get(cursor)?,
+        *bytes.get(cursor.checked_add(1)?)?,
+    ]));
+    cursor = cursor.checked_add(2)?;
+    for _ in 0..count {
+        let name_len = usize::from(*bytes.get(cursor)?);
+        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let payload_len = usize::try_from(u32::from_le_bytes([
+            *bytes.get(cursor)?,
+            *bytes.get(cursor.checked_add(1)?)?,
+            *bytes.get(cursor.checked_add(2)?)?,
+            *bytes.get(cursor.checked_add(3)?)?,
+        ]))
+        .ok()?;
+        cursor = cursor.checked_add(4)?.checked_add(payload_len)?;
+        if cursor > bytes.len() {
+            return None;
+        }
+    }
+    Some(cursor)
 }
 
 /// One actor's replaced fields and the sentinels written in their place.
@@ -305,11 +337,6 @@ struct Saved {
     left_spell_sentinel: GlobalFormId,
     prior_right_spell: Option<GlobalFormId>,
     right_spell_sentinel: GlobalFormId,
-    prior_bed: Option<GlobalFormId>,
-    bed_sentinel: GlobalFormId,
-    prior_force_greet: bool,
-    prior_activate: bool,
-    prior_found: Option<GlobalFormId>,
-    found_sentinel: GlobalFormId,
-    prior_dialogue_activate: bool,
+    prior_alpha: f32,
+    alpha_sentinel: f32,
 }

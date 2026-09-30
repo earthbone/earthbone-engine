@@ -94,6 +94,8 @@ fn observation(observer: GlobalFormId, target: GlobalFormId, action_sound: f32) 
         light_level: 0.0,
         motion: Motion::Still,
         action_sound,
+        action_sound_distance: None,
+        action_sound_line_of_sight: None,
     }
 }
 

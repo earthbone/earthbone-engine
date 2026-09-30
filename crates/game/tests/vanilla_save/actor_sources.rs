@@ -250,7 +250,7 @@ fn inline_npc_changes_are_private_and_unknown_selection_level_is_not_written_as_
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.state_hash(), world.state_hash());
     let mut old = bytes;
-    old.truncate(old.len() - 42);
+    old.truncate(old.len() - 46);
     old[4..6].copy_from_slice(&11_u16.to_le_bytes());
     assert!(
         loaded.load_state(&old).is_err(),
@@ -260,27 +260,20 @@ fn inline_npc_changes_are_private_and_unknown_selection_level_is_not_written_as_
 
 #[test]
 fn installed_saved_actor_choices_restore_without_rerolling_and_persist() {
-    let (Some(data), Some(corpus_dir)) = (
+    let (Some(_data), Some(corpus_dir)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&corpus_dir), &mut paths);

@@ -19,12 +19,13 @@
 // index. The unwraps below state those invariants, a broken one is a VM bug.
 #![allow(clippy::unwrap_used)]
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
 use crate::pex::{Function, Object, Opcode, Operand, Script};
-use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
+use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
 
 /// The most elements `ArrayCreate` will allocate.
 ///
@@ -264,6 +265,10 @@ impl NativeRegistry {
 /// them.
 struct LoadedScript {
     name: String,
+    game_id: u16,
+    major: u8,
+    minor: u8,
+    source_fingerprint: Option<[u8; 32]>,
     parent: Option<String>,
     object: Object,
     conditional_mask: u32,
@@ -374,6 +379,10 @@ impl Vm {
     // ----- loading -----
 
     pub fn load(&mut self, script: Script) {
+        self.load_with_fingerprint(script, None);
+    }
+
+    fn load_with_fingerprint(&mut self, script: Script, source_fingerprint: Option<[u8; 32]>) {
         // A new script set needs a fresh coverage denominator.
         self.coverage = None;
         let conditional_mask = script
@@ -410,6 +419,10 @@ impl Vm {
             };
             let loaded = LoadedScript {
                 name: name.clone(),
+                game_id: script.header.game_id,
+                major: script.header.major,
+                minor: script.header.minor,
+                source_fingerprint,
                 parent,
                 object,
                 conditional_mask,
@@ -424,8 +437,22 @@ impl Vm {
 
     pub fn load_bytes(&mut self, data: &[u8]) -> Result<(), VmError> {
         let script = crate::pex::parse(data).map_err(|e| VmError::Pex(e.to_string()))?;
-        self.load(script);
+        self.load_with_fingerprint(script, Some(Sha256::digest(data).into()));
         Ok(())
+    }
+
+    /// Loaded script names and SHA-256 PEX source fingerprints, sorted by
+    /// case-insensitive name. `None` means the script was loaded as a `Script`
+    /// value and its original source bytes are unknown.
+    #[must_use]
+    pub fn loaded_script_fingerprints(&self) -> Vec<(String, Option<[u8; 32]>)> {
+        let mut scripts: Vec<_> = self
+            .scripts
+            .values()
+            .map(|script| (script.name.clone(), script.source_fingerprint))
+            .collect();
+        scripts.sort_by_key(|entry| entry.0.to_ascii_lowercase());
+        scripts
     }
 
     pub fn has_script(&self, name: &str) -> bool {
@@ -931,6 +958,7 @@ impl Vm {
                 let parts: Vec<String> = items.iter().map(|v| self.describe(v)).collect();
                 format!("[{}]", parts.join(", "))
             }
+            Value::Struct(s) => format!("[Struct {}]", s.name),
             other => other.to_string(),
         }
     }

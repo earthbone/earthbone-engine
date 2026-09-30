@@ -10,6 +10,37 @@ use soe_esm::GlobalFormId;
 use super::{Alloc, Handle, Pending, World, T};
 
 impl World {
+    /// Resolve a lockpick attempt made by an interaction UI.
+    ///
+    /// A successful attempt unlocks the reference. A failed attempt consumes
+    /// one lockpick when the activator has one. Key-only locks cannot be
+    /// picked.
+    pub fn resolve_lockpick(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        success: bool,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        let lockpick = self.form("Lockpick");
+        let Some(lockpick) = lockpick else {
+            return false;
+        };
+        let can_pick = self
+            .reference(target)
+            .is_some_and(|reference| reference.locked && reference.lock_level != 255);
+        if !can_pick || self.item_count(activator, lockpick) <= 0 {
+            return false;
+        }
+        if success {
+            self.set_locked(target, false, alloc);
+            true
+        } else {
+            self.remove_item(activator, lockpick, 1, None);
+            false
+        }
+    }
+
     /// A restored key overrides XLOC, including an explicitly absent key.
     pub fn key(&self, reference: GlobalFormId) -> Option<GlobalFormId> {
         if let Some(lock) = self.refs.get(&reference).and_then(|state| state.lock_extra) {

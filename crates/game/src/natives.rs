@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -451,6 +451,18 @@ fn form(vm: &mut Vm, w: &Shared) {
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "CreateDetectionEvent",
+        |world, call, me| {
+            if let Some(owner) = world.form_arg(&call.arg(0)) {
+                world.create_detection_event(me, owner, call.arg(1).as_int());
+            }
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             if let Some(r) = world.reference(me) {
@@ -1717,6 +1729,13 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "AdvanceSkill", |world, call| {
+        let skill = text(&call.arg(0));
+        let magnitude = call.arg(1).as_float();
+        let player = world.player();
+        let _ = world.advance_skill(player, &skill, magnitude);
+        none()
     });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
@@ -3322,7 +3341,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
-        ("ObjectReference", "CreateDetectionEvent"),
         ("ObjectReference", "TranslateTo"),
         ("ObjectReference", "SplineTranslateTo"),
         ("ObjectReference", "StopTranslation"),
@@ -3374,7 +3392,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
-        ("Game", "AdvanceSkill"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),

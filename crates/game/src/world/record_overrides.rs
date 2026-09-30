@@ -19,6 +19,30 @@ pub struct NpcRecordExtra {
     pub pending_form_flags: Option<(u32, u16)>,
 }
 
+/// Saved list fields that have no plugin subrecord equivalent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub section_present: bool,
+    pub entry_chances: Vec<u8>,
+}
+
+/// Saved change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PackRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub waiting: bool,
+    pub never_run: bool,
+}
+
+/// Saved NAVM change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NavmeshRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -28,6 +52,9 @@ pub(super) struct RecordOverride {
     pub links: BTreeMap<u32, GlobalFormId>,
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
+    pub list: Option<ListRecordExtra>,
+    pub pack: Option<PackRecordExtra>,
+    pub navmesh: Option<NavmeshRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -51,6 +78,9 @@ impl RecordOverride {
             links: BTreeMap::new(),
             plain_full: false,
             npc: NpcRecordExtra::default(),
+            list: None,
+            pack: None,
+            navmesh: None,
         }
     }
 
@@ -106,5 +136,19 @@ impl World {
 
     pub fn restored_npc_extra(&self, id: GlobalFormId) -> Option<&NpcRecordExtra> {
         self.record_overrides.get(&id).map(|record| &record.npc)
+    }
+
+    pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
+        self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved PACK markers used by package consumers.
+    pub fn restored_pack_extra(&self, id: GlobalFormId) -> Option<PackRecordExtra> {
+        self.record_overrides.get(&id)?.pack
+    }
+
+    /// Saved NAVM markers used by navmesh consumers.
+    pub fn restored_navmesh_extra(&self, id: GlobalFormId) -> Option<NavmeshRecordExtra> {
+        self.record_overrides.get(&id)?.navmesh
     }
 }

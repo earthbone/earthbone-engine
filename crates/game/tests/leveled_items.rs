@@ -3,6 +3,9 @@
 
 //! Ordinary LVLI quantities, deterministic choices and atomic rejection.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
 use std::collections::BTreeMap;
@@ -360,25 +363,18 @@ fn use_all_outranks_special_loot_in_every_mixed_combination() {
 
 #[test]
 fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping leveled item survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let lists: Vec<_> = order
         .winners_of(T(b"LVLI"))
         .filter(|(_, record)| !record.is_deleted())
@@ -400,7 +396,7 @@ fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
         "expected authored Special Loot coverage"
     );
     let mut special_resolved = 0;
-    let mut world = World::new(order);
+    let mut world = World::from_shared_order(order);
     let mut resolved = 0;
     let mut boundaries = BTreeMap::new();
     for id in &lists {

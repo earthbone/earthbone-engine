@@ -12,11 +12,44 @@ use soe_papyrus::{Value, VmError};
 use super::save::{read_form_id, write_form_id, FormReader};
 use super::World;
 use crate::detection::{
-    Awareness, DetectionLevel, DetectionSettings, DetectionState, Error, Observation, Senses,
-    StealthPool,
+    Awareness, DetectionEvent, DetectionLevel, DetectionSettings, DetectionState, Error,
+    Observation, Senses, StealthPool,
 };
 
 impl World {
+    /// Queue a sound at `source` for the next host detection step.
+    /// The CK permits levels above 100, and a separate actor may own the sound.
+    /// Invalid actors, references and negative levels leave the queue unchanged.
+    pub fn create_detection_event(
+        &mut self,
+        source: GlobalFormId,
+        owner: GlobalFormId,
+        sound_level: i32,
+    ) -> bool {
+        if sound_level < 0 || self.tag_of(owner) != Some(super::T(b"ACHR")) {
+            return false;
+        }
+        let Some(reference) = self.reference(source) else {
+            return false;
+        };
+        let (Some(cell), true) = (reference.cell, reference.enabled && !reference.deleted) else {
+            return false;
+        };
+        let position = reference.position;
+        self.detection_events.push(DetectionEvent {
+            owner,
+            cell,
+            position,
+            sound_level: sound_level as f32,
+        });
+        true
+    }
+
+    /// Take the sounds emitted since the previous observation step.
+    pub fn take_detection_events(&mut self) -> Vec<DetectionEvent> {
+        std::mem::take(&mut self.detection_events)
+    }
+
     /// Detection settings from the load order's GMST records.
     ///
     /// # Errors
@@ -71,7 +104,12 @@ impl World {
         let settings = self.detection_settings()?;
         let mut pairs = BTreeSet::new();
         for o in observations {
-            let numbers = [o.distance, o.light_level, o.action_sound];
+            let numbers = [
+                o.distance,
+                o.light_level,
+                o.action_sound,
+                o.action_sound_distance.unwrap_or(0.0),
+            ];
             if numbers.iter().any(|n| !n.is_finite() || *n < 0.0) {
                 return Err(Error::Observation);
             }
@@ -173,12 +211,12 @@ impl World {
         })
     }
 
-    /// Writes the version 30 block, which is omitted while no pool exists
-    /// so a world without detection keeps the version 29 body bytes.
+    /// Writes the detection block, always as an explicit pool count. Versions
+    /// 30 to 36 instead omit the whole block while no pool exists, relying on
+    /// detection being the last thing in the stream. That stops holding once
+    /// a save section table can follow it, so this write is unconditional
+    /// and `read_detection` picks the right reading by version.
     pub(super) fn write_detection(&self, out: &mut Writer) {
-        if self.detection.pools.is_empty() {
-            return;
-        }
         out.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
             write_form_id(out, *target);
@@ -195,18 +233,29 @@ impl World {
     }
 }
 
-/// Read the version 30 detection block. An absent block is an empty state,
-/// and a present one must hold at least one pool so each state has a single
-/// encoding. Actor identities are checked by the caller once references are
-/// known.
-pub(super) fn read_detection(input: &mut FormReader<'_, '_>) -> Result<DetectionState, VmError> {
+/// Read the version 30 detection block.
+///
+/// Versions 30 to 36 write nothing at all when there is no pool, so an
+/// absent block reads back as the default state, and a present one must
+/// hold at least one pool so each state has a single encoding. That relies
+/// on detection being the last thing in the stream, which stopped holding
+/// once a save section table could follow it, so version 37 onward instead
+/// writes an explicit pool count, zero included, and reads it unconditionally.
+/// Actor identities are checked by the caller once references are known.
+pub(super) fn read_detection(
+    input: &mut FormReader<'_, '_>,
+    version: u16,
+) -> Result<DetectionState, VmError> {
     let bad = || VmError::State("invalid detection state".into());
     let mut state = DetectionState::default();
-    if input.remaining() == 0 {
+    if version < 37 && input.remaining() == 0 {
         return Ok(state);
     }
     let pools = input.len()?;
     if pools == 0 {
+        if version >= 37 {
+            return Ok(state);
+        }
         return Err(bad());
     }
     for _ in 0..pools {

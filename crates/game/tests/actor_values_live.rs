@@ -4,9 +4,12 @@
 //! Survey winning NPC and race inputs in the five shipped masters.
 //! This checks authored inputs, not agreement with running Skyrim.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::{collections::BTreeMap, path::PathBuf};
 
-use soe_esm::{LoadOrder, Plugin, Tag};
+use soe_esm::Tag;
 use soe_game::{
     npc::{self, Npc},
     race::Attributes,
@@ -15,22 +18,19 @@ use soe_game::{
 
 #[test]
 fn installed_actor_value_sources() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping actor-value survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let game = Game::new(order);
+    ])
+    .unwrap();
+    let game = Game::from_shared_order(order);
     let world = game.world();
     let mut races = 0;
     let mut sizes = BTreeMap::<usize, usize>::new();

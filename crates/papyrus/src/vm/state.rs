@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::pex::Function;
-use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
+use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
 
 use super::coverage::{key_of, FunctionKind as FnKey};
 
@@ -30,7 +30,7 @@ use super::{
 };
 
 pub const MAGIC: &[u8; 4] = b"SOEV";
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 
 /// Little-endian byte writer.
 #[derive(Default)]
@@ -243,6 +243,13 @@ impl ArrayPool {
         for v in &items {
             if let Value::Array(inner) = v {
                 self.intern(inner);
+            } else if let Value::Struct(s) = v {
+                let fields: Vec<Value> = s.fields.borrow().values().cloned().collect();
+                for field in &fields {
+                    if let Value::Array(inner) = field {
+                        self.intern(inner);
+                    }
+                }
             }
         }
         i
@@ -276,6 +283,16 @@ impl ArrayPool {
                 let i = self.intern(a);
                 w.u8(6);
                 w.u32(i);
+            }
+            Value::Struct(s) => {
+                w.u8(7);
+                w.str(&s.name);
+                let fields = s.fields.borrow();
+                w.len(fields.len());
+                for (name, value) in fields.iter() {
+                    w.str(name);
+                    self.write_value(w, value);
+                }
             }
         }
     }
@@ -364,6 +381,18 @@ impl ArrayTable {
                     .ok_or_else(|| bad(&format!("array {i} is not in the pool")))?;
                 Value::Array(a.clone())
             }
+            7 => {
+                let name = r.str()?;
+                let count = r.len()?;
+                let mut fields = std::collections::BTreeMap::new();
+                for _ in 0..count {
+                    let field = r.str()?;
+                    if fields.insert(field, self.read_value(r)?).is_some() {
+                        return Err(bad("duplicate struct member"));
+                    }
+                }
+                Value::Struct(StructRef::new(name, fields))
+            }
             other => return Err(bad(&format!("unknown value tag {other}"))),
         })
     }
@@ -380,6 +409,14 @@ fn skip_value(r: &mut Reader<'_>) -> Result<(), VmError> {
         }
         3 | 4 | 6 => {
             r.u32()?;
+        }
+        7 => {
+            r.str()?;
+            let count = r.len()?;
+            for _ in 0..count {
+                r.str()?;
+                skip_value(r)?;
+            }
         }
         5 => {
             r.u8()?;

@@ -12,8 +12,10 @@ use godot::classes::{
 use godot::prelude::*;
 
 use super::PlayerNode;
+use crate::dialogue_menu;
 use crate::inventory_menu::{self, Category};
 use soe_esm::GlobalFormId;
+use soe_game::dialogue::Line;
 
 pub(super) struct MenuView {
     panel: Gd<PanelContainer>,
@@ -25,6 +27,33 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    fn stop_dialogue_voice(&mut self) {
+        if let Some(bank) = self.sound_bank.as_mut() {
+            crate::dialogue_menu::replace_voice(
+                &mut *bank.bind_mut(),
+                &mut self.dialogue_voice_slot,
+                None,
+            );
+        } else {
+            self.dialogue_voice_slot = None;
+        }
+    }
+
+    fn play_dialogue_voice(&mut self, line: &Line) {
+        let asset = self
+            .game
+            .as_mut()
+            .and_then(|game| crate::dialogue_menu::voice_asset(game, line));
+        let Some(bank) = self.sound_bank.as_mut() else {
+            return;
+        };
+        crate::dialogue_menu::replace_voice(
+            &mut *bank.bind_mut(),
+            &mut self.dialogue_voice_slot,
+            asset.as_ref(),
+        );
+    }
+
     pub(super) fn create_menu(&mut self) {
         let mut theme = Theme::new_gd();
         theme.set_default_font_size(22);
@@ -110,6 +139,9 @@ impl PlayerNode {
                 .bindv(&varray![index as i64]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
+            if index == 0 {
+                button.grab_focus();
+            }
         }
         let mut heading = Label::new_alloc();
         heading.set_text(&format!("{} ({})", category.label(), entries.len()));
@@ -125,6 +157,75 @@ impl PlayerNode {
             button.connect("pressed", &callback);
             rows.add_child(&button);
         }
+        true
+    }
+
+    fn dialogue_content(&mut self) -> bool {
+        if self.menu.title() != Some("Dialogue") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Ok(entries) = dialogue_menu::entries(game) else {
+            return false;
+        };
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        for entry in entries {
+            let mut button = Button::new_alloc();
+            button.set_text(&entry.label);
+            let callback = base.callable("select_dialogue_topic").bindv(&varray![
+                i64::from(entry.topic.file),
+                i64::from(entry.topic.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+            if rows.get_child_count() == 1 {
+                button.grab_focus();
+            }
+        }
+        if rows.get_child_count() == 0 {
+            let mut empty = Label::new_alloc();
+            empty.set_text("No available topics.");
+            rows.add_child(&empty);
+        }
+        true
+    }
+
+    fn dialogue_response_content(&mut self, text: &str) -> bool {
+        if self.menu.title() != Some("Dialogue") {
+            return false;
+        }
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut response = Label::new_alloc();
+        response.set_text(text);
+        content.add_child(&response);
+        let mut next = Button::new_alloc();
+        next.set_text("Continue");
+        next.connect("pressed", &base.callable("advance_dialogue_menu"));
+        content.add_child(&next);
+        next.grab_focus();
         true
     }
 }
@@ -175,8 +276,15 @@ impl PlayerNode {
     /// Close once, discard queued gameplay presses, and restore focus and mouse mode.
     #[func]
     pub fn close_menu(&mut self) -> bool {
+        let closing_dialogue = self.menu.title() == Some("Dialogue");
         if !self.menu.close() {
             return false;
+        }
+        if closing_dialogue {
+            self.stop_dialogue_voice();
+            if let Some(game) = self.game.as_mut() {
+                game.close_dialogue();
+            }
         }
         let focused = self.input_focused;
         self.input_focus_lost();
@@ -252,6 +360,92 @@ impl PlayerNode {
         }
         self.inventory_category = Category::All;
         self.inventory_content(self.inventory_category)
+    }
+
+    /// Open a conversation with a reference through the shared Game and show its choices.
+    #[func]
+    pub fn open_dialogue_menu(&mut self, speaker_file: i64, speaker_object: i64) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(speaker_file), u32::try_from(speaker_object))
+        else {
+            return false;
+        };
+        if self.game.is_none()
+            || self.menu.is_open()
+            || !self.base().is_inside_tree()
+            || self.menu_view.is_none()
+        {
+            return false;
+        }
+        let speaker = GlobalFormId { file, object };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let listener = game.player();
+        if game.begin_dialogue(speaker, listener).is_err() {
+            return false;
+        }
+        if !self.open_menu("Dialogue".into()) {
+            if let Some(game) = self.game.as_mut() {
+                game.close_dialogue();
+            }
+            return false;
+        }
+        if self.dialogue_content() {
+            true
+        } else {
+            self.close_menu();
+            false
+        }
+    }
+
+    /// Select an offered topic through Game::choose_dialogue and show its response.
+    #[func]
+    pub fn select_dialogue_topic(&mut self, file: i64, object: i64) -> bool {
+        if self.menu.title() != Some("Dialogue") {
+            return false;
+        }
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let topic = GlobalFormId { file, object };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Ok(Some(line)) = dialogue_menu::choose(game, topic) else {
+            return false;
+        };
+        self.play_dialogue_voice(&line);
+        self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
+    }
+
+    /// Acknowledge a response through Game::advance_dialogue and show the next response or choices.
+    #[func]
+    pub fn advance_dialogue_menu(&mut self) -> bool {
+        if self.menu.title() != Some("Dialogue") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        match game.advance_dialogue() {
+            Ok(Some(line)) => {
+                self.play_dialogue_voice(&line);
+                self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
+            }
+            Ok(None) => {
+                self.stop_dialogue_voice();
+                let still_open = self
+                    .game
+                    .as_ref()
+                    .is_some_and(|game| game.world().dialogue_session().is_some());
+                if still_open {
+                    self.dialogue_content()
+                } else {
+                    self.close_menu()
+                }
+            }
+            Err(_) => false,
+        }
     }
 
     /// Select one of [`Category::ALL`] in the open inventory menu.

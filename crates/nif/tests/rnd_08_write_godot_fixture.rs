@@ -11,7 +11,8 @@
 //! The scene is a root over "Target", an `NiNode` carrying an
 //! `NiTransformController` (Loop, `[0, 10]`) over an `NiTransformInterpolator`
 //! and an `NiTransformData` moving translation from the origin to
-//! `(100, 0, 0)`, matching the track `crates/nif/tests/rnd_08_transform_controller_check.rs`
+//! `(100, 0, 0)` and rotation from identity to 90 degrees around Skyrim Z,
+//! matching the track `crates/nif/tests/rnd_08_transform_controller_check.rs`
 //! already proves the math against. "Target" has one `BSTriShape` child, a
 //! unit quad offset to `(2, 0, 0)` in Target's own local space, so the
 //! check script can tell the controller's live transform apart from the
@@ -48,8 +49,12 @@ fn rnd_08_write_godot_fixture() {
     );
     let shape = w.add("BSTriShape", shape);
 
+    let half_angle = std::f32::consts::FRAC_PI_4;
     let data = w.transform_data_linear(
-        &[],
+        &[
+            (0.0, [0.0, 0.0, 0.0, 1.0]),
+            (10.0, [0.0, 0.0, half_angle.sin(), half_angle.cos()]),
+        ],
         &[(0.0, [0.0, 0.0, 0.0]), (10.0, [100.0, 0.0, 0.0])],
         &[],
     );

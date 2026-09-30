@@ -11,7 +11,10 @@ use soe_game::{
     combat::{Difficulty, Error, Hand},
     Game,
 };
-use soe_godot_host::combat::{contact_annotation_triggers, MeleeContact};
+use soe_godot_host::{
+    combat::{contact_annotation_triggers, MeleeContact},
+    input::{Action, Bindings, ControlMap, InputState},
+};
 use soe_hkx::{
     animation::{Annotation, AnnotationTrack, SplineCompressedAnimation},
     behavior::{BehaviorGraph, BehaviorGraphData, ClipGenerator, Node, NodeId, NodeKind},
@@ -393,6 +396,39 @@ fn templated_hand_weapon_reaches_contact_damage_with_selected_identity() {
 }
 
 #[test]
+fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
+    let mut game = fixture();
+    let mut bindings = Bindings::default();
+    bindings.apply_control_map(&ControlMap::parse(
+        "Right Attack/Block\t0x2e\t0xff\t0xff\t1\t1\t1\n",
+    ));
+    let input = InputState::gather(&bindings, &|key| key == 0x2e, &|_| false, 0.0, 0.0);
+    assert!(input.right_attack_pressed);
+    assert!(
+        !InputState::gather(&bindings, &|key| key == 0x2e, &|key| key == 0x2e, 0.0, 0.0,)
+            .right_attack_pressed
+    );
+    assert_eq!(Action::RightAttack.event_name(), "Right Attack/Block");
+
+    let mut contact = MeleeContact::default();
+    if input.right_attack_pressed {
+        contact.begin(&game, id(0x14), Hand::Right).unwrap();
+    }
+    assert_eq!(contact.armed(), Some((id(0x14), Hand::Right)));
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))
+        .unwrap()
+        .is_some());
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| panic!(
+            "duplicate attack press hit"
+        ))
+        .unwrap()
+        .is_none());
+    assert_eq!(game.world_mut().actor_value(id(0x900), "health"), 80.0);
+}
+
+#[test]
 fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() {
     let game = fixture();
     game.world_mut().set_difficulty(Difficulty::Legendary);
@@ -416,11 +452,17 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.push(0);
-    // The empty version 26 loose items, version 27 zone levels and the
-    // version 28 do-all repeat history.
+    // Empty loose items, zone levels, zone visits, repeat history and scene runs.
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
+    // Detection's now-unconditional empty pool count, then the empty
+    // world-level save-section table version 37 added, the last bytes of
+    // every save regardless of version.
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
+    suffix.extend_from_slice(&0_u16.to_le_bytes());
     assert!(bytes.ends_with(&suffix));
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
