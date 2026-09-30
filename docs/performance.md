@@ -457,7 +457,7 @@ The focused startup test measured 21 repeated batches of 512 integer items.
 Its scoped-worker median was 100 microseconds per batch. Creating the four
 thread pool and running its first batch took 344 microseconds, while later
 batches on that pool had a 30 microsecond median. This synthetic measurement
-isolates worker creation; it is not a substitute for the real-cell stream
+isolates worker creation. It is not a substitute for the real-cell stream
 measurements above. The stream medians are close to the observed run-to-run
 variation, so this sample does not show a reliable stream-time change. The
 gated debug test also streamed Bannered Mare five times with 24 workers and
