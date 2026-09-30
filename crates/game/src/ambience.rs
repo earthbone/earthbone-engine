@@ -163,6 +163,13 @@ fn eligible(world: &mut World, id: GlobalFormId, record: &Record) -> Result<bool
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         &conditions_list,
     )
