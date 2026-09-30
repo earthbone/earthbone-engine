@@ -1559,15 +1559,16 @@ Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 24, 35, 45, 47, 53, 56, 58, 59,
 61, 72, 74, 77, 79, 99, 136, 142, 182, 230, 250, 264, 277, 280, 289, 310,
-325, 359, 360, 444, 445, 446, 448, 470, 491, 519, 528, 543, 560, 561, 562,
-563, 565, 567, 569, 591, 592, 598, 600, 601, 603, 629, 630 and 659. GetScale
-reads reference scale with the race and NPC height multipliers for actors, and
-GetDisabled reads reference state. GetDetected checks whether its actor argument
-has current Combat-level awareness of the subject, and GetAlarmed reads the
-subject actor's alert flag. GetRandomPercent draws an integer from 0 to 99 from
-the world's saved random stream. Functions 27, 36 and 39 return an explicit
-unavailable-contract error because the local CK corpus does not define their
-runtime behavior. This is a bounded set, not the entire CTDA contract. It
+325, 359, 360, 372, 414, 426, 432, 444, 445, 446, 448, 470, 491, 519, 528,
+543, 560, 561, 562, 563, 565, 567, 569, 591, 592, 598, 600, 601, 603, 629,
+630 and 659. GetScale reads reference scale with the race and NPC height
+multipliers for actors, and GetDisabled reads reference state. GetDetected
+checks whether its actor argument has current Combat-level awareness of the
+subject, and GetAlarmed reads the subject actor's alert flag. GetRandomPercent
+draws an integer from 0 to 99 from the world's saved random stream. Functions
+27, 36 and 39 return an explicit unavailable-contract error because the local
+CK corpus does not define their runtime behavior. This is a bounded set, not
+the entire CTDA contract. It
 supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1664,6 +1665,19 @@ for locations or aliases. xEdit `wbConditionFunctions` supplies IDs and
 parameter types, and the local UESP raw function table supplies the matching
 Papyrus signatures. The CK corpus has no individual condition pages for this
 batch.
+`IsInList` tests whether the subject reference's base form is a member of the
+resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
+deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
+with a resolved VTYP. `GetIsObjectType` compares the subject base record's
+CommonLib form-type code. First-person camera state, shared combat-group counts
+and the grabbed reference are unavailable runtime contexts, so functions 391,
+415, 416 and 463 return explicit condition errors. They do not silently match
+either boolean result. Local xEdit `wbDefinitionsTES5.pas` and UESP
+`Raw_Function_Data.wikitext` supply the function indices and parameter types.
+Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
+VTYP and form-type links. The CK corpus does not document the four unavailable
+runtime states, and CMB-17 currently stores actor combat targets without a
+shared combat-group identity.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
