@@ -283,6 +283,24 @@ pub struct Variable {
     pub type_name: String,
     pub user_flags: u32,
     pub default: Operand,
+    /// Whether the variable is immutable in formats that encode const flags.
+    pub is_const: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructMember {
+    pub name: String,
+    pub type_name: String,
+    pub user_flags: u32,
+    pub default: Operand,
+    pub is_const: bool,
+    pub docstring: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDefinition {
+    pub name: String,
+    pub members: Vec<StructMember>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -298,7 +316,10 @@ pub struct Object {
     pub parent: String,
     pub docstring: String,
     pub user_flags: u32,
+    /// Whether the object is immutable in formats that encode const flags.
+    pub is_const: bool,
     pub auto_state: String,
+    pub structs: Vec<StructDefinition>,
     pub variables: Vec<Variable>,
     pub properties: Vec<Property>,
     pub states: Vec<State>,
@@ -336,8 +357,26 @@ pub struct UserFlag {
 pub struct Script {
     pub header: Header,
     pub user_flags: Vec<UserFlag>,
+    pub property_groups: Vec<PropertyGroup>,
+    pub struct_orders: Vec<StructOrder>,
     /// Skyrim compiles one object per file. The reader keeps them all.
     pub objects: Vec<Object>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyGroup {
+    pub object: String,
+    pub name: String,
+    pub docstring: String,
+    pub user_flags: u32,
+    pub properties: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructOrder {
+    pub object: String,
+    pub name: String,
+    pub members: Vec<String>,
 }
 
 impl Script {
@@ -365,6 +404,7 @@ struct Reader<'a> {
     pos: usize,
     order: ByteOrder,
     strings: Vec<String>,
+    new_layout: bool,
 }
 
 impl Reader<'_> {
@@ -527,8 +567,31 @@ impl Reader<'_> {
         let _size = self.u32()?;
         let parent = self.string()?;
         let docstring = self.string()?;
+        let is_const = self.new_layout && self.u8()? != 0;
         let user_flags = self.u32()?;
         let auto_state = self.string()?;
+
+        let mut structs = Vec::new();
+        if self.new_layout {
+            let n = self.u16()?;
+            structs.reserve(n as usize);
+            for _ in 0..n {
+                let name = self.string()?;
+                let count = self.u16()?;
+                let mut members = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    members.push(StructMember {
+                        name: self.string()?,
+                        type_name: self.string()?,
+                        user_flags: self.u32()?,
+                        default: self.operand()?,
+                        is_const: self.u8()? != 0,
+                        docstring: self.string()?,
+                    });
+                }
+                structs.push(StructDefinition { name, members });
+            }
+        }
 
         let n = self.u16()?;
         let mut variables = Vec::with_capacity(n as usize);
@@ -538,6 +601,7 @@ impl Reader<'_> {
                 type_name: self.string()?,
                 user_flags: self.u32()?,
                 default: self.operand()?,
+                is_const: self.new_layout && self.u8()? != 0,
             });
         }
 
@@ -585,7 +649,9 @@ impl Reader<'_> {
             parent,
             docstring,
             user_flags,
+            is_const,
             auto_state,
+            structs,
             variables,
             properties,
             states,
@@ -600,6 +666,7 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
         pos: 0,
         order: ByteOrder::Little,
         strings: Vec::new(),
+        new_layout: false,
     };
     let magic = r.u32()?;
     if magic == MAGIC {
@@ -611,9 +678,6 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
     }
     let major = r.u8()?;
     let minor = r.u8()?;
-    if major != 3 || !(1..=2).contains(&minor) {
-        return Err(PexError::UnsupportedVersion { major, minor });
-    }
     let header = Header {
         major,
         minor,
@@ -624,6 +688,15 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
         machine: r.raw_string()?,
         byte_order: r.order,
     };
+    r.new_layout = header.game_id > 1;
+    let supported = if r.new_layout {
+        minor >= 9
+    } else {
+        header.game_id == 1 && (1..=2).contains(&minor)
+    };
+    if major != 3 || !supported {
+        return Err(PexError::UnsupportedVersion { major, minor });
+    }
 
     let n = r.u16()?;
     let mut strings = Vec::with_capacity(n as usize);
@@ -633,7 +706,8 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
     r.strings = strings;
 
     let mut debug = Vec::new();
-    if r.u8()? != 0 {
+    let has_debug = r.u8()? != 0;
+    if has_debug {
         let _modified = r.u64()?;
         let n = r.u16()?;
         for _ in 0..n {
@@ -652,6 +726,48 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
                 function,
                 kind,
                 lines,
+            });
+        }
+    }
+
+    let mut property_groups = Vec::new();
+    let mut struct_orders = Vec::new();
+    if r.new_layout && has_debug {
+        let n = r.u16()?;
+        property_groups.reserve(n as usize);
+        for _ in 0..n {
+            let object = r.string()?;
+            let name = r.string()?;
+            let docstring = r.string()?;
+            let user_flags = r.u32()?;
+            let count = r.u16()?;
+            let mut properties = Vec::with_capacity(count as usize);
+            for _ in 0..count {
+                properties.push(r.string()?);
+            }
+            property_groups.push(PropertyGroup {
+                object,
+                name,
+                docstring,
+                user_flags,
+                properties,
+            });
+        }
+
+        let n = r.u16()?;
+        struct_orders.reserve(n as usize);
+        for _ in 0..n {
+            let object = r.string()?;
+            let name = r.string()?;
+            let count = r.u16()?;
+            let mut members = Vec::with_capacity(count as usize);
+            for _ in 0..count {
+                members.push(r.string()?);
+            }
+            struct_orders.push(StructOrder {
+                object,
+                name,
+                members,
             });
         }
     }
@@ -676,6 +792,8 @@ pub fn parse(data: &[u8]) -> Result<Script, PexError> {
     Ok(Script {
         header,
         user_flags,
+        property_groups,
+        struct_orders,
         objects,
     })
 }

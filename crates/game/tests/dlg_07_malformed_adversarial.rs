@@ -57,8 +57,8 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
 /// IsIntimidatedbyPlayer (116) are documented as taking no parameter, but the
 /// dispatcher's own established convention (function 70 and function 448, see
 /// module docs) is to reject a nonzero value in a slot the function does not
-/// use. A hand-edited or corrupted INFO
-/// record with garbage in that slot should fail closed the same way. It
+/// use. A hand-edited or corrupted INFO record with garbage in that slot
+/// should fail closed the same way. It
 /// must not evaluate as though the slot were legitimately zero.
 #[test]
 fn dlg_07_persuasion_functions_reject_a_garbage_parameter_like_the_established_pattern_adversarial()

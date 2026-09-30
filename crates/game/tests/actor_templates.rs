@@ -6,6 +6,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     npc::{self, template, Config, Stats},
@@ -285,7 +288,10 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
-    bytes.truncate(bytes.len() - 58);
+    // The trailing 64 bytes are the version 10 to 36 blocks this legacy save
+    // omits, plus detection's now-unconditional empty pool count (4 bytes)
+    // and the world-level save-section table version 37 added (2 bytes).
+    bytes.truncate(bytes.len() - 64);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);
@@ -352,25 +358,18 @@ fn static_group_links_keep_the_winning_template_namespace() {
 
 #[test]
 fn installed_npc_templates_initialize_at_multiple_selection_levels() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping actor template survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let bases: Vec<_> = order
         .winners_of(T(b"NPC_"))
         .filter(|(_, record)| !record.is_deleted())
@@ -380,7 +379,7 @@ fn installed_npc_templates_initialize_at_multiple_selection_levels() {
         bases.len() > 6000,
         "expected the full five-master NPC survey"
     );
-    let mut world = World::new(order);
+    let mut world = World::from_shared_order(order);
     let player = world.player();
     for level in [1, 20, 50] {
         world.player_level = level;

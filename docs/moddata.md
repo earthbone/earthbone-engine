@@ -15,7 +15,7 @@ reimplement the workaround.
 | Format | Plugin | What it does | Files |
 |---|---|---|---|
 | `_DISTR.ini` | Spell Perk Item Distributor | Hands spells, perks, items, shouts, packages, outfits and skins to actors by filter | `src/spid.rs` |
-| `_KID.ini` | Keyword Item Distributor | Attaches keywords to records by filter and enforces exclusive keyword groups | `src/kid.rs` |
+| `_KID.ini` | Keyword Item Distributor | Attaches keywords to records by filter | `src/kid.rs` |
 | `_SWAP.ini` | Base Object Swapper | Swaps base objects on placed references, and overrides their properties | `src/bos.rs` |
 | directory tree | Open Animation Replacer | Picks animations by condition, and the older Dynamic Animation Replacer layout | `src/oar.rs` |
 
@@ -51,8 +51,7 @@ from a wiki page and nothing was copied.
 - **Base Object Swapper**, `../engine-refs/BaseObjectSwapper/`. `Manager.cpp`
   gives the section walk and the `SetAllowKeyOnly` call that makes a line's key
   carry the whole payload. `SwapData.cpp` gives the field order on both sides of
-  a swap. `ObjectProperties.cpp` and `.h` define transform, scale and flag
-  operations. `RNG.cpp` gives the reference seed and chance behavior.
+  a swap.
 - **Open Animation Replacer**, `../engine-refs/OpenAnimationReplacer/`.
   `Parsing.cpp` gives the directory layout, that `priority` is required rather
   than defaulted, and that `user.json` is read after `config.json`. GPL-3.0 with
@@ -92,27 +91,16 @@ crate. `0x` makes it explicit, and any non-hex letter makes it a name. This is
 pinned by a test rather than left to be rediscovered inside a mod that quietly
 stops working.
 
-## What remains as written
+## What is deliberately left as written
 
-One field keeps its text instead of being modelled, because its grammar varies
-by item type.
+Two fields keep their text instead of being modelled, because modelling them
+badly would be worse than handing the caller a string.
 
 - Keyword Item Distributor's traits field has a different grammar for every
   item type. An armour trait and a weapon trait share no syntax, and `Traits.h`
   dispatches to a different class per type.
-
-Base Object Swapper's property field is parsed into `pos`, `rot`, `scale` and
-`flags` operations. Position and rotation support exact values and ranges.
-`R` makes position or rotation relative. Rotation input uses degrees and is
-stored in radians. Scale multiplies the reference scale unless suffixed with
-`A`, which sets it. `flags` adds hexadecimal bits and `flagsC` clears them.
-Ranges are sampled deterministically from the reference ID. `ChanceL` uses the
-location and base IDs for a stable chance decision. These values are not
-claimed to match BOS's C++ random sequence. Conditional section filters are
-not evaluated by this runtime.
-
-A swap line's fourth-field `chance(...)` is checked when its reference is
-built. A failed check leaves both the base and attached properties unchanged.
+- Base Object Swapper's property field is its own small language of `pos`,
+  `rot`, `scale` and `flags` calls, with a location based `ChanceL` variant.
 
 Open Animation Replacer's conditions are structural for a different reason: the
 plugin lets other plugins register new condition types at runtime, so the set is
@@ -146,22 +134,26 @@ headers, and a standard ini crate models none of that.
 
 ## Measured
 
-No mods are installed on this machine, so the gated real-file tests have nothing
-to read. Every fixture in the test suite is authored from the syntax examples in
-the sources above and is marked as authored rather than real. That is the one
-honest gap in this crate: the grammars are taken from the parsers that consume
-them, but no shipped mod has been run through them yet.
+The installed game Data directory has no `_DISTR`, `_KID` or `_SWAP` files, so
+the gated real-file tests have nothing to read. Every fixture in the test suite
+is authored from the syntax examples in the sources above and is marked as
+authored rather than real. The MOD-07
+provenance regression checks that SPID, KID and BOS patches retain their input
+file and line. No shipped mod has been run through the parser or game application
+yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
-| `tests/resolve.rs` | 12 | Resolution against a synthetic load order, including absent forms |
+| `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
 
 ## Not done
 
 - No real mod has been parsed, see above.
-- The KID traits field and Open Animation Replacer's `user.json` override
-  layer.
+- Keyword Item Distributor's exclusive groups, which share the file under other
+  keys and are currently reported as skipped lines.
+- The two fields left as written, and Open Animation Replacer's `user.json`
+  override layer.
 - Exact chance selection and actor lifecycle compatibility, detailed below.
 
 ## Applying, added 2026-09-18
@@ -172,17 +164,16 @@ under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
 resolved `soe_profile::Loadout` instead, which already knows those roots in
 order.
 
-Call it before `Game::start`. This engine applies distributions before scripts
-run. Fractional SPID rules marked with `!` are kept until an actor reference is
-built.
+Call it before `Game::start`. This engine applies distributions once at load.
+That is a current limitation, not a claim of matching SPID's actor lifecycle.
 
 ### Where each format lands, and why there
 
 | Format | Applied | Where |
 |---|---|---|
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
-| `_DISTR.ini` | At load | Base rules are read when actor state is built, deterministic fractional rules are selected per actor reference |
-| `_SWAP.ini` | Base swaps and property overrides are held, applied per reference | Read when a reference is built |
+| `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
+| `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
 | OAR | Counted only | The animation system will read the trees |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
@@ -192,24 +183,14 @@ from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
 
-KID `ExclusiveGroup` entries are gathered across all discovered KID files
-before keyword rules run. Lines with the same group name add included keywords
-and remove excluded keywords. When a rule would add a keyword, the engine skips
-it if another member of any shared group is already on the target record,
-including a keyword from the plugin or an earlier KID rule.
-
-Ordinary SPID distribution results are keyed by `NPC_` base because actor
-state is built from its base on first use. Fractional deterministic rules
-marked with `!` instead wait for an actor reference, where the same base can
-produce different results for different actors.
+Distribution is keyed by `NPC_` base rather than applied to loaded actors,
+because an actor's state is built from its base on first use. A reference that
+loads an hour later still receives what its base was given.
 
 A swap is not a load time event at all. The reference it names may not exist
-yet, so the swap and property overrides are held until the reference is built.
-An explicit reference rule takes precedence over a rule for the original base,
-and a rule for the original base applies when no reference rule exists. The
-runtime writes transform and flag changes to `RefState`. Applied flags persist
-in SOEW version 36. `World::base_inventory` does the same for a distributed
-item, so `GetItemCount` counts it the way it counts a shipped one.
+yet, so the swap is held and `RefState`'s base is rewritten when the reference
+is built. `World::base_inventory` does the same for a distributed item, so
+`GetItemCount` counts it the way it counts a shipped one.
 
 ### Chance, and what it costs
 
@@ -220,24 +201,17 @@ Tests cover `0!`, `50!`, `100!`, ordinary percentages and malformed values.
 
 Ordinary SPID chance rolls occur per matching NPC base using the world's
 seeded generator. Deterministic `0!` and `100!` work without a random choice.
-Fractional deterministic rules retain the parsed entry value's line seed and
-are evaluated when `World::actor` first builds the matching reference. The
-roll seed combines that line seed with the player runtime FormID and the actor
-runtime FormID, following the combine order in SPID's `LookupFilters.cpp`.
-`PCLevelMultManager.cpp` uses the save character ID for the player seed, which
-this runtime does not yet track. The engine uses FNV-1a for the entry value,
-then expands the combined seed with SplitMix64 before the xorshift draw. This
-gives stable per-entry and per-actor results, but does not reproduce upstream
-per-character selection or SPID's C++ random sequence.
-`world.mod_data` includes the retained actor rules and their selection inputs.
+Fractional deterministic rules are skipped and counted in
+`skipped_unsupported_chance`. Their per-actor seed and lifecycle are not
+implemented. References are SPID `SPID/src/LookupConfigs.h`, `Defs.h` and
+`LookupFilters.cpp`, especially `ChanceComponentParser` and the deterministic
+branch combining line seed, player ID and actor FormID.
 
-KID chance uses the upstream seed inputs from
-`Keyword-Item-Distributor/src/Data/BaseFilters.cpp`: FNV-1a 32 of the keyword
-editor ID paired with the target runtime FormID using Szudzik pairing. The
-engine derives a stable unit value from that seed for each keyword and target,
-so KID chance does not consume the world RNG. Its random generator is not
-claimed to reproduce upstream output bit for bit. The `world.mod_data` hash
-covers the resulting keywords, distributions and swaps for engine replay.
+KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
+on keyword editor ID and target form. Our KID application still rolls once
+per rule with the world RNG. Neither distributor should be described as
+matching upstream chance selection. The `world.mod_data` hash covers the
+resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
@@ -262,4 +236,4 @@ every fixture is still authored.
 | Test suite | Count | What it covers |
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
-| `crates/game/tests/moddata_apply.rs` | 15 | Each format through the game's own query paths, KID group merging and exclusions, seeded chance, the skip direction, determinism, and the gated scan |
+| `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
