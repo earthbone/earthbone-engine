@@ -78,6 +78,14 @@ pub struct Alias {
     pub forced_ref: Option<u32>,
     /// `ALPC`: packages the alias puts on its actor, in order.
     pub packages: Vec<u32>,
+    /// Alias dependency used by the reference or location alias fill type.
+    pub fill: Option<AliasFill>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AliasFill {
+    Local(u32),
+    External { quest: u32, alias: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,6 +216,7 @@ impl Quest {
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
                         packages: Vec::new(),
+                        fill: None,
                     });
                     section = Section::Alias;
                 }
@@ -231,6 +240,35 @@ impl Quest {
                     }
                     if let Some(a) = q.aliases.last_mut() {
                         a.forced_ref = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALFA" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            a.fill = Some(AliasFill::Local(u32::from_le_bytes([
+                                d[0], d[1], d[2], d[3],
+                            ])));
+                        }
+                    }
+                }
+                b"ALEQ" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            a.fill = Some(AliasFill::External {
+                                quest: u32::from_le_bytes([d[0], d[1], d[2], d[3]]),
+                                alias: 0,
+                            });
+                        }
+                    }
+                }
+                b"ALEA" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            let alias = u32::from_le_bytes([d[0], d[1], d[2], d[3]]);
+                            if let Some(AliasFill::External { alias: value, .. }) = &mut a.fill {
+                                *value = alias;
+                            }
+                        }
                     }
                 }
                 b"ALED" => section = Section::Header,
