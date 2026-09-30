@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc::{self, Config, Stats}, Game};
+use soe_game::{
+    npc::{self, Config, Stats},
+    Game,
+};
 use soe_godot_host::race_menu;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -40,7 +43,7 @@ fn ui_14_preview_includes_hdpt_attached_extra_parts() {
     let mut appearance = soe_game::appearance::PlayerAppearance::default();
     appearance.head_parts.insert(3, id(0x710));
 
-    let preview = race_menu::preview_summary(&appearance, &parts);
+    let preview = race_menu::preview_summary(&game, &appearance, &parts);
     assert!(preview.contains("Blind Eye"));
     assert!(preview.contains("Right Eye Cover"));
 }
@@ -60,8 +63,11 @@ fn ui_14_preview_does_not_mutate_player_appearance_before_confirmation() {
         head_parts: [(3, id(0x710))].into_iter().collect(),
         morphs: [("Nose".to_owned(), 0.5)].into_iter().collect(),
     };
-    let _preview = race_menu::preview_summary(&draft, &[]);
+    let mut draft = Some(draft);
+    let _preview = race_menu::preview_summary(&game, draft.as_ref().unwrap(), &[]);
+    race_menu::discard_draft(&mut draft);
 
+    assert!(draft.is_none());
     assert_eq!(game.world_mut().player_appearance(), before);
     let bytes = game.save_state().unwrap();
     game.load_state(&bytes).unwrap();
