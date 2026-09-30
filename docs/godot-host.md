@@ -57,9 +57,11 @@ appearance unchanged. The preview is a menu summary of selected records and
 morph values. It is a menu summary, not rendered character appearance.
 
 `godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
-record and sex button, and confirms through the connected Control callbacks.
-Run it with `SKYRIM_DATA` set and the extension loaded in
-`target/godot-check`.
+record and sex button, confirms through the connected Control callbacks, then
+reopens the menu and reads both selections back from the player state. It
+passed headlessly on Godot 4.7.2 with installed Skyrim data. The Rust tests
+cover native request queuing, playable race validation, one-time actor-value
+initialization, and the resulting player actor state.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
