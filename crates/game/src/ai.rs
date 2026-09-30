@@ -310,7 +310,31 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
     let today = world.clock.game_days.floor() as u32;
-    let completed = world.actor(actor)?.ai.completed.clone();
+    let state = world.actor(actor)?;
+    let current = state.ai.package;
+    let completed = state.ai.completed.clone();
+    let engaged = state.in_combat && state.combat_target.is_some();
+    if let Some(current) = current {
+        if let Some(current_package) = package(world, current) {
+            let finished = world
+                .actor(actor)
+                .and_then(|state| state.ai.tree.as_ref())
+                .is_some_and(|tree| tree.finished);
+            let may_interrupt_for_combat = engaged
+                && (current_package.general.interrupt_override == flags::INTERRUPT_OVERRIDE_COMBAT
+                    || current_package.general.interrupt_flags & flags::INTERRUPT_OBSERVE_COMBAT
+                        != 0);
+            if current_package.has_flag(flags::MUST_COMPLETE)
+                && !finished
+                && !may_interrupt_for_combat
+            {
+                return Some(Candidate {
+                    package: current,
+                    alias: world.actor(actor).and_then(|state| state.ai.alias),
+                });
+            }
+        }
+    }
     let candidates = candidates(world, actor);
     for c in candidates {
         let Some(p) = package(world, c.package) else {
@@ -634,6 +658,11 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     if chosen.map(|c| c.package) == current {
         return current;
     }
+    if let Some(old) = current {
+        if package(world, old).is_some_and(|p| p.has_flag(flags::UNLOCK_DOORS_ON_CHANGE)) {
+            unlock_cell_doors(world, actor, alloc);
+        }
+    }
     let object = world.object_of(Handle::Form(actor), alloc);
     if let Some(old) = current {
         let old_value = world.form_value(Some(old), alloc);
@@ -682,6 +711,9 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
                     speed::WALK
                 },
             );
+            if p.has_flag(flags::UNLOCK_DOORS_AT_START) {
+                unlock_cell_doors(world, actor, alloc);
+            }
         }
         tree::start(world, actor, &mut ai);
         let new_value = world.form_value(Some(c.package), alloc);
@@ -696,6 +728,21 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
+    let Some(cell) = world.reference(actor).and_then(|reference| reference.cell) else {
+        return;
+    };
+    let doors = world.cell_doors(cell);
+    for (door, _) in doors {
+        if world
+            .reference(door)
+            .is_some_and(|reference| reference.locked)
+        {
+            world.set_locked(door, false, alloc);
+        }
+    }
 }
 
 fn begin_procedure(
@@ -1010,6 +1057,16 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             clear_combat_engagement(world, actor);
         }
         let active_target = combat_target(world, actor);
+        if active_target.is_none() {
+            let due = world.actor(actor).is_some_and(|state| {
+                state.ai.package.is_none()
+                    || state.ai.reevaluate
+                    || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
+            });
+            if due {
+                evaluate(world, actor, alloc);
+            }
+        }
         if active_target.is_some() && !ignores_combat(world, actor) {
             let due = world.actor(actor).is_some_and(|a| {
                 a.ai.reevaluate || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
@@ -1128,9 +1185,17 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(target) = target else {
         return false;
     };
+    let no_combat_alert = world
+        .actor(actor)
+        .and_then(|state| state.ai.package)
+        .and_then(|id| package(world, id))
+        .is_some_and(|package| package.has_flag(flags::NO_COMBAT_ALERT));
     if let Some(state) = world.actor(actor) {
         state.in_combat = true;
         state.combat_target = Some(target);
+        if !no_combat_alert {
+            state.alerted = true;
+        }
         state.ai.reevaluate = true;
         state.ai.path.clear();
         state.ai.path_cells.clear();

@@ -9,8 +9,8 @@
 //! case the field indexes the record's edge link array and the link names
 //! another navmesh by FormID and a triangle in it. xEdit's `wbEdgeToStr` is
 //! the reference for that rule. Door links are not edges: they say which
-//! triangle a door reference stands on, for the AI to open it, and are
-//! reported but not walked.
+//! triangle a door reference stands on, for the AI to open it. The builder
+//! retains them as door-to-triangle associations, not walkable links.
 //!
 //! A `NAVM` whose winning record is deleted, which the shipped masters carry
 //! and xEdit's cleaning removes, is not added. Every edge link a neighbour
@@ -131,6 +131,17 @@ impl Builder {
         self.stats.triangles += count;
         self.stats.door_links += geometry.door_links.len();
         let index = self.graph.add_mesh(geometry.vertices.clone(), triangles);
+        for door_link in &geometry.door_links {
+            let Some(door) = resolve(door_link.door) else {
+                continue;
+            };
+            let Ok(triangle) = u32::try_from(door_link.triangle) else {
+                continue;
+            };
+            if (triangle as usize) < count {
+                self.graph.add_door_node(door, NodeId::new(index, triangle));
+            }
+        }
         self.index_of.insert(key, index);
         index
     }
