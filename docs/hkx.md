@@ -751,6 +751,32 @@ serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
 
+### Direct-at modifier
+
+`BSDirectAtModifier` reads the target mode, source bone, inclusive start and
+end bone indices, heading and pitch limits, heading and pitch offsets, gains,
+target and camera locations, user info, active flag and current offsets from
+the class layout in local serde-hkx `BSDirectAtModifier.json`. The saved
+current offsets seed its runtime smoothing state. The matching hkxcmd
+compatibility declaration confirms those fields but does not contain a runtime
+algorithm.
+The interpreter runs it after its wrapped generator. It measures heading and
+pitch from the source bone translation to the target, adds the authored
+offsets, clamps each angle symmetrically to its authored limit and applies
+equal local rotations across the declared index range. The target location is
+used when `directAtTarget` is set. The camera vector takes precedence when
+`directAtCamera` is set. `onGain` and `offGain` approach the target angles by
+`gain * frameDelta`, clamped to one. Disabling both target modes approaches zero.
+Translations and scales stay unchanged. A disabled modifier, a zero-weight
+pose or an invalid bone range leaves the pose unchanged.
+
+The interpreter does not receive the skeleton parent table, so this path uses
+the authored contiguous bone indices and model-space target coordinates as
+local pose inputs. Its heading and pitch axes are Z and X, with Y as the
+forward axis. The direct-at synthetic tests cover clamping, chain scope,
+offsets, gains, target modes, enable state and invalid ranges. These choices
+are not verified against a captured Havok runtime.
+
 ### False-to-true event slots (2026-09-20)
 
 ANM-03 decodes all three `BSEventOnFalseToTrueModifier` slots. Local
@@ -821,10 +847,7 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
+- Dynamic bone weight masks on a blender, `hkbRotateCharacterModifier` and
   `hkbEventsFromRangeModifier` still pass through. Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
