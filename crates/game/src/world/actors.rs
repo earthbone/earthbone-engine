@@ -31,15 +31,14 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
             a.package_overrides
                 .push((d.package_index.unwrap_or(usize::MAX), d.what));
         }
+        RecordType::Shout => {
+            a.shouts.insert(d.what);
+        }
         // Items reach the reference's inventory in `base_inventory`, not the
-        // actor state. Shouts, skins and bare forms have no actor state yet.
-        // They remain held in `mod_data` and counted, and `docs/moddata.md`
-        // lists them.
-        RecordType::Item
-        | RecordType::Shout
-        | RecordType::Skin
-        | RecordType::Keyword
-        | RecordType::Form => {}
+        // actor state. Skins and bare forms have no actor state yet. They
+        // remain held in `mod_data` and counted, and `docs/moddata.md` lists
+        // them.
+        RecordType::Item | RecordType::Skin | RecordType::Keyword | RecordType::Form => {}
     }
 }
 

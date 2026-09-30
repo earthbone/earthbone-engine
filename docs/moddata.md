@@ -223,13 +223,15 @@ resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
-Spells, levelled spells, perks, outfits, sleep outfits, factions and packages
-reach the actor. SPID package field 5 is a zero-based insertion position in the
-actor base's `PKID` list. The actor retains those entries and positions in
-SOEW version 37, and `ai::candidates` inserts them into the base package list
-before schedule and condition evaluation. Items reach the inventory. Shouts,
-skins and bare forms are resolved, held in `mod_data` and counted in the report,
-but are not yet connected to actor behavior.
+Spells, levelled spells, perks, outfits, sleep outfits, factions, packages and
+shouts reach the actor. SPID package field 5 is a zero-based insertion position
+in the actor base's `PKID` list. The actor retains those entries and positions
+in a named actor save section, and `ai::candidates` inserts them into the base
+package list before schedule and condition evaluation. Shouts join the actor's
+learned shout set, where repeated rules for the same form add only one entry.
+That set is already part of the engine save format. Items reach the inventory.
+Skins and bare forms are resolved, held in `mod_data` and counted in the
+report, but are not yet connected to actor behavior.
 
 A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the
@@ -253,3 +255,4 @@ every fixture is still authored.
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
 | `crates/game/tests/moddata_apply.rs` | 12 | Each format through the game's own query paths, level and trait filter matches and misses, the actor-only skip, chance, determinism, and the gated scan |
+| `crates/game/tests/mod_08_distributed_shouts.rs` | 2 | A duplicate shout distribution enters learned state once and survives whole-game save/load |
