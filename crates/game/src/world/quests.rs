@@ -57,6 +57,18 @@ impl World {
         self.quests.get(&id)
     }
 
+    pub(crate) fn lifecycle_tasks(
+        &self,
+    ) -> Vec<(GlobalFormId, crate::quest::state::LifecycleTask)> {
+        let mut tasks: Vec<_> = self
+            .quests
+            .iter()
+            .filter_map(|(id, quest)| quest.lifecycle_task.map(|task| (*id, task)))
+            .collect();
+        tasks.sort_unstable_by_key(|(id, _)| *id);
+        tasks
+    }
+
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {

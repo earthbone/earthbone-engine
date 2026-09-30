@@ -27,6 +27,8 @@ mod pack_navmesh;
 
 #[path = "common/installed.rs"]
 mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
 
 use std::{
     path::{Path, PathBuf},

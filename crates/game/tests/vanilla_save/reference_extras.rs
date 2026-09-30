@@ -2,9 +2,6 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
-#[path = "../common/legacy.rs"]
-mod legacy;
-
 use super::*;
 use soe_game::Handle;
 use soe_save::{reference::Field, ChangeForm};
@@ -298,8 +295,10 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
+    let mut without_sections = before.clone();
+    let extra_sections = legacy::strip_world_sections(&mut without_sections) - 2;
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 48;
+    let at = bad_flags.len() - 48 - extra_sections;
     bad_flags[at] |= 1;
     // `legacy` had both references' own save-section tables stripped above
     // (2 bytes each), which `before` still carries, so add the 4 bytes back
@@ -308,7 +307,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let start = legacy.len() + 4;
     // The extras block is followed by the package cursor block, so repeat the
     // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 39];
+    let entry = &before[start + 4..before.len() - 39 - extra_sections];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
@@ -322,7 +321,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
         "{duplicate_error}"
     );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 27;
+    let at = bad_key.len() - 27 - extra_sections;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {

@@ -344,7 +344,7 @@ their identity even before world change forms allocate them. QUST's transitional
 stop/start flag word restores a pending promotion task. IsStarting and
 IsStopping report its direction, and IsRunning remains false until the task
 completes. SOEW version 37 persists pending quest promotion tasks in the
-`SAV-20` world section. Older world states and version-37 saves without that
+`SAV-10` world section. Older world states and version-37 saves without that
 section load without a pending task.
 
 The first 60-save application survey restores 32,256 quests and preserves every

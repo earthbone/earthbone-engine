@@ -955,6 +955,20 @@ mod tests {
     use super::*;
     use crate::vm::variable_key;
 
+    fn as_legacy_state(mut bytes: Vec<u8>, version: u16) -> Vec<u8> {
+        let (fingerprints_start, fingerprints_end) = {
+            let mut reader = Reader::new(&bytes);
+            reader.take(6).unwrap();
+            ArrayTable::read_pool(&mut reader).unwrap();
+            let fingerprints_start = reader.pos;
+            read_script_fingerprints(&mut reader).unwrap();
+            (fingerprints_start, reader.pos)
+        };
+        bytes.drain(fingerprints_start..fingerprints_end);
+        bytes[4..6].copy_from_slice(&version.to_le_bytes());
+        bytes
+    }
+
     #[test]
     fn sav_59_unavailable_state_survives_two_save_cycles_and_resumes() {
         use crate::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
@@ -1214,11 +1228,10 @@ mod tests {
     fn version_one_clock_loads_with_legacy_defaults() {
         let mut vm = Vm::new();
         vm.advance(180.0);
-        let mut bytes = vm.save_state().unwrap();
+        let mut bytes = as_legacy_state(vm.save_state().unwrap(), 1);
         // Empty log: its four-byte count follows the three version 2 clocks.
         let end = bytes.len() - 4;
         bytes.drain(end - 16..end);
-        bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
         let mut loaded = Vm::new();
         loaded.load_state(&bytes).unwrap();
         assert_eq!(loaded.time, 180.0);
@@ -1249,8 +1262,7 @@ mod tests {
             ("count".into(), "Int".into()),
             ("inherited".into(), "Int".into()),
         ]);
-        let mut bytes = old.save_state().unwrap();
-        bytes[4..6].copy_from_slice(&2u16.to_le_bytes());
+        let bytes = as_legacy_state(old.save_state().unwrap(), 2);
         let mut fresh = Vm::new();
         fresh.load(parent);
         fresh.load(child);
