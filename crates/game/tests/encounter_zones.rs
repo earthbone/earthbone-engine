@@ -134,8 +134,8 @@ fn prg_04_first_entry_locks_zone_and_later_entry_preserves_level_through_save() 
     assert_eq!(world.encounter_level(id(REF)).unwrap(), 8);
     let saved = world.save_state();
     let mut loaded = fixture(6, 20, 0);
-    loaded.player_level = world.player_level;
     loaded.load_state(&saved).unwrap();
+    loaded.player_level = world.player_level;
     assert_eq!(loaded.encounter_level(id(REF)).unwrap(), 8);
     assert_eq!(loaded.state_hash(), world.state_hash());
     assert_eq!(loaded.save_state(), saved);
@@ -499,8 +499,8 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
         });
         saved.truncate(saved.len() - tail);
         let mut loaded = reset_fixture(0);
-        loaded.player_level = 20;
         loaded.load_state(&saved).unwrap();
+        loaded.player_level = 20;
         loaded.clock.game_days = 12.0;
         assert_eq!(
             loaded.enter_encounter_zone(id(ZONE)).unwrap(),
