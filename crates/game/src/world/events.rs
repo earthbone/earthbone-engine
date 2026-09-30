@@ -19,7 +19,34 @@ pub struct EffectShaderRequest {
     pub playing: bool,
 }
 
+/// A transient physics operation requested by a Papyrus reference native.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReferencePhysicsRequest {
+    /// Set the host motion mode for a reference with a resident movable body.
+    MotionType {
+        reference: GlobalFormId,
+        motion_type: u32,
+        allow_activate: bool,
+    },
+    /// Apply a normalized Skyrim-space direction scaled by `magnitude`.
+    Impulse {
+        reference: GlobalFormId,
+        direction: [f32; 3],
+        magnitude: f32,
+    },
+}
+
 impl World {
+    /// Queue a physics operation for the host to apply to a resident body.
+    pub fn request_reference_physics(&mut self, request: ReferencePhysicsRequest) {
+        self.reference_physics_requests.push(request);
+    }
+
+    /// Drain queued reference physics operations after host collision sync.
+    pub fn take_reference_physics_requests(&mut self) -> Vec<ReferencePhysicsRequest> {
+        std::mem::take(&mut self.reference_physics_requests)
+    }
+
     /// The active scene whose quest alias currently names `reference`.
     pub fn current_scene(&mut self, reference: GlobalFormId) -> Option<GlobalFormId> {
         let scenes: Vec<_> = self.scenes.iter().copied().collect();

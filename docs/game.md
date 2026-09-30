@@ -215,10 +215,19 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an
-active participant. The implementation follows the local
-`GetCurrentScene_-_ObjectReference.wikitext` return contract. Animation
-completion and placed-reference Havok behavior remain stubs because the world
-has no latent animation event bridge or movable-reference host physics path.
+active participant. `PlayAnimationAndWait` and `PlayGamebryoAnimation` record
+the requested animation in the world's animation event log and return whether
+the request has nonempty animation arguments and a loaded reference.
+`PlayAnimationAndWait` returns immediately because reference graph completion
+does not reach the VM yet. `SetMotionType` validates the documented motion
+range and queues the motion request for the host. `ApplyHavokImpulse` rejects
+zero-length or non-finite direction data, normalizes the direction, and queues
+the magnitude and direction for the host. These contracts follow the local
+`GetCurrentScene_-_ObjectReference.wikitext`,
+`PlayAnimationAndWait_-_ObjectReference.wikitext`,
+`PlayGamebryoAnimation_-_ObjectReference.wikitext`,
+`SetMotionType_-_ObjectReference.wikitext` and
+`ApplyHavokImpulse_-_ObjectReference.wikitext` pages.
 
 **Quest alias dependencies.** The `QUST` reader retains local alias IDs from
 `ALFA` and external quest and alias IDs from `ALEQ` plus `ALEA`.

@@ -55,6 +55,7 @@ mod driver;
 mod encounter_zones;
 mod events;
 pub use events::EffectShaderRequest;
+pub use events::ReferencePhysicsRequest;
 mod forms;
 mod furniture;
 pub mod hash;
@@ -611,6 +612,8 @@ pub struct World {
     next_sound: i32,
     /// Transient renderer requests for EffectShader Play and Stop.
     pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
+    /// Transient host physics operations requested by Papyrus natives.
+    pub reference_physics_requests: Vec<events::ReferencePhysicsRequest>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -715,6 +718,7 @@ impl World {
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             effect_shader_requests: Vec::new(),
+            reference_physics_requests: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
