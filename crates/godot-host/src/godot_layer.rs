@@ -367,6 +367,23 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.grab_movable_reference(reference)
+    }
+
+    pub(crate) fn move_telekinesis_reference(
+        &mut self,
+        reference: GlobalFormId,
+        position: [f32; 3],
+    ) -> bool {
+        self.collision.grabbed_reference() == Some(reference)
+            && self.collision.move_grabbed_reference(position)
+    }
+
+    pub(crate) fn release_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.release_movable_reference(reference)
+    }
+
     /// Apply queued game requests and advance finite shader durations.
     pub(crate) fn sync_effect_shaders(
         &mut self,

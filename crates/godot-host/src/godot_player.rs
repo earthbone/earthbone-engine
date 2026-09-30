@@ -126,6 +126,9 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
+    /// Distance from the eye to the host body held by Telekinesis.
+    telekinesis_distance: Option<f32>,
+    host_telekinesis_target: Option<GlobalFormId>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
@@ -188,6 +191,8 @@ impl INode3D for PlayerNode {
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
+            telekinesis_distance: None,
+            host_telekinesis_target: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
@@ -595,6 +600,7 @@ impl PlayerNode {
                 pressed: input.right_attack_pressed,
             },
         );
+        self.update_telekinesis(input.activate_pressed);
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
