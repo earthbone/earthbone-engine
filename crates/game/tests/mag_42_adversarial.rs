@@ -11,9 +11,11 @@ fn id(object: u32) -> GlobalFormId {
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"NPC_"), 0x100).sub(Tag::new(b"ACBS"), vec![0; 24]));
-    plugin.push_top(Record::new(Tag::new(b"ACHR"), 0x101)
-        .sub(Tag::new(b"NAME"), 0x100u32.to_le_bytes())
-        .sub(Tag::new(b"DATA"), vec![0; 24]));
+    plugin.push_top(
+        Record::new(Tag::new(b"ACHR"), 0x101)
+            .sub(Tag::new(b"NAME"), 0x100u32.to_le_bytes())
+            .sub(Tag::new(b"DATA"), vec![0; 24]),
+    );
     let mut effect = vec![0; 152];
     effect[64..68].copy_from_slice(&21u32.to_le_bytes());
     effect[80..84].copy_from_slice(&1u32.to_le_bytes());
@@ -22,26 +24,40 @@ fn fixture() -> Game {
     let mut spell = vec![0; 36];
     spell[16..20].copy_from_slice(&1u32.to_le_bytes());
     spell[20..24].copy_from_slice(&3u32.to_le_bytes());
-    plugin.push_top(Record::new(Tag::new(b"SPEL"), 0x300)
-        .sub(Tag::new(b"SPIT"), spell)
-        .sub(Tag::new(b"EFID"), 0x200u32.to_le_bytes())
-        .sub(Tag::new(b"EFIT"), [
-            1.0f32.to_le_bytes().as_slice(),
-            0u32.to_le_bytes().as_slice(),
-            2u32.to_le_bytes().as_slice(),
-        ].concat()));
+    plugin.push_top(
+        Record::new(Tag::new(b"SPEL"), 0x300)
+            .sub(Tag::new(b"SPIT"), spell)
+            .sub(Tag::new(b"EFID"), 0x200u32.to_le_bytes())
+            .sub(
+                Tag::new(b"EFIT"),
+                [
+                    1.0f32.to_le_bytes().as_slice(),
+                    0u32.to_le_bytes().as_slice(),
+                    2u32.to_le_bytes().as_slice(),
+                ]
+                .concat(),
+            ),
+    );
     let mut order = LoadOrder::new();
     order.add("Paralysis.esp", plugin).unwrap();
     let game = Game::new(order);
-    game.world_mut().set_actor_value(id(0x101), "health", 100.0).unwrap();
+    game.world_mut()
+        .set_actor_value(id(0x101), "health", 100.0)
+        .unwrap();
     game
 }
 
 fn cast(game: &mut Game) {
-    game.shared_world().borrow_mut().cast_spell(
-        id(0x300), id(0x101), Some(id(0x101)), Some(id(0x101)),
-        &mut |name, class| game.vm.create_object_of(name, class),
-    ).unwrap();
+    game.shared_world()
+        .borrow_mut()
+        .cast_spell(
+            id(0x300),
+            id(0x101),
+            Some(id(0x101)),
+            Some(id(0x101)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
 }
 
 #[test]
