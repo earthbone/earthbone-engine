@@ -502,6 +502,14 @@ pub struct ClipTrigger {
     pub is_annotation: bool,
 }
 
+/// One interval and event in `hkbEventsFromRangeModifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EventRange {
+    pub event: EventProperty,
+    /// 0 sends on entry, 1 sends on every update while in range.
+    pub event_mode: i8,
+}
+
 /// Read an authored bone mask, retaining zero weights and array order.
 ///
 /// # Errors
@@ -677,6 +685,13 @@ pub enum NodeKind {
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
     },
+    /// `hkbEventsFromRangeModifier`: ranges are half-open and contiguous.
+    EventsFromRangeModifier {
+        enable: bool,
+        input_value: f32,
+        lower_bound: f32,
+        ranges: Vec<(f32, EventRange)>,
+    },
     /// `BSGetTimeStepModifier`: writes the current graph update interval to
     /// its `timeStep` output binding.
     GetTimeStepModifier {
@@ -787,6 +802,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -1188,6 +1204,55 @@ impl<'a> Loader<'a> {
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
             },
+            "hkbEventsFromRangeModifier" => {
+                let input_value = o.f32(o.layout_offset(44, 80))?;
+                let lower_bound = o.f32(o.layout_offset(48, 84))?;
+                let ranges = if let Some(ranges_obj) = o.ptr(o.layout_offset(52, 88))? {
+                    ranges_obj.expect_class("hkbEventRangeDataArray")?;
+                    ranges_obj
+                        .array_structs(
+                            ranges_obj.layout_offset(8, 16),
+                            ranges_obj.layout_offset(16, 32),
+                        )?
+                        .into_iter()
+                        .map(|range| {
+                            let upper_bound = range.f32(0)?;
+                            let event = EventProperty::read(range, range.layout_offset(4, 8))?;
+                            let event_mode = range.i8(range.layout_offset(12, 24))?;
+                            if event_mode != 0 && event_mode != 1 {
+                                return Err(crate::Error::Unsupported(format!(
+                                    "unsupported event range mode {event_mode}"
+                                )));
+                            }
+                            Ok((upper_bound, EventRange { event, event_mode }))
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    Vec::new()
+                };
+                if !input_value.is_finite()
+                    || !lower_bound.is_finite()
+                    || ranges.iter().any(|(upper, _)| !upper.is_finite())
+                    || ranges
+                        .iter()
+                        .scan(lower_bound, |lower, (upper, _)| {
+                            let valid = upper > lower;
+                            *lower = *upper;
+                            Some(valid)
+                        })
+                        .any(|valid| !valid)
+                {
+                    return Err(crate::Error::Unsupported(
+                        "invalid event range bounds or input".into(),
+                    ));
+                }
+                NodeKind::EventsFromRangeModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    input_value,
+                    lower_bound,
+                    ranges,
+                }
+            }
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
