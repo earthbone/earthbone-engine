@@ -593,6 +593,27 @@ impl Game {
         Ok(result)
     }
 
+    /// Consume one equipped arrow or bolt and return the host's flight request.
+    ///
+    /// # Errors
+    /// Invalid equipment, records, launch vectors or inventory state.
+    pub fn release_projectile(
+        &mut self,
+        attacker: GlobalFormId,
+        weapon: GlobalFormId,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<combat::FlightRequest, combat::Error> {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().release_projectile(
+            attacker,
+            weapon,
+            origin,
+            direction,
+            &mut |name, class| vm.create_object_of(name, class),
+        )
+    }
+
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
@@ -698,6 +719,7 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let mut game_hours = 0.0;
         if !menu_mode {
+            self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
@@ -722,6 +744,20 @@ impl Game {
             }
         }
         self.push_tick_hash();
+    }
+
+    fn resume_quest_lifecycle_tasks(&mut self) {
+        let tasks = self.world.borrow().lifecycle_tasks();
+        for (id, task) in tasks {
+            match task {
+                quest::state::LifecycleTask::Starting => {
+                    self.start_quest(id);
+                }
+                quest::state::LifecycleTask::Stopping => {
+                    self.world.borrow_mut().stop_quest(id);
+                }
+            }
+        }
     }
 
     /// Drain queued events and calls into the VM. Returns how many.

@@ -48,10 +48,14 @@ pub enum RestoreError {
     List { id: GlobalFormId, reason: String },
     #[error("cannot restore projectile {id}: {reason}")]
     Projectile { id: GlobalFormId, reason: String },
-    #[error("cannot restore reference {id}: {reason}")]
-    WorldReference { id: GlobalFormId, reason: String },
     #[error("cannot restore spatial record {id}: {reason}")]
     SpatialRecord { id: GlobalFormId, reason: String },
+    #[error("cannot restore record change {id}: {reason}")]
+    RecordChange { id: GlobalFormId, reason: String },
+    #[error("cannot restore reference {id}: {reason}")]
+    WorldReference { id: GlobalFormId, reason: String },
+    #[error("cannot restore dialogue or scene record {id}: {reason}")]
+    DialogueScene { id: GlobalFormId, reason: String },
     #[error("saved Papyrus block is missing")]
     PapyrusBlock,
     #[error("cannot restore Papyrus execution: {0}")]

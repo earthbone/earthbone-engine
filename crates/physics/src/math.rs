@@ -60,16 +60,16 @@ impl Vec3 {
         }
     }
 
+    fn componentwise(self, o: Vec3, op: fn(f32, f32) -> f32) -> Vec3 {
+        Vec3::new(op(self.x, o.x), op(self.y, o.y), op(self.z, o.z))
+    }
+
     pub fn min(self, o: Vec3) -> Vec3 {
-        self.combine(o, f32::min)
+        self.componentwise(o, f32::min)
     }
 
     pub fn max(self, o: Vec3) -> Vec3 {
-        self.combine(o, f32::max)
-    }
-
-    fn combine(self, o: Vec3, op: fn(f32, f32) -> f32) -> Vec3 {
-        Vec3::new(op(self.x, o.x), op(self.y, o.y), op(self.z, o.z))
+        self.componentwise(o, f32::max)
     }
 
     pub fn abs(self) -> Vec3 {

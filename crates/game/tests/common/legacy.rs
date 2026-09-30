@@ -183,6 +183,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         // save-section table that follows it is a version 37 addition and
         // gets stripped. The marker bytes are overwritten back to
         // `prior_alpha` in place rather than added to `fields`.
+
         let alpha_marker = alpha_sentinel.to_le_bytes().to_vec();
         let alpha_offsets: Vec<_> = bytes
             .windows(alpha_marker.len())

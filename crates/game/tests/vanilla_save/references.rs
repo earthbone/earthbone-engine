@@ -9,6 +9,10 @@ use soe_save::{
 };
 
 pub(super) fn fixture_order() -> LoadOrder {
+    fixture_order_with_flags(0)
+}
+
+fn fixture_order_with_flags(flags: u32) -> LoadOrder {
     let mut master = Plugin::new(FileHeader::default());
     for (tag, object) in [
         (b"NPC_", 7),
@@ -32,8 +36,9 @@ pub(super) fn fixture_order() -> LoadOrder {
     );
     grid.placement.world = Some(0x801);
     master.push_top(grid);
-    let mut placed =
-        Record::new(Tag(*b"REFR"), 0xA00).sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
+    let mut placed = Record::new(Tag(*b"REFR"), 0xA00)
+        .with_flags(flags)
+        .sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
     placed.placement.cell = Some(0x800);
     master.push_top(placed);
     for (tag, object, base) in [(b"PCON", 0xA02, 0x900_u32), (b"PARW", 0xA03, 0x901_u32)] {
@@ -56,6 +61,106 @@ pub(super) fn fixture_order() -> LoadOrder {
         order.add(name, p).unwrap();
     }
     order
+}
+
+#[test]
+fn sav_15_saved_reference_masks_are_retained_without_unverified_application() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let mut save = fixture();
+    set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
+
+    let mut world = World::new(fixture_order_with_flags(mask));
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    let restored = world.reference_ref(id(0, 0xA00)).unwrap();
+    assert!(!restored.enabled);
+    assert!(restored.persistent);
+    assert_eq!(
+        report.remaining[&id(0, 0xA00)].form_flags,
+        Some((mask, 0x50))
+    );
+    assert!(world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
+
+    let bytes = world.save_state();
+    let mut loaded = World::new(fixture_order_with_flags(mask));
+    loaded.load_state(&bytes).unwrap();
+    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
+    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
+}
+
+#[test]
+fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
+    for invalid_version in [0_u8, 1, 2] {
+        let mut save = fixture();
+        set_form_mask(
+            &mut save.change_forms[1],
+            soe_esm::plugin::flags::PERSISTENT,
+            0,
+            78,
+        );
+        match invalid_version {
+            0 => save.header.version = 11,
+            1 => save.form_version = 77,
+            _ => save.change_forms[1].version = 77,
+        }
+        let mut world = World::new(fixture_order());
+        let before = world.state_hash();
+        let error = world
+            .restore_vanilla_reference_placements(&save)
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("only validated for save version 12 and form versions 78"));
+        assert_eq!(world.state_hash(), before);
+    }
+}
+
+#[test]
+fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let mut save = fixture();
+    let player = &mut save.change_forms[0];
+    player.change_flags |= change_flags::FORM;
+    player.version = 78;
+    player.data.splice(
+        35..35,
+        mask.to_le_bytes().into_iter().chain(0_u16.to_le_bytes()),
+    );
+
+    let mut world = World::new(fixture_order());
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    let player = world.reference_ref(id(0, 0x14)).unwrap();
+    assert!(player.enabled);
+    assert!(!player.persistent);
+}
+
+#[test]
+fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping SAV-15 vanilla-reference case");
+        return;
+    };
+    let bytes = std::fs::read(data.join("Skyrim.esm")).unwrap();
+    let plugin = Plugin::parse(&bytes).unwrap();
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let record = plugin
+        .records_of(Tag(*b"REFR"))
+        .find(|record| !record.is_deleted())
+        .unwrap();
+    let authored = record.flags & mask;
+
+    let mut save = fixture();
+    set_form_mask(&mut save.change_forms[1], mask, 0, 78);
+    let mut world = World::new(fixture_order_with_flags(authored));
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    let restored = world.reference_ref(id(0, 0xA00)).unwrap();
+    assert_eq!(
+        restored.enabled,
+        authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+    );
+    assert_eq!(
+        restored.persistent,
+        authored & soe_esm::plugin::flags::PERSISTENT != 0
+    );
 }
 
 fn change(
@@ -94,6 +199,15 @@ fn change(
         uncompressed_len: 0,
         data,
     }
+}
+
+fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
+    change.change_flags |= change_flags::FORM;
+    change.version = version;
+    change.data.splice(
+        27..27,
+        mask.to_le_bytes().into_iter().chain(second.to_le_bytes()),
+    );
 }
 
 pub(super) fn fixture() -> Save {

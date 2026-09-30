@@ -4,7 +4,10 @@
 
 use super::*;
 use soe_game::Handle;
-use soe_save::{reference::Field, ChangeForm};
+use soe_save::{
+    reference::{Field, PlayerLocation},
+    ChangeForm,
+};
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
@@ -217,6 +220,71 @@ fn sav_16_restored_extras_drive_natives_activation_and_engine_roundtrip() {
 }
 
 #[test]
+fn sav_16_placed_reference_extras_drive_native_queries_and_activation() {
+    let mut save = save();
+    save.form_id_array = vec![0x0100_0811, 0xFE00_0801];
+    save.table_1.push(GlobalData {
+        kind: 1,
+        data: PlayerLocation {
+            next_object_id: 0xFF00_0100,
+            world: reference(0),
+            coordinates: [0; 2],
+            cell_or_world: reference(0),
+            position: [0.0; 3],
+            unknown: 0,
+        }
+        .data_bytes(),
+    });
+    save.change_forms = vec![
+        ChangeForm {
+            form: reference(0x400014),
+            change_flags: 0,
+            type_field: 1,
+            version: 0,
+            data: vec![0; 8],
+            uncompressed_len: 0,
+        },
+        change(0x400100, 1, 0, 1, 2),
+    ];
+
+    let mut game = Game::new(fixture_order());
+    let placements = game
+        .world_mut()
+        .restore_vanilla_reference_placements(&save)
+        .unwrap();
+    assert_eq!(placements.references, 2);
+    let extras = game
+        .world_mut()
+        .restore_vanilla_reference_extras(&save)
+        .unwrap();
+    assert_eq!((extras.owners, extras.locks), (1, 1));
+
+    let owner = game
+        .world()
+        .reference_ref(id(0, 0x100))
+        .unwrap()
+        .owner
+        .unwrap();
+    let key = game.world().key(id(0, 0x100)).unwrap();
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetActorOwner"),
+        Value::Object(game.object_of(Handle::Form(owner)))
+    );
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetKey"),
+        Value::Object(game.object_of(Handle::Form(key)))
+    );
+    assert_eq!(call(&mut game, id(0, 0x100), "IsLocked"), Value::Bool(true));
+    assert!(game.world().pending.is_empty());
+
+    let player = game.player();
+    game.world_mut().add_item(player, id(0, 0x800), 1);
+    assert!(!game.activate_no_settle(id(0, 0x100), player));
+    game.world_mut().add_item(player, id(4, 0x801), 1);
+    assert!(game.activate_no_settle(id(0, 0x100), player));
+}
+
+#[test]
 fn extras_failure_after_a_valid_entry_leaves_all_state_and_events_unchanged() {
     let mut world = World::new(fixture_order());
     for object in [0x100, 0x101] {
@@ -282,44 +350,67 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut world = World::new(fixture_order());
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
-    // Both references' own empty save-section tables (version 37) are
+    // Both references' own save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
-    // Version 19 predates the detection count and the world-section table.
+    // Version 19 predates the detection count and world-level section table.
     legacy.truncate(legacy.len() - 43);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
-    let mut without_sections = before.clone();
-    let extra_sections = legacy::strip_world_sections(&mut without_sections) - 2;
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&0_u16.to_le_bytes());
+    marker.extend_from_slice(&0x100_u32.to_le_bytes());
+    let starts: Vec<_> = before
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(at, bytes)| (bytes == marker).then_some(at))
+        .collect();
+    assert_eq!(starts.len(), 1, "reference extras entry is unique");
+    let start = starts[0];
+    let mut cursor = start + 10;
+    if before[cursor] != 0 {
+        cursor += 1 + 4;
+    } else {
+        cursor += 1;
+    }
+    if before[cursor] != 0 {
+        cursor += 1 + 6;
+    } else {
+        cursor += 1;
+    }
+    assert_ne!(before[cursor], 0, "reference lock extra is present");
+    cursor += 1;
+    let key_offset = if before[cursor] != 0 {
+        let offset = cursor + 1;
+        cursor += 1 + 6;
+        Some(offset)
+    } else {
+        cursor += 1;
+        None
+    };
+    let flags_offset = cursor;
+    cursor += 1 + 8;
+    let entry_end = cursor;
+    let entry = &before[start + 4..entry_end];
+
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 48 - extra_sections;
-    bad_flags[at] |= 1;
-    // `legacy` had both references' own save-section tables stripped above
-    // (2 bytes each), which `before` still carries, so add the 4 bytes back
-    // to land on the same absolute offset, where the reference extras block
-    // begins.
-    let start = legacy.len() + 4;
-    // The extras block is followed by the package cursor block, so repeat the
-    // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 39 - extra_sections];
+    bad_flags[flags_offset] |= 1;
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 39 - extra_sections..]);
-    let duplicate_error = world.load_state(&duplicate).unwrap_err();
+    duplicate.extend_from_slice(&before[entry_end..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
     assert!(
-        duplicate_error
-            .to_string()
-            .contains("duplicate reference extras"),
+        duplicate_error.contains("duplicate reference extras"),
         "{duplicate_error}"
     );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 27 - extra_sections;
-    bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
+    let key_offset = key_offset.expect("reference key is saved");
+    bad_key[key_offset + 2..key_offset + 6].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
         cases.push(before[..before.len() - cut].to_vec());

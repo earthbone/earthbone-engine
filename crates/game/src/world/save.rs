@@ -68,6 +68,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 37 also carries the provenance-aware native game save envelope and
 /// Fallout 4 struct values in saved Papyrus state. AI-88 retains each actor's
 /// reserved furniture marker in an actor section.
+/// Version 37 also retains INFO, SMQN and SCEN runtime fields, reference
+/// persistence, world record flags, pending quest lifecycle tasks and
+/// unresolved records.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -497,7 +500,13 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r, version)?);
+            let mut state = read_ref_state(&mut r, version)?;
+            if version < 37 {
+                state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                    self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
+                });
+            }
+            refs.insert(id, state);
         }
 
         let n = r.len()?;
@@ -560,6 +569,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -1066,23 +1076,24 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
-        // World-level sections are read straight into `self`, unlike every
-        // field above, which lands in a local and is only committed to
-        // `self` in the block below once the whole stream has parsed
-        // cleanly. A registered section may touch any field on `World`, so
-        // there is no local `World` to stage it in. If a section later in
-        // this table fails, sections read earlier in the same call have
-        // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it.
-        self.brewed_potions.clear();
-        if version >= 37 {
-            let previous_overrides =
-                std::mem::replace(&mut self.record_overrides, record_overrides);
-            let section_result =
-                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
-            record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
-            section_result?;
-        }
+        // Read world sections against candidate state while keeping the live
+        // world unchanged if any section rejects its payload.
+        let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
+        let previous_quests = std::mem::replace(&mut self.quests, quests);
+        let previous_unresolved = std::mem::take(&mut self.unresolved_records);
+        let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let section_result = if version >= 37 {
+            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
+        } else {
+            Ok(())
+        };
+        let unresolved_records = std::mem::take(&mut self.unresolved_records);
+        let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        quests = std::mem::replace(&mut self.quests, previous_quests);
+        record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+        self.unresolved_records = previous_unresolved;
+        self.brewed_potions = previous_brewed;
+        section_result?;
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1134,6 +1145,8 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.unresolved_records = unresolved_records;
+        self.brewed_potions = brewed_potions;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
@@ -1451,6 +1464,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         anim_ints,
         anim_bools,
         alpha,
+        persistent: false,
     };
     if version >= 37 {
         save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;

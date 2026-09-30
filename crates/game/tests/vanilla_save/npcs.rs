@@ -280,22 +280,32 @@ fn restored_npc_fields_reach_records_actors_and_native_queries() {
 fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them() {
     let mut world = World::new(fixture_order());
     let empty = world.save_state();
-    let mut without_sections = empty.clone();
-    let extra_sections = legacy::strip_world_sections(&mut without_sections) - 2;
     let saved = fixture();
     world.restore_vanilla_npcs(&saved).unwrap();
     assert!(world.loaded_actors().is_empty());
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    // `empty` carries detection and world-section tail growth, so this offset
-    // still lands on record overrides' start.
-    let origin_fields = empty.len() - 42 - extra_sections;
-    v13.drain(origin_fields..origin_fields + 13);
-    // CONTEXT: Version 13 has no later list or projectile metadata markers.
-    v13.remove(origin_fields + 14);
-    // Remove detection and the world-level section table from this old version.
-    v13.truncate(v13.len() - 48 - extra_sections);
+    // NPC restoration changes only the record override block, so its count
+    // is the first byte that differs from the empty save.
+    let override_count = empty
+        .iter()
+        .zip(&before)
+        .position(|(empty, saved)| empty != saved)
+        .unwrap();
+    assert_eq!(&empty[override_count..override_count + 4], &[0; 4]);
+    assert_eq!(
+        &before[override_count..override_count + 4],
+        &1_u32.to_le_bytes()
+    );
+    let override_entry = override_count + 4;
+    // Version 13 stores the form identity, but not the two source identities
+    // and temporary marker added in version 14.
+    v13.drain(override_entry + 6..override_entry + 19);
+    // Version 13 predates the list override marker.
+    v13.remove(override_entry + 20);
+    let tail_len = empty.len() - override_entry;
+    v13.truncate(v13.len() - tail_len);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -313,8 +323,7 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    // Same tail growth as v13 above, past the old 46.
-    v12.truncate(v12.len() - 52 - extra_sections);
+    v12.truncate(override_count);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());

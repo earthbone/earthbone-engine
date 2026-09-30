@@ -153,6 +153,7 @@ impl World {
         // disable cleaning would have left it, so whatever still names it
         // resolves instead of crashing the way the vanilla engine does.
         st.enabled = rec.flags & flags::INITIALLY_DISABLED == 0 && !rec.is_deleted();
+        st.persistent = rec.flags & flags::PERSISTENT != 0;
         st.cell = rec.placement.cell.map(|c| self.order.resolve(file, c));
         // Base Object Swapper replaces the base of a placed reference, and a
         // reference is built here rather than at start, which is why the swap

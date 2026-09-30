@@ -185,6 +185,55 @@ fn restored_quest_drives_natives_without_replaying_events() {
 }
 
 #[test]
+fn sav_10_restored_transitional_quest_resumes_start_and_stop_tasks() {
+    for (flags, expected_starting, expected_stopping, expected_task) in [
+        (
+            u16::MAX,
+            true,
+            false,
+            soe_game::quest::state::LifecycleTask::Starting,
+        ),
+        (
+            u16::MAX - 1,
+            false,
+            true,
+            soe_game::quest::state::LifecycleTask::Stopping,
+        ),
+    ] {
+        let mut game = fixture();
+        let mut save = saved();
+        let mut change = save.change_forms[0].quest_change().unwrap().unwrap();
+        change.quest_flags = Some(flags);
+        save.change_forms[0].data = change.data_bytes().unwrap();
+        game.world_mut().restore_vanilla_quests(&save).unwrap();
+        let quest = Value::Object(game.object_of_form(id(3, QUEST)));
+        for (native_name, expected) in [
+            ("IsStarting", expected_starting),
+            ("IsStopping", expected_stopping),
+            ("IsRunning", false),
+        ] {
+            assert_eq!(
+                native(&mut game, quest.clone(), native_name, &[]),
+                Value::Bool(expected),
+                "{native_name} for flags {flags:#06x}"
+            );
+        }
+        assert_eq!(
+            game.world().quest(id(3, QUEST)).unwrap().lifecycle_task,
+            Some(expected_task)
+        );
+
+        let bytes = game.world().save_state();
+        let restored = fixture();
+        restored.world_mut().load_state(&bytes).unwrap();
+        assert_eq!(
+            restored.world().quest(id(3, QUEST)).unwrap().lifecycle_task,
+            Some(expected_task)
+        );
+    }
+}
+
+#[test]
 fn journal_global_updates_select_current_instance_and_persist_history() {
     let mut game = fixture();
     game.world_mut().restore_vanilla_quests(&saved()).unwrap();
@@ -302,11 +351,11 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
         .update_global(id(3, 0x800), -0.0);
     let mut bytes = game.world().save_state();
     legacy::normalize_world_sections(&mut bytes);
+
     // CONTEXT: One quest extension: count, FormID, empty runtime, and one
     // journal instance with a single global and no alias text.
     let extension_bytes = 4 + 6 + 6 + 8 + 4 + 2 + 1 + 4 + 4 + 6 + 4;
-    // The extra 6 bytes beyond the old 50 are detection and the empty
-    // world-level section table, always present at the tail.
+    // Detection and the world-level section table are present at the tail.
     bytes.truncate(bytes.len() - extension_bytes - 56);
     bytes[4..6].copy_from_slice(&10_u16.to_le_bytes());
     let restored = fixture();

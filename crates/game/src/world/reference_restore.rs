@@ -249,6 +249,14 @@ impl World {
             let Some(header) = form.reference_header(save.form_version)? else {
                 continue;
             };
+            if header.form_flags.is_some()
+                && (save.header.version != 12 || save.form_version != 78 || form.version != 78)
+            {
+                return Err(invalid(
+                    GlobalFormId { file: 0, object: PLAYER_OBJECT },
+                    "reference mask semantics are only validated for save version 12 and form versions 78",
+                ));
+            }
             let id = mapping
                 .reference(form.form)?
                 .ok_or(RestoreError::Reference(form.form.raw()))?;

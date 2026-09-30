@@ -95,6 +95,9 @@ impl Vm {
     /// Run runnable threads round-robin until the budget of instructions is
     /// spent or nothing is runnable. Returns instructions executed.
     pub fn run(&mut self, budget: usize) -> usize {
+        if self.suspended_state.is_some() {
+            return 0;
+        }
         let mut run_span = soe_trace::Span::new("vm.run", "vm");
         let slice = 64;
         let mut used = 0;

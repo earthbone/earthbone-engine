@@ -48,6 +48,7 @@ mod contact;
 mod crime;
 mod death;
 mod detection;
+mod dialogue_scene_restore;
 mod doorway;
 mod driver;
 mod encounter_zones;
@@ -73,12 +74,14 @@ mod outfits;
 mod package_navmesh_restore;
 mod projectile_restore;
 pub use npc_restore::NpcRestoreReport;
+mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::{
-    NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, ProjectileRecordExtra,
-};
+pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra, ProjectileRecordExtra};
+pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
@@ -104,7 +107,9 @@ mod timers;
 mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
+pub use dialogue_scene_restore::DialogueSceneRestoreReport;
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
@@ -136,6 +141,7 @@ pub struct RefState {
     pub rotation: [f32; 3],
     pub scale: f32,
     pub enabled: bool,
+    pub persistent: bool,
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
@@ -183,6 +189,7 @@ impl RefState {
             rotation: [0.0; 3],
             scale: 1.0,
             enabled: true,
+            persistent: false,
             deleted: false,
             activation_blocked: false,
             opened: false,
@@ -419,6 +426,8 @@ pub struct QuestState {
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
     pub journal: crate::quest::state::Journal,
     pub runtime: crate::quest::state::Runtime,
+    /// A saved start or stop promotion task that has not completed.
+    pub lifecycle_task: Option<crate::quest::state::LifecycleTask>,
 }
 
 /// Work a native asked the VM to do.
@@ -472,6 +481,8 @@ pub struct World {
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     spatial_change_payloads: BTreeMap<GlobalFormId, Vec<u8>>,
+    unresolved_records:
+        BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -599,6 +610,7 @@ impl World {
             order,
             record_overrides: BTreeMap::new(),
             spatial_change_payloads: BTreeMap::new(),
+            unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
