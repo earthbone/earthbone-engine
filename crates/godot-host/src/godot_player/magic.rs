@@ -10,7 +10,7 @@ use godot::classes::{Button, Label, ScrollContainer, VBoxContainer};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_game::combat::Hand;
-use soe_physics::PhysicsWorld;
+use soe_physics::{PhysicsWorld, Vec3};
 
 use crate::magic_menu;
 
@@ -109,6 +109,43 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    fn location_target(&self) -> Option<[f32; 3]> {
+        let world = self.world.as_ref()?;
+        let start = self.rig.head(self.feet(), self.capsule_height());
+        let direction = self.rig.look_direction();
+        let end = start + direction * 4096.0;
+        let hit = world.raycast(start, end)?;
+        Some([hit.point.x, hit.point.y, hit.point.z])
+    }
+
+    /// Return the live static-world selection point in Godot metres.
+    /// An empty array means the camera ray did not hit loaded geometry.
+    #[func]
+    pub fn selected_location_position(&self) -> PackedVector3Array {
+        let Some([x, y, z]) = self.location_target() else {
+            return PackedVector3Array::new();
+        };
+        let position = crate::units::SkyrimPos::new(x, y, z).to_godot();
+        [Vector3::new(position.x, position.y, position.z)]
+            .into_iter()
+            .collect()
+    }
+
+    /// Cast a target-location spell at the live point selected by the camera ray.
+    #[func]
+    pub fn cast_location_spell_at_look(&mut self, spell_file: i32, spell_object: i64) -> bool {
+        let Some([x, y, z]) = self.location_target() else {
+            return false;
+        };
+        self.cast_location_spell(
+            spell_file,
+            spell_object,
+            f64::from(x),
+            f64::from(y),
+            f64::from(z),
+        )
+    }
+
     /// Cast a target-location spell at a selected Skyrim world position.
     /// Static world geometry blocks the cast when it intersects the segment
     /// from the player to the selected point.
@@ -129,12 +166,13 @@ impl PlayerNode {
         if !position.iter().all(|value| value.is_finite()) {
             return false;
         }
-        let start = self.feet();
-        let end = soe_physics::Vec3::new(position[0], position[1], position[2]);
-        let line_of_sight_clear = self
-            .world
-            .as_ref()
-            .is_some_and(|world| world.raycast(start, end).is_none());
+        let start = self.rig.head(self.feet(), self.capsule_height());
+        let end = Vec3::new(position[0], position[1], position[2]);
+        let line_of_sight_clear = self.world.as_ref().is_some_and(|world| {
+            world
+                .raycast(start, end)
+                .is_none_or(|hit| hit.fraction >= 1.0 - 1e-4)
+        });
         let Some(game) = &mut self.game else {
             return false;
         };
