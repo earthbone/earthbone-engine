@@ -26,6 +26,7 @@ use crate::behavior::{
     VariableBindingSet, VariableInfo, VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
 use crate::expression::{Expression, ExpressionError};
+use crate::ragdoll::BodyIndex;
 use crate::skeleton::AnimationContainer;
 use crate::spline::Block;
 use crate::{Error, QsTransform, Result};
@@ -307,6 +308,20 @@ pub struct Event {
     pub id: i32,
 }
 
+/// Kind of runtime contact reported to a ragdoll contact listener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RagdollContactKind {
+    Contact,
+    Throw,
+}
+
+#[derive(Debug, Clone)]
+struct RagdollContact {
+    body: BodyIndex,
+    bone_to_body: Vec<Option<BodyIndex>>,
+    kind: RagdollContactKind,
+}
+
 /// A state machine changed state during an update.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateChange {
@@ -559,6 +574,7 @@ pub struct Interpreter<'a> {
     /// bindings publish in this order rather than arena allocation order.
     modifier_order: Vec<NodeId>,
     pending: Vec<Event>,
+    ragdoll_contacts: Vec<RagdollContact>,
     raised: Vec<Event>,
     handled: Vec<Event>,
     changes: Vec<StateChange>,
@@ -610,6 +626,7 @@ impl<'a> Interpreter<'a> {
             expressions: vec![None; graph.nodes.len()],
             modifier_order: Vec::new(),
             pending: Vec::new(),
+            ragdoll_contacts: Vec::new(),
             raised: Vec::new(),
             handled: Vec::new(),
             changes: Vec::new(),
@@ -894,6 +911,21 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// Queue a ragdoll contact for the next update. The contact is delivered
+    /// only to active listeners whose declared bones map to `body`.
+    pub fn send_ragdoll_contact(
+        &mut self,
+        body: BodyIndex,
+        bone_to_body: &[Option<BodyIndex>],
+        kind: RagdollContactKind,
+    ) {
+        self.ragdoll_contacts.push(RagdollContact {
+            body,
+            bone_to_body: bone_to_body.to_vec(),
+            kind,
+        });
+    }
+
     pub fn is_active(&self, node: NodeId) -> bool {
         self.nodes.get(node.0).is_some_and(|n| n.active)
     }
@@ -987,6 +1019,7 @@ impl<'a> Interpreter<'a> {
             let output = self.generate(root, dt);
             self.output = output;
             self.update_time_step_modifiers(dt);
+            self.update_ragdoll_contact_modifiers();
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
                     break;
@@ -1012,6 +1045,44 @@ impl<'a> Interpreter<'a> {
                 NodeKind::GetTimeStepModifier { .. }
             ) {
                 self.nodes[node.0].time_step = if self.nodes[node.0].active { dt } else { 0.0 };
+            }
+        }
+    }
+
+    /// Deliver queued contacts after modifier activation has settled for this
+    /// frame. Havok's throw flag and rigid-body list are runtime-only fields,
+    /// so both contact kinds use the serialized contact event.
+    fn update_ragdoll_contact_modifiers(&mut self) {
+        let contacts = std::mem::take(&mut self.ragdoll_contacts);
+        for contact in contacts {
+            match contact.kind {
+                RagdollContactKind::Contact | RagdollContactKind::Throw => {}
+            }
+            let mut emitted = Vec::new();
+            for node in self.modifier_order.clone() {
+                if !self.nodes[node.0].active {
+                    continue;
+                }
+                let NodeKind::RagdollContactListener {
+                    contact_event,
+                    bones,
+                    ..
+                } = &self.graph.node(node).kind
+                else {
+                    continue;
+                };
+                let matches_body = bones.iter().any(|bone| {
+                    usize::try_from(*bone)
+                        .ok()
+                        .and_then(|index| contact.bone_to_body.get(index))
+                        .is_some_and(|mapped| *mapped == Some(contact.body))
+                });
+                if matches_body {
+                    emitted.push(contact_event.id);
+                }
+            }
+            for event in emitted {
+                self.raise(event);
             }
         }
     }
@@ -1136,6 +1207,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::ModifyOnce { enable, .. }
             | NodeKind::PassByTargetTrigger { enable, .. }
+            | NodeKind::RagdollContactListener { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::EvaluateExpression { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
@@ -1451,6 +1523,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::PassByTargetTrigger { .. }
+            | NodeKind::RagdollContactListener { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1951,6 +2024,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::ModifyOnce { .. }
             | NodeKind::PassByTargetTrigger { .. }
+            | NodeKind::RagdollContactListener { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
@@ -3562,5 +3636,88 @@ mod tests {
         assert_eq!(v.name(0), Some("Speed"));
         assert_eq!(v.len(), 3);
         assert!(!v.is_empty());
+    }
+
+    fn anm_35_contact_graph(enabled: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "ragdoll contact".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSRagdollContactListenerModifier".into(),
+                    name: "contact listener".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::RagdollContactListener {
+                        enable: enabled,
+                        contact_event: crate::behavior::EventProperty {
+                            id: 17,
+                            has_payload: false,
+                        },
+                        bones: vec![1, 2],
+                    },
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anm_35_contact_listener_emits_for_a_declared_bone_mapped_to_the_contact_body() {
+        let graph = anm_35_contact_graph(true);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        let mapping = [Some(BodyIndex(0)), Some(BodyIndex(3)), Some(BodyIndex(3))];
+        vm.send_ragdoll_contact(BodyIndex(3), &mapping, RagdollContactKind::Contact);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.take_events(), vec![Event { id: 17 }]);
+    }
+
+    #[test]
+    fn anm_35_contact_listener_emits_throw_event_for_its_mapped_body() {
+        let graph = anm_35_contact_graph(true);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        let mapping = [Some(BodyIndex(4)), Some(BodyIndex(3)), None];
+        vm.send_ragdoll_contact(BodyIndex(3), &mapping, RagdollContactKind::Throw);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.take_events(), vec![Event { id: 17 }]);
+    }
+
+    #[test]
+    fn anm_35_contact_listener_ignores_unmapped_and_undeclared_bodies() {
+        let graph = anm_35_contact_graph(true);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        let mapping = [Some(BodyIndex(4)), Some(BodyIndex(3)), None];
+        vm.send_ragdoll_contact(BodyIndex(4), &mapping, RagdollContactKind::Contact);
+        vm.update(1.0 / 60.0);
+        assert!(vm.take_events().is_empty());
+    }
+
+    #[test]
+    fn anm_35_disabled_contact_listener_emits_no_event() {
+        let graph = anm_35_contact_graph(false);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        let mapping = [Some(BodyIndex(0)), Some(BodyIndex(3)), Some(BodyIndex(4))];
+        vm.send_ragdoll_contact(BodyIndex(3), &mapping, RagdollContactKind::Contact);
+        vm.update(1.0 / 60.0);
+        assert!(vm.take_events().is_empty());
     }
 }

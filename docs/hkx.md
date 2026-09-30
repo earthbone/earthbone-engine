@@ -817,6 +817,19 @@ crossing details, and no original-runtime capture validates the geometry.
 `pass_by_target` synthetic tests cover decoding, forward and reverse crossings,
 radius filtering, one-shot behavior and the ignored serialized latch.
 
+### BSRagdollContactListenerModifier (ANM-35)
+
+The parser reads the modifier's serialized `contactEvent` and the signed
+16-bit bone indices from its `hkbBoneIndexArray`. The runtime accepts a
+`BodyIndex`, the ragdoll's bone-to-body map and a contact or throw kind through
+`Interpreter::send_ragdoll_contact`. During the next update, an active
+listener emits its configured contact event when a declared bone maps to that
+body. Both kinds use the same serialized event. The `throwEvent` and
+`ragdollRigidBodies` fields are `SERIALIZE_IGNORED` and are supplied only by
+runtime state. Synthetic interpreter tests cover contact, throw, mismatched
+bodies and disabled listeners. A synthetic packfile test checks the event and
+bone-index fields on the 64-bit layout.
+
 Linked behavior references currently preserve word defaults only. A
 `BSDecomposeVectorModifier` inside a linked sub-graph needs its vector supplied
 by the parent graph until the linker imports quad defaults and remaps their
@@ -824,11 +837,9 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
-  `hkbEventsFromRangeModifier` still pass through. Their layouts are in
+- Remaining modifier evaluation includes dynamic bone weight masks on a
+  blender, `hkbRotateCharacterModifier` and
+  `hkbEventsFromRangeModifier`. They still pass through. Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
