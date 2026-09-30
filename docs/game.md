@@ -1294,9 +1294,9 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630, 640, 659, 691, 692, 711,
-734 and 735. This is a bounded set,
+The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 123,
+136, 182, 225, 248, 249, 264, 277, 289, 315, 359, 448, 543, 560, 629, 630,
+640, 659, 691, 692, 711, 734 and 735. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1500,6 +1500,19 @@ CTDA function 123, `IsGreetingPlayer`, takes no parameters and returns true for
 the current actor while automatic ForceGreet choices are evaluated. Ordinary
 conversation choices return false for that predicate.
 
+CTDA function 248, `IsScenePlaying`, takes a SCEN parameter and checks the
+world's active scene set. Function 249, `IsInDialogueWithPlayer`, takes no
+parameters and is true for an actor paired with PlayerRef in the active
+conversation. Other references return false, as the CK page specifies for
+non-actors and non-talking-activators. The engine does not track a speaking
+activator. Functions 225 `GetPersuasionNumber` and 315
+`GetTotalPersuasionNumber` use the current Speechcraft value, following the
+existing DLG-07 dialogue check behavior. The local CK corpus does not document
+the returned encoding, so this remains an approximation. Functions 50
+`GetTalkedToPC`, 141 `IsTalking` and 172 `GetTalkedToPCParam` return explicit
+unsupported-function errors because the local CK corpus has no usable runtime
+contract for them.
+
 The DIAL category and legacy subtype fields follow xEdit
 `wbDefinitionsTES5.pas`. The SNAM subtype names and the fact that SNAM replaces
 the legacy subtype follow UESP `DIAL.wikitext`. The alpha and ghost eligibility
@@ -1520,19 +1533,10 @@ CK dialogue corpus contains actor dialogue-state pages, but no page describing
 the interruption lifecycle. The callback sequence here reuses the existing
 INFO fragment lifecycle.
 
-DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
-(116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
-GetIntimidateSuccess (655). All four take no parameter in `wbDefinitionsTES5.pas`
-and `Raw_Function_Data.wikitext`, so an INFO condition using one of them just
-compares the returned number against a threshold. A nonzero value in either
-parameter slot is rejected with `Error::Parameter`, the way functions 70 and
-448 reject a slot they do not use. Neither source documents the
-exact encoding vanilla used, so the engine reads state it already has: the
-persuasion pair returns the subject's current Speechcraft (base plus permanent
-plus temporary plus damage, so a perk or effect bonus is felt). No source
-separates the plain number from the total, so both return the same value, and
-the total does not add the permanent component a second time. The intimidated
-flag reads the
+DLG-07 adds IsIntimidatedbyPlayer (116) and GetIntimidateSuccess (655). Both
+take no parameter in `wbDefinitionsTES5.pas` and
+`Raw_Function_Data.wikitext`, so a nonzero value in either parameter slot is
+rejected with `Error::Parameter`. The intimidated flag reads the
 LastBribedIntimidated actor value that also backs SetBribed, and the success
 check compares the player's Speechcraft against the subject's Confidence
 (AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an

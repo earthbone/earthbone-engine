@@ -132,6 +132,8 @@ pub fn supports_function(function: u16) -> bool {
             | 56
             | 58
             | 59
+            | 248
+            | 249
             | 67
             | 72
             | 69
@@ -409,18 +411,12 @@ fn function_value(
             // IsGreetingPlayer (wbDefinitionsTES5.pas:290) takes no parameters.
             // Its subject is true during automatic ForceGreet selection.
             no_parameter(c)?;
-            boolean(world.dialogue.greeting_actor == Some(subject))
+            boolean(
+                world.actor(subject).is_some() && world.dialogue.greeting_actor == Some(subject),
+            )
         }
         225 | 315 => {
-            // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
-            // either (wbDefinitionsTES5.pas:340,385, Raw_Function_Data.wikitext
-            // 0x10E1, 0x113B). Neither source documents the returned encoding, so
-            // both read the subject's current Speechcraft and let the INFO
-            // condition branch on the skill value, matching the done check and
-            // docs/game.md. Current is base plus permanent plus temporary plus
-            // damage, so an active perk or effect bonus is felt. Current already
-            // holds the permanent component, adding it again would count a perk
-            // twice. No source separates the two functions, so they agree.
+            // DLG-07 established current Speechcraft as the condition value.
             no_parameter(c)?;
             world
                 .actor(subject)
@@ -428,6 +424,25 @@ fn function_value(
                 .values
                 .get("speechcraft")
                 .current()
+        }
+        248 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
+            boolean(world.scenes.contains(&scene))
+        }
+        249 => {
+            no_parameter(c)?;
+            let is_actor = world.actor(subject).is_some();
+            let player = world.player();
+            boolean(
+                is_actor
+                    && world.dialogue.session.as_ref().is_some_and(|session| {
+                        (session.speaker == subject && session.listener == player)
+                            || (session.listener == subject && session.speaker == player)
+                    }),
+            )
         }
         403 => {
             let other = resolve_reference(world, context.owner, raw)?;
@@ -683,4 +698,165 @@ pub(crate) fn inventory_count(
         return Ok(total);
     }
     Ok(world.item_count(subject, item))
+}
+
+#[cfg(test)]
+mod ai_47_tests {
+    use super::{evaluate_one, supports_function, Context, Error};
+    use crate::{dialogue::Session, Game};
+    use soe_esm::{
+        records::gameplay::{Comparison, Condition},
+        FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    };
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn fixture() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+        for object in [0x900, 0x901] {
+            plugin.push_top(
+                Record::new(Tag(*b"ACHR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+            );
+        }
+        plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
+        plugin.push_top(
+            Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag(*b"SCEN"), 0xA00));
+        let mut order = LoadOrder::new();
+        order.add("AI-47.esp", plugin).unwrap();
+        Game::new(order)
+    }
+
+    fn condition(function: u16, parameter: u32) -> Condition {
+        Condition {
+            flags: 0,
+            comparison: Comparison::Number(1.0),
+            function,
+            parameters: [parameter, 0],
+            run_on: 0,
+            reference: 0,
+            parameter_3: -1,
+            strings: [None, None],
+        }
+    }
+
+    fn evaluate(game: &Game, subject: GlobalFormId, condition: &Condition) -> Result<bool, Error> {
+        evaluate_one(
+            &mut game.world_mut(),
+            &game.vm,
+            Context {
+                owner: id(0x800),
+                subject,
+                target: None,
+                quest: None,
+                tempering_enchanted: None,
+                skill_use: None,
+                light_level: None,
+            },
+            condition,
+        )
+    }
+
+    #[test]
+    fn ai_47_greeting_only_matches_the_force_greet_subject() {
+        let game = fixture();
+        game.world_mut().dialogue.greeting_actor = Some(id(0x900));
+        assert_eq!(evaluate(&game, id(0x900), &condition(123, 0)), Ok(true));
+        assert_eq!(evaluate(&game, id(0x901), &condition(123, 0)), Ok(false));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(123, 1)),
+            Err(Error::Parameter(123, 1))
+        );
+    }
+
+    #[test]
+    fn ai_47_scene_playing_uses_valid_scene_identity_and_active_state() {
+        let game = fixture();
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(248, 0xA00)),
+            Ok(false)
+        );
+        game.world_mut().scenes.insert(id(0xA00));
+        assert_eq!(evaluate(&game, id(0x900), &condition(248, 0xA00)), Ok(true));
+        assert!(matches!(
+            evaluate(&game, id(0x900), &condition(248, 0xFFFF)),
+            Err(Error::Form(_))
+        ));
+        let mut bad_parameter = condition(248, 0xA00);
+        bad_parameter.parameters[1] = 1;
+        assert_eq!(
+            evaluate(&game, id(0x900), &bad_parameter),
+            Err(Error::Parameter(248, 1))
+        );
+    }
+
+    #[test]
+    fn ai_47_dialogue_predicate_matches_player_pair_and_active_lifecycle() {
+        let game = fixture();
+        let player = game.world_mut().player();
+        game.world_mut().dialogue.session = Some(Session {
+            speaker: id(0x900),
+            listener: player,
+            topic: None,
+            current_info: None,
+            last_info: None,
+            response_index: 0,
+        });
+        assert_eq!(evaluate(&game, id(0x900), &condition(249, 0)), Ok(true));
+        assert_eq!(evaluate(&game, id(0x901), &condition(249, 0)), Ok(false));
+        assert_eq!(evaluate(&game, id(0x910), &condition(249, 0)), Ok(false));
+        game.world_mut().dialogue.session = None;
+        assert_eq!(evaluate(&game, id(0x900), &condition(249, 0)), Ok(false));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(249, 1)),
+            Err(Error::Parameter(249, 1))
+        );
+    }
+
+    #[test]
+    fn ai_47_unavailable_dialogue_contracts_return_explicit_diagnostics() {
+        let game = fixture();
+        for function in [50, 141, 172] {
+            assert!(!supports_function(function), "function {function}");
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0)),
+                Err(Error::Function(function)),
+                "function {function}"
+            );
+            let mut missing_target = condition(function, 0);
+            missing_target.run_on = 1;
+            assert_eq!(
+                evaluate(&game, id(0x900), &missing_target),
+                Err(Error::Target(1)),
+                "function {function}"
+            );
+        }
+    }
+
+    #[test]
+    fn ai_47_persuasion_conditions_follow_the_dlg_07_speechcraft_contract() {
+        let game = fixture();
+        game.world_mut()
+            .set_actor_value(id(0x900), "speechcraft", 40.0)
+            .unwrap();
+        for function in [225, 315] {
+            assert!(supports_function(function));
+            let mut matching = condition(function, 0);
+            matching.comparison = Comparison::Number(40.0);
+            assert_eq!(evaluate(&game, id(0x900), &matching), Ok(true));
+            let mut wrong = condition(function, 0);
+            wrong.comparison = Comparison::Number(41.0);
+            assert_eq!(evaluate(&game, id(0x900), &wrong), Ok(false));
+            let mut bad_parameter = condition(function, 0);
+            bad_parameter.parameters[1] = 1;
+            assert_eq!(
+                evaluate(&game, id(0x900), &bad_parameter),
+                Err(Error::Parameter(function, 1))
+            );
+        }
+    }
 }
