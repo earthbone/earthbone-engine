@@ -242,6 +242,21 @@ the existing raw record model because the crate does not provide Mutagen's gener
 record graph. `tests/edt_24_patcher.rs` verifies deterministic output, reloads the patch,
 checks the new winner, and confirms unchanged records are not emitted.
 
+### Instruction count gate
+
+`benches/tst_04_perf_gate.rs` measures `Plugin::parse` on a generated plugin with
+128 MISC records. The input is assembled before Callgrind starts counting. Its
+hard limit is 500,000 instructions, enforced by `iai-callgrind` so exceeding the
+recorded ceiling fails the benchmark command. The companion
+`tests/tst_04_perf_gate.rs` checks the fixture parses all 128 records and retains
+the final editor id.
+
+The `performance` CI workflow runs it with
+`cargo bench --locked -p soe-esm --bench tst_04_perf_gate`. The benchmark
+uses `iai-callgrind` 0.16.1 and its absolute `EventKind::Ir` hard limit, as
+documented in the upstream iai-callgrind library docs. Running requires Valgrind
+and a matching `iai-callgrind-runner` 0.16.1 in PATH.
+
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
   cargo test -p soe-esm --release --test real_files -- --nocapture
