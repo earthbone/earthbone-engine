@@ -56,6 +56,7 @@ impl World {
             b"REFR" => {
                 let r = Refr::from_record(rec).ok()?;
                 let mut st = RefState::new(Some(self.order.resolve(file, r.base)));
+                st.opened = rec.find(T(b"ONAM")).is_some();
                 if let Some(t) = r.transform {
                     st.position = t.position;
                     st.rotation = t.rotation;

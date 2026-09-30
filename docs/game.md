@@ -841,6 +841,17 @@ listener and makes that topic the session's initial choice. Dead and
 unconscious actors do not start boundary actions. Topic actions also require
 an available actor who can speak to the player and no active dialogue session.
 
+An unfinished package with `Must Complete` stays selected ahead of higher
+priority candidates until its procedure tree finishes. Combat can interrupt
+it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
+the PKDT interrupt flags. `Ignore Combat` leaves package movement in control
+instead of acquiring or pursuing a combat target. `No Combat Alert` records
+combat engagement without setting the actor's alerted state. `At Package Start
+Unlock Doors` unlocks locked doors in the actor's current cell when that
+package starts. `On Package Change Unlock Doors` does the same when leaving the
+flagged package. Unlocking uses the shared reference lock state and emits the
+ordinary lock state event.
+
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration
 lasts until midnight. Day of week 0 is Sundas, the day the game starts on,
@@ -891,6 +902,15 @@ fixtures, parameter and actor-context errors, and diagnostics for untracked
 queries. The fixtures use synthetic records and do not need installed game
 data.
 
+AI-72 adds these queries to both condition evaluators: `GetOpenState` for
+placed `DOOR` references (0 for other references, 1 open and 3 closed),
+`GetIsCurrentPackage` against the subject actor's selected package,
+`GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
+reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
+`GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
+`GetCannibal` remain unsupported with a function diagnostic because the local
+sources name them without defining query results.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches
@@ -915,7 +935,10 @@ Other simultaneous child procedures remain unsupported until the completion
 policy in AI-87 is established from paired authored records.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
-plus the local UESP PACK page. CommonLib's sequence header supplies a type
+plus the local UESP PACK page. xEdit names the PKDT interrupt override values
+and interrupt bits, including `Observe combat behavior`. The CK
+`EvaluatePackage` page documents explicit package-stack reevaluation.
+CommonLib's sequence header supplies a type
 but no implementation. The nested-repeat behavior follows the mod author's
 [repeat experiment](https://forums.nexusmods.com/topic/11591393-ai-package-wont-repeat/).
 No reusable interpreter exists in those sources, so this interpreter uses the

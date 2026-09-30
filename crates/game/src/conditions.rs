@@ -245,6 +245,10 @@ pub fn supports_function(function: u16) -> bool {
             | 111
             | 125
             | 127
+            | 157
+            | 161
+            | 203
+            | 215
     )
 }
 
@@ -1212,6 +1216,57 @@ fn function_value(
             world.global_value(global)
         }
         136 => boolean(subject == resolve_reference(world, context.owner, raw)?),
+        143 | 150 | 226 | 227 => {
+            // xEdit and the UESP raw function table name these conditions but
+            // do not define their result encoding or state contract. The CK
+            // pages describe starting feed actions, not query semantics.
+            return Err(Error::Function(c.function));
+        }
+        157 => {
+            no_parameter(c)?;
+            let (base, opened) = world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)
+                .map(|reference| (reference.base, reference.opened))
+                .ok_or(Error::Form(subject))?;
+            let is_door = base.is_some_and(|base| world.tag_of(base) == Some(Tag(*b"DOOR")));
+            if !is_door {
+                0.0
+            } else if opened {
+                1.0
+            } else {
+                3.0
+            }
+        }
+        161 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let package = resolve(world, context.owner, raw, Some(*b"PACK"))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.ai.package == Some(package))
+        }
+        203 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .reference(subject)
+                    .filter(|reference| !reference.deleted)
+                    .ok_or(Error::Form(subject))?
+                    .destroyed,
+            )
+        }
+        215 => {
+            no_parameter(c)?;
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let record = world.record(subject).ok_or(Error::Form(subject))?;
+            boolean(record.find(Tag(*b"ONAM")).is_some())
+        }
         182 => {
             let item = resolve(world, context.owner, raw, None)?;
             boolean(
