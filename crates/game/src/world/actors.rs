@@ -198,6 +198,30 @@ impl World {
         self.actors.get(&id)
     }
 
+    /// Whether an instantiated actor is currently marked alarmed.
+    ///
+    /// # Errors
+    /// This query does not fail.
+    ///
+    /// # Panics
+    /// This query does not panic.
+    #[must_use]
+    pub fn actor_is_alarmed(&self, id: GlobalFormId) -> bool {
+        self.actor_ref(id).is_some_and(|actor| actor.alerted)
+    }
+
+    /// Whether an instantiated actor is marked unconscious by the bleedout path.
+    ///
+    /// # Errors
+    /// This query does not fail.
+    ///
+    /// # Panics
+    /// This query does not panic.
+    #[must_use]
+    pub fn actor_is_bleeding_out(&self, id: GlobalFormId) -> bool {
+        self.actor_ref(id).is_some_and(|actor| actor.unconscious)
+    }
+
     pub fn actor_value(&mut self, id: GlobalFormId, name: &str) -> f32 {
         self.actor(id)
             .map_or(0.0, |actor| actor.values.get(name).current())
