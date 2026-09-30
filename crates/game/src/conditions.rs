@@ -1416,31 +1416,16 @@ fn function_value(
             // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
             // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
             // perk entry point for the real formula, which this engine does not run
-            // yet (the native is still a stub in natives.rs). This approximates the
-            // same shape without the entry point: the player's Speechcraft against
-            // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
-            // the 0 to 100 skill range.
+            // yet (the native is still a stub in natives.rs). Do not approximate
+            // the authored perk formula with a Speechcraft and Confidence threshold.
             no_parameter(c)?;
-            let player = world.player();
-            let speechcraft = world
-                .actor(player)
-                .ok_or(Error::Form(player))?
-                .values
-                .get("speechcraft")
-                .current();
             let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-            if subject_actor.values.contains("confidence") {
-                let confidence = subject_actor.values.get("confidence").current();
-                boolean(speechcraft >= confidence * 25.0)
-            } else {
-                // No AIDT subrecord on the speaker's NPC_ record: the
-                // source has made no claim about Confidence at all, so
-                // reading the unset default (0.0, Cowardly) would treat a
-                // record silent on the point as the easiest possible
-                // target to intimidate. Fail closed instead (see
-                // dlg_07_missing_aidt_adversarial.rs).
-                boolean(false)
+            if !subject_actor.values.contains("confidence") {
+                // No AIDT subrecord on the speaker's NPC_ record means the
+                // condition has no usable actor-value contract for this form.
+                return Err(Error::StateContract(c.function));
             }
+            return Err(Error::Unavailable(c.function));
         }
         656 => {
             // CK Actor.IsArrested reports the actor's current arrest state.

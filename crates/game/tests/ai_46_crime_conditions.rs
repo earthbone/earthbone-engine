@@ -71,25 +71,23 @@ fn ai_46_bribe_success_reads_the_shared_player_bribed_status() {
     assert_eq!(evaluate(&game, id(0x900), &condition(654, 1.0)), Ok(true));
 }
 
-/// ai_46_intimidate_success_uses_player_speechcraft_and_subject_confidence
+/// ai_46_intimidate_success_requires_the_unavailable_perk_entry_point
 #[test]
-fn ai_46_intimidate_success_uses_player_speechcraft_and_subject_confidence() {
+fn ai_46_intimidate_success_requires_the_unavailable_perk_entry_point() {
     let game = game();
     assert!(conditions::supports_function(655));
 
-    let player = game.world_mut().player();
-    game.world_mut()
-        .set_actor_value(player, "speechcraft", 60.0)
-        .unwrap();
-    game.world_mut()
-        .set_actor_value(id(0x900), "confidence", 2.0)
-        .unwrap();
-    assert_eq!(evaluate(&game, id(0x900), &condition(655, 1.0)), Ok(true));
-
-    game.world_mut()
-        .set_actor_value(id(0x900), "confidence", 4.0)
-        .unwrap();
-    assert_eq!(evaluate(&game, id(0x900), &condition(655, 1.0)), Ok(false));
+    for confidence in [0.0, 2.0, 4.0] {
+        game.world_mut()
+            .set_actor_value(id(0x900), "confidence", confidence)
+            .unwrap();
+        for expected in [0.0, 1.0] {
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(655, expected)),
+                Err(conditions::Error::Unavailable(655))
+            );
+        }
+    }
 }
 
 /// ai_46_arrested_state_reads_the_subject_arrest_flag
