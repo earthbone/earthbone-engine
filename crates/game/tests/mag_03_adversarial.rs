@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{world::Pending, Game};
@@ -53,7 +54,7 @@ fn cast_fixture() -> Game {
     plugin.push_top(spell);
     let mut order = LoadOrder::new();
     order.add("Magic.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     for actor in [ACTOR, TARGET] {
         game.world_mut()
             .set_actor_value(id(actor), "health", 100.0)
@@ -130,7 +131,9 @@ fn mag_03_cast_start_notifies_once_across_multiple_ticks() {
     for _ in 0..3 {
         shared
             .borrow_mut()
-            .tick_concentration(0.2, &mut |name, class| game.vm.create_object_of(name, class));
+            .tick_concentration(0.2, &mut |name, class| {
+                game.vm.create_object_of(name, class)
+            });
     }
     let events = game
         .world()
@@ -151,14 +154,18 @@ fn mag_03_release_stops_future_effect_and_cost_ticks() {
     let shared = game.shared_world();
     shared
         .borrow_mut()
-        .tick_concentration(0.1, &mut |name, class| game.vm.create_object_of(name, class));
+        .tick_concentration(0.1, &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        });
     assert!(shared.borrow_mut().release_concentration_cast());
     let health = game.world_mut().actor_value(id(TARGET), "health");
     let magicka = game.world_mut().actor_value(id(ACTOR), "magicka");
 
     shared
         .borrow_mut()
-        .tick_concentration(1.0, &mut |name, class| game.vm.create_object_of(name, class));
+        .tick_concentration(1.0, &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        });
 
     assert_eq!(game.world_mut().actor_value(id(TARGET), "health"), health);
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), magicka);
@@ -179,7 +186,9 @@ fn mag_03_exhaustion_stops_at_fractional_magicka_boundary() {
     let shared = game.shared_world();
     shared
         .borrow_mut()
-        .tick_concentration(1.0, &mut |name, class| game.vm.create_object_of(name, class));
+        .tick_concentration(1.0, &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        });
 
     assert!(game.world_mut().actor_value(id(ACTOR), "magicka") <= 0.001);
     assert!((game.world_mut().actor_value(id(TARGET), "health") - 99.5).abs() < 0.02);

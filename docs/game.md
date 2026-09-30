@@ -3583,13 +3583,15 @@ unchanged since neither exercised the two new fields before this change.
 
 MAG-22 adds `Game::begin_hand_cast` and `Game::end_hand_cast` for input routed
 to an actor's equipped left or right spell. The first begin validates and
-executes one costed fire-and-forget cast through `World::cast_charged_spell`,
-including its `OnSpellCast` event. A repeated begin for that held hand returns
-false without charging or applying another effect. Releasing the hand clears
-the request guard, so a later press can cast again. This follows the CK
-`GetEquippedSpell` hand sources and `OnSpellCast` start event, with the cost and
-delivery fields read from xEdit's SPEL `SPIT` definition. It does not retain
-held cast state in save data.
+executes a costed fire-and-forget cast through `World::cast_charged_spell`, or
+starts a held concentration cast through `World::begin_concentration_cast`.
+Both paths dispatch the validated `OnSpellCast` event. A repeated begin for
+that held hand returns false without charging or applying another effect.
+Releasing the hand clears the request guard and stops an active concentration
+cast for that actor, so a later press can cast again. This follows the CK
+`GetEquippedSpell` hand sources, `InterruptCast` release behavior and
+`OnSpellCast` start event, with cost and delivery fields read from xEdit's SPEL
+`SPIT` definition. It does not retain held cast state in save data.
 
 ## Actor controller scale, CMB-33
 

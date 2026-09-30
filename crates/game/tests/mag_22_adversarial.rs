@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
@@ -90,13 +91,9 @@ fn mag_22_releasing_hand_stops_world_concentration_cast() {
     let shared = game.shared_world();
     shared
         .borrow_mut()
-        .begin_concentration_cast(
-            id(SPELL),
-            id(ACTOR),
-            id(ACTOR),
-            None,
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
+        .begin_concentration_cast(id(SPELL), id(ACTOR), id(ACTOR), None, &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        })
         .unwrap();
     assert!(game.world().is_concentration_casting(id(ACTOR)));
 

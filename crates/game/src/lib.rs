@@ -620,7 +620,8 @@ impl Game {
     /// Begin a costed cast from an actor's equipped hand spell.
     ///
     /// Repeated begins while that hand remains held do not request another
-    /// cast. Supported fire-and-forget spells execute on the initial press.
+    /// cast. Fire-and-forget spells execute on the initial press, while
+    /// concentration spells remain active until the hand is released.
     ///
     /// # Errors
     /// Returns the magic validation, delivery, or magicka error for the spell.
@@ -639,13 +640,20 @@ impl Game {
             return Ok(false);
         };
         let vm = &mut self.vm;
-        let result = self.world.borrow_mut().cast_charged_spell(
-            spell,
-            actor,
-            actor,
-            target,
-            &mut |name, class| vm.create_object_of(name, class),
-        );
+        let result = {
+            let mut world = self.world.borrow_mut();
+            if world.spell(spell)?.data.cast_type == 2 {
+                world
+                    .begin_concentration_cast(spell, actor, actor, target, &mut |name, class| {
+                        vm.create_object_of(name, class)
+                    })
+                    .map(|()| Vec::new())
+            } else {
+                world.cast_charged_spell(spell, actor, actor, target, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })
+            }
+        };
         match result {
             Ok(_) => {
                 self.active_hand_casts.insert(key);
@@ -659,7 +667,12 @@ impl Game {
     /// Release a casting hand after its input is lifted.
     #[must_use]
     pub fn end_hand_cast(&mut self, actor: soe_esm::GlobalFormId, hand: combat::Hand) -> bool {
-        self.active_hand_casts.remove(&(actor, hand))
+        let was_active = self.active_hand_casts.remove(&(actor, hand));
+        let stopped_concentration = {
+            let mut world = self.world.borrow_mut();
+            world.is_concentration_casting(actor) && world.release_concentration_cast()
+        };
+        was_active || stopped_concentration
     }
 
     /// Activate a reference the way a player click would, then settle.
