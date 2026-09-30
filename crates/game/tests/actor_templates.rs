@@ -284,17 +284,17 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
         .find(|sub| sub.tag == T(b"TPLT"))
         .unwrap()
         .data = LOW.to_le_bytes().to_vec();
-    let mut world = world(fixture);
-    world.actor(id(ACTOR)).unwrap();
-    let hash = world.state_hash();
-    let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
-    // The trailing 64 bytes are the version 10 to 36 blocks this legacy save
-    // omits, plus detection's now-unconditional empty pool count (4 bytes)
-    // and the world-level save-section table version 37 added (2 bytes).
-    bytes.truncate(bytes.len() - 64);
+    let mut original = world(fixture.clone());
+    original.actor(id(ACTOR)).unwrap();
+    let hash = original.state_hash();
+    let mut bytes = legacy::without_exclusive_branches(&mut original, &[id(ACTOR)]);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
-    world.load_state(&bytes).unwrap();
-    assert_eq!(world.state_hash(), hash);
+    let tail = legacy::version_tail_len(&bytes, |candidate| {
+        world(fixture.clone()).load_state(candidate).is_ok()
+    });
+    bytes.truncate(bytes.len() - tail);
+    original.load_state(&bytes).unwrap();
+    assert_eq!(original.state_hash(), hash);
 }
 
 #[test]
