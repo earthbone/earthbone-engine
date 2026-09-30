@@ -504,6 +504,113 @@ impl Plugin {
         out
     }
 
+    /// Reorder existing masters or add new masters without changing the
+    /// resolved identities represented by record ids and supported links.
+    /// Existing masters cannot be removed because unknown subrecords may
+    /// contain links to them.
+    pub fn set_masters(&mut self, masters: Vec<String>) -> Result<()> {
+        let old = &self.header.masters;
+        if masters.len() > u8::MAX as usize {
+            return Err(Error::Invalid(
+                "plugin cannot have more than 255 masters".into(),
+            ));
+        }
+        let mut normalized = std::collections::HashSet::new();
+        for master in &masters {
+            if !normalized.insert(master.to_ascii_lowercase()) {
+                return Err(Error::Invalid(format!("duplicate master {master}")));
+            }
+        }
+        for master in old {
+            if !masters.iter().any(|new| new.eq_ignore_ascii_case(master)) {
+                return Err(Error::Invalid(format!("cannot remove master {master}")));
+            }
+        }
+        let master_indices: Vec<usize> = old
+            .iter()
+            .map(|master| {
+                masters
+                    .iter()
+                    .position(|new| new.eq_ignore_ascii_case(master))
+                    .ok_or_else(|| Error::Invalid(format!("cannot remove master {master}")))
+            })
+            .collect::<Result<_>>()?;
+        for record in &self.records {
+            for subrecord in &record.subrecords {
+                if is_form_id_field(record.tag, subrecord.tag) && subrecord.data.len() % 4 != 0 {
+                    return Err(Error::Invalid(format!(
+                        "{} {} FormID list has {} trailing bytes",
+                        record.tag,
+                        subrecord.tag,
+                        subrecord.data.len() % 4
+                    )));
+                }
+            }
+        }
+        if let Some(onam) = self
+            .header_record
+            .subrecords
+            .iter()
+            .find(|subrecord| subrecord.tag == Tag::new(b"ONAM"))
+        {
+            if onam.data.len() % 4 != 0 {
+                return Err(Error::Invalid(format!(
+                    "TES4 ONAM FormID list has {} trailing bytes",
+                    onam.data.len() % 4
+                )));
+            }
+        }
+
+        let relocate = |raw: u32| {
+            let old_index = (raw >> 24) as usize;
+            if raw == 0 || old_index == 0xFE || old_index > old.len() {
+                return raw;
+            }
+            let object = raw & 0x00FF_FFFF;
+            let index = if old_index == old.len() {
+                masters.len()
+            } else {
+                master_indices[old_index]
+            };
+            ((index as u32) << 24) | object
+        };
+
+        for record in &mut self.records {
+            record.form_id = relocate(record.form_id);
+            for subrecord in &mut record.subrecords {
+                if is_form_id_field(record.tag, subrecord.tag) {
+                    for bytes in subrecord.data.as_chunks_mut::<4>().0 {
+                        let raw = u32::from_le_bytes(*bytes);
+                        bytes.copy_from_slice(&relocate(raw).to_le_bytes());
+                    }
+                }
+            }
+        }
+        for group in &mut self.groups {
+            relocate_group(group, &relocate);
+        }
+        for subrecord in &mut self.header_record.subrecords {
+            if subrecord.tag == Tag::new(b"ONAM") {
+                for bytes in subrecord.data.as_chunks_mut::<4>().0 {
+                    let raw = u32::from_le_bytes(*bytes);
+                    bytes.copy_from_slice(&relocate(raw).to_le_bytes());
+                }
+            }
+        }
+        self.header.overridden_forms = self
+            .header_record
+            .find(Tag::new(b"ONAM"))
+            .unwrap_or_default()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bytes| u32::from_le_bytes(*bytes))
+            .collect();
+        self.header.masters = masters;
+        rewrite_master_header(&mut self.header_record, &self.header.masters);
+        Ok(())
+    }
+
     /// Remap plugin-local FormIDs in record identities, known FormID fields,
     /// group labels, the override list and typed VMAD object links.
     ///
@@ -563,6 +670,132 @@ impl Plugin {
         }
         m.into_iter().collect()
     }
+}
+
+fn relocate_group(group: &mut Group, relocate: &impl Fn(u32) -> u32) {
+    match &mut group.kind {
+        GroupKind::WorldChildren(id)
+        | GroupKind::CellChildren(id)
+        | GroupKind::TopicChildren(id)
+        | GroupKind::CellPersistent(id)
+        | GroupKind::CellTemporary(id)
+        | GroupKind::CellVisibleDistant(id) => *id = relocate(*id),
+        GroupKind::Top(_)
+        | GroupKind::InteriorBlock(_)
+        | GroupKind::InteriorSubBlock(_)
+        | GroupKind::ExteriorBlock { .. }
+        | GroupKind::ExteriorSubBlock { .. } => {}
+    }
+    for entry in &mut group.entries {
+        if let Entry::Group(child) = entry {
+            relocate_group(child, relocate);
+        }
+    }
+}
+
+fn rewrite_master_header(record: &mut Record, masters: &[String]) {
+    let old_data: std::collections::HashMap<String, Vec<u8>> = record
+        .subrecords
+        .iter()
+        .filter(|sub| sub.tag == Tag::new(b"MAST"))
+        .map(|sub| crate::cursor::zstring(&sub.data).to_ascii_lowercase())
+        .zip(
+            record
+                .subrecords
+                .iter()
+                .filter(|sub| sub.tag == Tag::new(b"DATA"))
+                .map(|sub| sub.data.clone()),
+        )
+        .collect();
+    let first_master = record
+        .subrecords
+        .iter()
+        .position(|sub| sub.tag == Tag::new(b"MAST"))
+        .unwrap_or(record.subrecords.len());
+    let mut subrecords = Vec::with_capacity(record.subrecords.len() + masters.len() * 2);
+    let mut inserted = false;
+    for sub in record.subrecords.drain(..) {
+        if sub.tag == Tag::new(b"MAST") || sub.tag == Tag::new(b"DATA") {
+            continue;
+        }
+        if !inserted && subrecords.len() == first_master {
+            append_masters(&mut subrecords, masters, &old_data);
+            inserted = true;
+        }
+        subrecords.push(sub);
+    }
+    if !inserted {
+        append_masters(&mut subrecords, masters, &old_data);
+    }
+    record.subrecords = subrecords;
+}
+
+fn append_masters(
+    subrecords: &mut Vec<Subrecord>,
+    masters: &[String],
+    old_data: &std::collections::HashMap<String, Vec<u8>>,
+) {
+    for master in masters {
+        let mut name = master.as_bytes().to_vec();
+        name.push(0);
+        subrecords.push(Subrecord::new(Tag::new(b"MAST"), name));
+        subrecords.push(Subrecord::new(
+            Tag::new(b"DATA"),
+            old_data
+                .get(&master.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| vec![0; 8]),
+        ));
+    }
+}
+
+pub(crate) fn is_form_id_field(record: Tag, field: Tag) -> bool {
+    let pairs: &[(Tag, Tag)] = &[
+        (tag::REFR, Tag(*b"NAME")),
+        (tag::REFR, Tag(*b"XESP")),
+        (tag::REFR, Tag(*b"XTEL")),
+        (tag::REFR, Tag(*b"XCNT")),
+        (tag::REFR, Tag(*b"XLKR")),
+        (tag::REFR, Tag(*b"XOWN")),
+        (tag::REFR, Tag(*b"XLCN")),
+        (tag::REFR, Tag(*b"XLYR")),
+        (tag::REFR, Tag(*b"XEZN")),
+        (tag::REFR, Tag(*b"XEMI")),
+        (tag::CELL, Tag(*b"LTMP")),
+        (tag::CELL, Tag(*b"XCWT")),
+        (tag::CELL, Tag(*b"XOWN")),
+        (tag::CELL, Tag(*b"XLCN")),
+        (tag::CELL, Tag(*b"XCLR")),
+        (tag::CELL, Tag(*b"XCIM")),
+        (tag::CELL, Tag(*b"XCMO")),
+        (tag::CELL, Tag(*b"XCAS")),
+        (tag::CELL, Tag(*b"XEZN")),
+        (tag::CELL, Tag(*b"XCCM")),
+        (tag::WRLD, Tag(*b"PNAM")),
+        (tag::WRLD, Tag(*b"WCTR")),
+        (tag::WRLD, Tag(*b"MNAM")),
+        (tag::WRLD, Tag(*b"WNAM")),
+        (tag::WRLD, Tag(*b"CNAM")),
+        (tag::WRLD, Tag(*b"NAM2")),
+        (tag::WRLD, Tag(*b"NAM3")),
+        (tag::WRLD, Tag(*b"NAM4")),
+        (tag::WRLD, Tag(*b"NAMA")),
+        (tag::WRLD, Tag(*b"XLCN")),
+        (tag::WRLD, Tag(*b"XEZN")),
+        (tag::WRLD, Tag(*b"ZNAM")),
+        (Tag(*b"LTEX"), Tag(*b"TNAM")),
+        (Tag(*b"LTEX"), Tag(*b"GNAM")),
+        (Tag(*b"LTEX"), Tag(*b"GNAM")),
+        (Tag(*b"LCTN"), Tag(*b"PNAM")),
+        (Tag(*b"LCTN"), Tag(*b"MNAM")),
+        (Tag(*b"LCTN"), Tag(*b"RNAM")),
+        (Tag(*b"NAVM"), Tag(*b"ONAM")),
+        (Tag(*b"NAVM"), Tag(*b"PNAM")),
+        (Tag(*b"NAVM"), Tag(*b"NNAM")),
+        (Tag(*b"STAT"), Tag(*b"DNAM")),
+        (Tag(*b"STAT"), Tag(*b"MNAM")),
+    ];
+    pairs.contains(&(record, field))
 }
 
 fn parse_record(cur: &mut Cursor<'_>, placement: Placement) -> Result<Record> {

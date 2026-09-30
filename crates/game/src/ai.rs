@@ -160,7 +160,12 @@ pub struct Candidate {
 /// The `PACK` view of a winning record.
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     let rec = world.record(id)?;
-    Package::from_record(rec).ok()
+    let mut package = Package::from_record(rec).ok()?;
+    if let Some(saved) = world.restored_pack_extra(id) {
+        package.saved_waiting = saved.waiting;
+        package.saved_never_run = saved.never_run;
+    }
+    Some(package)
 }
 
 fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
@@ -1028,7 +1033,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if due {
             evaluate(world, actor, alloc);
         }
-        step(world, actor, dt as f32);
+        step(world, actor, dt as f32, alloc);
     }
 }
 
@@ -1281,7 +1286,7 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
-fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
+fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
@@ -1306,11 +1311,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
-            Procedure::Sandbox => {
-                if hours >= ai.dwell_until {
-                    ai.arrived = false;
-                    ai.destination = None;
-                }
+            Procedure::Sandbox if hours >= ai.dwell_until => {
+                ai.arrived = false;
+                ai.destination = None;
             }
             Procedure::Sleep => ai.sleeping = true,
             _ => {}
@@ -1423,7 +1426,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         }
     }
     if ai.procedure == Procedure::Patrol {
-        patrol::tick(world, &mut ai);
+        patrol::tick(world, actor, &mut ai, alloc);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;

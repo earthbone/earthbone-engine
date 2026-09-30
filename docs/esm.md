@@ -44,6 +44,25 @@ The form table maps every global id to the list of records that carry it, in loa
 order. `winner` is the last one, which is the rule the game, xEdit and Mutagen all apply.
 `overridden` lists the ids whose winner is not their owner.
 
+`Plugin::set_masters` reorders existing masters or adds new ones while retaining
+all current masters. It relocates valid master and plugin-self FormIDs while
+preserving null, light-plugin and out-of-range unresolved FormIDs. It relocates
+record FormIDs, FormID group labels, TES4
+`ONAM`, and recognized four-byte links in the typed world record set. It updates
+the TES4 `MAST` and paired `DATA` entries, keeping existing master data with its
+name. Duplicate and removed masters, malformed recognized links and lists over
+255 masters return an error before changing the plugin. Unknown subrecords and
+unmodeled link fields remain byte-for-byte unchanged. In particular this method
+does not inspect nested `VMAD` links.
+
+The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
+and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
+links must retain their target identity while a mod is reorganized. Spriggit's
+`docs/spriggit-file.md` describes stable plugin identity across text
+serialization. The Rust plugin model retains raw subrecords instead of
+Mutagen's complete typed record graph, so this implementation relocates its
+known typed links and preserves other fields unchanged.
+
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
 regular and light slot positions. For parsed files, serialization preserves
@@ -52,6 +71,11 @@ the loaded definition rather than the exact source file bytes. A changed
 definition changes its fingerprint. This is dependency evidence, not an
 authenticity check. `tests/sav_67_fingerprints.rs` covers slot reordering,
 same-name replacements and the engine-added global.
+
+`LoadOrder::fingerprint` hashes each plugin's ASCII case-folded name and
+serialized-definition fingerprint in load order. It is suitable as a cache
+identity for data derived from this resolved order. It does not fingerprint
+loose assets or archive contents.
 
 OpenMW's `apps/openmw/mwstate/savegame.hpp` writes content file names to saves,
 and `loadgame.hpp` checks dependencies and maps saved indices on load.
@@ -199,6 +223,25 @@ truncated entries, and all five installed masters.
   `file  TAG  count` lines for diffing against xDump, and checks that every CELL and
   REFR under Tamriel resolves and every REFR base is in the table.
 
+## Scripted patch passes
+
+`PatcherSession` applies a callback to winning top-level `STAT` records in resolved
+FormID order. The output plugin must include each changed record's owner as a master and
+preserve the source plugin's master order, with that source immediately after its masters.
+Changed records keep their FormID and are appended to the output, while unchanged records
+are omitted. An existing output override is reused on later passes, and the TES4 record
+count is synchronized. The pass rejects nested records, incompatible master layouts,
+known FormID subrecords and `VMAD` rather than moving group paths or remapping embedded
+FormIDs. It currently applies only to top-level `STAT` records.
+
+The API follows Mutagen's local `docs/loadorder/Winning-Overrides.md` and
+`docs/plugins/Create,-Duplicate,-and-Override.md` for winner selection and preserving form
+identity in an override. Wrye Bash's local `[dev]-PBash-Patching-Procedure.md` informed the
+ordered passes and omission of records no patcher changed. The Rust implementation uses
+the existing raw record model because the crate does not provide Mutagen's generated typed
+record graph. `tests/edt_24_patcher.rs` verifies deterministic output, reloads the patch,
+checks the new winner, and confirms unchanged records are not emitted.
+
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
   cargo test -p soe-esm --release --test real_files -- --nocapture
@@ -216,7 +259,10 @@ parser change was needed, every record type the checks touch read cleanly.
 
 - Typed gameplay views do not evaluate conditions or implement game systems.
   Their coverage and remaining raw fields are listed below.
-- FormID remapping covers the fields listed above. Master list editing is absent.
+- `Plugin::set_masters` relocates structural identities and the recognized
+  links listed above. It does not inspect nested VMAD links or arbitrary
+  unmodeled fields. `Plugin::remap_form_ids` applies an explicit map to the
+  typed VMAD object links and other fields listed above.
 - Typed `XCLL` lighting and `XPRM` primitives retain exact byte encoding.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
   `Plugin::parse` and `Geometry::parse` is the obvious next step.

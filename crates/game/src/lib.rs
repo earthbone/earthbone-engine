@@ -45,6 +45,7 @@ pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod perks;
+pub mod progression;
 pub mod quest;
 pub mod race;
 pub mod save;
@@ -66,6 +67,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 
 pub use clock::GameClock;
 pub use natives::Registered;
+pub use world::StoryError;
 pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
@@ -274,6 +276,19 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Route an authored Story Manager event through the shared runtime.
+    ///
+    /// # Errors
+    /// Returns malformed record, condition, or reset data errors.
+    pub fn send_story_event(
+        &mut self,
+        event: &crate::quest::state::StoryEvent,
+    ) -> Result<Vec<GlobalFormId>, StoryError> {
+        let vm = &mut self.vm;
+        let mut world = self.world.borrow_mut();
+        world.send_story_event(vm, event)
     }
 
     /// Resolve a vendor faction's current service for an actor.
@@ -541,11 +556,39 @@ impl Game {
     /// # Errors
     /// See World::melee_hit for the current supported contact rules.
     pub fn melee_hit(&mut self, hit: combat::MeleeHit) -> Result<combat::HitResult, combat::Error> {
+        let (outgoing, incoming) = if hit.is_bash {
+            (Vec::new(), Vec::new())
+        } else {
+            let vm = &self.vm;
+            let mut world = self.world.borrow_mut();
+            let outgoing_context = perks::EntryPointContext {
+                tabs: vec![hit.attacker, hit.weapon, hit.target],
+                target: Some(hit.target),
+                quest: None,
+            };
+            let incoming_context = perks::EntryPointContext {
+                tabs: vec![hit.target, hit.attacker, hit.weapon],
+                target: Some(hit.attacker),
+                quest: None,
+            };
+            (
+                perks::entry_point_invocations(
+                    &mut world,
+                    vm,
+                    hit.attacker,
+                    35,
+                    &outgoing_context,
+                )?,
+                perks::entry_point_invocations(&mut world, vm, hit.target, 36, &incoming_context)?,
+            )
+        };
         let vm = &mut self.vm;
-        let result = self
-            .world
-            .borrow_mut()
-            .melee_hit(hit, &mut |name, class| vm.create_object_of(name, class))?;
+        let result =
+            self.world
+                .borrow_mut()
+                .melee_hit(hit, outgoing, incoming, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })?;
         self.run_until_idle(64);
         Ok(result)
     }
@@ -591,6 +634,44 @@ impl Game {
         );
         self.run_until_idle(64);
         ok
+    }
+
+    /// Apply a lockpick result supplied by the host interaction UI.
+    ///
+    /// A broken pick is removed from inventory. Successful picks unlock the
+    /// reference through the shared lock state and run its lock event.
+    pub fn resolve_lockpick(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        success: bool,
+    ) -> bool {
+        let vm = &mut self.vm;
+        let unlocked = self.world.borrow_mut().resolve_lockpick(
+            target,
+            activator,
+            success,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+        unlocked
+    }
+
+    /// Complete player sleep at a furniture reference and deliver its sleep events.
+    pub fn sleep_player_at_furniture(
+        &mut self,
+        furniture: GlobalFormId,
+        elapsed_hours: f64,
+        interrupted: bool,
+    ) -> bool {
+        let slept =
+            self.world
+                .borrow_mut()
+                .sleep_at_furniture(furniture, elapsed_hours, interrupted);
+        if slept {
+            self.run_until_idle(64);
+        }
+        slept
     }
 
     /// Move an inventory item between two references through the same notified
