@@ -176,7 +176,7 @@ pub struct LocationData {
     pub radius: i32,
 }
 
-/// `PTDA` target kind.
+/// `PTDA` target kind. xEdit `wbObjectTypeEnum` supplies Object Type values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Reference(u32),

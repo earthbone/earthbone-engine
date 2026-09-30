@@ -23,10 +23,11 @@ use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
 
-use super::{Alloc, Handle, Pending, World};
+use super::{Alloc, Handle, Pending, World, T};
 
 mod state;
 pub(super) use state::read_magic;
+pub(crate) use state::SECTION as SAVE_SECTION;
 
 const HOSTILE: u32 = 1;
 const RECOVER: u32 = 1 << 1;
@@ -40,6 +41,9 @@ const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const DEMORALIZE: u32 = 7;
+const FRENZY_ARCHETYPE: u32 = 8;
+const TURN_UNDEAD: u32 = 24;
 const INVISIBILITY: u32 = 11;
 const LIGHT: u32 = 12;
 const LOCK: u32 = 15;
@@ -53,6 +57,12 @@ const IGNORE_RESISTANCE: u32 = 1 << 20;
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EffectId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PriorOwner {
+    Unowned,
+    Owned(GlobalFormId),
+}
 
 /// Mutable state of one application. Actor values include the recoverable
 /// deltas until this instance ends, so loading must never apply them again.
@@ -70,6 +80,8 @@ pub struct ActiveEffect {
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
+    /// Previous runtime owner while this effect commands a summoned actor.
+    pub(crate) restore_owner: Option<PriorOwner>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
 }
@@ -117,6 +129,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    command_owner: Option<GlobalFormId>,
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
     lock_level: Option<i32>,
@@ -150,6 +163,118 @@ impl World {
         id
     }
 
+    /// Seconds remaining before an actor may use a shout again.
+    #[must_use]
+    pub fn voice_recovery_time(&mut self, actor: GlobalFormId) -> f32 {
+        let now = self.clock.real_seconds;
+        self.actor(actor)
+            .and_then(|state| state.voice_recovery_until)
+            .map_or(0.0, |until| (until - now).max(0.0) as f32)
+    }
+
+    /// Set an actor's shout recovery in real seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` for an absent actor, non-finite duration, or negative duration.
+    pub fn set_voice_recovery_time(&mut self, actor: GlobalFormId, seconds: f32) -> bool {
+        if !seconds.is_finite() || seconds < 0.0 || self.actor(actor).is_none() {
+            return false;
+        }
+        let deadline = (self.clock.real_seconds + f64::from(seconds)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (seconds > 0.0).then_some(deadline);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Cast the highest authored word spell of the actor's equipped shout and
+    /// start the recovery authored by that word.
+    ///
+    /// # Errors
+    ///
+    /// Returns a magic error before setting recovery if the shout, spell,
+    /// target, or authored recovery data is unusable.
+    pub fn cast_shout(
+        &mut self,
+        actor: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: crate::world::Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let shout = self
+            .actor(actor)
+            .and_then(|state| state.equipped_shout)
+            .ok_or(MagicError::Target)?;
+        if self.voice_recovery_time(actor) > 0.0 {
+            return Err(MagicError::Unsupported("voice recovery"));
+        }
+        let record = self.record(shout).ok_or(MagicError::Missing(shout))?;
+        if record.tag != Tag::new(b"SHOU") {
+            return Err(MagicError::Missing(shout));
+        }
+        let words: Vec<_> = record.all(Tag::new(b"SNAM")).collect();
+        if words.len() != 3 || words.iter().any(|word| word.len() != 12) {
+            return Err(MagicError::Unsupported("malformed shout words"));
+        }
+        let selected = words
+            .iter()
+            .rev()
+            .find_map(|word| {
+                let raw = u32::from_le_bytes(word[4..8].try_into().ok()?);
+                (raw != 0).then_some((raw, f32::from_le_bytes(word[8..12].try_into().ok()?)))
+            })
+            .ok_or(MagicError::Unsupported("shout has no spell"))?;
+        let (raw_spell, recovery) = selected;
+        if !recovery.is_finite() || recovery < 0.0 {
+            return Err(MagicError::Number);
+        }
+        let spell = self
+            .resolve_from(shout, raw_spell)
+            .ok_or(MagicError::Missing(shout))?;
+        self.cast_spell(spell, actor, Some(actor), target, alloc)?;
+        let deadline = (self.clock.real_seconds + f64::from(recovery)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (recovery > 0.0).then_some(deadline);
+        }
+        Ok(())
+    }
+
+    /// The source of an active Turn Undead effect that currently makes this
+    /// actor flee. Teammates do not flee until their combat state begins.
+    pub(crate) fn turn_undead_threat(&mut self, target: GlobalFormId) -> Option<GlobalFormId> {
+        let actor = self.actor(target)?;
+        if actor.dead || actor.ghost || actor.teammate && !actor.in_combat {
+            return None;
+        }
+        let undead = self.form("ActorTypeUndead")?;
+        if !self.has_keyword(target, undead) {
+            return None;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == target
+                    && effect
+                        .duration
+                        .is_some_and(|duration| duration > effect.elapsed)
+            })
+            .map(|effect| (effect.effect, effect.caster, effect.source))
+            .collect();
+        effects.into_iter().find_map(|(effect, caster, source)| {
+            self.magic_effect(effect)
+                .is_ok_and(|definition| definition.data.archetype == TURN_UNDEAD)
+                .then(|| {
+                    caster
+                        .filter(|id| self.reference(*id).is_some())
+                        .unwrap_or(source)
+                })
+                .filter(|id| self.reference(*id).is_some())
+        })
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -170,12 +295,44 @@ impl World {
         })
     }
 
+    /// Whether a live Demoralize application is making this actor flee.
+    pub fn is_fleeing(&self, target: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == DEMORALIZE)
+        })
+    }
+
+    /// The source reference that a fleeing actor should move away from.
+    pub(crate) fn flee_source(&self, target: GlobalFormId) -> Option<GlobalFormId> {
+        self.active_effects.values().find_map(|effect| {
+            (effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == DEMORALIZE))
+            .then_some(effect.caster.unwrap_or(effect.source))
+        })
+    }
+
     /// The live application represented by a Papyrus ActiveMagicEffect object.
     pub fn active_effect_of(&self, object: ObjectId) -> Option<&ActiveEffect> {
         let Handle::ActiveEffect(id) = self.handle_of(object)? else {
             return None;
         };
         self.active_effects.get(&id)
+    }
+
+    /// Whether an actor currently has a live Frenzy application.
+    #[must_use]
+    pub fn is_frenzied(&self, target: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
+        })
     }
 
     /// Whether an actor currently has an active Invisibility effect.
@@ -382,6 +539,13 @@ impl World {
                 target: Some(actor),
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
+                skill_use: None,
+                light_level: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -439,10 +603,13 @@ impl World {
 
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
-        let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
+        let record = self.record(id).ok_or(MagicError::Missing(id))?;
+        if record.is_deleted() {
+            return Err(MagicError::Missing(id));
+        }
         Ok(MagicEffect::from_record(
-            self.order.record(rref),
-            self.order.file(rref.file).plugin.header.is_localized(),
+            record,
+            self.record_text_localized(id, T(b"FULL")),
         )?)
     }
 
@@ -605,7 +772,28 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 5) {
+            if !matches!(
+                data.archetype,
+                0 | 1
+                    | 2
+                    | 3
+                    | 4
+                    | 5
+                    | 6
+                    | 9
+                    | 10
+                    | INVISIBILITY
+                    | LIGHT
+                    | LOCK
+                    | OPEN
+                    | 17
+                    | 18
+                    | 20
+                    | 38
+                    | DEMORALIZE
+                    | FRENZY_ARCHETYPE
+                    | TURN_UNDEAD
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -642,6 +830,10 @@ impl World {
                     }
                     changes.push((name.to_string(), amount));
                 }
+            } else if data.archetype == 6 {
+                changes.push(("aggression".to_string(), -magnitude));
+            } else if data.archetype == DEMORALIZE {
+                changes.push(("confidence".to_string(), -magnitude));
             }
             // An ingestible's effects carry the same dispel archetype and
             // keyword flags a cast spell's do.
@@ -678,11 +870,13 @@ impl World {
                     }),
                     elapsed: 0.0,
                     summoned: None,
-                    recover: data.flags & RECOVER != 0,
+                    restore_owner: None,
+                    recover: data.flags & RECOVER != 0 || matches!(data.archetype, DEMORALIZE | 38),
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                command_owner: None,
                 light_base: None,
                 bound_weapon: None,
                 lock_level: None,
@@ -802,15 +996,7 @@ impl World {
                 "concentration requires a held cast",
             ));
         }
-        let prepared = self.prepare_spell(
-            spell,
-            source,
-            caster,
-            target,
-            CastDelivery::Direct,
-            None,
-            true,
-        )?;
+        let prepared = self.prepare_spell_cast(spell, source, caster, target)?;
         if let Some(caster) = caster {
             self.break_invisibility(caster, alloc);
         }
@@ -949,6 +1135,10 @@ impl World {
         if cost_per_second > 0.0 && available <= 0.0 {
             return Err(MagicError::InsufficientMagicka);
         }
+        // Starting another concentration cast interrupts the previous one.
+        // Drop its transient Telekinesis hold only after the replacement has
+        // passed validation, so a rejected cast leaves the current hold intact.
+        self.release_concentration_cast();
         self.concentration_cast = Some(ConcentrationCast {
             spell,
             source,
@@ -963,7 +1153,60 @@ impl World {
 
     /// Release the currently held concentration spell.
     pub fn release_concentration_cast(&mut self) -> bool {
-        self.concentration_cast.take().is_some()
+        let released = self.concentration_cast.take().is_some();
+        if released {
+            self.telekinesis_grab = None;
+        }
+        released
+    }
+
+    /// Begin holding one enabled, non-actor reference during a Telekinesis
+    /// concentration cast. The host separately confirms that it has a
+    /// movable physics body for the reference.
+    pub fn grab_telekinesis_reference(
+        &mut self,
+        caster: GlobalFormId,
+        reference: GlobalFormId,
+    ) -> bool {
+        let is_telekinesis = self.concentration_cast.as_ref().is_some_and(|cast| {
+            cast.caster == caster
+                && self.spell(cast.spell).is_ok_and(|spell| {
+                    spell.effects.iter().any(|entry| {
+                        self.resolve_from(cast.spell, entry.base_effect)
+                            .and_then(|id| self.magic_effect(id).ok())
+                            .is_some_and(|effect| effect.data.archetype == 20)
+                    })
+                })
+        });
+        let eligible = self
+            .reference(reference)
+            .is_some_and(|state| state.enabled && !state.deleted && !state.is_actor);
+        if !is_telekinesis || !eligible || self.telekinesis_grab.is_some() {
+            return false;
+        }
+        self.telekinesis_grab = Some((caster, reference));
+        true
+    }
+
+    /// The reference currently held by the caster's Telekinesis effect.
+    #[must_use]
+    pub fn telekinesis_reference(&self, caster: GlobalFormId) -> Option<GlobalFormId> {
+        self.telekinesis_grab
+            .filter(|(owner, _)| *owner == caster)
+            .map(|(_, reference)| reference)
+    }
+
+    /// Release the held reference without changing its World placement.
+    pub fn release_telekinesis_reference(&mut self, caster: GlobalFormId) -> bool {
+        if self
+            .telekinesis_grab
+            .is_some_and(|(owner, _)| owner == caster)
+        {
+            self.telekinesis_grab = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Whether the caster currently has a held concentration spell.
@@ -988,6 +1231,7 @@ impl World {
             .map_or(0.0, |actor| actor.values.get("magicka").current());
         if cast.cost_per_second > 0.0 && available <= 0.0 {
             self.concentration_cast = None;
+            self.telekinesis_grab = None;
             return errors;
         }
         let duration = if cast.cost_per_second > 0.0 {
@@ -1008,6 +1252,7 @@ impl World {
                 Err(error) => {
                     errors.push(error);
                     self.concentration_cast = None;
+                    self.telekinesis_grab = None;
                     return errors;
                 }
             };
@@ -1021,6 +1266,7 @@ impl World {
             if let Err(error) = self.apply_prepared_effects(prepared, alloc) {
                 errors.push(error);
                 self.concentration_cast = None;
+                self.telekinesis_grab = None;
                 return errors;
             }
             let resource_cost = (cast.cost_per_second * slice) as f32;
@@ -1029,11 +1275,13 @@ impl World {
                     if actor.values.damage("magicka", resource_cost).is_err() {
                         errors.push(MagicError::Number);
                         self.concentration_cast = None;
+                        self.telekinesis_grab = None;
                         return errors;
                     }
                 } else {
                     errors.push(MagicError::Target);
                     self.concentration_cast = None;
+                    self.telekinesis_grab = None;
                     return errors;
                 }
             }
@@ -1045,6 +1293,7 @@ impl World {
                 .is_none_or(|actor| actor.values.get("magicka").current() <= 0.0);
         if exhausted {
             self.concentration_cast = None;
+            self.telekinesis_grab = None;
         }
         errors
     }
@@ -1301,10 +1550,8 @@ impl World {
                     .map(|(a, b)| (a - b) * (a - b))
                     .sum::<f32>()
                     .sqrt();
-                if !distance.is_finite() || distance > definition.data.range {
-                    return Err(MagicError::Target);
-                }
-                if !line_of_sight_clear {
+                if !distance.is_finite() || distance > definition.data.range || !line_of_sight_clear
+                {
                     return Err(MagicError::Target);
                 }
                 source
@@ -1315,7 +1562,7 @@ impl World {
             2 => {
                 return Err(MagicError::Unsupported(
                     "aimed cast requires projectile contact",
-                ));
+                ))
             }
             _ => return Err(MagicError::Unsupported("location delivery")),
         };
@@ -1324,6 +1571,7 @@ impl World {
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
         let mut prepared = Vec::new();
+        let mut commanded_targets = std::collections::BTreeSet::new();
         for (index, entry) in definition.effects.iter().enumerate() {
             let effect = self
                 .resolve_from(spell, entry.base_effect)
@@ -1336,6 +1584,13 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: Some(spell),
+                dual_cast: Some(false),
+                skill_use: None,
+                light_level: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -1353,9 +1608,33 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
+            if data.archetype == 40 {
+                return Err(MagicError::Unsupported(
+                    "spawn hazard requires hazard ownership and expiry",
+                ));
+            }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | OPEN | 17 | 18 | 45
+                0 | 1
+                    | 2
+                    | 3
+                    | 4
+                    | 5
+                    | 9
+                    | 11
+                    | 12
+                    | LOCK
+                    | OPEN
+                    | 17
+                    | 18
+                    | 45
+                    | 6
+                    | 10
+                    | 20
+                    | 38
+                    | DEMORALIZE
+                    | FRENZY_ARCHETYPE
+                    | TURN_UNDEAD
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -1368,6 +1647,13 @@ impl World {
                 }
             } else if self.actor(target).is_none() {
                 return Err(MagicError::Target);
+            }
+            if data.archetype == TURN_UNDEAD
+                && self
+                    .form("ActorTypeUndead")
+                    .is_none_or(|keyword| !self.has_keyword(target, keyword))
+            {
+                continue;
             }
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
@@ -1408,12 +1694,17 @@ impl World {
             } else {
                 None
             };
+            let command_owner = if data.archetype == 10 {
+                caster.or_else(|| self.actor(source).map(|_| source))
+            } else {
+                None
+            };
             let light_base = if data.archetype == LIGHT {
-                let base = self
-                    .resolve_from(effect, data.associated_item)
-                    .filter(|item| self.tag_of(*item) == Some(super::T(b"LIGH")))
-                    .ok_or(MagicError::Unsupported("light record"))?;
-                Some(base)
+                Some(
+                    self.resolve_from(effect, data.associated_item)
+                        .filter(|item| self.tag_of(*item) == Some(super::T(b"LIGH")))
+                        .ok_or(MagicError::Unsupported("light record"))?,
+                )
             } else {
                 None
             };
@@ -1436,7 +1727,7 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
-            let duration = if definition.data.cast_type == 0 {
+            let duration = if definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {
@@ -1480,6 +1771,34 @@ impl World {
                 });
             }
             for recipient in recipients {
+                let restore_owner = if data.archetype == 10 {
+                    let is_summoned = self
+                        .active_effects
+                        .values()
+                        .any(|active| active.summoned == Some(recipient));
+                    let is_already_commanded = self
+                        .active_effects
+                        .values()
+                        .any(|active| active.target == recipient && active.restore_owner.is_some());
+                    if command_owner.is_none()
+                        || !is_summoned
+                        || is_already_commanded
+                        || !commanded_targets.insert(recipient)
+                    {
+                        continue;
+                    }
+                    Some(
+                        match self
+                            .reference_ref(recipient)
+                            .and_then(|reference| reference.owner)
+                        {
+                            Some(owner) => PriorOwner::Owned(owner),
+                            None => PriorOwner::Unowned,
+                        },
+                    )
+                } else {
+                    None
+                };
                 let magnitude = if !scroll && definition.data.flags & IGNORE_RESISTANCE != 0 {
                     magnitude
                 } else {
@@ -1490,16 +1809,18 @@ impl World {
                 } else {
                     magnitude
                 };
-                let mut changes = Vec::new();
+                let mut recipient_changes = Vec::new();
                 if matches!(data.archetype, 0 | 4 | 5) {
                     let name = actor_value_name(data.primary_actor_value)
                         .ok_or(MagicError::Unsupported("actor value"))?;
-                    let amount = if data.archetype == 4 {
-                        -magnitude
-                    } else {
-                        signed
-                    };
-                    changes.push((name.to_string(), amount));
+                    recipient_changes.push((
+                        name.to_string(),
+                        if data.archetype == 4 {
+                            -magnitude
+                        } else {
+                            signed
+                        },
+                    ));
                     if data.archetype == 5 {
                         let name = actor_value_name(data.second_actor_value)
                             .ok_or(MagicError::Unsupported("secondary actor value"))?;
@@ -1507,8 +1828,15 @@ impl World {
                         if !amount.is_finite() {
                             return Err(MagicError::Number);
                         }
-                        changes.push((name.to_string(), amount));
+                        recipient_changes.push((name.to_string(), amount));
                     }
+                } else if data.archetype == 6 {
+                    recipient_changes.push(("aggression".into(), -magnitude));
+                } else if data.archetype == DEMORALIZE {
+                    recipient_changes.push(("confidence".into(), -magnitude));
+                }
+                if data.archetype == FRENZY_ARCHETYPE {
+                    recipient_changes.push(("aggression".into(), signed));
                 }
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
@@ -1523,11 +1851,14 @@ impl World {
                         duration,
                         elapsed: 0.0,
                         summoned: None,
-                        recover: data.flags & RECOVER != 0,
-                        changes: changes.clone(),
+                        restore_owner,
+                        recover: data.flags & RECOVER != 0
+                            || matches!(data.archetype, DEMORALIZE | 38),
+                        changes: recipient_changes,
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    command_owner,
                     light_base,
                     bound_weapon,
                     lock_level,
@@ -1609,6 +1940,12 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let Some(previous_owner) = prepared.effect.restore_owner {
+                if let Some(reference) = self.reference(prepared.effect.target) {
+                    reference.owner = prepared.command_owner;
+                }
+                prepared.effect.restore_owner = Some(previous_owner);
             }
             if let Some(base) = prepared.light_base {
                 prepared.effect.summoned = Some(self.place_at(base, prepared.effect.target, false));
@@ -1787,6 +2124,13 @@ impl World {
                     entry.insert(base)
                 }
             };
+            if self.magic_effect(prepared.effect.effect)?.data.archetype == 38 {
+                let confidence = values.get("confidence").current();
+                prepared.effect.changes = vec![(
+                    "confidence".to_string(),
+                    (prepared.effect.magnitude - confidence).max(0.0),
+                )];
+            }
             if prepared.no_recast
                 && live
                     .iter()
@@ -1930,6 +2274,14 @@ impl World {
                 reference.enabled = false;
             }
         }
+        if let Some(previous_owner) = effect.restore_owner {
+            if let Some(reference) = self.reference(effect.target) {
+                reference.owner = match previous_owner {
+                    PriorOwner::Unowned => None,
+                    PriorOwner::Owned(owner) => Some(owner),
+                };
+            }
+        }
         if let Ok(definition) = self.magic_effect(effect.effect) {
             if definition.data.archetype == 17 {
                 if let Some(weapon) = self
@@ -1955,6 +2307,21 @@ impl World {
             }
         }
         self.active_effects.remove(&id);
+        if self
+            .magic_effect(effect.effect)
+            .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
+            && !self.is_frenzied(effect.target)
+        {
+            if let Some(actor) = self.actors.get_mut(&effect.target) {
+                actor.in_combat = false;
+                actor.combat_target = None;
+                actor.ai.reevaluate = true;
+                actor.ai.path.clear();
+                actor.ai.path_cells.clear();
+                actor.ai.destination = None;
+                actor.ai.arrived = false;
+            }
+        }
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {
             self.timers.retain(|t| t.object != object);
             self.sleep_listeners.retain(|listener| *listener != object);
@@ -1995,16 +2362,82 @@ impl World {
                 self.dispel_effect(id, alloc);
                 continue;
             }
-            let dt = effect.duration.map_or(seconds, |duration| {
-                seconds.min((duration - effect.elapsed).max(0.0))
-            });
-            if !effect.recover && effect.duration != Some(0.0) {
-                if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
-                    errors.push(error);
-                    continue;
+            let spell_conditions = if self.tag_of(effect.spell) == Some(super::T(b"SPEL")) {
+                match self
+                    .magic_item_effect(effect.spell, effect.effect_index)
+                    .and_then(|entry| {
+                        let base = self.magic_effect(effect.effect)?;
+                        Ok(!entry.conditions.is_empty() || !base.conditions.is_empty())
+                    }) {
+                    Ok(has_conditions) => has_conditions,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+            } else {
+                false
+            };
+            let mut remaining = seconds;
+            let mut failed = false;
+            while remaining > 0.0 {
+                let until_expiry = effect
+                    .duration
+                    .map_or(remaining, |duration| (duration - effect.elapsed).max(0.0));
+                let to_check = if spell_conditions {
+                    let fraction = effect.elapsed.rem_euclid(1.0);
+                    if fraction == 0.0 {
+                        1.0
+                    } else {
+                        1.0 - fraction
+                    }
+                } else {
+                    remaining
+                };
+                let dt = remaining.min(until_expiry).min(to_check);
+                if dt <= 0.0 {
+                    break;
+                }
+                let reached_check = spell_conditions && dt + 1e-9 >= to_check;
+                if !effect.recover && effect.duration != Some(0.0) {
+                    if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
+                effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+                if reached_check {
+                    effect.elapsed = effect.elapsed.round();
+                }
+                remaining -= dt;
+                let expired = effect
+                    .duration
+                    .is_some_and(|duration| effect.elapsed >= duration);
+                if expired {
+                    break;
+                }
+                if reached_check {
+                    match self.spell_effect_conditions_hold(&effect) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            self.active_effects.insert(id, effect.clone());
+                            self.dispel_effect(id, alloc);
+                            failed = true;
+                            break;
+                        }
+                        Err(error) => {
+                            errors.push(error);
+                            self.active_effects.insert(id, effect.clone());
+                            failed = true;
+                            break;
+                        }
+                    }
                 }
             }
-            effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+            if failed {
+                continue;
+            }
             let expired = effect
                 .duration
                 .is_some_and(|duration| effect.elapsed >= duration);
@@ -2014,6 +2447,33 @@ impl World {
             }
         }
         errors
+    }
+
+    fn spell_effect_conditions_hold(&mut self, effect: &ActiveEffect) -> Result<bool, MagicError> {
+        let definition = self.spell(effect.spell)?;
+        let entry = definition
+            .effects
+            .get(effect.effect_index as usize)
+            .ok_or(MagicError::Unsupported("active effect entry"))?;
+        let base = self.magic_effect(effect.effect)?;
+        let context = |owner| Context {
+            owner,
+            subject: effect.target,
+            target: effect.caster,
+            quest: None,
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        Ok(
+            conditions::evaluate_without_vm(self, context(effect.spell), &entry.conditions)?
+                && conditions::evaluate_without_vm(self, context(effect.effect), &base.conditions)?,
+        )
     }
 
     fn apply_effect_values(

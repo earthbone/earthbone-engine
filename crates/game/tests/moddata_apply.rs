@@ -28,6 +28,12 @@ const HELMET: u32 = 0x803;
 const ROCK: u32 = 0x804;
 const TREE: u32 = 0x805;
 const GUARD_BASE: u32 = 0x806;
+const RACE: u32 = 0x807;
+const DISTRIBUTED_SKIN: u32 = 0x808;
+const RACE_SKIN: u32 = 0x809;
+const SKIN_ADDON: u32 = 0x80a;
+const SHOUT: u32 = 0x80b;
+const PACKAGE: u32 = 0x80c;
 const CELL: u32 = 0x810;
 const ROCK_REF: u32 = 0x811;
 const GUARD_REF: u32 = 0x812;
@@ -86,13 +92,58 @@ fn master() -> Plugin {
     );
     p.push_top(Record::new(T(b"STAT"), ROCK).zsub(EDID, "RockPile01"));
     p.push_top(Record::new(T(b"STAT"), TREE).zsub(EDID, "TreePine01"));
-    p.push_top(npc::build_record(
-        GUARD_BASE,
-        "WhiterunGuard",
-        "Whiterun Guard",
-        Config::default(),
-        Stats::default(),
-    ));
+    p.push_top(Record::new(T(b"RACE"), RACE).sub(T(b"WNAM"), RACE_SKIN.to_le_bytes()));
+    p.push_top(
+        Record::new(T(b"ARMO"), DISTRIBUTED_SKIN)
+            .zsub(EDID, "DistributedSkin")
+            .sub(T(b"MODL"), SKIN_ADDON.to_le_bytes()),
+    );
+    p.push_top(Record::new(T(b"ARMO"), RACE_SKIN).sub(T(b"MODL"), SKIN_ADDON.to_le_bytes()));
+    p.push_top(
+        Record::new(T(b"ARMA"), SKIN_ADDON)
+            .sub(
+                T(b"BOD2"),
+                [1_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+            )
+            .sub(T(b"DNAM"), [0_u8; 12])
+            .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
+    p.push_top(
+        npc::build_record(
+            GUARD_BASE,
+            "WhiterunGuard",
+            "Whiterun Guard",
+            Config {
+                flags: npc::flags::FEMALE | npc::flags::UNIQUE | npc::flags::SUMMONABLE,
+                level: 15,
+                ..Config::default()
+            },
+            Stats {
+                skills: [50; 18],
+                ..Stats::default()
+            },
+        )
+        .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
+    p.push_top(Record::new(T(b"SHOU"), SHOUT).zsub(EDID, "MyShout"));
+    p.push_top(Record::new(T(b"PACK"), PACKAGE).zsub(EDID, "MyPackage"));
+    p.push_top(
+        npc::build_record(
+            GUARD_BASE,
+            "WhiterunGuard",
+            "Whiterun Guard",
+            Config {
+                flags: npc::flags::FEMALE | npc::flags::UNIQUE | npc::flags::SUMMONABLE,
+                level: 15,
+                ..Config::default()
+            },
+            Stats {
+                skills: [50; 18],
+                ..Stats::default()
+            },
+        )
+        .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
 
     let cell = p.push_record(
         Record::new(T(b"CELL"), CELL)
@@ -288,6 +339,127 @@ fn a_distribution_file_hands_an_actor_a_spell() {
 }
 
 #[test]
+fn mod_09_distributed_skin_reaches_actor_appearance_with_form_identity() {
+    let dir = Dir::new("mod-09-skin");
+    dir.write(
+        "Test_DISTR.ini",
+        "Skin = DistributedSkin|WhiterunGuard|NONE|NONE|NONE|1|100\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 1);
+
+    let appearance = g.world_mut().actor_appearance(id(GUARD_REF)).unwrap();
+    assert_eq!(appearance.skin, Some(id(DISTRIBUTED_SKIN)));
+    assert_eq!(appearance.parts[0].armor, id(DISTRIBUTED_SKIN));
+    assert_eq!(appearance.parts[0].addon, id(SKIN_ADDON));
+}
+
+#[test]
+fn mod_10_explicit_shout_reaches_actor_shout_state() {
+    let dir = Dir::new("mod-10-shout");
+    dir.write("Test_DISTR.ini", "Shout = MyShout|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
+}
+
+#[test]
+fn mod_10_shout_with_non_shout_signature_is_rejected() {
+    let dir = Dir::new("mod-10-invalid-shout");
+    dir.write("Test_DISTR.ini", "Shout = GuardHelmet|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+}
+
+#[test]
+fn mod_10_generic_form_infers_shout_consumer_from_signature() {
+    let dir = Dir::new("mod-10-inferred-shout");
+    dir.write("Test_DISTR.ini", "Form = MyShout|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
+}
+
+#[test]
+fn mod_10_generic_form_infers_keyword_consumer_from_signature() {
+    let dir = Dir::new("mod-10-inferred-keyword");
+    dir.write("Test_DISTR.ini", "Form = MyKeyword|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g.world_mut().has_keyword(id(GUARD_BASE), id(KEYWORD)));
+}
+
+#[test]
+fn mod_10_skin_distribution_updates_npc_base_skin() {
+    let dir = Dir::new("mod-10-skin");
+    dir.write("Test_DISTR.ini", "Skin = GuardHelmet|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    let mut world = g.world_mut();
+    let _ = world.actor(id(GUARD_REF)).expect("the guard is an actor");
+    assert_eq!(
+        world.skin(id(GUARD_BASE)).expect("NPC base skin query"),
+        Some(id(HELMET))
+    );
+}
+
+#[test]
+fn mod_10_skin_with_non_armor_signature_is_rejected() {
+    let dir = Dir::new("mod-10-invalid-skin");
+    dir.write("Test_DISTR.ini", "Skin = MySpell|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+}
+
+#[test]
+fn mod_10_package_distribution_reaches_actor_package_overrides() {
+    let dir = Dir::new("mod-10-package");
+    dir.write("Test_DISTR.ini", "Package = MyPackage|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 1);
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .package_overrides
+        .contains(&(0, id(PACKAGE))));
+}
+
+#[test]
+fn mod_10_generic_form_with_unknown_signature_is_counted_as_unsupported() {
+    let dir = Dir::new("mod-10-unknown-form");
+    dir.write("Test_DISTR.ini", "Form = RockPile01|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+}
+
+#[test]
 fn a_distribution_file_hands_an_actor_an_item_that_counts() {
     let dir = Dir::new("spid-item");
     dir.write(
@@ -354,29 +526,64 @@ fn mod_03_swap_properties_apply_to_reference_state_and_survive_save_load() {
 }
 
 #[test]
-fn a_level_filtered_rule_is_skipped_rather_than_applied_to_everyone() {
+fn mod_05_starts_dead_filter_is_skipped_without_actor_lifecycle_state() {
     let dir = Dir::new("spid-level");
     dir.write(
         "Test_DISTR.ini",
-        "Spell = MySpell|WhiterunGuard|NONE|10/20\n",
+        "Spell = MySpell|WhiterunGuard|NONE|14/16|F/U/S/-D|NONE\n",
     );
     let mut g = game();
     let report = g.apply_mod_data(&dir.roots());
     assert_eq!(report.distribution_rules, 1);
     assert_eq!(
         report.skipped_unsupported_filter, 1,
-        "a filter this module cannot evaluate must skip, never apply broadly"
+        "starts-dead depends on per-reference actor lifecycle state"
     );
     assert_eq!(report.distributions_applied, 0);
 }
 
 #[test]
-fn a_zero_chance_rule_never_applies_and_a_full_one_always_does() {
-    let dir = Dir::new("chance");
-    dir.write("Never_KID.ini", "Keyword = MyKeyword|Armor|NONE|NONE|0\n");
+fn mod_05_matching_level_skill_and_base_traits_apply() {
+    let dir = Dir::new("spid-level-trait-match");
+    dir.write(
+        "Test_DISTR.ini",
+        "Spell = MySpell|WhiterunGuard|NONE|14/16,0(49/51)|F/U/S/-L/-T|NONE\n",
+    );
     let mut g = game();
     let report = g.apply_mod_data(&dir.roots());
-    assert_eq!(report.skipped_by_chance, 1);
+    assert_eq!(report.distributions_applied, 1);
+    assert_eq!(report.skipped_unsupported_filter, 0);
+}
+
+#[test]
+fn mod_05_nonmatching_level_skill_or_trait_does_not_apply() {
+    for (case, filters) in [
+        ("level", "20/30|F/U/S"),
+        ("skill", "14/16,0(1/20)|F/U/S"),
+        ("trait", "14/16|M/U/S"),
+    ] {
+        let dir = Dir::new(&format!("spid-filter-miss-{case}"));
+        dir.write(
+            "Test_DISTR.ini",
+            &format!("Spell = MySpell|WhiterunGuard|NONE|{filters}|NONE\n"),
+        );
+        let mut g = game();
+        let report = g.apply_mod_data(&dir.roots());
+        assert_eq!(report.distributions_applied, 0, "{case} filter must reject");
+        assert_eq!(report.skipped_unsupported_filter, 0);
+    }
+}
+
+#[test]
+fn a_zero_chance_rule_never_applies_and_a_full_one_always_does() {
+    let dir = Dir::new("chance");
+    dir.write(
+        "Never_KID.ini",
+        "Keyword = MyKeyword|Armor|GuardHelmet|NONE|0\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_by_chance, 3);
     assert_eq!(report.keywords_attached, 0);
 }
 
@@ -465,7 +672,7 @@ fn mod_01_same_base_actors_get_distinct_repeatable_deterministic_results() {
     let dir = Dir::new("spid-per-actor");
     dir.write(
         "Test_DISTR.ini",
-        "Spell = MySpell|WhiterunGuard|NONE|NONE|NONE|1|50!\n",
+        "Form = MySpell|WhiterunGuard|NONE|NONE|NONE|1|50!\n",
     );
     let results = || {
         let mut g = game_with_guards(16);
