@@ -445,11 +445,6 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         let section_len = legacy::section_table_len(&bytes, section_start);
         bytes.drain(positions[0]..section_start + section_len);
     }
-    // Version 36 writes an empty reference flag count before the trailing
-    // cursor and world extension blocks. Version 28 has no such count.
-    let flags_offset = bytes.len() - 37;
-    assert_eq!(&bytes[flags_offset..flags_offset + 4], &[0; 4]);
-    bytes.drain(flags_offset..flags_offset + 4);
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
@@ -460,7 +455,10 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
     // pool count (version 37) are the last two fields, eight bytes together,
     // all past where a version 28 save ends.
     bytes.truncate(bytes.len() - 8);
-    let visit_count = bytes.len() - 12;
+    // Keep the version 27 encounter-level count and version 28 repeat
+    // history. The version 34 visit count is the four-byte field between
+    // them.
+    let visit_count = bytes.len() - 8;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());

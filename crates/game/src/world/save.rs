@@ -500,8 +500,8 @@ impl World {
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
             let mut state = read_ref_state(&mut r, version)?;
-            state.record_flags = self.order.winner(id).map_or(0, |record| record.flags);
             if version < 37 {
+                state.record_flags = self.order.winner(id).map_or(0, |record| record.flags);
                 state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
                     self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
                 });
