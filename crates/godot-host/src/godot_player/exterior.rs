@@ -3,12 +3,12 @@
 //! Walking grid deltas follow OpenMW Scene::changeCellGrid and the host's
 //! hysteresis planner. Render and physics resources retain their CELL owners.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, PhysicsWorld};
 
-use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
+use crate::streaming::{CellCoord, CellStreamer, StreamBudget, StreamConfig, StreamCost};
 use crate::units::SkyrimPos;
 
 use super::{godot_error, godot_print, PlayerNode};
@@ -51,17 +51,54 @@ impl PlayerNode {
         };
         // Commit the planner only after every requested cell has prepared successfully.
         let mut planner = exterior.planner.clone();
-        let plan = planner.update(focus);
-        if plan.is_empty() && self.loaded_cell == Some(cell) {
-            return true;
-        }
-        let prepared = match source.prepare_grid_cells(exterior.world, &plan.load) {
+        let budget = StreamBudget {
+            triangles: usize::try_from(self.exterior_triangle_budget).unwrap_or_default(),
+            bytes: usize::try_from(self.exterior_byte_budget).unwrap_or_default(),
+        };
+        let candidates = if budget == StreamBudget::default() {
+            planner.update(focus).load
+        } else {
+            planner.candidates(focus)
+        };
+        let prepared = match source.prepare_grid_cells(exterior.world, &candidates) {
             Ok(cells) => cells,
             Err(error) => {
                 godot_error!("PlayerNode: exterior preparation failed: {error}");
                 return false;
             }
         };
+        let costs: HashMap<CellCoord, StreamCost> = prepared
+            .iter()
+            .filter_map(|cell| {
+                candidates.iter().find_map(|coord| {
+                    (source
+                        .cell_index()
+                        .exterior_cell(exterior.world, coord.x, coord.y)
+                        == Some(cell.id))
+                    .then(|| (*coord, cell.stream_cost()))
+                })
+            })
+            .collect();
+        planner = exterior.planner.clone();
+        let plan = planner.update_with_budget(focus, budget, |coord| {
+            costs.get(&coord).copied().unwrap_or_default()
+        });
+        if plan.is_empty() && self.loaded_cell == Some(cell) {
+            return true;
+        }
+        let selected: HashSet<GlobalFormId> = plan
+            .load
+            .iter()
+            .filter_map(|coord| {
+                source
+                    .cell_index()
+                    .exterior_cell(exterior.world, coord.x, coord.y)
+            })
+            .collect();
+        let prepared: Vec<_> = prepared
+            .into_iter()
+            .filter(|cell| selected.contains(&cell.id))
+            .collect();
         let departed: Vec<_> = plan
             .unload
             .iter()

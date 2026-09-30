@@ -155,15 +155,11 @@ pub fn resolve<'a>(inputs: &Inputs<'a>) -> Result<LoadOrder> {
     for name in inputs.early {
         let k = key(name);
         match by_name.get(&k) {
-            Some(h) => {
-                if placed.insert(k, ()).is_none() {
-                    early.push(entry(h, true, true));
-                }
-            }
+            Some(h) if placed.insert(k.clone(), ()).is_none() => early.push(entry(h, true, true)),
             None if hardcoded.contains(&k) => {
                 problems.push(Problem::HardcodedMissing { name: name.clone() });
             }
-            None => {}
+            Some(_) | None => {}
         }
     }
 

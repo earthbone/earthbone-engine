@@ -4,31 +4,27 @@
 //! Installed COBJ execution. Hearthfires nail quantities and the forge reference
 //! are also covered by skymp/unit/CraftTest.cpp. No game data is copied here.
 
-use soe_esm::{records::gameplay::Recipe, GlobalFormId, LoadOrder, Plugin, Tag};
+#[path = "common/installed.rs"]
+mod installed;
+
+use soe_esm::{records::gameplay::Recipe, GlobalFormId, Tag};
 use soe_game::Game;
 use std::collections::BTreeMap;
 
 #[test]
 fn installed_forge_executes_vanilla_and_hearthfires_recipes() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping installed crafting execution");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let recipes: Vec<_> = order
         .winners_of(Tag(*b"COBJ"))
         .filter(|(_, record)| !record.is_deleted())
@@ -53,7 +49,7 @@ fn installed_forge_executes_vanilla_and_hearthfires_recipes() {
         file: 0,
         object: 0x1ad6e,
     };
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.world_mut().player();
     for (output, expected_count) in [
         (

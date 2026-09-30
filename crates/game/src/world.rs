@@ -48,11 +48,14 @@ mod contact;
 mod crime;
 mod death;
 mod detection;
+mod dialogue_scene_restore;
 mod doorway;
 mod driver;
 mod encounter_zones;
 mod events;
+pub use events::EffectShaderRequest;
 mod forms;
+mod furniture;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -69,15 +72,22 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod package_navmesh_restore;
 pub use npc_restore::NpcRestoreReport;
+mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
 pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
+pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
 pub use quests::AliasResolutionError;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -97,7 +107,9 @@ mod timers;
 mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
+pub use dialogue_scene_restore::DialogueSceneRestoreReport;
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
@@ -128,7 +140,10 @@ pub struct RefState {
     pub position: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: f32,
+    /// Runtime record flags changed by Base Object Swapper.
+    pub record_flags: u32,
     pub enabled: bool,
+    pub persistent: bool,
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
@@ -156,6 +171,8 @@ pub struct RefState {
     pub on_map: bool,
     pub fast_travel: bool,
     pub destroyed: bool,
+    /// Current destruction stage, with -1 meaning undamaged.
+    pub destruction_stage: i32,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -175,7 +192,9 @@ impl RefState {
             position: [0.0; 3],
             rotation: [0.0; 3],
             scale: 1.0,
+            record_flags: 0,
             enabled: true,
+            persistent: false,
             deleted: false,
             activation_blocked: false,
             opened: false,
@@ -195,6 +214,7 @@ impl RefState {
             on_map: false,
             fast_travel: false,
             destroyed: false,
+            destruction_stage: -1,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),
@@ -234,6 +254,12 @@ pub struct ActorState {
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
+    /// The actor's current swimming state, supplied by runtime movement.
+    pub swimming: bool,
+    /// The actor's current running state, supplied by runtime movement.
+    pub running: bool,
+    /// Whether the actor is currently riding a mount.
+    pub riding_mount: bool,
     pub weapon_drawn: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
@@ -261,12 +287,19 @@ pub struct ActorState {
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
+    /// The furniture reference and zero-based marker currently reserved by
+    /// this actor. The marker remains reserved until the actor stands.
+    pub furniture_seat: Option<(GlobalFormId, u16)>,
     /// The last state `SendVampirismStateChanged` announced for this actor.
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
     pub werewolf: bool,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
+    /// Player character head parts selected in the race menu, keyed by HDPT type.
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    /// Player character morph controls selected in the race menu.
+    pub face_morphs: BTreeMap<String, f32>,
     /// `SetCriticalStage`, the death-by-critical stages.
     pub critical_stage: i32,
     /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.
@@ -353,6 +386,13 @@ pub struct ActorBaseState {
     pub dead_count: i32,
 }
 
+/// A host menu request raised by a Papyrus native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuRequest {
+    /// Open the player's race and sex selection screen.
+    Race,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CellState {
     pub owner: Option<GlobalFormId>,
@@ -409,6 +449,8 @@ pub struct QuestState {
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
     pub journal: crate::quest::state::Journal,
     pub runtime: crate::quest::state::Runtime,
+    /// A saved start or stop promotion task that has not completed.
+    pub lifecycle_task: Option<crate::quest::state::LifecycleTask>,
 }
 
 /// Work a native asked the VM to do.
@@ -467,6 +509,8 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    unresolved_records:
+        BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -510,8 +554,12 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Host-facing requests raised by UI natives. These are transient commands.
+    pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
@@ -549,13 +597,25 @@ pub struct World {
     /// source and the volume.
     pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
     next_sound: i32,
+    /// Transient renderer requests for EffectShader Play and Stop.
+    pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    /// Effect records and magnitudes for potions created by alchemy.
+    pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
+    pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
+    /// A transient reference held by one Telekinesis concentration cast.
+    /// Physics handles are host-owned, so this state is never serialized.
+    pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -585,6 +645,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
@@ -610,8 +671,10 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
@@ -639,14 +702,21 @@ impl World {
             scene_runs: BTreeMap::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
+            effect_shader_requests: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            brewed_potions: BTreeMap::new(),
+            concentration_cast: None,
+            telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
+            detection_events: Vec::new(),
         }
     }
 

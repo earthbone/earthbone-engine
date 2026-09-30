@@ -440,21 +440,25 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             "an actor with no hand spells must write two unset presence bytes after its crime set"
         );
         // The right spell field is immediately followed by this actor's own
-        // empty save-section table, a `u16` count of zero, which a version
-        // 28 writer never emitted either.
-        bytes.drain(positions[0]..end + 6 + 2);
+        // named save-section table, which a version 28 writer never emitted.
+        let section_start = end + 6;
+        let section_len = legacy::section_table_len(&bytes, section_start);
+        bytes.drain(positions[0]..section_start + section_len);
     }
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    legacy::strip_world_sections(&mut bytes);
     // The scene runtime count (version 36), the now-unconditional detection
-    // pool count (version 37) and the empty world-level save-section table
-    // (version 37) are the last three fields, ten bytes together, all past
-    // where a version 28 save ends.
-    bytes.truncate(bytes.len() - 10);
-    let visit_count = bytes.len() - 12;
+    // pool count (version 37) are the last two fields, eight bytes together,
+    // all past where a version 28 save ends.
+    bytes.truncate(bytes.len() - 8);
+    // Keep the version 27 encounter-level count and version 28 repeat
+    // history. The version 34 visit count is the four-byte field between
+    // them.
+    let visit_count = bytes.len() - 8;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());

@@ -246,7 +246,9 @@ fn mag_05_later_unsupported_entry_cannot_partially_dispel() {
     let before = game.world().save_state();
     assert!(matches!(
         cast(&mut game, DISPEL_SPELL, OTHER),
-        Err(MagicError::Unsupported("effect archetype"))
+        Err(MagicError::Unsupported(
+            "spawn hazard requires hazard ownership and expiry"
+        ))
     ));
     assert_eq!(game.world().save_state(), before);
 }
@@ -327,24 +329,17 @@ fn mag_05_failed_modifier_reversal_leaves_all_effects_and_events_unchanged() {
 
 #[test]
 fn installed_dispel_archetype_survey_records_the_direct_cast_boundary() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let effect_count = order
         .winners_of(T(b"MGEF"))
         .filter(|(_, record)| record.flags & 0x20 == 0)
@@ -392,7 +387,7 @@ fn installed_dispel_archetype_survey_records_the_direct_cast_boundary() {
             spells.push(id);
         }
     }
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     game.world_mut().actor(player).unwrap();
     let baseline = game.world().save_state();

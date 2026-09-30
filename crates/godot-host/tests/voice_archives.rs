@@ -5,6 +5,7 @@
 //! locale, retains loose-file precedence, and hands a voice line to `soe-audio`.
 
 use soe_audio::{fuz, SoundSource};
+use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::plugin::FileHeader;
 use soe_esm::Plugin;
 use soe_godot_host::audio::{to_i16_bytes, to_mono};
@@ -12,35 +13,7 @@ use soe_godot_host::data_source::{vfs_from_loadout, DataSource, DataSourceError}
 use soe_profile::{ArchiveRef, Ini, Layer, LoadOrder, Loadout, Settings};
 
 fn bsa(file: &str, bytes: &[u8]) -> Vec<u8> {
-    let (folder, name) = file.rsplit_once('/').unwrap();
-    let folder_len = folder.len() as u32 + 1;
-    let name_len = name.len() as u32 + 1;
-    let data_offset = 36 + 24 + 1 + folder_len + 16 + name_len;
-    let mut out = Vec::new();
-    out.extend_from_slice(b"BSA\0");
-    out.extend_from_slice(&105_u32.to_le_bytes());
-    out.extend_from_slice(&36_u32.to_le_bytes());
-    out.extend_from_slice(&3_u32.to_le_bytes());
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.extend_from_slice(&folder_len.to_le_bytes());
-    out.extend_from_slice(&name_len.to_le_bytes());
-    out.extend_from_slice(&0_u32.to_le_bytes());
-    out.extend_from_slice(&0_u64.to_le_bytes());
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.extend_from_slice(&0_u32.to_le_bytes());
-    out.extend_from_slice(&0_u64.to_le_bytes());
-    out.push(folder.len() as u8 + 1);
-    out.extend_from_slice(folder.as_bytes());
-    out.push(0);
-    out.extend_from_slice(&0_u64.to_le_bytes());
-    out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-    out.extend_from_slice(&data_offset.to_le_bytes());
-    out.extend_from_slice(name.as_bytes());
-    out.push(0);
-    assert_eq!(out.len() as u32, data_offset);
-    out.extend_from_slice(bytes);
-    out
+    write_bsa(&[BsaFile { path: file, bytes }], BsaVersion::SkyrimSe).unwrap()
 }
 
 fn wave(sample: i16) -> Vec<u8> {

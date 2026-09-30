@@ -2,7 +2,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! SAV-33 coverage survey, using xEdit change types 12, 23 and 24.
-//! Field decoding remains blocked by the value and name schema placeholders.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -47,6 +46,9 @@ fn sav_33_corpus_reports_item_change_field_coverage() {
             };
             *count += 1;
             let payload = form.payload().unwrap();
+            let decoded = form.item_change().unwrap().unwrap();
+            assert_eq!(decoded.data_bytes(), payload.as_ref());
+            assert_eq!(decoded.change_flags(), form.change_flags);
             bytes += payload.len();
             *variants
                 .entry((
@@ -67,5 +69,5 @@ fn sav_33_corpus_reports_item_change_field_coverage() {
     for ((save_version, change_version, kind, flags, len), count) in variants {
         eprintln!("save_version={save_version} change_version={change_version} type={kind} flags={flags:#010x} payload_bytes={len} count={count}");
     }
-    eprintln!("Coverage only. Value/name field decoding and SAV-33 completion are unverified.");
+    eprintln!("Every observed item payload decoded and re-encoded exactly.");
 }

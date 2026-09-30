@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::duplicate_mod,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used
+)]
 
 //! The determinism detector on the two synthetic scenarios and on the
 //! installed game: one seed, two runs, every tick's hash compared, and a
@@ -10,11 +15,13 @@
 //! Two-process runs spawn this test binary again with `SOE_HASH_DUMP` set,
 //! the child writes its hash log to that file and the parent compares.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use soe_esm::{LoadOrder, Plugin};
 use soe_game::determinism::{compare, dump_if_requested, from_text, TickHash};
 use soe_game::Game;
 
@@ -190,14 +197,8 @@ fn the_travel_package_hashes_the_same_in_another_process() {
 }
 
 fn real_game(data: &Path) -> Game {
-    let mut order = LoadOrder::new();
-    for name in MASTERS {
-        let path = data.join(name);
-        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        order.add(name, plugin).unwrap();
-    }
-    let mut game = Game::new(order);
+    let order = installed::load_order(&MASTERS).unwrap();
+    let mut game = Game::from_shared_order(order);
     let scripts = game.load_scripts_from_data(data);
     assert!(scripts.scripts_loaded > 0, "{scripts:?}");
     game

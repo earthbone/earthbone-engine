@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, Handle, LeveledEntry, LosListener, MenuRequest, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -195,14 +197,14 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
-    let stubs = stubs(vm);
+    let stubs = stubs(vm, world);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
 }
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -451,6 +453,18 @@ fn form(vm: &mut Vm, w: &Shared) {
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "CreateDetectionEvent",
+        |world, call, me| {
+            if let Some(owner) = world.form_arg(&call.arg(0)) {
+                world.create_detection_event(me, owner, call.arg(1).as_int());
+            }
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             if let Some(r) = world.reference(me) {
@@ -1242,6 +1256,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         i(world
             .actor(me)
             .and_then(|a| a.relationships.get(&other).copied())
+            .or_else(|| world.relationship_record_rank(me, other))
             .unwrap_or(0))
     });
     method!(
@@ -1305,7 +1320,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let Some(spell) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        b(world.actor(me).is_some_and(|a| a.spells.insert(spell)))
+        b(world.add_actor_spell(me, spell))
     });
     method!(vm, w, "Actor", "RemoveSpell", |world, call, me| {
         let Some(spell) = world.form_arg(&call.arg(0)) else {
@@ -1332,7 +1347,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
                     call.log
                         .push(call.time, format!("Actor.EquipItem: {error}"));
                 }
-            } else if let Err(error) = world.equip_item(me, item) {
+            } else if let Err(error) = world.equip_item_with_effects(me, item, alloc!(call)) {
                 call.log
                     .push(call.time, format!("Actor.EquipItem: {error}"));
             }
@@ -1341,7 +1356,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Err(error) = world.unequip_item(me, item) {
+            if let Err(error) = world.unequip_item_with_effects(me, item, alloc!(call)) {
                 call.log
                     .push(call.time, format!("Actor.UnequipItem: {error}"));
             }
@@ -1433,7 +1448,28 @@ fn quest(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Quest", "IsRunning", |world, call, me| b(world
         .quest_state(me)
-        .is_some_and(|q| q.running)));
+        .is_some_and(|q| {
+            q.running
+                && !matches!(
+                    q.lifecycle_task,
+                    Some(
+                        crate::quest::state::LifecycleTask::Starting
+                            | crate::quest::state::LifecycleTask::Stopping
+                    )
+                )
+        })));
+    method!(vm, w, "Quest", "IsStarting", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Starting)
+        ))));
+    method!(vm, w, "Quest", "IsStopping", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Stopping)
+        ))));
     method!(vm, w, "Quest", "IsCompleted", |world, call, me| b(world
         .quest_state(me)
         .is_some_and(|q| q.completed)));
@@ -2444,6 +2480,36 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         i(world.play_sound(me, source))
     });
+    method!(vm, w, "EffectShader", "Play", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let Some(tag) = world.tag_of(me) else {
+            return none();
+        };
+        let target_tag = world.tag_of(target);
+        if tag != soe_esm::Tag::new(b"EFSH")
+            || !matches!(target_tag, Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
+        {
+            return none();
+        }
+        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
+        if !duration.is_nan() {
+            world.effect_shader(me, target, duration, true);
+        }
+        none()
+    });
+    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        if world.tag_of(me) == Some(soe_esm::Tag::new(b"EFSH"))
+            && matches!(world.tag_of(target), Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
+        {
+            world.effect_shader(me, target, 0.0, false);
+        }
+        none()
+    });
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
         none()
@@ -3187,8 +3253,18 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm) -> usize {
+fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let mut n = 0;
+    let shared = world.clone();
+    vm.natives.register_global(
+        "Game",
+        "ShowRaceMenu",
+        Box::new(move |_| {
+            shared.borrow_mut().menu_requests.push(MenuRequest::Race);
+            none()
+        }),
+    );
+    n += 1;
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
@@ -3204,8 +3280,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsDetectedBy", true),
         ("Actor", "HasLOS", true),
         ("Actor", "PathToReference", true),
-        ("Quest", "IsStarting", false),
-        ("Quest", "IsStopping", false),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
@@ -3303,10 +3377,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
-        ("EffectShader", "Play"),
-        ("EffectShader", "Stop"),
+        // The effect, music and particle systems are not implemented yet.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
@@ -3318,7 +3389,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
-        ("ObjectReference", "CreateDetectionEvent"),
         ("ObjectReference", "TranslateTo"),
         ("ObjectReference", "SplineTranslateTo"),
         ("ObjectReference", "StopTranslation"),
@@ -3367,7 +3437,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
         ("Game", "SetHudCartMode"),
-        ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
         ("Game", "PrecacheCharGen"),

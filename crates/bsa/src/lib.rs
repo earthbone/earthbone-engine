@@ -14,6 +14,7 @@ pub mod archive;
 pub mod error;
 pub mod hash;
 pub mod vfs;
+pub mod writer;
 
 pub use archive::{
     extract_archive, extract_file, find_associated_archives, index_archive, index_archive_in,
@@ -23,6 +24,7 @@ pub use archive::{
 pub use error::{Error, Result};
 pub use hash::{file_name_hash, folder_hash, tes4_hash};
 pub use vfs::{Source, Vfs};
+pub use writer::{write_bsa, BsaFile};
 
 /// The one spelling of a data path every lookup in this crate agrees on:
 /// lowercase, forward slashes, no leading separator, no `data/` prefix. The

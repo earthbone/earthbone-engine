@@ -48,6 +48,7 @@ impl World {
             aliases,
             journal: crate::quest::state::Journal::default(),
             runtime,
+            lifecycle_task: None,
         })
     }
 
@@ -63,6 +64,18 @@ impl World {
         self.quests.get(&id)
     }
 
+    pub(crate) fn lifecycle_tasks(
+        &self,
+    ) -> Vec<(GlobalFormId, crate::quest::state::LifecycleTask)> {
+        let mut tasks: Vec<_> = self
+            .quests
+            .iter()
+            .filter_map(|(id, quest)| quest.lifecycle_task.map(|task| (*id, task)))
+            .collect();
+        tasks.sort_unstable_by_key(|(id, _)| *id);
+        tasks
+    }
+
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
@@ -74,6 +87,7 @@ impl World {
         }
         q.running = true;
         q.active = true;
+        q.lifecycle_task = None;
         let startup = q.def.startup_stage();
         let alias_ids: Vec<u32> = q.def.aliases.iter().map(|a| a.id).collect();
         let object = self.object_of(Handle::Form(id), alloc);
@@ -107,6 +121,7 @@ impl World {
             Some(q) if q.running => {
                 q.running = false;
                 q.active = false;
+                q.lifecycle_task = None;
                 true
             }
             _ => false,

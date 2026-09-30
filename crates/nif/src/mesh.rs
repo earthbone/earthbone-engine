@@ -41,8 +41,11 @@ pub struct Mesh {
     /// `[x, y, z, w]` with `w` the bitangent handedness (1 or -1). Empty
     /// when the shape has no tangents.
     pub tangents: Vec<[f32; 4]>,
-    /// First UV set. Empty when the shape has none.
+    /// First UV set, retained for callers that only use one set. Empty when
+    /// the shape has none.
     pub uvs: Vec<[f32; 2]>,
+    /// One list per UV set, each with one coordinate per vertex.
+    pub uv_sets: Vec<Vec<[f32; 2]>>,
     /// RGBA in 0 to 1. Empty when the shape has no vertex colors.
     pub colors: Vec<[f32; 4]>,
     /// Triangle list, three indices per triangle.
@@ -81,7 +84,7 @@ impl Mesh {
         let per_vertex = 12 // positions
             + 12 // normals, present or generated downstream
             + if self.tangents.is_empty() { 0 } else { 16 }
-            + if self.uvs.is_empty() { 0 } else { 8 }
+            + self.uv_sets.len().max(usize::from(!self.uvs.is_empty())) as u64 * 8
             + if self.bone_weights.is_empty() { 0 } else { 16 }
             + if self.bone_indices.is_empty() { 0 } else { 4 };
         self.positions.len() as u64 * per_vertex + self.indices.len() as u64 * 4
@@ -494,6 +497,7 @@ impl<'f> Walker<'f> {
             normals: Vec::new(),
             tangents: Vec::new(),
             uvs: Vec::new(),
+            uv_sets: Vec::new(),
             colors: Vec::new(),
             indices: triangles.iter().flat_map(|t| t.map(u32::from)).collect(),
             bone_weights: Vec::new(),
@@ -515,6 +519,7 @@ impl<'f> Walker<'f> {
         }
         if attrs & attr::UVS != 0 {
             mesh.uvs = vertices.iter().map(|v| v.uv).collect();
+            mesh.uv_sets.push(mesh.uvs.clone());
         }
         if attrs & attr::COLORS != 0 {
             mesh.colors = vertices.iter().map(|v| v.color).collect();
@@ -566,6 +571,7 @@ impl<'f> Walker<'f> {
             normals: g.normals.iter().map(|v| v.to_array()).collect(),
             tangents: Vec::new(),
             uvs: g.uv_sets.first().cloned().unwrap_or_default(),
+            uv_sets: g.uv_sets.clone(),
             colors: g.colors.clone(),
             indices: g.triangles.iter().flat_map(|t| t.map(u32::from)).collect(),
             bone_weights: Vec::new(),

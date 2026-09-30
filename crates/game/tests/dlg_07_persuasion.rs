@@ -7,6 +7,9 @@
 //! the functions resolve against vanilla NPC records instead of only the
 //! synthetic fixture.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
@@ -129,13 +132,11 @@ fn dlg_07_is_intimidated_by_player_reads_last_bribed_intimidated_flag() {
 /// without erroring, naming the record used.
 #[test]
 fn dlg_07_persuasion_functions_resolve_against_a_vanilla_npc() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping the live persuasion check");
         return;
     };
-    let path = data.join("Skyrim.esm");
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("Skyrim.esm: {e}"));
+    let plugin = installed::plugin("Skyrim.esm").unwrap();
     let hulda: u32 = 0x0001_3475; // Hulda, Bannered Mare innkeeper
     let npc = plugin
         .records

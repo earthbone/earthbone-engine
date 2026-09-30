@@ -137,6 +137,29 @@ fn the_pc_gameplay_bindings_reach_the_input_driver() {
 }
 
 #[test]
+fn cmb_04_vanilla_pc_attack_action_has_a_device_binding() {
+    let Some(text) = controlmap() else { return };
+    let map = ControlMap::parse(&text);
+    let attack = map
+        .gameplay()
+        .and_then(|gameplay| gameplay.find("Right Attack/Block"))
+        .expect("PC gameplay context names Right Attack/Block");
+    assert!(
+        !attack.keyboard.is_unmapped()
+            || !attack.mouse.is_unmapped()
+            || !attack.gamepad.is_unmapped(),
+        "Right Attack/Block has no device binding"
+    );
+    let mut bindings = Bindings::default();
+    bindings.apply_control_map(&map);
+    assert_eq!(
+        bindings.get(Action::RightAttack),
+        Some(&attack.keyboard).filter(|binding| !binding.is_unmapped())
+    );
+    assert!(bindings.uses_action_state(Action::RightAttack));
+}
+
+#[test]
 fn menu_bindings_do_not_supply_missing_gameplay_actions() {
     let map = ControlMap::parse(
         "// Main Gameplay\nJump\t0x39\t0xff\t0xff\t1\t1\t1\n\n// Menu\nActivate\t0x14\t0xff\t0xff\t1\t1\t1",
