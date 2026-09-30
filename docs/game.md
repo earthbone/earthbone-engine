@@ -2431,6 +2431,36 @@ describes 530 as a placebo vanilla command fixed by that mod. These queries
 remain unsupported pending a Skyrim contract. They are not counted as
 implemented predicates.
 
+## Dialogue condition batch AI-48
+
+GetDialogueEmotion (434) and GetDialogueEmotionValue (435) read the emotion
+type and 0 to 100 value from the current response of the active dialogue INFO
+for its speaker. They return zero when that speaker has no current response.
+IsSceneActionComplete (550) resolves its SCEN and action slot and reads the
+scene's completed-action set for the current phase. IsInFavorState (635) reads
+the actor's existing `doing_favor` flag. Invalid scene slots and non-actor
+favor subjects return typed errors.
+
+GetNoRumors (320), IsTalkingActivatorActor (370), IsScenePackageRunning (429)
+and IsInScene (590) return an unsupported-function diagnostic. xEdit and
+UESP name those conditions but do not establish a usable runtime contract for
+the state this engine currently tracks. The CK page for IsInDialogueWithPlayer
+confirms actor and talking-activator dialogue participation, but does not
+define condition 370's actor parameter. The implementation adds no parallel
+scene, rumor, activator or dialogue-emotion state.
+
+Sources read: local xEdit `wbDefinitionsTES5.pas`, UESP `Raw_Function_Data.wikitext`
+and `INFO.wikitext`, and CK `IsInDialogueWithPlayer_-_ObjectReference.wikitext`,
+`Actor_Script.wikitext` and `SetDoingFavor_-_Actor.wikitext`. `IsDoingFavor`
+defines the shared actor favor flag, and the INFO response layout defines the
+emotion fields. The condition-name sources give no further semantics for the
+four diagnosed functions.
+
+`ai_48_dialogue_conditions` checks positive and negative response emotion,
+scene action and favor values, invalid actors and slots, and explicit errors
+for the four conditions without a usable local contract. No saved state or
+save version changed.
+
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,

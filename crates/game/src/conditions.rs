@@ -121,10 +121,14 @@ pub fn supports_function(function: u16) -> bool {
         function,
         1 | 14
             | 123
+            | 434
+            | 435
             | 128
             | 277
             | 408
+            | 550
             | 430
+            | 635
             | 494
             | 18
             | 46
@@ -413,6 +417,41 @@ fn function_value(
             no_parameter(c)?;
             boolean(
                 world.actor(subject).is_some() && world.dialogue.greeting_actor == Some(subject),
+            )
+        }
+        434 | 435 => {
+            no_parameter(c)?;
+            let Some(session) = world
+                .dialogue_session()
+                .filter(|session| session.speaker == subject)
+            else {
+                return Ok(0.0);
+            };
+            let Some(info) = session.current_info else {
+                return Ok(0.0);
+            };
+            let (_, data) = world.response_data(info).map_err(|_| Error::Form(info))?;
+            match data.responses.get(session.response_index as usize) {
+                Some(response) if c.function == 434 => response.emotion as f32,
+                Some(response) => response.emotion_value as f32,
+                None => 0.0,
+            }
+        }
+        550 => {
+            let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
+            let slot = c.parameters[1];
+            let Some(completed) = world.scene_action_complete(scene, slot) else {
+                return Err(Error::Parameter(c.function, slot));
+            };
+            boolean(completed)
+        }
+        635 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .doing_favor,
             )
         }
         225 | 315 => {

@@ -171,6 +171,20 @@ impl World {
         self.scene_runs.get(&id).map(|run| run.phase)
     }
 
+    /// Whether a valid SCEN action slot has completed. A valid action on a
+    /// stopped scene is not complete.
+    pub fn scene_action_complete(&self, id: GlobalFormId, action_slot: u32) -> Option<bool> {
+        let record = self.record(id)?;
+        let scene = Scene::from_record(record).ok()?;
+        let slot = usize::try_from(action_slot).ok()?;
+        scene.actions.get(slot)?;
+        Some(
+            self.scene_runs
+                .get(&id)
+                .is_some_and(|run| run.completed_actions.contains(&action_slot)),
+        )
+    }
+
     /// Mark an action slot complete when it ends in the current phase.
     /// `action_slot` is its zero-based position in the SCEN Actions list.
     pub fn complete_scene_action(&mut self, id: GlobalFormId, action_slot: u32) -> bool {
