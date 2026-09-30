@@ -123,7 +123,7 @@ impl Vm {
         self.find_script_method(object, class, name).is_some()
     }
 
-    fn find_script_method(
+    pub(super) fn find_script_method(
         &self,
         object: ObjectId,
         class: &str,

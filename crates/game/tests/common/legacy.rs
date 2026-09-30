@@ -5,10 +5,20 @@ use soe_game::world::World;
 
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
-/// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added, so fixtures built against any older header
-/// see none of those fields' bytes.
+/// Strips the exclusive dialogue branch version 24 added, the stagger end
+/// time version 29 added, the witnessed crime set version 31 added, the hand
+/// spell fields version 32 added and the movement flags version 36 added, so
+/// fixtures built against any older header see none of those fields' bytes.
+/// Also strips the named save-section table
+/// version 37 appends to the actor's own record and, since `World::actor`
+/// requires a paired reference (`self.reference(id)` with `is_actor` set), to
+/// that reference's record too, so both records end exactly where a
+/// pre-version-37 writer would have left them.
+///
+/// This file is pulled into many test binaries through `#[path]`, and each
+/// binary compiles its own copy. Only some of them call this particular
+/// helper, so the others see it as unused under `-D warnings`.
+#[allow(dead_code)]
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
     let mut saved = Vec::new();
@@ -18,6 +28,31 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             "legacy fixture actor is initialized"
         );
         let actor = world.actor(*id).unwrap();
+        let prior_flags = [
+            actor.alerted,
+            actor.sneaking,
+            actor.swimming,
+            actor.running,
+            actor.riding_mount,
+            actor.weapon_drawn,
+            actor.restrained,
+            actor.arrested,
+            actor.attack_on_sight,
+            actor.dont_move,
+            actor.allow_pc_dialogue,
+        ];
+        let flag_marker = std::array::from_fn(|bit| (index + 0x555) & (1 << bit) != 0);
+        actor.alerted = flag_marker[0];
+        actor.sneaking = flag_marker[1];
+        actor.swimming = flag_marker[2];
+        actor.running = flag_marker[3];
+        actor.riding_mount = flag_marker[4];
+        actor.weapon_drawn = flag_marker[5];
+        actor.restrained = flag_marker[6];
+        actor.arrested = flag_marker[7];
+        actor.attack_on_sight = flag_marker[8];
+        actor.dont_move = flag_marker[9];
+        actor.allow_pc_dialogue = flag_marker[10];
         let prior_branch = actor.exclusive_branch;
         let sentinel = GlobalFormId {
             file: u16::MAX,
@@ -45,8 +80,22 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             object: 0xC000_0000 + index as u32,
         };
         actor.right_spell = Some(right_spell_sentinel);
+
+        // Every actor built through the public API has a paired reference
+        // (`World::actor` requires `self.reference(id)` to already report
+        // `is_actor`), and that reference's own record also ends with a
+        // version 37 save-section table. `alpha` is the reference's last
+        // field before that table, so a unique value here locates it the
+        // same way the actor sentinels above locate the actor's own table.
+        let reference = world.reference(*id).unwrap();
+        let prior_alpha = reference.alpha;
+        let alpha_sentinel = 700_000.0 + index as f32;
+        reference.alpha = alpha_sentinel;
+
         saved.push(Saved {
             id: *id,
+            prior_flags,
+            flag_marker,
             prior_branch,
             sentinel,
             prior_stagger,
@@ -57,16 +106,30 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             left_spell_sentinel,
             prior_right_spell,
             right_spell_sentinel,
+            prior_alpha,
+            alpha_sentinel,
         });
     }
     let mut bytes = world.save_state();
     for entry in &mut saved {
         let actor = world.actor(entry.id).unwrap();
+        actor.alerted = entry.prior_flags[0];
+        actor.sneaking = entry.prior_flags[1];
+        actor.swimming = entry.prior_flags[2];
+        actor.running = entry.prior_flags[3];
+        actor.riding_mount = entry.prior_flags[4];
+        actor.weapon_drawn = entry.prior_flags[5];
+        actor.restrained = entry.prior_flags[6];
+        actor.arrested = entry.prior_flags[7];
+        actor.attack_on_sight = entry.prior_flags[8];
+        actor.dont_move = entry.prior_flags[9];
+        actor.allow_pc_dialogue = entry.prior_flags[10];
         actor.exclusive_branch = entry.prior_branch;
         actor.stagger_end_time = entry.prior_stagger;
         actor.witnessed_crimes = std::mem::take(&mut entry.prior_witnessed);
         actor.left_spell = entry.prior_left_spell;
         actor.right_spell = entry.prior_right_spell;
+        world.reference(entry.id).unwrap().alpha = entry.prior_alpha;
     }
     assert_eq!(
         world.state_hash(),
@@ -75,14 +138,28 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     );
     let mut fields = Vec::new();
     for Saved {
+        prior_flags,
+        flag_marker,
         sentinel,
         stagger_sentinel,
         witness_sentinel,
         left_spell_sentinel,
         right_spell_sentinel,
+        prior_alpha,
+        alpha_sentinel,
         ..
     } in saved
     {
+        let marker: [u8; 11] = flag_marker.map(u8::from);
+        let offsets: Vec<_> = bytes
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker).then_some(offset))
+            .collect();
+        assert_eq!(offsets.len(), 1, "actor flag marker is not unique");
+        bytes[offsets[0]..offsets[0] + marker.len()].copy_from_slice(&prior_flags.map(u8::from));
+        fields.push((offsets[0] + 2, 3));
+
         let mut marker = vec![1];
         marker.extend_from_slice(&sentinel.file.to_le_bytes());
         marker.extend_from_slice(&sentinel.object.to_le_bytes());
@@ -144,17 +221,215 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             "right spell sentinel is not unique"
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
+
+        // The right spell field is immediately followed by this actor's
+        // named save-section table, which a pre-version-37 writer never
+        // emitted. Read each length so this stays correct as sections are
+        // added to the actor registry.
+        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((table_offset, section_table_len(&bytes, table_offset)));
+
+        // `alpha` itself is not version gated, so unlike the fields above
+        // it must stay in the stream with its true value. Only the named
+        // save-section table that follows it is a version 37 addition and
+        // gets stripped. The marker bytes are overwritten back to
+        // `prior_alpha` in place rather than added to `fields`.
+
+        let alpha_marker = alpha_sentinel.to_le_bytes().to_vec();
+        let alpha_offsets: Vec<_> = bytes
+            .windows(alpha_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == alpha_marker).then_some(offset))
+            .collect();
+        assert_eq!(alpha_offsets.len(), 1, "alpha sentinel is not unique");
+        let alpha_offset = alpha_offsets[0];
+        bytes[alpha_offset..alpha_offset + alpha_marker.len()]
+            .copy_from_slice(&prior_alpha.to_le_bytes());
+        let reference_table = alpha_offset + alpha_marker.len();
+        fields.push((reference_table, section_table_len(&bytes, reference_table)));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
+}
+
+/// Strip the named save-section table version 37 appends to a standalone
+/// reference's own record, and version 36 movement flags from a paired actor.
+/// `without_exclusive_branches` only locates this
+/// table for a reference paired with an actor, through the actor's own
+/// alpha value. A fixture that materializes a bare reference, such as an
+/// authored loose item never turned into an actor, calls this instead
+/// before truncating the rest of the buffer to an older header. Order does
+/// not matter, an empty slice is a no-op that still round trips the state.
+///
+/// Same cross-binary sharing as `without_exclusive_branches` above: only the
+/// binaries that fixture a bare reference call this one.
+#[allow(dead_code)]
+pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8> {
+    let hash = world.state_hash();
+    let mut saved = Vec::new();
+    let mut saved_flags = Vec::new();
+    for (index, id) in refs.iter().enumerate() {
+        if world.actor_ref(*id).is_some() {
+            let actor = world.actor(*id).unwrap();
+            let prior = [
+                actor.alerted,
+                actor.sneaking,
+                actor.swimming,
+                actor.running,
+                actor.riding_mount,
+                actor.weapon_drawn,
+                actor.restrained,
+                actor.arrested,
+                actor.attack_on_sight,
+                actor.dont_move,
+                actor.allow_pc_dialogue,
+            ];
+            let marker = std::array::from_fn(|bit| (index + 0x555) & (1 << bit) != 0);
+            actor.alerted = marker[0];
+            actor.sneaking = marker[1];
+            actor.swimming = marker[2];
+            actor.running = marker[3];
+            actor.riding_mount = marker[4];
+            actor.weapon_drawn = marker[5];
+            actor.restrained = marker[6];
+            actor.arrested = marker[7];
+            actor.attack_on_sight = marker[8];
+            actor.dont_move = marker[9];
+            actor.allow_pc_dialogue = marker[10];
+            saved_flags.push((*id, prior, marker));
+        }
+        let reference = world.reference(*id).unwrap();
+        let prior_alpha = reference.alpha;
+        let alpha_sentinel = 800_000.0 + index as f32;
+        reference.alpha = alpha_sentinel;
+        saved.push((*id, prior_alpha, alpha_sentinel));
+    }
+    let mut bytes = world.save_state();
+    for (id, prior, _) in &saved_flags {
+        let actor = world.actor(*id).unwrap();
+        actor.alerted = prior[0];
+        actor.sneaking = prior[1];
+        actor.swimming = prior[2];
+        actor.running = prior[3];
+        actor.riding_mount = prior[4];
+        actor.weapon_drawn = prior[5];
+        actor.restrained = prior[6];
+        actor.arrested = prior[7];
+        actor.attack_on_sight = prior[8];
+        actor.dont_move = prior[9];
+        actor.allow_pc_dialogue = prior[10];
+    }
+    for (id, prior_alpha, _) in &saved {
+        world.reference(*id).unwrap().alpha = *prior_alpha;
+    }
+    assert_eq!(
+        world.state_hash(),
+        hash,
+        "legacy fixture changed world state"
+    );
+    let mut offsets = Vec::new();
+    for (_, prior, flag_marker) in saved_flags {
+        let marker: [u8; 11] = flag_marker.map(u8::from);
+        let found: Vec<_> = bytes
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker).then_some(offset))
+            .collect();
+        assert_eq!(found.len(), 1, "actor flag marker is not unique");
+        bytes[found[0]..found[0] + marker.len()].copy_from_slice(&prior.map(u8::from));
+        offsets.push((found[0] + 2, 3));
+    }
+    for (_, prior_alpha, alpha_sentinel) in saved {
+        let marker = alpha_sentinel.to_le_bytes().to_vec();
+        let found: Vec<_> = bytes
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker).then_some(offset))
+            .collect();
+        assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
+        let offset = found[0];
+        bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
+        let table = offset + marker.len();
+        offsets.push((table, section_table_len(&bytes, table)));
+    }
+    offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
+    for (offset, len) in offsets {
+        bytes.drain(offset..offset + len);
+    }
+    normalize_world_sections(&mut bytes);
+    bytes
+}
+
+#[allow(dead_code)]
+pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
+    let count = usize::from(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
+    let mut cursor = start + 2;
+    for _ in 0..count {
+        let name_len = usize::from(bytes[cursor]);
+        cursor += 1 + name_len;
+        let payload_len = u32::from_le_bytes([
+            bytes[cursor],
+            bytes[cursor + 1],
+            bytes[cursor + 2],
+            bytes[cursor + 3],
+        ]) as usize;
+        cursor += 4 + payload_len;
+    }
+    cursor - start
+}
+
+/// Remove the world save-section table appended at the end of a version 37
+/// save when constructing a pre-version-37 fixture.
+#[allow(dead_code)]
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
+    let start = (0..bytes.len())
+        .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
+        .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
+    bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+}
+
+#[allow(dead_code)]
+fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    let count = usize::from(u16::from_le_bytes([
+        *bytes.get(cursor)?,
+        *bytes.get(cursor.checked_add(1)?)?,
+    ]));
+    cursor = cursor.checked_add(2)?;
+    for _ in 0..count {
+        let name_len = usize::from(*bytes.get(cursor)?);
+        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let payload_len = usize::try_from(u32::from_le_bytes([
+            *bytes.get(cursor)?,
+            *bytes.get(cursor.checked_add(1)?)?,
+            *bytes.get(cursor.checked_add(2)?)?,
+            *bytes.get(cursor.checked_add(3)?)?,
+        ]))
+        .ok()?;
+        cursor = cursor.checked_add(4)?.checked_add(payload_len)?;
+        if cursor > bytes.len() {
+            return None;
+        }
+    }
+    Some(cursor)
 }
 
 /// One actor's replaced fields and the sentinels written in their place.
 struct Saved {
     id: GlobalFormId,
+    prior_flags: [bool; 11],
+    flag_marker: [bool; 11],
     prior_branch: Option<GlobalFormId>,
     sentinel: GlobalFormId,
     prior_stagger: Option<f64>,
@@ -165,4 +440,6 @@ struct Saved {
     left_spell_sentinel: GlobalFormId,
     prior_right_spell: Option<GlobalFormId>,
     right_spell_sentinel: GlobalFormId,
+    prior_alpha: f32,
+    alpha_sentinel: f32,
 }

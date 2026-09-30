@@ -11,10 +11,12 @@
 //! SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-game --test real_files -- --nocapture
 //! ```
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 use std::time::Instant;
 
-use soe_esm::{LoadOrder, Plugin};
 use soe_game::Game;
 
 const MASTERS: [&str; 5] = [
@@ -31,14 +33,8 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         eprintln!("SKYRIM_DATA not set, skipping the real-file test");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in MASTERS {
-        let path = data.join(name);
-        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        order.add(name, plugin).unwrap();
-    }
-    let mut game = Game::new(order);
+    let order = installed::load_order(&MASTERS).unwrap();
+    let mut game = Game::from_shared_order(order);
 
     let load_started = Instant::now();
     let scripts = game.load_scripts_from_data(&data);

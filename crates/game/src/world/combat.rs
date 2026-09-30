@@ -138,7 +138,13 @@ impl World {
     /// # Errors
     /// Invalid actors/equipment/settings, unsupported combat modifiers or overflow.
     /// Lazy record views may initialize, but rejected hits do not damage or emit events.
-    pub fn melee_hit(&mut self, hit: MeleeHit, alloc: Alloc<'_>) -> Result<HitResult, Error> {
+    pub fn melee_hit(
+        &mut self,
+        hit: MeleeHit,
+        outgoing_perks: Vec<crate::perks::EntryPointInvocation>,
+        incoming_perks: Vec<crate::perks::EntryPointInvocation>,
+        alloc: Alloc<'_>,
+    ) -> Result<HitResult, Error> {
         if hit.attacker == hit.target {
             return Err(Error::Actor(hit.target));
         }
@@ -360,7 +366,12 @@ impl World {
         // "health" percentage is documented, applied after AttackDamageMult and
         // before armor/block reduction. Unarmed contacts hold quality_multiplier
         // at 1.0, see above.
-        let weapon_damage = finite(f64::from(weapon_damage) * f64::from(quality_multiplier))?;
+        let mut weapon_damage = finite(f64::from(weapon_damage) * f64::from(quality_multiplier))?;
+        if !hit.is_bash {
+            let outgoing = self.combat_perk_damage(outgoing_perks)?;
+            let incoming = self.combat_perk_damage(incoming_perks)?;
+            weapon_damage = finite(incoming(outgoing(f64::from(weapon_damage))?)?)?;
+        }
         let (armor_rating, categories) = self.combat_armor(hit.target)?;
         let reduction = (f64::from(armor_rating) * self.combat_setting("fArmorScalingFactor")?
             / 100.0
@@ -571,22 +582,101 @@ impl World {
             return Err(Error::Unsupported("perk entry points"));
         }
         for name in [
-            "onehandedmod",
-            "twohandedmod",
-            "marksmanmod",
-            "onehandedpowermod",
-            "twohandedpowermod",
-            "marksmanpowermod",
-            "lightarmormod",
-            "heavyarmormod",
-            "lightarmorpowermod",
-            "heavyarmorpowermod",
+            "onehandedmodifier",
+            "twohandedmodifier",
+            "marksmanmodifier",
+            "onehandedpowermodifier",
+            "twohandedpowermodifier",
+            "marksmanpowermodifier",
+            "lightarmormodifier",
+            "heavyarmormodifier",
+            "lightarmorpowermodifier",
+            "heavyarmorpowermodifier",
         ] {
             if actor.values.entries.contains_key(name) {
                 return Err(Error::Unsupported("combat actor-value multipliers"));
             }
         }
         Ok(())
+    }
+
+    fn combat_perk_damage(
+        &mut self,
+        invocations: Vec<crate::perks::EntryPointInvocation>,
+    ) -> Result<impl Fn(f64) -> Result<f64, Error>, Error> {
+        let mut operations = Vec::with_capacity(invocations.len());
+        for invocation in invocations {
+            let operation = match invocation.function {
+                1..=3 => {
+                    if invocation.data_type != Some(1) || invocation.data.len() != 4 {
+                        return Err(Error::Unsupported("malformed perk damage function data"));
+                    }
+                    let value = f32::from_le_bytes(
+                        invocation
+                            .data
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| Error::Number)?,
+                    );
+                    if !value.is_finite() {
+                        return Err(Error::Number);
+                    }
+                    (invocation.function, f64::from(value))
+                }
+                6 | 7 => (invocation.function, 0.0),
+                5 | 12..=14 => {
+                    if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                        return Err(Error::Unsupported("malformed perk damage function data"));
+                    }
+                    let raw_index = f32::from_le_bytes(
+                        invocation.data[0..4]
+                            .try_into()
+                            .map_err(|_| Error::Number)?,
+                    );
+                    let coefficient = f32::from_le_bytes(
+                        invocation.data[4..8]
+                            .try_into()
+                            .map_err(|_| Error::Number)?,
+                    );
+                    if !raw_index.is_finite()
+                        || raw_index.fract() != 0.0
+                        || !coefficient.is_finite()
+                    {
+                        return Err(Error::Number);
+                    }
+                    let index = i32::try_from(raw_index as i64).map_err(|_| Error::Number)?;
+                    let name = crate::actor_values::actor_value_name(index)
+                        .ok_or(Error::Unsupported("unknown perk actor value"))?;
+                    let value = self.actor_value(invocation.actor, name);
+                    if !value.is_finite() {
+                        return Err(Error::Number);
+                    }
+                    (
+                        invocation.function,
+                        f64::from(value) * f64::from(coefficient),
+                    )
+                }
+                _ => return Err(Error::Unsupported("perk damage function")),
+            };
+            operations.push(operation);
+        }
+        Ok(move |mut value: f64| {
+            for &(function, amount) in &operations {
+                value = match function {
+                    1 | 12 => amount,
+                    2 | 5 => value + amount,
+                    3 | 13 => value * amount,
+                    6 => value.abs(),
+                    7 => -value.abs(),
+                    14 => value * (1.0 + amount),
+                    _ => value,
+                };
+                if !value.is_finite() || value.abs() > f64::from(f32::MAX) {
+                    return Err(Error::Number);
+                }
+            }
+            Ok(value)
+        })
     }
 
     /// Returns the unarmed base damage plus the unarmed attack form's own
@@ -986,10 +1076,7 @@ impl World {
                 .record(current)
                 .filter(|record| record.tag == Tag(*b"ARMO"))
                 .ok_or(Error::Equipment)?;
-            let (template, enchantment) = Armor::template_links(record)?;
-            if enchantment.is_some() {
-                return Err(Error::Unsupported("armor enchantment"));
-            }
+            let (template, _enchantment) = Armor::template_links(record)?;
             let Some(template) = template else {
                 return Ok(Armor::from_record(record)?);
             };

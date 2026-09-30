@@ -72,6 +72,25 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   vertices shapes (nif.xml stores their half spaces but not their faces).
 - `world`: `PhysicsWorld` and `SimpleWorld`.
 
+## Exporting imported collision
+
+`export::export_collision_mesh` applies the `_collision` name suffix
+convention to imported geometry. An unmarked mesh is ignored. A marked mesh
+with 4 to 1024 finite positions becomes a static `bhkRigidBodyT` carrying a
+`bhkConvexVerticesShape` with the original point set. Source positions are
+Skyrim game units, and the shape encoder divides them by
+`UNITS_PER_METER`. `shape::collect` converts them back when reading the block
+graph. The generated block graph is a standalone `NifFile` model with local
+references. A complete NIF byte writer is not part of this API.
+
+The block layout follows nifly's `bhkConvexVerticesShape::Sync` and
+`bhkRigidBody::Sync` in `engine-refs/nifly/src/bhk.cpp`, with field offsets
+cross-checked against `bhk::decode` and `tests/synthetic.rs`. The repository's
+PyNifly source named by EDT-17 was not present in `engine-refs`. The EDT-04
+drafts that would supply the imported-mesh writer are also absent from this
+worktree. This implementation accepts the imported positions directly and
+returns a block graph for that later writer to merge and rebase.
+
 ## What the shipped files taught the crate
 
 Two things nif.xml and OpenMW disagree on or leave open were settled

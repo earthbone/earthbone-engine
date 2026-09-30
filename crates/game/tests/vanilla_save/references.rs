@@ -9,6 +9,10 @@ use soe_save::{
 };
 
 fn fixture_order() -> LoadOrder {
+    fixture_order_with_flags(0)
+}
+
+fn fixture_order_with_flags(flags: u32) -> LoadOrder {
     let mut master = Plugin::new(FileHeader::default());
     for (tag, object) in [
         (b"NPC_", 7),
@@ -32,8 +36,9 @@ fn fixture_order() -> LoadOrder {
     );
     grid.placement.world = Some(0x801);
     master.push_top(grid);
-    let mut placed =
-        Record::new(Tag(*b"REFR"), 0xA00).sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
+    let mut placed = Record::new(Tag(*b"REFR"), 0xA00)
+        .with_flags(flags)
+        .sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
     placed.placement.cell = Some(0x800);
     master.push_top(placed);
     let mut order = LoadOrder::new();
@@ -49,6 +54,106 @@ fn fixture_order() -> LoadOrder {
         order.add(name, p).unwrap();
     }
     order
+}
+
+#[test]
+fn sav_15_saved_reference_masks_are_retained_without_unverified_application() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let mut save = fixture();
+    set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
+
+    let mut world = World::new(fixture_order_with_flags(mask));
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    let restored = world.reference_ref(id(0, 0xA00)).unwrap();
+    assert!(!restored.enabled);
+    assert!(restored.persistent);
+    assert_eq!(
+        report.remaining[&id(0, 0xA00)].form_flags,
+        Some((mask, 0x50))
+    );
+    assert!(world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
+
+    let bytes = world.save_state();
+    let mut loaded = World::new(fixture_order_with_flags(mask));
+    loaded.load_state(&bytes).unwrap();
+    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
+    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
+}
+
+#[test]
+fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
+    for invalid_version in [0_u8, 1, 2] {
+        let mut save = fixture();
+        set_form_mask(
+            &mut save.change_forms[1],
+            soe_esm::plugin::flags::PERSISTENT,
+            0,
+            78,
+        );
+        match invalid_version {
+            0 => save.header.version = 11,
+            1 => save.form_version = 77,
+            _ => save.change_forms[1].version = 77,
+        }
+        let mut world = World::new(fixture_order());
+        let before = world.state_hash();
+        let error = world
+            .restore_vanilla_reference_placements(&save)
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("only validated for save version 12 and form versions 78"));
+        assert_eq!(world.state_hash(), before);
+    }
+}
+
+#[test]
+fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let mut save = fixture();
+    let player = &mut save.change_forms[0];
+    player.change_flags |= change_flags::FORM;
+    player.version = 78;
+    player.data.splice(
+        35..35,
+        mask.to_le_bytes().into_iter().chain(0_u16.to_le_bytes()),
+    );
+
+    let mut world = World::new(fixture_order());
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    let player = world.reference_ref(id(0, 0x14)).unwrap();
+    assert!(player.enabled);
+    assert!(!player.persistent);
+}
+
+#[test]
+fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping SAV-15 vanilla-reference case");
+        return;
+    };
+    let bytes = std::fs::read(data.join("Skyrim.esm")).unwrap();
+    let plugin = Plugin::parse(&bytes).unwrap();
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    let record = plugin
+        .records_of(Tag(*b"REFR"))
+        .find(|record| !record.is_deleted())
+        .unwrap();
+    let authored = record.flags & mask;
+
+    let mut save = fixture();
+    set_form_mask(&mut save.change_forms[1], mask, 0, 78);
+    let mut world = World::new(fixture_order_with_flags(authored));
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    let restored = world.reference_ref(id(0, 0xA00)).unwrap();
+    assert_eq!(
+        restored.enabled,
+        authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+    );
+    assert_eq!(
+        restored.persistent,
+        authored & soe_esm::plugin::flags::PERSISTENT != 0
+    );
 }
 
 fn change(
@@ -87,6 +192,15 @@ fn change(
         uncompressed_len: 0,
         data,
     }
+}
+
+fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
+    change.change_flags |= change_flags::FORM;
+    change.version = version;
+    change.data.splice(
+        27..27,
+        mask.to_le_bytes().into_iter().chain(second.to_le_bytes()),
+    );
 }
 
 fn fixture() -> Save {
@@ -187,6 +301,53 @@ fn every_saved_created_namespace_entry_reserves_allocation_space() {
 }
 
 #[test]
+fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
+    let mut save = fixture();
+    let created_base = 0x800900;
+    let mut object_table = vec![4];
+    reference(created_base).write(&mut object_table);
+    object_table.extend(7_u32.to_le_bytes());
+    object_table.push(0);
+    object_table.extend([0, 0, 0]);
+    save.table_1.push(GlobalData {
+        kind: GlobalData::CREATED_OBJECTS,
+        data: object_table,
+    });
+
+    let mut created_reference = change(
+        0x800800,
+        false,
+        1 << 5,
+        0x400800,
+        [4.0, 5.0, 6.0],
+        Some(created_base),
+    );
+    created_reference.data.extend([4]);
+    reference(created_base).write(&mut created_reference.data);
+    created_reference.data.extend(2_i32.to_le_bytes());
+    created_reference.data.push(0);
+    save.change_forms[2] = created_reference;
+
+    let mut world = World::new(fixture_order());
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    let base = id(DYNAMIC_FILE, 0x900);
+    assert!(report.missing_bases.contains(&base));
+    assert_eq!(
+        world.reference_ref(id(DYNAMIC_FILE, 0x800)).unwrap().base,
+        Some(base)
+    );
+    assert_eq!(
+        world.place_at(id(0, 0x900), id(0, 0x14), false),
+        id(DYNAMIC_FILE, 0x901)
+    );
+
+    let inventory = world.restore_vanilla_inventories(&save).unwrap();
+    assert_eq!(inventory.references, 3);
+    assert!(inventory.missing_items.contains(&base));
+    assert_eq!(world.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+}
+
+#[test]
 fn missing_placement_dependencies_and_unapplied_state_are_reported() {
     let mut save = fixture();
     save.change_forms[2] = change(
@@ -255,28 +416,21 @@ fn malformed_late_entries_and_inconsistent_player_data_leave_whole_game_unchange
 
 #[test]
 fn installed_saved_reference_placements_restore_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping reference placement survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

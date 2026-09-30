@@ -61,25 +61,31 @@ and events next, everything below the line waits on a runtime that does not exis
 | Scaleform UI and menus | 19 | 4 | 1 | 10 | 8 | 2 | Missing and replaced. No GFx runtime, so `GFxValue` and the menu classes have no target. `MenuOpenCloseEvent` can be emitted by the native UI layer. |
 | Vtable hooks | 19 | 0 | 0 | 0 | 19 | 19 | Never. Vtable and call-site patching has no meaning against a Rust engine. Each hook site becomes a feature request for an engine event or setting. |
 
-## What the skeleton is
+## What the shim exposes
 
-`crates/commonlib-shim` (MIT, unlike the GPL core) compiles with no engine dependency. It holds
-the Rust side each header group would bind to: `FormId` with the master and light index rules,
-the `Form` and `DataHandler` traits, reference and actor handles, the VM registry types with
-the collision rule, event sources with the continue-or-stop control, the SKSE plugin
-interfaces as traits, the NetImmerse math types, and a `support` table that records the
-groups above with their counts so a test fails when this document and the code drift. The C++
-side, the headers a plugin includes, is a later round: it is generated from the Rust API once
-the `game` crate fixes the runtime types.
+`crates/commonlib-shim` (MIT, unlike the GPL core) compiles with no engine dependency. Its Rust
+surface includes `FormId` with the master and light index rules, the `Form` and `DataHandler`
+traits, reference and actor handles, the VM registry types with the collision rule, event
+sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse math types,
+and a `support` table that keeps the group counts aligned with this document.
+
+`src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
+`include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
+after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
+The declarations are source-level headers only. They do not provide a C ABI or engine bindings.
+The mapping follows the Rust API while adapting Rust names and types to C++, including
+`NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
+keyword.
 
 ## Untested
 
-No plugin has been compiled against anything, the C++ headers do not exist yet. The counts
-are token counts, so a name mentioned only in a comment is counted and a type reached only
-through `auto` is not. Four plugins are a sample, not the population: the map's 70 to 90
-percent open-source estimate is from a six-plugin sample and the shimmable share here is 3 of
-4 by plugin, far less by hook site because TDM dominates. The alandtse fork's 390 added
-headers were counted, not read.
+The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
+signatures for the Rust methods they project. No sample plugin has been compiled against the
+headers, and the declarations are not linked to engine behavior. The counts are token counts,
+so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
+Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
+is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
+site because TDM dominates. The alandtse fork's 390 added headers were counted, not read.
 
 ## Appendix: the 349 names by group
 

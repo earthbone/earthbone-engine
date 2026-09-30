@@ -20,6 +20,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use sha2::{Digest, Sha256};
+
 use crate::cell_index::CellIndex;
 use crate::error::{Error, Result};
 use crate::plugin::{Plugin, Record};
@@ -55,6 +57,8 @@ pub struct RecordRef {
 pub struct LoadedFile {
     pub name: String,
     pub plugin: Plugin,
+    /// SHA-256 of the serialized definition before load-order additions.
+    pub fingerprint: [u8; 32],
     pub slot: Slot,
     /// For each master in the header, its position in the load order.
     pub master_positions: Vec<usize>,
@@ -93,6 +97,7 @@ impl LoadOrder {
     pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
+        let fingerprint = plugin.fingerprint();
         // CONTEXT: xEdit Core/Hardcoded/Skyrim.esp defines this engine-owned
         // global, absent from the shipped master but present in ESS globals.
         if self.files.is_empty()
@@ -143,6 +148,7 @@ impl LoadOrder {
         let file = LoadedFile {
             name: name.to_string(),
             plugin,
+            fingerprint,
             slot,
             master_positions,
         };
@@ -173,6 +179,21 @@ impl LoadOrder {
 
     pub fn files(&self) -> &[LoadedFile] {
         &self.files
+    }
+
+    /// Fingerprint the ordered plugin names and their serialized contents.
+    /// The result changes when a plugin is added, removed, reordered, renamed,
+    /// or its bytes change.
+    #[must_use]
+    pub fn fingerprint(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        for file in &self.files {
+            let name = file.name.to_ascii_lowercase();
+            hash.update((name.len() as u64).to_le_bytes());
+            hash.update(name.as_bytes());
+            hash.update(file.fingerprint);
+        }
+        hash.finalize().into()
     }
 
     pub fn file(&self, index: usize) -> &LoadedFile {
@@ -384,6 +405,37 @@ mod tests {
         lo.add("Skyrim.esm", master("Skyrim.esm", false)).unwrap();
         lo.add("A.esp", patch(&["skyrim.ESM"])).unwrap();
         assert_eq!(lo.file(1).master_positions, vec![0]);
+    }
+
+    #[test]
+    fn rnd_16_load_order_fingerprint_changes_when_plugin_order_changes() {
+        let master = master("Skyrim.esm", false);
+        let a = patch(&["Skyrim.esm"]);
+        let b = patch(&["Skyrim.esm"]);
+        let mut first = LoadOrder::new();
+        first.add("Skyrim.esm", master.clone()).unwrap();
+        first.add("A.esp", a.clone()).unwrap();
+        first.add("B.esp", b.clone()).unwrap();
+        let mut second = LoadOrder::new();
+        second.add("Skyrim.esm", master).unwrap();
+        second.add("B.esp", b).unwrap();
+        second.add("A.esp", a).unwrap();
+
+        assert_ne!(first.fingerprint(), second.fingerprint());
+    }
+
+    #[test]
+    fn rnd_16_load_order_fingerprint_ignores_plugin_name_case() {
+        let mut first = LoadOrder::new();
+        first
+            .add("Skyrim.esm", master("Skyrim.esm", false))
+            .unwrap();
+        let mut second = LoadOrder::new();
+        second
+            .add("skyrim.ESM", master("Skyrim.esm", false))
+            .unwrap();
+
+        assert_eq!(first.fingerprint(), second.fingerprint());
     }
 
     #[test]

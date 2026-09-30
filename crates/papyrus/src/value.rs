@@ -8,6 +8,7 @@
 //! object table, and `None` is both the missing object and the missing value.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -60,6 +61,22 @@ pub struct ArrayRef {
     pub items: Rc<RefCell<Vec<Value>>>,
 }
 
+/// A Fallout 4 Papyrus struct value and its case-insensitive named members.
+#[derive(Debug, Clone)]
+pub struct StructRef {
+    pub name: String,
+    pub fields: Rc<RefCell<BTreeMap<String, Value>>>,
+}
+
+impl StructRef {
+    pub fn new(name: impl Into<String>, fields: BTreeMap<String, Value>) -> Self {
+        Self {
+            name: name.into(),
+            fields: Rc::new(RefCell::new(fields)),
+        }
+    }
+}
+
 impl ArrayRef {
     pub fn new(kind: ElementKind, len: usize) -> ArrayRef {
         ArrayRef {
@@ -97,6 +114,7 @@ pub enum Value {
     Float(f32),
     Bool(bool),
     Array(ArrayRef),
+    Struct(StructRef),
 }
 
 impl Value {
@@ -113,6 +131,7 @@ impl Value {
             Value::Float(_) => "Float",
             Value::Bool(_) => "Bool",
             Value::Array(_) => "Array",
+            Value::Struct(_) => "Struct",
         }
     }
 
@@ -121,7 +140,7 @@ impl Value {
     pub fn as_bool(&self) -> bool {
         match self {
             Value::None => false,
-            Value::Object(_) => true,
+            Value::Object(_) | Value::Struct(_) => true,
             Value::Str(s) => !s.is_empty(),
             Value::Int(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
@@ -183,6 +202,7 @@ impl Value {
             (Value::Bool(_), _) | (_, Value::Bool(_)) => self.as_bool() == other.as_bool(),
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a.same(b),
+            (Value::Struct(a), Value::Struct(b)) => Rc::ptr_eq(&a.fields, &b.fields),
             (Value::Array(_) | Value::None, _) | (_, Value::Array(_) | Value::None) => false,
             _ => self.as_float() == other.as_float(),
         }
@@ -226,6 +246,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Struct(s) => write!(f, "[Struct {}]", s.name),
         }
     }
 }

@@ -3,8 +3,8 @@
 //! Host view of winning base IMGS and shared modifier lifetimes. xEdit IMGS
 //! and Godot Environment/CameraAttributesPractical define the inputs.
 
-use soe_game::World;
 use soe_game::world::image_space::{BaseImageSpace, ImageSpaceLayer};
+use soe_game::World;
 
 /// A derived frame snapshot. The shared World owns all lifetime changes.
 #[derive(Default)]

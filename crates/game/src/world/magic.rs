@@ -4,13 +4,16 @@
 //! and DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
-//! Unsupported delivery and archetypes return errors before applying effects.
+//! Aimed delivery follows the SPIT field in xEdit and applies only through an
+//! actor target supplied by a projectile contact. Target-location delivery
+//! uses the selected point as the center for authored area effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
+use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
 
@@ -31,6 +34,11 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const MAX_RESISTANCE: f32 = 85.0;
+const RESIST_MAGIC: i32 = 44;
+const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
+const LAST_SPECIFIC_RESISTANCE: i32 = 45;
+const IGNORE_RESISTANCE: u32 = 1 << 20;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -80,6 +88,8 @@ pub enum MagicError {
     Number,
     #[error("active effect identity exhausted")]
     Identity,
+    #[error("inventory selection: {0}")]
+    Inventory(#[from] InventoryError),
 }
 
 #[derive(Clone)]
@@ -163,6 +173,36 @@ impl World {
         }));
         perks
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CastDelivery {
+    Direct,
+    ProjectileContact,
+    Location,
+    Scroll,
+}
+
+#[derive(Clone, Copy)]
+struct CastOptions {
+    delivery: CastDelivery,
+    location: Option<[f32; 3]>,
+    line_of_sight_clear: bool,
+}
+
+impl World {
+    pub(crate) fn create_brewed_potion(
+        &mut self,
+        effects: Vec<(GlobalFormId, f32, u32, u32)>,
+    ) -> GlobalFormId {
+        self.next_dynamic = self.next_dynamic.saturating_add(1);
+        let id = GlobalFormId {
+            file: super::DYNAMIC_FILE,
+            object: self.next_dynamic,
+        };
+        self.brewed_potions.insert(id, effects);
+        id
+    }
 
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
@@ -175,6 +215,213 @@ impl World {
             return None;
         };
         self.active_effects.get(&id)
+    }
+
+    /// Equip an item and apply its worn armor enchantment, if it has one.
+    ///
+    /// # Errors
+    /// Invalid equipment, malformed enchantment records or unsupported effects.
+    pub fn equip_item_with_effects(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<(), crate::combat::Error> {
+        let previously_equipped = self
+            .actor(actor)
+            .ok_or(crate::combat::Error::Actor(actor))?
+            .equipped
+            .clone();
+        let enchantment = self.item_enchantment(item)?;
+        let already_active = enchantment.is_some_and(|enchantment| {
+            self.active_effects.values().any(|effect| {
+                effect.target == actor && effect.spell == enchantment && effect.source == item
+            })
+        });
+        let prepared = if already_active {
+            None
+        } else if let Some(enchantment) = enchantment {
+            Some(self.enchantment_prepared_effects(item, enchantment, actor)?)
+        } else {
+            None
+        };
+        self.equip_item(actor, item)?;
+        let equipped = self
+            .actor(actor)
+            .ok_or(crate::combat::Error::Actor(actor))?
+            .equipped
+            .clone();
+        let replaced: Vec<_> = previously_equipped.difference(&equipped).copied().collect();
+        let removed: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == actor
+                    && self
+                        .item_enchantment(effect.source)
+                        .is_ok_and(|enchantment| {
+                            enchantment.is_some_and(|enchantment| effect.spell == enchantment)
+                        })
+                    && replaced.contains(&effect.source)
+            })
+            .map(|effect| effect.id)
+            .collect();
+        for effect in removed {
+            self.dispel_effect(effect, alloc);
+        }
+        if let Some(prepared) = prepared {
+            self.apply_prepared_effects(prepared, alloc)?;
+        }
+        Ok(())
+    }
+
+    /// Unequip an item and remove effects supplied by its worn enchantment.
+    ///
+    /// # Errors
+    /// Missing actor or reference.
+    pub fn unequip_item_with_effects(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<(), crate::combat::Error> {
+        self.unequip_item(actor, item)?;
+        let enchantment = self.item_enchantment(item)?;
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == actor
+                    && effect.source == item
+                    && enchantment.is_some_and(|enchantment| effect.spell == enchantment)
+            })
+            .map(|effect| effect.id)
+            .collect();
+        for effect in effects {
+            self.dispel_effect(effect, alloc);
+        }
+        Ok(())
+    }
+
+    fn item_enchantment(&self, item: GlobalFormId) -> Result<Option<GlobalFormId>, MagicError> {
+        if self.tag_of(item) != Some(super::T(b"ARMO")) {
+            return Ok(None);
+        }
+        let Some(record) = self.record(item) else {
+            return Ok(None);
+        };
+        let Some(raw) = record.find(super::T(b"EITM")) else {
+            return Ok(None);
+        };
+        if raw.len() != 4 {
+            return Err(MagicError::Unsupported("malformed armor enchantment link"));
+        }
+        let raw: [u8; 4] = raw
+            .try_into()
+            .map_err(|_| MagicError::Unsupported("malformed armor enchantment link"))?;
+        let raw = u32::from_le_bytes(raw);
+        if raw == 0 {
+            return Ok(None);
+        }
+        let enchantment = self
+            .resolve_from(item, raw)
+            .ok_or(MagicError::Missing(item))?;
+        if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+            return Err(MagicError::Missing(enchantment));
+        }
+        Ok(Some(enchantment))
+    }
+
+    fn enchantment_effects(&self, enchantment: GlobalFormId) -> Result<Vec<Effect>, MagicError> {
+        let source = self
+            .order
+            .winner(enchantment)
+            .or_else(|| self.record(enchantment))
+            .ok_or(MagicError::Missing(enchantment))?;
+        let enit = source
+            .find(super::T(b"ENIT"))
+            .ok_or(MagicError::Missing(enchantment))?;
+        if !matches!(enit.len(), 32 | 36) {
+            return Err(MagicError::Unsupported("malformed enchantment data"));
+        }
+        let cast_type = u32::from_le_bytes(
+            enit[8..12]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        let delivery = u32::from_le_bytes(
+            enit[16..20]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        let enchantment_type = u32::from_le_bytes(
+            enit[20..24]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        if cast_type != 0 || delivery != 0 || enchantment_type != 6 {
+            return Err(MagicError::Unsupported("nonconstant armor enchantment"));
+        }
+        let mut record =
+            Record::new(Tag(*b"SPEL"), source.form_id).sub(super::T(b"SPIT"), vec![0; 36]);
+        record.subrecords.extend(
+            source
+                .subrecords
+                .iter()
+                .filter(|sub| {
+                    matches!(
+                        sub.tag.as_bytes(),
+                        b"EFID" | b"EFIT" | b"CTDA" | b"CIS1" | b"CIS2"
+                    )
+                })
+                .cloned(),
+        );
+        Ok(Spell::from_record(&record, false)?.effects)
+    }
+
+    fn enchantment_prepared_effects(
+        &mut self,
+        item: GlobalFormId,
+        enchantment: GlobalFormId,
+        actor: GlobalFormId,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let entries = self.enchantment_effects(enchantment)?;
+        let mut prepared = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            let context = Context {
+                owner: enchantment,
+                subject: actor,
+                target: Some(actor),
+                quest: None,
+                tempering_enchanted: None,
+            };
+            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+                continue;
+            }
+            let effect = self
+                .resolve_from(enchantment, entry.base_effect)
+                .ok_or(MagicError::Missing(enchantment))?;
+            let base = self.magic_effect(effect)?;
+            let context = Context {
+                owner: effect,
+                ..context
+            };
+            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+                continue;
+            }
+            let mut entry = entry.clone();
+            entry.conditions.clear();
+            let mut one =
+                self.item_prepared_effects(enchantment, &[entry], Some(actor), actor, true)?;
+            for prepared in &mut one {
+                prepared.effect.effect_index = index as u32;
+                prepared.effect.source = item;
+                prepared.effect.duration = None;
+                prepared.effect.recover = true;
+            }
+            prepared.extend(one);
+        }
+        Ok(prepared)
     }
 
     /// Read the current winning SPEL definition.
@@ -190,6 +437,18 @@ impl World {
         )?)
     }
 
+    /// Read a winning SCRL record using the shared SPIT and effect layout.
+    fn scroll(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
+        let record = self.record(id).ok_or(MagicError::Missing(id))?;
+        if record.is_deleted() || record.tag.as_bytes() != b"SCRL" {
+            return Err(MagicError::Missing(id));
+        }
+        let localized = self.record_text_localized(id, Tag::new(b"FULL"));
+        let mut spell_record = record.clone();
+        spell_record.tag = Tag::new(b"SPEL");
+        Ok(Spell::from_record(&spell_record, localized)?)
+    }
+
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
@@ -201,6 +460,35 @@ impl World {
 
     /// Read the current winning ALCH definition.
     pub fn ingestible(&self, id: GlobalFormId) -> Result<Ingestible, MagicError> {
+        if let Some(effects) = self.brewed_potions.get(&id) {
+            return Ok(Ingestible {
+                form_id: id.object,
+                editor_id: None,
+                name: Some(soe_esm::records::Text::Plain("Potion".into())),
+                description: None,
+                data: soe_esm::records::gameplay::IngestibleData {
+                    value: 0,
+                    flags: 0,
+                    addiction: 0,
+                    addiction_chance: 0.0,
+                    consume_sound: 0,
+                },
+                effects: effects
+                    .iter()
+                    .map(
+                        |(_, magnitude, area, duration)| soe_esm::records::gameplay::Effect {
+                            base_effect: 0,
+                            data: soe_esm::records::gameplay::EffectData {
+                                magnitude: *magnitude,
+                                area: *area,
+                                duration: *duration,
+                            },
+                            conditions: Vec::new(),
+                        },
+                    )
+                    .collect(),
+            });
+        }
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
         Ok(Ingestible::from_record(
             self.order.record(rref),
@@ -216,6 +504,7 @@ impl World {
         let effects = match self.tag_of(item).map(|tag| *tag.as_bytes()) {
             Some(tag) if tag == *b"SPEL" => self.spell(item)?.effects,
             Some(tag) if tag == *b"ALCH" => self.ingestible(item)?.effects,
+            Some(tag) if tag == *b"ENCH" => self.enchantment_effects(item)?,
             _ => return Err(MagicError::Missing(item)),
         };
         effects
@@ -292,17 +581,34 @@ impl World {
         caster: Option<GlobalFormId>,
         target: GlobalFormId,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
+        self.item_prepared_effects(item, effects, caster, target, false)
+    }
+
+    fn item_prepared_effects(
+        &mut self,
+        resolution: GlobalFormId,
+        effects: &[soe_esm::records::gameplay::Effect],
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+        conditions_evaluated: bool,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
         if self.actor(target).is_none() {
             return Err(MagicError::Target);
         }
         let mut prepared = Vec::new();
         for (index, entry) in effects.iter().enumerate() {
             let effect = self
-                .resolve_from(item, entry.base_effect)
-                .ok_or(MagicError::Missing(item))?;
+                .brewed_potions
+                .get(&resolution)
+                .and_then(|entries| entries.get(index))
+                .map(|entry| entry.0)
+                .or_else(|| self.resolve_from(resolution, entry.base_effect))
+                .ok_or(MagicError::Missing(resolution))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
-            if !entry.conditions.is_empty() || !base.conditions.is_empty() {
+            if !conditions_evaluated
+                && (!entry.conditions.is_empty() || !base.conditions.is_empty())
+            {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
@@ -330,6 +636,7 @@ impl World {
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
             }
+            let magnitude = self.resisted_magnitude(target, data, magnitude)?;
             let signed = if data.flags & DETRIMENTAL != 0 {
                 -magnitude
             } else {
@@ -368,10 +675,10 @@ impl World {
             prepared.push(PreparedEffect {
                 effect: ActiveEffect {
                     id: EffectId(0),
-                    spell: item,
+                    spell: resolution,
                     effect,
                     effect_index: index as u32,
-                    source: item,
+                    source: resolution,
                     caster,
                     target,
                     magnitude,
@@ -426,11 +733,42 @@ impl World {
         if !(radius.is_finite() && radius > 0.0) {
             return vec![anchor];
         }
+        let mut selected = self.area_targets_at(center, radius);
+        if !selected.contains(&anchor) {
+            selected.push(anchor);
+            selected.sort_unstable();
+        }
+        selected
+    }
+
+    fn area_targets_at_position(&self, center: [f32; 3], radius: f32) -> Vec<GlobalFormId> {
+        self.area_targets_at(center, radius)
+    }
+
+    fn area_targets_at(&self, center: [f32; 3], radius: f32) -> Vec<GlobalFormId> {
+        if !center.iter().all(|value| value.is_finite()) {
+            return Vec::new();
+        }
+        if !(radius.is_finite() && radius >= 0.0) {
+            return Vec::new();
+        }
+        if !(radius.is_finite() && radius > 0.0) {
+            return self
+                .refs
+                .iter()
+                .filter_map(|(&candidate, reference)| {
+                    (reference.is_actor
+                        && reference.enabled
+                        && !reference.deleted
+                        && reference.position.iter().all(|v| v.is_finite())
+                        && reference.position == center)
+                        .then_some(candidate)
+                })
+                .collect();
+        }
         let mut selected = std::collections::BTreeSet::new();
-        selected.insert(anchor);
         for (&candidate, reference) in &self.refs {
-            if candidate == anchor
-                || !reference.is_actor
+            if !reference.is_actor
                 || !reference.enabled
                 || reference.deleted
                 || !reference.position.iter().all(|v| v.is_finite())
@@ -477,18 +815,301 @@ impl World {
         target: Option<GlobalFormId>,
         execution: &mut impl MagicExecution,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let definition = self.spell(spell)?;
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            target,
+            CastOptions {
+                delivery: CastDelivery::Direct,
+                location: None,
+                line_of_sight_clear: true,
+            },
+            execution,
+        )?;
+        self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })
+    }
+
+    /// Apply an aimed spell to the actor resolved from one projectile contact.
+    /// A host contact query supplies `target`; direct script casts cannot use
+    /// this delivery path.
+    ///
+    /// # Errors
+    /// Returns an error before applying effects when the spell is not aimed,
+    /// the contact target is not an eligible actor, or an effect is unsupported.
+    pub fn cast_spell_on_projectile_contact(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let mut execution = AllocationExecution { alloc };
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            Some(target),
+            CastOptions {
+                delivery: CastDelivery::ProjectileContact,
+                location: None,
+                line_of_sight_clear: true,
+            },
+            &mut execution,
+        )?;
+        self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })
+    }
+
+    /// Apply a target-location spell at a selected world position.
+    /// `line_of_sight_clear` comes from the host collision query between the
+    /// casting reference and the selected point.
+    ///
+    /// # Errors
+    /// Returns an error before applying effects for a non-location spell, an
+    /// invalid or out-of-range position, an obstructed path, or an unsupported
+    /// effect.
+    pub fn cast_spell_at_location(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        position: [f32; 3],
+        line_of_sight_clear: bool,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let mut execution = AllocationExecution { alloc };
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            None,
+            CastOptions {
+                delivery: CastDelivery::Location,
+                location: Some(position),
+                line_of_sight_clear,
+            },
+            &mut execution,
+        )?;
+        self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })
+    }
+
+    /// Cast the selected scroll and consume one item after its effects apply.
+    ///
+    /// # Errors
+    /// Invalid or stale selections, non-scroll records, unsupported effects,
+    /// invalid targets or a failed effect preparation leave the inventory intact.
+    pub fn cast_scroll(
+        &mut self,
+        holder: GlobalFormId,
+        selected: &Selection,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if selected.count() != 1 || self.tag_of(selected.item()) != Some(Tag::new(b"SCRL")) {
+            return Err(MagicError::Unsupported("scroll selection"));
+        }
+        self.reference(holder)
+            .ok_or(MagicError::Target)?
+            .inventory
+            .selected_stack(selected)?;
+        let mut execution = AllocationExecution { alloc };
+        let prepared = self.prepare_spell(
+            selected.item(),
+            source,
+            caster,
+            target,
+            CastOptions {
+                delivery: CastDelivery::Scroll,
+                location: None,
+                line_of_sight_clear: true,
+            },
+            &mut execution,
+        )?;
+        let applied = self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })?;
+        self.remove_selected_notified(holder, selected, None, &mut |name, class| {
+            execution.create_object(name, class)
+        })?;
+        let scroll_value = self.form_value(Some(selected.item()), &mut |name, class| {
+            execution.create_object(name, class)
+        });
+        self.form_event(
+            source,
+            "OnSpellCast",
+            vec![scroll_value],
+            &mut |name, class| execution.create_object(name, class),
+        );
+        Ok(applied)
+    }
+
+    /// Apply constant-effect abilities from an actor's resolved spell list.
+    ///
+    pub(crate) fn apply_actor_abilities(&mut self, actor: GlobalFormId) {
+        let Some(state) = self.actor(actor) else {
+            return;
+        };
+        let spells = state.spells.clone();
+        for spell in spells {
+            self.apply_actor_ability(actor, spell);
+        }
+    }
+
+    /// Add a known spell and activate it when it is a constant-effect ability.
+    pub fn add_actor_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        let Some(state) = self.actor(actor) else {
+            return false;
+        };
+        if !state.spells.insert(spell) {
+            return false;
+        }
+        self.apply_actor_ability(actor, spell);
+        true
+    }
+
+    fn apply_actor_ability(&mut self, actor: GlobalFormId, spell: GlobalFormId) {
+        if self
+            .active_effects
+            .values()
+            .any(|effect| effect.target == actor && effect.source == actor && effect.spell == spell)
+        {
+            return;
+        }
+        let Ok(definition) = self.spell(spell) else {
+            return;
+        };
+        if definition.data.spell_type != 4
+            || definition.data.cast_type != 0
+            || definition.data.delivery != 0
+        {
+            return;
+        }
+        let mut execution = AllocationExecution {
+            alloc: &mut |_name, _class| ObjectId(0),
+        };
+        let Ok(prepared) = self.prepare_spell(
+            spell,
+            actor,
+            Some(actor),
+            Some(actor),
+            CastOptions {
+                delivery: CastDelivery::Direct,
+                location: None,
+                line_of_sight_clear: true,
+            },
+            &mut execution,
+        ) else {
+            return;
+        };
+        let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+            return;
+        };
+        for prepared in prepared {
+            let id = prepared.effect.id;
+            self.next_effect = id.0 + 1;
+            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                    if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                        continue;
+                    }
+                }
+            }
+            self.active_effects.insert(id, prepared.effect.clone());
+        }
+    }
+
+    fn prepare_spell(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        options: CastOptions,
+        execution: &mut impl MagicExecution,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let CastOptions {
+            delivery: cast_delivery,
+            location,
+            line_of_sight_clear,
+        } = options;
+        let scroll = cast_delivery == CastDelivery::Scroll;
+        let definition = if scroll {
+            self.scroll(spell)?
+        } else {
+            self.spell(spell)?
+        };
+        if cast_delivery == CastDelivery::Location && definition.data.delivery != 4 {
+            return Err(MagicError::Unsupported("location delivery"));
+        }
+        if (scroll && definition.data.cast_type != 3)
+            || (!scroll && !matches!(definition.data.cast_type, 0 | 1))
+        {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
             0 => source,
-            3 => target.ok_or(MagicError::Target)?,
-            _ => {
-                return Err(MagicError::Unsupported(
-                    "projectile, contact or location delivery",
-                ))
+            1 => {
+                let target = target.ok_or(MagicError::Target)?;
+                if !definition.data.range.is_finite() || definition.data.range < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                let distance = self.distance(source, target);
+                if self.reference(source).is_none()
+                    || self.actor(target).is_none()
+                    || !distance.is_finite()
+                    || distance > definition.data.range
+                {
+                    return Err(MagicError::Target);
+                }
+                target
             }
+            3 => target.ok_or(MagicError::Target)?,
+            4 if cast_delivery == CastDelivery::Location => {
+                let position = location.ok_or(MagicError::Target)?;
+                if !position.iter().all(|value| value.is_finite())
+                    || !definition.data.range.is_finite()
+                    || definition.data.range < 0.0
+                {
+                    return Err(MagicError::Number);
+                }
+                let Some(source_position) = self.reference(source).map(|r| r.position) else {
+                    return Err(MagicError::Target);
+                };
+                if !source_position.iter().all(|value| value.is_finite()) {
+                    return Err(MagicError::Target);
+                }
+                let distance = source_position
+                    .iter()
+                    .zip(position)
+                    .map(|(a, b)| (a - b) * (a - b))
+                    .sum::<f32>()
+                    .sqrt();
+                if !distance.is_finite() || distance > definition.data.range {
+                    return Err(MagicError::Target);
+                }
+                if !line_of_sight_clear {
+                    return Err(MagicError::Target);
+                }
+                source
+            }
+            2 if cast_delivery == CastDelivery::ProjectileContact => {
+                target.ok_or(MagicError::Target)?
+            }
+            2 => {
+                return Err(MagicError::Unsupported(
+                    "aimed cast requires projectile contact",
+                ));
+            }
+            _ => return Err(MagicError::Unsupported("location delivery")),
         };
         if self.reference(source).is_none() || self.actor(target).is_none() {
             return Err(MagicError::Target);
@@ -542,9 +1163,12 @@ impl World {
                 return Err(MagicError::Unsupported("equip ability"));
             }
             let granted_perk = self.resolve_effect_perk(effect, data.perk)?;
-            if data.cast_type != definition.data.cast_type
-                || data.delivery != definition.data.delivery
-            {
+            let cast_type_matches = if scroll {
+                data.cast_type == 1
+            } else {
+                data.cast_type == definition.data.cast_type
+            };
+            if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
@@ -554,26 +1178,6 @@ impl World {
             };
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
-            }
-            let signed = if data.flags & DETRIMENTAL != 0 {
-                -magnitude
-            } else {
-                magnitude
-            };
-            let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
-                let name = actor_value_name(data.primary_actor_value)
-                    .ok_or(MagicError::Unsupported("actor value"))?;
-                changes.push((name.to_string(), signed));
-                if data.archetype == 5 {
-                    let name = actor_value_name(data.second_actor_value)
-                        .ok_or(MagicError::Unsupported("secondary actor value"))?;
-                    let amount = signed * data.second_actor_value_weight;
-                    if !amount.is_finite() {
-                        return Err(MagicError::Number);
-                    }
-                    changes.push((name.to_string(), amount));
-                }
             }
             let summon_base = if data.archetype == 18 {
                 let base = self
@@ -624,7 +1228,11 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = self.area_targets(target, radius);
+            let mut recipients = if definition.data.delivery == 4 {
+                self.area_targets_at_position(location.ok_or(MagicError::Target)?, radius)
+            } else {
+                self.area_targets(target, radius)
+            };
             if data.flags & HOSTILE != 0 {
                 recipients.retain(|&id| {
                     self.actor(id)
@@ -632,6 +1240,31 @@ impl World {
                 });
             }
             for recipient in recipients {
+                let magnitude = if !scroll && definition.data.flags & IGNORE_RESISTANCE != 0 {
+                    magnitude
+                } else {
+                    self.resisted_magnitude(recipient, data, magnitude)?
+                };
+                let signed = if data.flags & DETRIMENTAL != 0 {
+                    -magnitude
+                } else {
+                    magnitude
+                };
+                let mut changes = Vec::new();
+                if matches!(data.archetype, 0 | 5) {
+                    let name = actor_value_name(data.primary_actor_value)
+                        .ok_or(MagicError::Unsupported("actor value"))?;
+                    changes.push((name.to_string(), signed));
+                    if data.archetype == 5 {
+                        let name = actor_value_name(data.second_actor_value)
+                            .ok_or(MagicError::Unsupported("secondary actor value"))?;
+                        let amount = signed * data.second_actor_value_weight;
+                        if !amount.is_finite() {
+                            return Err(MagicError::Number);
+                        }
+                        changes.push((name.to_string(), amount));
+                    }
+                }
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
                         id: EffectId(0),
@@ -664,9 +1297,7 @@ impl World {
         if definition.data.flags & DISALLOW_ABSORB_REFLECT == 0 {
             self.absorb_spell_effects(&mut prepared, definition.data.base_cost)?;
         }
-        self.apply_prepared_effects(prepared, &mut |name, class| {
-            execution.create_object(name, class)
-        })
+        Ok(prepared)
     }
 
     fn absorb_spell_effects(
@@ -768,6 +1399,42 @@ impl World {
             applied.push(id);
         }
         Ok(applied)
+    }
+
+    fn resisted_magnitude(
+        &mut self,
+        target: GlobalFormId,
+        data: &soe_esm::records::gameplay::MagicEffectData,
+        magnitude: f32,
+    ) -> Result<f32, MagicError> {
+        if data.flags & HOSTILE == 0 {
+            return Ok(magnitude);
+        }
+        if data.resistance != -1
+            && !matches!(
+                data.resistance,
+                FIRST_SPECIFIC_RESISTANCE..=LAST_SPECIFIC_RESISTANCE
+            )
+        {
+            return Err(MagicError::Unsupported("magic resistance value"));
+        }
+        let values = &self.actor(target).ok_or(MagicError::Target)?.values;
+        let mut resisted = magnitude;
+        let magic_resistance = values
+            .get("resistmagic")
+            .current()
+            .clamp(0.0, MAX_RESISTANCE);
+        resisted *= 1.0 - magic_resistance / 100.0;
+        if data.resistance != -1 && data.resistance != RESIST_MAGIC {
+            let name = actor_value_name(data.resistance)
+                .ok_or(MagicError::Unsupported("magic resistance value"))?;
+            let specific = values.get(name).current().clamp(0.0, MAX_RESISTANCE);
+            resisted *= 1.0 - specific / 100.0;
+        }
+        if !resisted.is_finite() {
+            return Err(MagicError::Number);
+        }
+        Ok(resisted)
     }
 
     /// Validate authored action order before events or live actor values change.
@@ -903,6 +1570,7 @@ impl World {
             .values()
             .filter(|e| {
                 e.target == target
+                    && !self.is_worn_enchantment(e)
                     && self.spell(e.spell).is_ok_and(|s| {
                         !(matches!(s.data.spell_type, 1 | 4 | 10)
                             || s.data.spell_type == 6 && s.data.cast_type == 0)
@@ -913,6 +1581,14 @@ impl World {
         for id in ids {
             self.dispel_effect(id, alloc);
         }
+    }
+
+    fn is_worn_enchantment(&self, effect: &ActiveEffect) -> bool {
+        self.item_enchantment(effect.source)
+            .is_ok_and(|enchantment| enchantment == Some(effect.spell))
+            && self
+                .actor_ref(effect.target)
+                .is_some_and(|actor| actor.equipped.contains(&effect.source))
     }
 
     /// End one application and reverse only its temporary value changes.

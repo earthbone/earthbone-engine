@@ -19,6 +19,9 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
 
 const KEYWORD: u32 = 0x800;
+const KEYWORD_TWO: u32 = 0x814;
+const KEYWORD_THREE: u32 = 0x815;
+const PRETAGGED_HELMET: u32 = 0x816;
 const SPELL: u32 = 0x801;
 const GOLD: u32 = 0x802;
 const HELMET: u32 = 0x803;
@@ -28,6 +31,7 @@ const GUARD_BASE: u32 = 0x806;
 const CELL: u32 = 0x810;
 const ROCK_REF: u32 = 0x811;
 const GUARD_REF: u32 = 0x812;
+const SECOND_GUARD_REF: u32 = 0x813;
 
 /// A directory of this test's own, named for the case so two cases running at
 /// once cannot read each other's files.
@@ -71,6 +75,8 @@ fn master() -> Plugin {
         ..Default::default()
     });
     p.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(EDID, "MyKeyword"));
+    p.push_top(Record::new(T(b"KYWD"), KEYWORD_TWO).zsub(EDID, "AnotherKeyword"));
+    p.push_top(Record::new(T(b"KYWD"), KEYWORD_THREE).zsub(EDID, "ThirdKeyword"));
     p.push_top(Record::new(T(b"SPEL"), SPELL).zsub(EDID, "MySpell"));
     p.push_top(Record::new(T(b"MISC"), GOLD).zsub(EDID, "Gold001"));
     p.push_top(
@@ -123,6 +129,40 @@ fn game() -> Game {
     Game::new(order)
 }
 
+fn game_with_pretagged_helmet() -> Game {
+    let mut plugin = master();
+    plugin.push_top(
+        Record::new(T(b"ARMO"), PRETAGGED_HELMET)
+            .zsub(EDID, "PreTaggedHelmet")
+            .sub(T(b"KWDA"), KEYWORD.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    let bytes = plugin.to_bytes();
+    order
+        .add("Master.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    Game::new(order)
+}
+
+fn game_with_guards(count: u32) -> Game {
+    let mut plugin = master();
+    for offset in 0..count {
+        let object = SECOND_GUARD_REF + offset;
+        plugin.push_top(placed(
+            *b"ACHR",
+            object,
+            &format!("Guard{object}"),
+            GUARD_BASE,
+        ));
+    }
+    let mut order = LoadOrder::new();
+    let bytes = plugin.to_bytes();
+    order
+        .add("Master.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    Game::new(order)
+}
+
 fn id(object: u32) -> soe_esm::GlobalFormId {
     soe_esm::GlobalFormId { file: 0, object }
 }
@@ -154,6 +194,79 @@ fn a_keyword_file_leaves_a_form_its_filter_misses_alone() {
     assert_eq!(report.keyword_rules, 1);
     assert_eq!(report.keywords_attached, 0);
     assert!(!g.world_mut().has_keyword(id(HELMET), id(KEYWORD)));
+}
+
+#[test]
+fn mod_02_exclusive_group_adds_only_one_matching_keyword_to_an_item() {
+    let dir = Dir::new("kid-exclusive");
+    dir.write(
+        "First_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = MyKeyword|Armor|GuardHelmet\nKeyword = AnotherKeyword|Armor|GuardHelmet\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 1);
+    assert_eq!(
+        g.world()
+            .keywords(id(HELMET))
+            .iter()
+            .filter(|keyword| { **keyword == id(KEYWORD) || **keyword == id(KEYWORD_TWO) })
+            .count(),
+        1,
+        "a KID exclusive group allows only one member on the item"
+    );
+}
+
+#[test]
+fn mod_02_exclusive_group_merges_files_and_applies_later_exclusions() {
+    let dir = Dir::new("kid-exclusive-merge");
+    dir.write(
+        "A_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = AnotherKeyword|Armor|GuardHelmet\n",
+    );
+    dir.write(
+        "B_KID.ini",
+        "ExclusiveGroup = Equipment|ThirdKeyword,-AnotherKeyword\nKeyword = ThirdKeyword|Armor|GuardHelmet\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 2);
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD_THREE)));
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD_TWO)));
+    assert!(!g.world().keywords(id(HELMET)).contains(&id(KEYWORD)));
+}
+
+#[test]
+fn mod_02_exclusive_group_respects_keywords_already_on_the_record() {
+    let dir = Dir::new("kid-exclusive-existing");
+    dir.write(
+        "Existing_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = AnotherKeyword|Armor|PreTaggedHelmet\n",
+    );
+    let mut g = game_with_pretagged_helmet();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 0);
+    assert!(g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD)));
+    assert!(!g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD_TWO)));
+}
+
+#[test]
+fn mod_02_kid_chance_uses_keyword_and_target_seed() {
+    let dir = Dir::new("kid-seeded-chance");
+    dir.write(
+        "Seeded_KID.ini",
+        "Keyword = MyKeyword|Armor|GuardHelmet|NONE|75\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 1);
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD)));
 }
 
 #[test]
@@ -207,6 +320,36 @@ fn a_swap_file_changes_what_a_reference_resolves_to() {
         world.base_of(id(ROCK_REF)),
         Some(id(TREE)),
         "the placed rock must resolve to the tree it was swapped for"
+    );
+}
+
+#[test]
+fn mod_03_swap_properties_apply_to_reference_state_and_survive_save_load() {
+    let dir = Dir::new("bos-properties");
+    dir.write(
+        "Test_SWAP.ini",
+        "[Forms]\nRockPile01|TreePine01\n[Properties]\nRockPile01|pos(10,20,30),rot(0,0,90),scale(2),flags(0x10)|ChanceL(100)\n",
+    );
+    let mut g = game();
+    g.apply_mod_data(&dir.roots());
+    let state = g.world_mut().reference(id(ROCK_REF)).unwrap().clone();
+    assert_eq!(state.base, Some(id(TREE)));
+    assert_eq!(state.position, [10.0, 20.0, 30.0]);
+    assert!((state.rotation[2] - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    assert_eq!(state.scale, 2.0);
+    assert_eq!(state.record_flags, 0x10);
+
+    let bytes = g.world().save_state();
+    let restored = game();
+    restored.world_mut().load_state(&bytes).unwrap();
+    assert_eq!(
+        restored
+            .world()
+            .reference_ref(id(ROCK_REF))
+            .unwrap()
+            .record_flags,
+        0x10,
+        "BOS flags must remain on a saved reference"
     );
 }
 
@@ -296,8 +439,8 @@ fn the_installed_game_is_scanned_for_real_mod_data() {
 }
 
 #[test]
-fn deterministic_spid_chances_never_silently_become_guaranteed() {
-    for (chance, applied, unsupported) in [("0!", 0, 0), ("50!", 0, 1), ("100!", 1, 0)] {
+fn mod_01_zero_and_full_deterministic_chances_remain_exact() {
+    for (chance, applied) in [("0!", 0), ("100!", 1)] {
         let dir = Dir::new(&format!("spid-chance-{chance}"));
         dir.write(
             "Test_DISTR.ini",
@@ -306,7 +449,6 @@ fn deterministic_spid_chances_never_silently_become_guaranteed() {
         let mut g = game();
         let report = g.apply_mod_data(&dir.roots());
         assert_eq!(report.distributions_applied, applied);
-        assert_eq!(report.skipped_unsupported_chance, unsupported);
         assert_eq!(
             g.world_mut()
                 .actor(id(GUARD_REF))
@@ -316,4 +458,41 @@ fn deterministic_spid_chances_never_silently_become_guaranteed() {
             applied == 1
         );
     }
+}
+
+#[test]
+fn mod_01_same_base_actors_get_distinct_repeatable_deterministic_results() {
+    let dir = Dir::new("spid-per-actor");
+    dir.write(
+        "Test_DISTR.ini",
+        "Spell = MySpell|WhiterunGuard|NONE|NONE|NONE|1|50!\n",
+    );
+    let results = || {
+        let mut g = game_with_guards(16);
+        g.apply_mod_data(&dir.roots());
+        std::iter::once(GUARD_REF)
+            .chain(SECOND_GUARD_REF..SECOND_GUARD_REF + 16)
+            .map(|reference| {
+                g.world_mut()
+                    .actor(id(reference))
+                    .unwrap()
+                    .spells
+                    .contains(&id(SPELL))
+            })
+            .collect::<Vec<_>>()
+    };
+    let first_run = results();
+    let second_run = results();
+    let other = first_run
+        .iter()
+        .position(|result| *result != first_run[0])
+        .unwrap_or_else(|| panic!("same-base deterministic results did not vary: {first_run:?}"));
+    assert_ne!(
+        first_run[0], first_run[other],
+        "actor FormIDs seed separate results"
+    );
+    assert_eq!(
+        first_run, second_run,
+        "the same load and actor IDs repeat results"
+    );
 }

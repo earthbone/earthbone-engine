@@ -30,6 +30,21 @@ pub(crate) struct PreparedCell {
     pub colliders: Vec<PlacedCollider>,
 }
 
+#[cfg(feature = "godot")]
+impl PreparedCell {
+    pub(crate) fn stream_cost(&self) -> crate::streaming::StreamCost {
+        crate::streaming::StreamCost {
+            triangles: self.loaded.stats.triangles,
+            bytes: self
+                .loaded
+                .surfaces
+                .iter()
+                .map(|surface| surface.arrays.mesh_byte_count())
+                .sum(),
+        }
+    }
+}
+
 impl DataSource {
     /// Prepare visible geometry and matching collision for a logical destination.
     /// The exterior radius is bounded to prevent an accidental unbounded load.

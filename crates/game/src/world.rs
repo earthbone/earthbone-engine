@@ -48,11 +48,14 @@ mod contact;
 mod crime;
 mod death;
 mod detection;
+mod dialogue_scene_restore;
 mod doorway;
 mod driver;
 mod encounter_zones;
 mod events;
+pub use events::EffectShaderRequest;
 mod forms;
+mod furniture;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -61,6 +64,7 @@ mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
+mod list_restore;
 mod localization;
 mod locks;
 mod lookup;
@@ -68,14 +72,21 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod package_navmesh_restore;
 pub use npc_restore::NpcRestoreReport;
+mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
 pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
+pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -86,6 +97,8 @@ pub use refs::RefPlacement;
 mod leveled_items;
 mod rng;
 pub(crate) mod save;
+mod save_section_registry;
+mod save_sections;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
@@ -94,7 +107,9 @@ mod transition;
 mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
+pub use dialogue_scene_restore::DialogueSceneRestoreReport;
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
@@ -126,7 +141,10 @@ pub struct RefState {
     pub position: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: f32,
+    /// Runtime record flags changed by Base Object Swapper.
+    pub record_flags: u32,
     pub enabled: bool,
+    pub persistent: bool,
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
@@ -154,6 +172,8 @@ pub struct RefState {
     pub on_map: bool,
     pub fast_travel: bool,
     pub destroyed: bool,
+    /// Current destruction stage, with -1 meaning undamaged.
+    pub destruction_stage: i32,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -173,7 +193,9 @@ impl RefState {
             position: [0.0; 3],
             rotation: [0.0; 3],
             scale: 1.0,
+            record_flags: 0,
             enabled: true,
+            persistent: false,
             deleted: false,
             activation_blocked: false,
             opened: false,
@@ -193,6 +215,7 @@ impl RefState {
             on_map: false,
             fast_travel: false,
             destroyed: false,
+            destruction_stage: -1,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),
@@ -232,6 +255,12 @@ pub struct ActorState {
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
+    /// The actor's current swimming state, supplied by runtime movement.
+    pub swimming: bool,
+    /// The actor's current running state, supplied by runtime movement.
+    pub running: bool,
+    /// Whether the actor is currently riding a mount.
+    pub riding_mount: bool,
     pub weapon_drawn: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
@@ -259,6 +288,9 @@ pub struct ActorState {
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
+    /// The furniture reference and zero-based marker currently reserved by
+    /// this actor. The marker remains reserved until the actor stands.
+    pub furniture_seat: Option<(GlobalFormId, u16)>,
     /// The last state `SendVampirismStateChanged` announced for this actor.
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
@@ -285,6 +317,8 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Partial use experience for each actor skill, keyed by lowercase name.
+    pub skill_experience: BTreeMap<String, f32>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -375,6 +409,13 @@ pub struct LosListener {
     pub gain: bool,
 }
 
+/// Runtime position and completed action slots for one playing scene.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SceneRunState {
+    pub phase: u32,
+    pub completed_actions: BTreeSet<u32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ObjectiveState {
     pub displayed: bool,
@@ -398,6 +439,8 @@ pub struct QuestState {
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
     pub journal: crate::quest::state::Journal,
     pub runtime: crate::quest::state::Runtime,
+    /// A saved start or stop promotion task that has not completed.
+    pub lifecycle_task: Option<crate::quest::state::LifecycleTask>,
 }
 
 /// Work a native asked the VM to do.
@@ -450,6 +493,8 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    unresolved_records:
+        BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -493,6 +538,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -526,10 +573,14 @@ pub struct World {
     pub perk_points: i32,
     /// Scenes that are playing.
     pub scenes: BTreeSet<GlobalFormId>,
+    /// Phase and action completion state for playing scenes.
+    pub(crate) scene_runs: BTreeMap<GlobalFormId, SceneRunState>,
     /// Sound instances by the id `Sound.Play` handed out: the sound, the
     /// source and the volume.
     pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
     next_sound: i32,
+    /// Transient renderer requests for EffectShader Play and Stop.
+    pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -537,10 +588,16 @@ pub struct World {
     /// transient and is rebuilt from Papyrus calls after load.
     visual_effects: BTreeMap<(GlobalFormId, GlobalFormId), VisualEffectAttachment>,
     pub(crate) next_effect: u64,
+    /// Effect records and magnitudes for potions created by alchemy.
+    pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) image_space: image_space::ImageSpaceState,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -570,6 +627,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
@@ -595,6 +653,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
@@ -621,8 +680,10 @@ impl World {
             last_ridden_horse: None,
             perk_points: 0,
             scenes: BTreeSet::new(),
+            scene_runs: BTreeMap::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
+            effect_shader_requests: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
@@ -630,9 +691,13 @@ impl World {
             active_effects: BTreeMap::new(),
             visual_effects: BTreeMap::new(),
             next_effect: 1,
+            brewed_potions: BTreeMap::new(),
             image_space: image_space::ImageSpaceState::default(),
             weather_image_space: None,
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
+            detection_events: Vec::new(),
         }
     }
 

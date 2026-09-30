@@ -122,7 +122,13 @@ fn a_swap_resolves_both_sides_and_names_its_target() {
     let rock = FormRef::parse("Rock").resolve(&order).unwrap();
     let tree = FormRef::parse("Tree").resolve(&order).unwrap();
     assert_eq!(patches[0].target, Some(rock));
-    assert_eq!(patches[0].change, Change::SwapBase { to: tree });
+    assert_eq!(
+        patches[0].change,
+        Change::SwapBase {
+            to: tree,
+            properties: String::new(),
+        }
+    );
 }
 
 #[test]
@@ -174,6 +180,39 @@ fn a_patch_carries_where_it_came_from() {
     assert_eq!(patches[0].source.to_str(), Some("MyMod_KID.ini"));
     // The comment occupies line 1, so the rule is on line 2.
     assert_eq!(patches[0].line, 2);
+}
+
+#[test]
+fn mod_07_each_patch_kind_retains_fixture_provenance() {
+    let order = order();
+    let kid = KidFile::from_ini(&Ini::parse(
+        "Example_KID.ini",
+        "; source: test-authored fixture\nKeyword = MyKeyword|Armor|Iron\n",
+    ));
+    let spid = DistrFile::from_ini(&Ini::parse(
+        "Example_DISTR.ini",
+        "; source: test-authored fixture\nSpell = MySpell|Bandit\n",
+    ));
+    let bos = SwapFile::from_ini(&Ini::parse(
+        "Example_SWAP.ini",
+        "; source: test-authored fixture\n[Forms]\nRock|Tree\n",
+    ));
+
+    let patches = [
+        resolve_kid(&kid, &order).remove(0),
+        resolve_spid(&spid, &order).remove(0),
+        resolve_bos(&bos, &order).remove(0),
+    ];
+    let expected = [
+        ("Example_KID.ini", 2),
+        ("Example_DISTR.ini", 2),
+        ("Example_SWAP.ini", 3),
+    ];
+
+    for (patch, (source, line)) in patches.iter().zip(expected) {
+        assert_eq!(patch.source.to_str(), Some(source));
+        assert_eq!(patch.line, line);
+    }
 }
 
 #[test]

@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::error::{Error, Result};
+use crate::hash::{file_name_hash, folder_hash};
 use crate::normalize;
 
 #[derive(Debug, Clone)]
@@ -738,8 +739,10 @@ fn parse_bsa<R: Read + Seek>(
     }
 
     let mut folder_file_counts = Vec::with_capacity(folder_count as usize);
+    let mut stored_folder_hashes = Vec::with_capacity(folder_count as usize);
     for _ in 0..folder_count {
-        let _hash = cursor.read_u64::<LittleEndian>()?;
+        let hash = cursor.read_u64::<LittleEndian>()?;
+        stored_folder_hashes.push(hash);
         let count = cursor.read_u32::<LittleEndian>()?;
         if version >= 105 {
             let _padding = cursor.read_u32::<LittleEndian>()?;
@@ -751,7 +754,7 @@ fn parse_bsa<R: Read + Seek>(
     }
 
     let mut folder_names: Vec<String> = Vec::with_capacity(folder_count as usize);
-    let mut raw_file_records: Vec<(u32, u32)> = Vec::with_capacity(file_count as usize);
+    let mut raw_file_records: Vec<(u64, u32, u32)> = Vec::with_capacity(file_count as usize);
 
     for &count in &folder_file_counts {
         let folder_name = if has_dir_names {
@@ -767,11 +770,22 @@ fn parse_bsa<R: Read + Seek>(
         };
         folder_names.push(folder_name);
 
+        if has_dir_names {
+            let expected = folder_hash(&folder_names[folder_names.len() - 1]);
+            let actual = stored_folder_hashes[folder_names.len() - 1];
+            if actual != expected {
+                return Err(Error::format(
+                    format!("BSA directory hash mismatch for '{}': stored {actual:#018x}, expected {expected:#018x}", folder_names[folder_names.len() - 1]),
+                    path,
+                ));
+            }
+        }
+
         for _ in 0..count {
-            let _hash = cursor.read_u64::<LittleEndian>()?;
+            let hash = cursor.read_u64::<LittleEndian>()?;
             let size = cursor.read_u32::<LittleEndian>()?;
             let offset = cursor.read_u32::<LittleEndian>()?;
-            raw_file_records.push((size, offset));
+            raw_file_records.push((hash, size, offset));
         }
     }
 
@@ -780,14 +794,23 @@ fn parse_bsa<R: Read + Seek>(
     let mut folder_idx = 0;
     let mut file_in_folder = 0;
 
-    for &(raw_size_field, raw_offset) in raw_file_records.iter().take(file_count as usize) {
+    for &(stored_hash, raw_size_field, raw_offset) in
+        raw_file_records.iter().take(file_count as usize)
+    {
         let file_name = read_null_terminated(cursor, len)?;
+        let expected_hash = file_name_hash(&file_name);
         let folder_name = folder_names.get(folder_idx).map_or("", String::as_str);
         let full_path = if folder_name.is_empty() {
             file_name
         } else {
             format!("{folder_name}/{file_name}")
         };
+        if stored_hash != expected_hash {
+            return Err(Error::format(
+                format!("BSA file hash mismatch for '{full_path}': stored {stored_hash:#018x}, expected {expected_hash:#018x}"),
+                path,
+            ));
+        }
         let compression_toggled = raw_size_field & BSA_SIZE_COMPRESSION_BIT != 0;
         let data_size = raw_size_field & !BSA_SIZE_COMPRESSION_BIT;
         let is_compressed = default_compressed ^ compression_toggled;
@@ -1028,6 +1051,8 @@ fn read_null_terminated<R: Read + Seek>(cursor: &mut R, len: u64) -> Result<Stri
 pub(crate) mod testdata {
     use std::io::Write;
 
+    use crate::hash::{file_name_hash, folder_hash};
+
     /// A v104 BSA with one zlib-compressed file at `meshes/a.nif`.
     pub fn compressed_bsa(payload: &[u8]) -> (Vec<u8>, u32) {
         use flate2::write::ZlibEncoder;
@@ -1052,12 +1077,12 @@ pub(crate) mod testdata {
         d.extend_from_slice(&(folder.len() as u32).to_le_bytes());
         d.extend_from_slice(&(name.len() as u32).to_le_bytes());
         d.extend_from_slice(&0u32.to_le_bytes()); // file flags
-        d.extend_from_slice(&0u64.to_le_bytes()); // folder hash
+        d.extend_from_slice(&folder_hash("meshes").to_le_bytes()); // folder hash
         d.extend_from_slice(&1u32.to_le_bytes()); // file count in folder
         d.extend_from_slice(&0u32.to_le_bytes()); // folder offset (unused here)
         d.push(folder.len() as u8);
         d.extend_from_slice(folder);
-        d.extend_from_slice(&0u64.to_le_bytes()); // file hash
+        d.extend_from_slice(&file_name_hash("a.nif").to_le_bytes()); // file hash
         d.extend_from_slice(&data_size.to_le_bytes());
         d.extend_from_slice(&data_offset.to_le_bytes());
         d.extend_from_slice(name);
@@ -1106,7 +1131,7 @@ pub(crate) mod testdata {
         d.extend_from_slice(&0u32.to_le_bytes());
         for f in &folders {
             let count = files.iter().filter(|(g, _, _)| g == f).count() as u32;
-            d.extend_from_slice(&0u64.to_le_bytes());
+            d.extend_from_slice(&folder_hash(f).to_le_bytes());
             d.extend_from_slice(&count.to_le_bytes());
             d.extend_from_slice(&0u32.to_le_bytes());
             d.extend_from_slice(&0u64.to_le_bytes());
@@ -1117,8 +1142,8 @@ pub(crate) mod testdata {
             d.push(fb.len() as u8 + 1);
             d.extend_from_slice(&fb);
             d.push(0);
-            for (_, _, bytes) in files.iter().filter(|(g, _, _)| g == f) {
-                d.extend_from_slice(&0u64.to_le_bytes());
+            for (_, name, bytes) in files.iter().filter(|(g, _, _)| g == f) {
+                d.extend_from_slice(&file_name_hash(name).to_le_bytes());
                 d.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 d.extend_from_slice(&offset.to_le_bytes());
                 offset += bytes.len() as u32;
@@ -1162,6 +1187,49 @@ mod tests {
             format!("{}", ArchiveFormat::Ba2(Ba2Type::General)),
             "BA2 (General)"
         );
+    }
+
+    #[test]
+    fn fmt_14_accepts_hashes_from_the_reference_vectors() {
+        let folder = "textures/armor/amuletsandrings/elder council";
+        let name = "elder_council_amulet_n.dds";
+        assert_eq!(folder_hash(folder), 0x04BC_422C_742C_696C);
+        assert_eq!(file_name_hash(name), 0xDC53_1E2F_6516_DFEE);
+
+        let data = sse_bsa(&[(folder, name, b"fixture")]);
+        let index = index_archive_in(&data, Path::new("reference-hashes.bsa")).unwrap();
+        assert_eq!(index.files, [format!("{folder}/{name}")]);
+    }
+
+    #[test]
+    fn fmt_14_rejects_a_wrong_file_path_hash() {
+        let data = sse_bsa(&[("meshes", "a.nif", b"fixture")]);
+        let file_hash_at = 36 + 24 + 1 + "meshes".len() + 1;
+        let mut wrong_hash = [0u8; 8];
+        wrong_hash.copy_from_slice(&data[file_hash_at..file_hash_at + 8]);
+        wrong_hash[0] ^= 1;
+        let mut data = data;
+        data[file_hash_at..file_hash_at + 8].copy_from_slice(&wrong_hash);
+
+        let error = index_archive_in(&data, Path::new("wrong-file-hash.bsa")).unwrap_err();
+        assert!(
+            error.to_string().contains("BSA file hash mismatch"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("meshes/a.nif"), "{error}");
+    }
+
+    #[test]
+    fn fmt_14_rejects_a_wrong_directory_path_hash() {
+        let mut data = sse_bsa(&[("meshes", "a.nif", b"fixture")]);
+        data[36] ^= 1;
+
+        let error = index_archive_in(&data, Path::new("wrong-directory-hash.bsa")).unwrap_err();
+        assert!(
+            error.to_string().contains("BSA directory hash mismatch"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("meshes"), "{error}");
     }
 
     #[test]
@@ -1682,17 +1750,17 @@ mod tests {
         d.extend_from_slice(&(folder.len() as u32 + 1).to_le_bytes());
         d.extend_from_slice(&12u32.to_le_bytes());
         d.extend_from_slice(&0u32.to_le_bytes());
-        d.extend_from_slice(&0u64.to_le_bytes());
+        d.extend_from_slice(&folder_hash("textures").to_le_bytes());
         d.extend_from_slice(&2u32.to_le_bytes());
         d.extend_from_slice(&0u32.to_le_bytes());
         d.extend_from_slice(&0u64.to_le_bytes());
         d.push(folder.len() as u8 + 1);
         d.extend_from_slice(folder);
         d.push(0);
-        d.extend_from_slice(&0u64.to_le_bytes());
+        d.extend_from_slice(&file_name_hash("a.dds").to_le_bytes());
         d.extend_from_slice(&(block_a.len() as u32).to_le_bytes());
         d.extend_from_slice(&data_start.to_le_bytes());
-        d.extend_from_slice(&0u64.to_le_bytes());
+        d.extend_from_slice(&file_name_hash("b.dds").to_le_bytes());
         d.extend_from_slice(&((block_b.len() as u32) | BSA_SIZE_COMPRESSION_BIT).to_le_bytes());
         d.extend_from_slice(&(data_start + block_a.len() as u32).to_le_bytes());
         for n in names {

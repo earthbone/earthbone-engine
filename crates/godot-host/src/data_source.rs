@@ -591,6 +591,7 @@ impl DataSource {
             std::time::Duration::from_nanos(after.decode_ns - before.decode_ns);
         if let Some(water) = self.water_surface(cell_id, &surfaces) {
             stats.water_plane_count += 1;
+            stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
         Ok(LoadedCell { stats, surfaces })
@@ -879,16 +880,8 @@ pub(crate) fn placed_model(bytes: &[u8]) -> Result<soe_nif::NifFile, DataSourceE
 /// turns a reference's rotation floats into its world orientation.
 fn placement_transform(refr: &Refr) -> NifTransform {
     let t = refr.transform.unwrap_or_default();
-    let [rx, ry, rz] = t.rotation;
-    let (sx, cx) = rx.sin_cos();
-    let (sy, cy) = ry.sin_cos();
-    let (sz, cz) = rz.sin_cos();
     let rotation = Mat33 {
-        rows: [
-            [cy * cz, cy * sz, -sy],
-            [sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy],
-            [cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy],
-        ],
+        rows: crate::units::skyrim_euler_matrix(t.rotation),
     };
     NifTransform {
         rotation,

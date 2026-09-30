@@ -124,6 +124,8 @@ pub struct Distribution {
     pub chance: f32,
     /// SPID marks a stable per-actor chance with a trailing `!`.
     pub deterministic_chance: bool,
+    /// Seed SPID derives from the distribution entry value.
+    pub line_seed: u64,
     /// 1 based line in its file, for reporting a conflict.
     pub line: usize,
 }
@@ -221,7 +223,14 @@ fn parse_line(
         index_or_count: parse_index_or_count(field(&fields, 5), is_package),
         chance,
         deterministic_chance,
+        line_seed: entry_seed(value),
         line,
+    })
+}
+
+fn entry_seed(value: &str) -> u64 {
+    value.bytes().fold(0xcbf2_9ce4_8422_2325, |seed, byte| {
+        (seed ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
 }
 
@@ -475,5 +484,29 @@ mod chance_tests {
             assert!(file.distributions.is_empty(), "{text}");
             assert_eq!(file.unknown_keys.len(), 1);
         }
+    }
+
+    #[test]
+    fn mod_01_deterministic_line_seed_uses_the_entry_value() {
+        let first = DistrFile::from_ini(&Ini::parse(
+            "one_DISTR.ini",
+            "Spell = SpellName|NONE|NONE|NONE|NONE|1|50!\n",
+        ));
+        let same_value = DistrFile::from_ini(&Ini::parse(
+            "two_DISTR.ini",
+            "Perk = SpellName|NONE|NONE|NONE|NONE|1|50!\n",
+        ));
+        let changed_value = DistrFile::from_ini(&Ini::parse(
+            "three_DISTR.ini",
+            "Spell = SpellName|NONE|NONE|NONE|NONE|1|51!\n",
+        ));
+        assert_eq!(
+            first.distributions[0].line_seed, same_value.distributions[0].line_seed,
+            "SPID derives line seed from the entry value, not its key or file"
+        );
+        assert_ne!(
+            first.distributions[0].line_seed, changed_value.distributions[0].line_seed,
+            "a changed distribution value gets a different seed"
+        );
     }
 }

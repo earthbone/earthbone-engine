@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::image_space::WeatherSelection;
+use soe_game::Game;
 use soe_godot_host::image_space::{ImageSpaceStack, RenderedBase};
 
 #[test]
