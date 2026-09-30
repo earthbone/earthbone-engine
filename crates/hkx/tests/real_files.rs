@@ -28,6 +28,7 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("BSEventOnDeactivateModifier", 98, "ANM-27"),
     ("BSIStateManagerModifier", 3, "ANM-29"),
     ("BSLimbIKModifier", 1, "ANM-31"),
+    ("BSInterpValueModifier", 36, "ANM-30"),
     ("BSLookAtModifier", 128, "ANM-32"),
     ("BSModifyOnceModifier", 26, "ANM-33"),
     ("BSPassByTargetTriggerModifier", 1, "ANM-34"),

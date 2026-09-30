@@ -399,6 +399,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::LookAtModifier { .. }
+        | NodeKind::LimbIk { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }
