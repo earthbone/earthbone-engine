@@ -23,12 +23,12 @@ type RecordKey = (String, u32);
 type FieldKey = (RecordKey, String, usize);
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Dump {
+pub(crate) struct Dump {
     records: BTreeSet<RecordKey>,
     fields: BTreeMap<FieldKey, Vec<u8>>,
 }
 
-fn parse_dump(input: &str) -> Result<Dump, String> {
+pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
     let mut dump = Dump::default();
     for (line_index, line) in input.lines().enumerate() {
         if line.is_empty() || line.starts_with('#') {
@@ -91,6 +91,11 @@ fn parse_hex_u32(value: &str) -> Result<u32, String> {
 }
 
 fn parse_hex_bytes(value: &str) -> Result<Vec<u8>, String> {
+    if !value.is_ascii() {
+        return Err(format!(
+            "field bytes must be ASCII hexadecimal, got {value:?}"
+        ));
+    }
     if !value.len().is_multiple_of(2) {
         return Err(format!("field byte string has odd length {value:?}"));
     }
@@ -103,7 +108,7 @@ fn parse_hex_bytes(value: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn from_plugin(plugin: &Plugin) -> Dump {
+pub(crate) fn from_plugin(plugin: &Plugin) -> Dump {
     let mut dump = Dump::default();
     for record in &plugin.records {
         let signature = record.tag.to_string();
@@ -121,7 +126,7 @@ fn from_plugin(plugin: &Plugin) -> Dump {
     dump
 }
 
-fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
+pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
     let mut report = Vec::new();
     let expected_counts = counts(&expected.records);
     let actual_counts = counts(&actual.records);

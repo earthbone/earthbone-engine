@@ -64,6 +64,8 @@ The archive grammar target generates BSA, BA2 GNRL and BA2 DX10 layouts. DX10
 cases include raw and zlib-compressed chunks, exercise `Archive::read_record`,
 and check the rebuilt DDS header and payload. Truncation remains fuzzer
 controlled so accepted indexes also reach record error handling.
+On 2026-09-30, a 15 second run completed 205,285 executions and reported
+`cov: 2364`, `ft: 8394`. This run exercised the GNRL, DX10 and BSA branches.
 
 ## Seeds and corpus
 
@@ -92,6 +94,8 @@ that the node and shape decoders and the mesh extraction path are reached.
 On 2026-09-29, a 15 second run completed 497,357 executions and reported
 `cov: 1045`, `ft: 1063` from 17,307 instrumented counters. This is target
 coverage evidence, not a survey of every NIF block family.
+On 2026-09-30, a second 15 second run completed 635,848 executions and
+reported `cov: 1062`, `ft: 1080`.
 
 `fuzz/.gitignore` excludes `corpus`, `artifacts`, `target` and `coverage`, so
 none of that is committed. A libFuzzer session can grow its corpus into

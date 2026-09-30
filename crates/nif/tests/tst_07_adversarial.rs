@@ -54,14 +54,18 @@ fn generated_nif() -> Vec<u8> {
         put_i32(&mut shape, -1);
     }
     // Vertex, UV, normal, tangent and color attributes in stream 100.
-    shape.extend_from_slice(&soe_nif::vertex::VertexDesc::from_attributes(
-        soe_nif::vertex::attr::VERTEX
-            | soe_nif::vertex::attr::UVS
-            | soe_nif::vertex::attr::NORMALS
-            | soe_nif::vertex::attr::TANGENTS
-            | soe_nif::vertex::attr::COLORS,
-        100,
-    ).0.to_le_bytes());
+    shape.extend_from_slice(
+        &soe_nif::vertex::VertexDesc::from_attributes(
+            soe_nif::vertex::attr::VERTEX
+                | soe_nif::vertex::attr::UVS
+                | soe_nif::vertex::attr::NORMALS
+                | soe_nif::vertex::attr::TANGENTS
+                | soe_nif::vertex::attr::COLORS,
+            100,
+        )
+        .0
+        .to_le_bytes(),
+    );
     put_u16(&mut shape, 1);
     put_u16(&mut shape, 3);
     put_u32(&mut shape, 102);

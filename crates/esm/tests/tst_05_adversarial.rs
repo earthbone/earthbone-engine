@@ -18,6 +18,10 @@ fn deny_and_audit_are_both_gate_steps_and_the_exception_is_reasoned() {
     let config = fs::read_to_string(root.join("deny.toml")).unwrap();
     assert!(config.contains("RUSTSEC-2024-0436"));
     assert!(config.contains("no safe upgrade available"));
+    assert!(config.contains("RUSTSEC-2025-0141"));
+    assert!(config.contains("bincode 1.3.3 is a transitive dev dependency of iai-callgrind"));
+    assert!(config.contains("RUSTSEC-2026-0173"));
+    assert!(config.contains("transitive dev dependency of iai-callgrind"));
 }
 
 #[test]
