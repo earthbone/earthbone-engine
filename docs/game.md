@@ -1766,7 +1766,7 @@ UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
-`IsBeingRidden_-_Actor.wikitext`; the remaining requested CK pages are absent.
+`IsBeingRidden_-_Actor.wikitext`. The remaining requested CK pages are absent.
 GetGraphVariableInt (675) reads a named integer in the actor's live graph state,
 case-insensitively, and reports missing names and non-actor subjects. Its
 integer state is transient host input and is not saved.
@@ -3434,7 +3434,7 @@ These three functions require the active spell context supplied while SPEL
 effect and MGEF conditions run. HasMagicEffectKeyword (699) checks live active
 effects on the subject. HasBoundWeaponEquipped (706) uses Casting Source 0 for
 the left hand and 1 for the right, then checks the equipped WEAP bound flag.
-Voice source 2 is valid and returns false because it has no bound hand weapon;
+Voice source 2 is valid and returns false because it has no bound hand weapon.
 other casting-source values return a parameter error.
 IsPoison (721) reads the subject reference's ALCH base and its poison flag.
 EffectWasDualCast (724) reads optional caller-supplied cast context. Without
