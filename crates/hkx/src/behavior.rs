@@ -707,12 +707,37 @@ pub enum NodeKind {
         enable: bool,
         expressions: Vec<ExpressionData>,
     },
+    /// `BSLookAtModifier`: rotates its authored bones toward the target.
+    LookAtModifier {
+        enable: bool,
+        bones: Vec<LookAtBone>,
+        eye_bones: Vec<LookAtBone>,
+        limit_angle_degrees: f32,
+        on_gain: f32,
+        off_gain: f32,
+        use_bone_gains: bool,
+        target_location: [f32; 4],
+        look_at_target: bool,
+        look_at_camera: bool,
+        look_at_camera_location: [f32; 3],
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
     },
     /// A generator class this crate has no fields for.
     Unknown,
+}
+
+/// An authored bone target and angular limit for `BSLookAtModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LookAtBone {
+    pub index: i16,
+    pub forward_axis: [f32; 4],
+    pub limit_angle_degrees: f32,
+    pub on_gain: f32,
+    pub off_gain: f32,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -784,6 +809,7 @@ impl Node {
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::LookAtModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1248,6 +1274,40 @@ impl<'a> Loader<'a> {
                 NodeKind::EvaluateExpression {
                     enable: o.bool(o.layout_offset(40, 72))?,
                     expressions,
+                }
+            }
+            "BSLookAtModifier" => {
+                let read_bones = |offset: u32| -> Result<Vec<LookAtBone>> {
+                    o.array_structs(offset, 64)?
+                        .into_iter()
+                        .map(|bone| {
+                            Ok(LookAtBone {
+                                index: bone.i16(0)?,
+                                forward_axis: bone.vec4(16)?,
+                                limit_angle_degrees: bone.f32(32)?,
+                                on_gain: bone.f32(36)?,
+                                off_gain: bone.f32(40)?,
+                                enabled: bone.bool(44)?,
+                            })
+                        })
+                        .collect()
+                };
+                NodeKind::LookAtModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    bones: read_bones(o.layout_offset(48, 88))?,
+                    eye_bones: read_bones(o.layout_offset(60, 104))?,
+                    limit_angle_degrees: o.f32(o.layout_offset(72, 120))?,
+                    on_gain: o.f32(o.layout_offset(84, 132))?,
+                    off_gain: o.f32(o.layout_offset(88, 136))?,
+                    use_bone_gains: o.bool(o.layout_offset(92, 140))?,
+                    target_location: o.vec4(o.layout_offset(96, 144))?,
+                    look_at_target: o.bool(o.layout_offset(44, 80))?,
+                    look_at_camera: o.bool(o.layout_offset(124, 184))?,
+                    look_at_camera_location: [
+                        o.f32(o.layout_offset(128, 188))?,
+                        o.f32(o.layout_offset(132, 192))?,
+                        o.f32(o.layout_offset(136, 196))?,
+                    ],
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {

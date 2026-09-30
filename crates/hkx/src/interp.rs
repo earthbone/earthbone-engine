@@ -1067,6 +1067,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::EvaluateExpression { enable, .. }
+            | NodeKind::LookAtModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1356,6 +1357,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::LookAtModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1774,18 +1776,55 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let modifier_start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
-                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
-                    for index in start..self.modifier_order.len() {
+                    for index in modifier_start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for modifier in &self.modifier_order[modifier_start..] {
+                    if !self.nodes[modifier.0].active {
+                        continue;
+                    }
+                    if let NodeKind::LookAtModifier {
+                        bones,
+                        eye_bones,
+                        limit_angle_degrees,
+                        on_gain,
+                        use_bone_gains,
+                        target_location,
+                        look_at_target,
+                        look_at_camera,
+                        look_at_camera_location,
+                        ..
+                    } = &self.graph.node(*modifier).kind
+                    {
+                        let target = if *look_at_target {
+                            Some([target_location[0], target_location[1], target_location[2]])
+                        } else if *look_at_camera {
+                            Some(*look_at_camera_location)
+                        } else {
+                            None
+                        };
+                        if let Some(target) = target {
+                            apply_look_at(
+                                &mut output.pose,
+                                bones.iter().chain(eye_bones),
+                                target,
+                                *limit_angle_degrees,
+                                *on_gain,
+                                *use_bone_gains,
+                            );
+                        }
+                    }
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1843,6 +1882,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::LookAtModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2223,6 +2263,126 @@ fn blend_curve(curve: i8, t: f32) -> f32 {
 
 /// Blend two transforms: lerp translation and scale, nlerp rotation on
 /// the shorter arc.
+fn apply_look_at<'a>(
+    pose: &mut [QsTransform],
+    bones: impl Iterator<Item = &'a crate::behavior::LookAtBone>,
+    target: [f32; 3],
+    global_limit_degrees: f32,
+    global_gain: f32,
+    use_bone_gains: bool,
+) {
+    for bone in bones.filter(|bone| bone.enabled) {
+        let Ok(index) = usize::try_from(bone.index) else {
+            continue;
+        };
+        let Some(transform) = pose.get_mut(index) else {
+            continue;
+        };
+        let direction = [
+            target[0] - transform.translation[0],
+            target[1] - transform.translation[1],
+            target[2] - transform.translation[2],
+        ];
+        let Some(direction) = normalize3(direction) else {
+            continue;
+        };
+        let Some(forward) = normalize3(quat_rotate3(
+            transform.rotation,
+            [
+                bone.forward_axis[0],
+                bone.forward_axis[1],
+                bone.forward_axis[2],
+            ],
+        )) else {
+            continue;
+        };
+        let dot = dot3(forward, direction).clamp(-1.0, 1.0);
+        let angle = dot.acos();
+        if angle <= f32::EPSILON {
+            continue;
+        }
+        let limit = global_limit_degrees
+            .min(bone.limit_angle_degrees)
+            .max(0.0)
+            .to_radians();
+        let gain = if use_bone_gains {
+            bone.on_gain
+        } else {
+            global_gain
+        }
+        .clamp(0.0, 1.0);
+        let step = angle.min(limit) * gain;
+        if step <= f32::EPSILON {
+            continue;
+        }
+        let delta = rotation_between(forward, direction, step);
+        transform.rotation = quat_mul(delta, transform.rotation);
+        if let Some(rotation) = normalize_quaternion(transform.rotation) {
+            transform.rotation = rotation;
+        }
+    }
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn normalize3(vector: [f32; 3]) -> Option<[f32; 3]> {
+    let length = dot3(vector, vector).sqrt();
+    (length.is_finite() && length > f32::EPSILON)
+        .then(|| [vector[0] / length, vector[1] / length, vector[2] / length])
+}
+
+fn normalize_quaternion(q: [f32; 4]) -> Option<[f32; 4]> {
+    let length = q
+        .iter()
+        .map(|component| component * component)
+        .sum::<f32>()
+        .sqrt();
+    (length.is_finite() && length > f32::EPSILON).then(|| q.map(|component| component / length))
+}
+
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
+fn quat_rotate3(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+    let vector = [v[0], v[1], v[2], 0.0];
+    let conjugate = [-q[0], -q[1], -q[2], q[3]];
+    let result = quat_mul(quat_mul(q, vector), conjugate);
+    [result[0], result[1], result[2]]
+}
+
+fn rotation_between(from: [f32; 3], to: [f32; 3], angle: f32) -> [f32; 4] {
+    let mut axis = [
+        from[1] * to[2] - from[2] * to[1],
+        from[2] * to[0] - from[0] * to[2],
+        from[0] * to[1] - from[1] * to[0],
+    ];
+    if normalize3(axis).is_none() {
+        axis = if from[0].abs() < from[1].abs() && from[0].abs() < from[2].abs() {
+            [0.0, -from[2], from[1]]
+        } else if from[1].abs() < from[2].abs() {
+            [-from[2], 0.0, from[0]]
+        } else {
+            [-from[1], from[0], 0.0]
+        };
+    }
+    let axis = normalize3(axis).unwrap_or([0.0, 0.0, 1.0]);
+    let half = angle * 0.5;
+    [
+        axis[0] * half.sin(),
+        axis[1] * half.sin(),
+        axis[2] * half.sin(),
+        half.cos(),
+    ]
+}
+
 pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransform {
     let lerp = |x: f32, y: f32| x + (y - x) * alpha;
     let dot: f32 = a.rotation.iter().zip(&b.rotation).map(|(x, y)| x * y).sum();
@@ -2296,7 +2456,9 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
 mod tests {
     use super::*;
 
-    use crate::behavior::{Binding, ExpressionData, Node, VariableBindingSet, VariableValueSet};
+    use crate::behavior::{
+        Binding, ExpressionData, LookAtBone, Node, VariableBindingSet, VariableValueSet,
+    };
     use crate::spline::encode;
 
     fn pad4(bytes: &mut Vec<u8>) {
@@ -2835,6 +2997,126 @@ mod tests {
                 ),
             ],
         }
+    }
+
+    fn look_at_graph(
+        enable: bool,
+        bones: Vec<LookAtBone>,
+        eye_bones: Vec<LookAtBone>,
+        global_limit_degrees: f32,
+    ) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "look at".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSLookAtModifier".into(),
+                    name: "look".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::LookAtModifier {
+                        enable,
+                        bones,
+                        eye_bones,
+                        limit_angle_degrees: global_limit_degrees,
+                        on_gain: 1.0,
+                        off_gain: 0.0,
+                        use_bone_gains: false,
+                        target_location: [0.0, 10.0, 0.0, 0.0],
+                        look_at_target: true,
+                        look_at_camera: false,
+                        look_at_camera_location: [0.0; 3],
+                    },
+                },
+            ],
+        }
+    }
+
+    fn look_bone(index: i16, enabled: bool, limit_angle_degrees: f32) -> LookAtBone {
+        LookAtBone {
+            index,
+            forward_axis: [0.0, 0.0, 1.0, 0.0],
+            limit_angle_degrees,
+            on_gain: 1.0,
+            off_gain: 0.0,
+            enabled,
+        }
+    }
+
+    fn look_at_vm<'a>(
+        graph: &'a BehaviorGraph,
+        clips: &'a ClipLibrary,
+        pose: Vec<QsTransform>,
+    ) -> Interpreter<'a> {
+        Interpreter::new(graph, clips, pose)
+    }
+
+    #[test]
+    fn anm_32_rotates_only_enabled_authored_look_at_bones() {
+        let graph = look_at_graph(
+            true,
+            vec![look_bone(0, true, 45.0), look_bone(1, false, 45.0)],
+            vec![look_bone(2, true, 45.0)],
+            45.0,
+        );
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        let output = vm.update(1.0 / 60.0);
+
+        assert!(output.pose[0].rotation[0].abs() > 0.1);
+        assert_eq!(output.pose[1].rotation, QsTransform::IDENTITY.rotation);
+        assert!(output.pose[2].rotation[0].abs() > 0.1);
+        assert_eq!(output.pose[3].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_32_uses_the_smaller_global_and_bone_angle_limit() {
+        let graph = look_at_graph(true, vec![look_bone(0, true, 10.0)], Vec::new(), 30.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+        let forward = quat_rotate3(output.pose[0].rotation, [0.0, 0.0, 1.0]);
+        let angle = forward[1].atan2(forward[2]).to_degrees();
+
+        assert!((angle - 10.0).abs() < 0.01, "{angle}");
+    }
+
+    #[test]
+    fn anm_32_respects_the_global_limit_when_the_bone_limit_is_larger() {
+        let graph = look_at_graph(true, vec![look_bone(0, true, 40.0)], Vec::new(), 15.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+        let forward = quat_rotate3(output.pose[0].rotation, [0.0, 0.0, 1.0]);
+        let angle = forward[1].atan2(forward[2]).to_degrees();
+
+        assert!((angle - 15.0).abs() < 0.01, "{angle}");
+    }
+
+    #[test]
+    fn anm_32_disabled_modifier_leaves_every_bone_unchanged() {
+        let graph = look_at_graph(false, vec![look_bone(0, true, 45.0)], Vec::new(), 45.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+
+        assert_eq!(output.pose[0], QsTransform::IDENTITY);
     }
 
     #[test]
