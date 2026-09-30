@@ -81,6 +81,35 @@ impl Tree {
         }
     }
 
+    fn simultaneous_wait(
+        &self,
+        parent: usize,
+        actor: GlobalFormId,
+        world: &mut World,
+        quest: Option<GlobalFormId>,
+    ) -> Option<(f32, bool)> {
+        let mut child = parent + 1;
+        let mut duration = 0.0_f32;
+        let mut stop_movement = false;
+        let mut indefinite = false;
+        let mut found = false;
+        while child < self.ends[parent] {
+            let branch = self.branches.get(child)?;
+            if branch.child_count != 0 || !branch.kind.eq_ignore_ascii_case("procedure") {
+                return None;
+            }
+            if conditions_hold(world, actor, self.owner, quest, &branch.conditions) {
+                let (seconds, stop) = self.wait_parameters(branch)?;
+                duration = duration.max(seconds);
+                indefinite |= seconds == 0.0;
+                stop_movement |= stop;
+                found = true;
+            }
+            child = self.ends[child];
+        }
+        found.then_some((if indefinite { 0.0 } else { duration }, stop_movement))
+    }
+
     fn patrol_parameters(
         &self,
         branch: &Branch,
@@ -261,6 +290,30 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
                 checked = Some(child);
             }
             continue;
+        }
+        if branch.kind.eq_ignore_ascii_case("simultaneous") && branch.procedure.is_none() {
+            match tree.simultaneous_wait(index, actor, world, quest) {
+                Some((seconds, stop_movement)) => {
+                    state.active = true;
+                    let deadline =
+                        (seconds > 0.0).then_some(world.clock.real_seconds + f64::from(seconds));
+                    super::begin_procedure(
+                        world,
+                        actor,
+                        ai,
+                        Procedure::Wait { stop_movement },
+                        None,
+                    );
+                    ai.wait_until = deadline;
+                }
+                None => {
+                    ai.procedure = Procedure::Unsupported(
+                        "Simultaneous supports only Wait children until AI-87 completion rules are available".into(),
+                    );
+                    state.active = true;
+                }
+            }
+            break;
         }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
             if branch.child_count == 0 {
