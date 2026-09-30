@@ -3406,6 +3406,26 @@ document registration cleanup. The source corpus defines no CK return contract
 for the added checks, so the zero-version result expresses that SKSE is absent
 from this runtime rather than claiming an SKSE version.
 
+## Location condition batch AI-54
+
+The condition evaluator supports GetWantBlocking (0), GetLocked (5),
+GetInSameCell (32), GetLockLevel (65), IsPlayerInRegion (117),
+IsInMyOwnedCell (146), HasSameEditorLocAsRef (180), and
+HasSameEditorLocAsRefAlias (181). They read shared actor and reference state,
+the player's current cell region list, CELL ownership, authored editor
+locations, and the named quest alias. GetWantBlocking reads the actor's live
+block stance also used by combat. Region membership reads the CELL `XCLR`
+list. Editor-location matching applies the supplied keyword to the common
+location. No condition adds state or changes save data.
+
+xEdit `wbConditionFunctions` supplies the function identities and parameter
+types. CK `GetLockLevel` and `IsLocked` define the corresponding reference
+values. The remaining CK function pages are absent from the local corpus, so
+their behavior follows the named condition and its typed record fields.
+Missing actor, reference, player-cell, quest-alias, or form context returns a
+typed condition error. A malformed unused parameter is rejected. Synthetic
+coverage is in `tests/ai_54_location_conditions.rs`.
+
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,

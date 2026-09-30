@@ -409,7 +409,7 @@ fn no_parameter(c: &Condition) -> Result<(), Error> {
     }
 }
 
-fn no_second_parameter(c: &Condition) -> Result<(), Error> {
+fn one_parameter(c: &Condition) -> Result<(), Error> {
     if c.parameters[1] == 0 {
         Ok(())
     } else {
@@ -518,7 +518,7 @@ fn function_value(
     let raw = c.parameters[0];
     Ok(match c.function {
         6 | 8 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
             if axis >= 3 {
                 return Err(Error::Parameter(c.function, raw));
@@ -534,7 +534,7 @@ fn function_value(
             }
         }
         10 | 11 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
             if axis >= 3 {
                 return Err(Error::Parameter(c.function, raw));
@@ -683,6 +683,90 @@ fn function_value(
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
         }
+        0 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.blocking)
+        }
+        5 => {
+            no_parameter(c)?;
+            boolean(world.reference(subject).ok_or(Error::Form(subject))?.locked)
+        }
+        32 => {
+            one_parameter(c)?;
+            let other = resolve_reference(world, context.owner, raw)?;
+            let subject_cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            let other_cell = world.reference(other).ok_or(Error::Form(other))?.cell;
+            boolean(subject_cell.is_some() && subject_cell == other_cell)
+        }
+        65 => {
+            no_parameter(c)?;
+            world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .lock_level as f32
+        }
+        117 => {
+            one_parameter(c)?;
+            let region = resolve(world, context.owner, raw, Some(*b"REGN"))?;
+            let player = world.player();
+            let cell = world
+                .reference(player)
+                .ok_or(Error::Form(player))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_ref = world.order().winner_ref(cell).ok_or(Error::Form(cell))?;
+            let record = world.order().record(cell_ref);
+            let cell_data = soe_esm::records::cell::Cell::from_record(record, false)
+                .map_err(|_| Error::Form(cell))?;
+            boolean(
+                cell_data
+                    .regions
+                    .iter()
+                    .any(|raw_region| world.order().resolve(cell_ref.file, *raw_region) == region),
+            )
+        }
+        146 => {
+            no_parameter(c)?;
+            let cell = world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_owner = world.cell_state(cell).ok_or(Error::Form(cell))?.owner;
+            let owned = cell_owner.is_some_and(|owner| {
+                world.base_of(subject) == Some(owner)
+                    || world
+                        .actor(subject)
+                        .is_some_and(|actor| actor.factions.contains_key(&owner))
+            });
+            boolean(owned)
+        }
+        180 | 181 => {
+            let (reference, keyword) = if c.function == 180 {
+                (
+                    resolve_reference(world, context.owner, raw)?,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            } else {
+                let quest = context.quest.ok_or(Error::Target(5))?;
+                let alias = world.alias_ref(quest, raw).ok_or(Error::Target(5))?;
+                if world
+                    .reference(alias)
+                    .is_none_or(|reference| reference.deleted)
+                {
+                    return Err(Error::Form(alias));
+                }
+                (
+                    alias,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            };
+            let subject_location = world.editor_location(subject);
+            let other_location = world.editor_location(reference);
+            boolean(subject_location.is_some_and(|location| {
+                Some(location) == other_location && world.has_keyword(location, keyword)
+            }))
+        }
         18 => world.calendar().hour as f32,
         41 => {
             no_parameter(c)?;
@@ -801,7 +885,7 @@ fn function_value(
             boolean(parameter_cell == Some(cell))
         }
         250 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(
                 world
@@ -824,16 +908,16 @@ fn function_value(
             boolean(world.cell_state(cell).ok_or(Error::Form(cell))?.owner == owner)
         }
         310 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let wanted = resolve(world, context.owner, raw, Some(*b"WRLD"))?;
             boolean(reference_worldspace(world, subject) == Some(wanted))
         }
         325 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             package_location_condition(world, subject, c, raw)?
         }
         445 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let zone = resolve(world, context.owner, raw, Some(*b"ECZN"))?;
             let subject_zone = world
                 .encounter_zone(subject)
@@ -841,7 +925,7 @@ fn function_value(
             boolean(subject_zone == Some(zone))
         }
         446 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             if raw > 2 {
                 return Err(Error::Parameter(c.function, raw));
             }
@@ -856,7 +940,7 @@ fn function_value(
             return Err(Error::Unavailable(c.function));
         }
         561 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
             let record = world.record(subject).ok_or(Error::Form(subject))?;
             let matches = record
@@ -867,7 +951,7 @@ fn function_value(
             boolean(matches)
         }
         562 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             let location = world
                 .current_location(subject)
@@ -875,7 +959,7 @@ fn function_value(
             boolean(world.keywords(location).contains(&keyword))
         }
         563 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
             let location = world
                 .current_location(subject)
@@ -894,12 +978,12 @@ fn function_value(
             boolean(matches)
         }
         565 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(world.editor_location(subject) == Some(location))
         }
         567 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             if !world.alias_is_location(context.quest.ok_or(Error::Target(5))?, raw) {
                 return Err(Error::Target(5));
             }
@@ -920,7 +1004,7 @@ fn function_value(
             location_ref_type_count(world, location, ref_type, c.function == 591)?
         }
         598 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1005,12 +1089,12 @@ fn function_value(
             boolean(world.keywords(location).contains(&keyword))
         }
         625 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let _location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             return Err(Error::Unavailable(c.function));
         }
         626 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1022,7 +1106,7 @@ fn function_value(
             return Err(Error::Unavailable(c.function));
         }
         651 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             let location = world
                 .current_location(subject)
@@ -1438,7 +1522,7 @@ fn function_value(
             }))
         }
         360 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1475,7 +1559,7 @@ fn function_value(
                 .unwrap_or(0.0)
         }
         444 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
             let locations = world.form_list(list).ok_or(Error::Form(list))?.clone();
             boolean(world.current_location(subject).is_some_and(|current| {
