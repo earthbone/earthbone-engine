@@ -463,6 +463,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.swimming = false;
         actor.running = false;
         actor.riding_mount = false;
+        let package_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE300_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().package_overrides = vec![(0, package_sentinel)];
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -563,6 +568,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.swimming = false;
         actor.running = false;
         actor.riding_mount = false;
+        actor.package_overrides.clear();
     }
     for marker in markers {
         let at = bytes
@@ -577,7 +583,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no list fields in version 23.
+    // CONTEXT: Version 23 predates list metadata. Remove its list marker.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     let mut world_sections = Writer::new();

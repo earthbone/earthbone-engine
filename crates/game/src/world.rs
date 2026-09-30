@@ -41,6 +41,7 @@ use crate::quest::Quest;
 mod actor_seeds;
 mod actor_spells;
 mod actors;
+mod base_object_restore;
 mod bleedout;
 mod calendar;
 mod combat;
@@ -78,7 +79,7 @@ mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{BaseObjectRecordExtra, NpcRecordExtra, StaticObjectRecordExtra};
 pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
 pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod projectiles;
@@ -89,6 +90,7 @@ pub use quests::AliasResolutionError;
 mod story_manager;
 pub use story_manager::StoryError;
 mod record_save;
+mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
 mod reference_restore;
@@ -251,6 +253,10 @@ pub struct ActorState {
     pub right_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// SPID packages and their zero-based insertion positions in the base
+    /// package list. Persisted with the actor because distribution is not
+    /// rerun when SOEW restores an existing actor.
+    pub package_overrides: Vec<(usize, GlobalFormId)>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,

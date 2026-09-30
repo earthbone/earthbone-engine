@@ -2,6 +2,7 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
+use super::legacy;
 use super::*;
 use soe_game::Handle;
 use soe_save::{
@@ -350,75 +351,64 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut world = World::new(fixture_order());
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
-    // Both references' own save-section tables (version 37) are
+    let clean = world.save_state();
+    // Both references' own empty save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
-    // The extra 21 bytes beyond the old 37 are detection's now-unconditional
-    // empty pool count and the world-level save-section table, both always
-    // present at the tail regardless of the simulated version.
-    legacy.truncate(legacy.len() - 39);
+    // Account for the removed reference tables separately from world sections.
+    let reference_sections = clean.len() - legacy.len() - legacy::world_section_growth(&clean);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&legacy, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    legacy.truncate(legacy.len() - tail);
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
-    let mut marker = 1_u32.to_le_bytes().to_vec();
-    marker.extend_from_slice(&0_u16.to_le_bytes());
-    marker.extend_from_slice(&0x100_u32.to_le_bytes());
-    let starts: Vec<_> = before
-        .windows(marker.len())
-        .enumerate()
-        .filter_map(|(at, bytes)| (bytes == marker).then_some(at))
-        .collect();
-    assert_eq!(starts.len(), 1, "reference extras entry is unique");
-    let start = starts[0];
-    let mut cursor = start + 10;
-    if before[cursor] != 0 {
-        cursor += 1 + 4;
-    } else {
-        cursor += 1;
-    }
-    if before[cursor] != 0 {
-        cursor += 1 + 6;
-    } else {
-        cursor += 1;
-    }
-    assert_ne!(before[cursor], 0, "reference lock extra is present");
-    cursor += 1;
-    let key_offset = if before[cursor] != 0 {
-        let offset = cursor + 1;
-        cursor += 1 + 6;
-        Some(offset)
-    } else {
-        cursor += 1;
-        None
-    };
-    let flags_offset = cursor;
-    cursor += 1 + 8;
-    let entry_end = cursor;
-    let entry = &before[start + 4..entry_end];
-
+    let start = legacy.len() + reference_sections;
+    let end = before.len() - legacy::common_suffix_len(&clean, &before);
+    let state = world.reference_ref(id(0, 0x100)).unwrap();
+    let rank_len = usize::from(state.owner_rank.is_some()) * 4;
+    let global_len = usize::from(state.owner_global.is_some()) * 6;
+    let key_len = usize::from(
+        state
+            .lock_extra
+            .as_ref()
+            .is_some_and(|lock| lock.key.is_some()),
+    ) * 6;
+    let mut fields = start + 4 + 6;
+    fields += 1 + rank_len;
+    fields += 1 + global_len;
+    fields += 1;
+    let key_object = fields + 1 + 2;
+    let flags = fields + 1 + key_len;
     let mut bad_flags = before.clone();
-    bad_flags[flags_offset] |= 1;
+    bad_flags[flags] |= 1;
+    let entry = &before[start + 4..end];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[entry_end..]);
-    let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
+    duplicate.extend_from_slice(&before[end..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err();
     assert!(
-        duplicate_error.contains("duplicate reference extras"),
+        duplicate_error
+            .to_string()
+            .contains("duplicate reference extras"),
         "{duplicate_error}"
     );
     let mut bad_key = before.clone();
-    let key_offset = key_offset.expect("reference key is saved");
-    bad_key[key_offset + 2..key_offset + 6].copy_from_slice(&0x811_u32.to_le_bytes());
+    bad_key[key_object..key_object + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
         cases.push(before[..before.len() - cut].to_vec());
     }
-    for malformed in cases {
-        assert!(world.load_state(&malformed).is_err());
+    for (index, malformed) in cases.into_iter().enumerate() {
+        assert!(
+            world.load_state(&malformed).is_err(),
+            "malformed case {index}"
+        );
         assert_eq!(world.save_state(), before);
     }
     world.load_state(&legacy).unwrap();
