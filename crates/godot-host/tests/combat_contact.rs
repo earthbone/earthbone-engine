@@ -452,8 +452,8 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.push(0);
-    // Empty loose items, zone levels, zone visits, repeat history and scene runs.
-    suffix.extend_from_slice(&0_u32.to_le_bytes());
+    // Empty loose items, zone levels, zone visits and repeat history.
+    // Scene runs live in the named DLG-09 section instead of this tail.
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
