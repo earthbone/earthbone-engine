@@ -67,7 +67,10 @@ and events next, everything below the line waits on a runtime that does not exis
 surface includes `FormId` with the master and light index rules, the `Form` and `DataHandler`
 traits, reference and actor handles, the VM registry types with the collision rule, event
 sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse math types,
-and a `support` table that keeps the group counts aligned with this document.
+world-state snapshots for worn inventory markers, game settings, placed hazards, actor combat
+process state and resolved hit results, plus a `support` table that keeps the group counts
+aligned with this document. These snapshots are source-level API types. They do not provide a C
+ABI or executable singleton access.
 
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
@@ -86,13 +89,25 @@ entry point. It rejects an unnamed hook, a missing export, an invalid manifest a
 entry point. The loader does not supply engine interfaces. Its ABI is separate from SKSE's
 Windows DLL ABI.
 
+SHM-11 adds `RE/WorldTypes.h`. Its `WorldTypes` interface groups the five planned concepts behind
+one caller-owned adapter, while `GameSettingCollection` exposes a read-only setting query.
+Unsupported executable hooks return a named `UnsupportedHook` with a reason. C++ fixtures execute
+against a contract fixture, and game tests exercise the Rust adapter against `World` state. A C++
+plugin cannot directly call the Rust adapter until a native bridge is added.
+The public alandtse CommonLib headers read for this batch were
+`include/RE/E/ExtraWorn.h`, `include/RE/G/GameSettingCollection.h`,
+`include/RE/H/Hazard.h`, `include/RE/H/HighProcessData.h` and
+`include/RE/H/HitData.h`. They supplied the type names and fields used to choose
+the narrow mappings. Executable methods and runtime layouts were not copied.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
-module through the new entry point and checks its unsupported hook report. No surveyed plugin
-has been compiled against the headers or loaded. The declarations are not linked to engine
-behavior. The counts are token counts,
+module through the new entry point and checks its unsupported hook report. SHM-11 C++ fixtures
+check the world type contract, and game tests exercise the Rust adapter against `World`. No
+surveyed plugin has been compiled against the headers or loaded. The declarations are not linked
+to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

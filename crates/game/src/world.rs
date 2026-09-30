@@ -44,6 +44,7 @@ mod actors;
 mod bleedout;
 mod calendar;
 mod combat;
+pub mod commonlib;
 mod contact;
 mod crime;
 mod death;

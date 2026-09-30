@@ -163,6 +163,59 @@ public:
 } // namespace RE
 ";
 
+const RE_WORLD_TYPES: &str = r#"// Generated from crates/commonlib-shim/src/world_types.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include "RE/Math.h"
+#include <optional>
+#include <string>
+
+namespace RE {
+struct SettingValue {
+    enum class Kind { Bool, Int, Float, String };
+    Kind kind;
+    bool boolean_value{};
+    std::int32_t int_value{};
+    float float_value{};
+    std::string string_value;
+};
+struct WornState { bool worn; bool worn_left; };
+struct HazardState { FormId reference; FormId base; NiPoint3 position; bool enabled; };
+struct HighProcessState {
+    FormId actor;
+    bool in_combat;
+    std::optional<FormId> combat_target;
+    bool staggered;
+};
+struct HitData {
+    FormId attacker;
+    FormId target;
+    FormId weapon;
+    float weapon_damage;
+    float armor_reduction;
+    float health_damage;
+    bool blocked;
+    bool killed;
+};
+struct UnsupportedHook { std::string type_name; std::string hook_name; std::string reason; };
+
+class GameSettingCollection {
+public:
+    virtual ~GameSettingCollection() = default;
+    virtual std::optional<SettingValue> get_setting(const std::string& name) const = 0;
+};
+class WorldTypes {
+public:
+    virtual ~WorldTypes() = default;
+    virtual std::optional<WornState> extra_worn(FormId actor, FormId item) const = 0;
+    virtual std::optional<HazardState> hazard(FormId reference) const = 0;
+    virtual std::optional<HighProcessState> high_process(FormId actor) const = 0;
+    virtual std::optional<HitData> resolve_hit(FormId attacker, FormId target, FormId weapon) = 0;
+    virtual UnsupportedHook unsupported_hook(const std::string& type_name, const std::string& hook_name) const = 0;
+};
+} // namespace RE
+"#;
+
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
 #include <cstddef>
@@ -350,10 +403,11 @@ const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
     ("RE/Math.h", RE_MATH),
+    ("RE/WorldTypes.h", RE_WORLD_TYPES),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/WorldTypes.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/Plugin.h", SKSE_PLUGIN),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n"),
