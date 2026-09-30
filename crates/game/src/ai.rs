@@ -5,9 +5,10 @@
 //! `PKID` list of its base record, and the first package whose schedule and
 //! conditions hold wins, the way the Creation Kit wiki describes the stack
 //! and `EvaluatePackage` (`engine-refs/ck-wiki/EvaluatePackage_-_Actor`).
-//! The chosen package's template names a procedure, and three of them move
+//! The chosen package's template names a procedure, and four of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
-//! between idle markers around a place, `Sleep` walks to a bed and holds.
+//! between idle markers around a place, `Sleep` walks to a bed and holds,
+//! and `Sit` reserves furniture before walking to it.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
@@ -75,6 +76,7 @@ pub enum Procedure {
     Travel,
     Sandbox,
     Sleep,
+    Sit,
     Patrol,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
@@ -654,6 +656,9 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         .map(|r| r.position)
         .unwrap_or_default();
     let mut ai = std::mem::take(&mut world.actor(actor)?.ai);
+    if ai.procedure == Procedure::Sit {
+        world.stand_from_furniture(actor);
+    }
     ai.package = chosen.map(|c| c.package);
     ai.alias = chosen.and_then(|c| c.alias);
     ai.procedure = Procedure::None;
@@ -710,6 +715,9 @@ fn begin_procedure(
         .reference(actor)
         .map(|r| (r.position, r.cell))
         .unwrap_or_default();
+    if ai.procedure == Procedure::Sit {
+        world.stand_from_furniture(actor);
+    }
     ai.procedure = procedure;
     ai.destination = None;
     ai.path.clear();
@@ -760,6 +768,26 @@ fn begin_procedure(
             ai.center_cell = bed
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
+        }
+        Procedure::Sit => {
+            let furniture = place.and_then(|p| p.reference).filter(|reference| {
+                world
+                    .base_of(*reference)
+                    .and_then(|base| world.tag_of(base))
+                    == Some(T(b"FURN"))
+            });
+            if let Some(furniture) = furniture
+                .filter(|furniture| world.reserve_furniture_marker(*furniture, actor).is_some())
+            {
+                ai.destination = world
+                    .reference(furniture)
+                    .map(|reference| reference.position);
+                ai.center_cell = world
+                    .reference(furniture)
+                    .and_then(|reference| reference.cell);
+            } else {
+                ai.procedure = Procedure::Unsupported("Sit furniture unavailable".into());
+            }
         }
         Procedure::None
         | Procedure::Wait { .. }
@@ -1437,6 +1465,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             }
             if ai.procedure == Procedure::Travel {
                 tree::succeeded(world, &mut ai);
+            } else if ai.procedure == Procedure::Sit {
+                world.stand_from_furniture(actor);
+                tree::succeeded(world, &mut ai);
             }
         }
         if let Some(r) = world.reference(actor) {
@@ -1480,6 +1511,17 @@ fn read_point(r: &mut Reader<'_>) -> Result<[f32; 3], VmError> {
 /// Write one actor's driver record. The procedure cursor is not part of it,
 /// the world save keeps cursors in their own block.
 pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
+    write_record_state_inner(w, a, true);
+}
+
+/// Write the world-save form of one actor's driver record. The Sit procedure
+/// tag is carried by the actor's named save section instead of this legacy
+/// record layout.
+pub(crate) fn write_world_record_state(w: &mut Writer, a: &AiState) {
+    write_record_state_inner(w, a, false);
+}
+
+fn write_record_state_inner(w: &mut Writer, a: &AiState, include_sit: bool) {
     write_opt_form_id(w, a.package);
     match a.alias {
         Some((q, id)) => {
@@ -1499,6 +1541,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
+        Procedure::Sit => w.u8(if include_sit { 8 } else { 0 }),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -1604,6 +1647,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             a.patrol = Some(patrol::read(r)?);
             Procedure::Patrol
         }
+        8 => Procedure::Sit,
         5 => {
             let stop_movement = r.bool()?;
             if r.bool()? {

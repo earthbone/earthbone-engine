@@ -826,16 +826,20 @@ within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
-duration, with zero meaning indefinite. `Shout` casts the equipped `SHOU`'s
-highest nonzero `SNAM` spell through `World::cast_spell` and holds its tree
-branch until that word's authored recovery expires. An actor already in voice
-recovery waits before casting. Failed shout data or delivery leaves the
-procedure explicitly unsupported. Voice recovery is an absolute deadline in
-the world's real-seconds clock, exposed through `GetVoiceRecoveryTime` and
-`SetVoiceRecoveryTime`. The `AI-29` actor section stores that deadline under
-the version 37 section table. The CK package procedure page is absent from the local
-wiki snapshot. The execution uses the local `EquipShout_-_Actor` and
+its editor id, and holds with `sleeping` set. `Sit` reserves the first active,
+unreserved Sit marker on its furniture reference, walks to that reference's
+placement transform, and releases the reservation when it arrives. Furniture
+marker transforms are not read from the model. Its procedure tag is stored in
+the `AI-20` actor section. `Wait` holds for its real-time duration, with zero
+meaning indefinite. `Shout` casts the equipped `SHOU`'s highest nonzero `SNAM`
+spell through `World::cast_spell` and holds its tree branch until that word's
+authored recovery expires. An actor already in voice recovery waits before
+casting. Failed shout data or delivery leaves the procedure explicitly
+unsupported. Voice recovery is an absolute deadline in the world's real-seconds
+clock, exposed through `GetVoiceRecoveryTime` and `SetVoiceRecoveryTime`. The
+`AI-29` actor section stores that deadline under the version 37 section table.
+The CK package procedure page is absent from the local wiki snapshot. The
+execution uses the local `EquipShout_-_Actor` and
 `GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
 entries, and the existing xEdit PACK and shared spell APIs. Walking `Patrol`
 follows linked markers, including their arrival radius and idle time. Every

@@ -1508,7 +1508,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
-    crate::ai::write_record_state(w, &a.ai);
+    crate::ai::write_world_record_state(w, &a.ai);
     write_form_set(w, &a.perks);
     for flag in [
         a.alerted,

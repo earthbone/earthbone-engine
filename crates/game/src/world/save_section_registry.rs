@@ -31,6 +31,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
+    Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
 ];
 
@@ -61,6 +62,20 @@ fn read_voice_recovery(
             ));
         }
         state.voice_recovery_until = Some(until);
+    }
+    Ok(())
+}
+
+fn write_sit_procedure(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.bool(state.ai.procedure == crate::ai::Procedure::Sit);
+}
+
+fn read_sit_procedure(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        state.ai.procedure = crate::ai::Procedure::Sit;
     }
     Ok(())
 }

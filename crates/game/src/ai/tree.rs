@@ -132,6 +132,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
+        Some("sit") => Procedure::Sit,
         Some("patrol") => Procedure::Patrol,
         Some("wait") => Procedure::Wait {
             stop_movement: false,
