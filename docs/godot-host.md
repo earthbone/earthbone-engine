@@ -23,8 +23,39 @@ The estimate does not yet select a live WTHR from climate or apply WTHR
 ambient, sunlight and image-space sunlight scale. The current sound path
 covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
-ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
-interactive Godot sight run or frame-cost measurement is recorded here.
+ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
+
+`godot/cmb_32_live_detection_test.gd` samples live resident actors in the
+Bannered Mare, adds a PhysicsServer box between the nearest pair, and checks
+that the shared detection value drops. It then emits an actor-owned sound and
+checks the value rises. The same pair's awareness is checked after an unlocked
+door changes cells. The test reports actor and ordered-pair counts, elapsed
+time for 40 sync and detection samples, time per pair sample, and scene-node
+count before and after. Actor body sync and those samples add zero scene nodes.
+Run it with installed data and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script cmb_32_live_detection_test.gd
+```
+
+On Godot 4.7.2 with installed data, the Bannered Mare run sampled 7 actors and
+42 ordered pairs. A wall changed one shared detection value from 33.497 to
+-12.832, then an actor sound raised it to 38.581. The same observer and target
+FormIDs retained awareness after the door changed cells. Forty sync and
+observation samples took 19,580 microseconds, or 11.655 microseconds per pair
+sample. The active scene had a node delta of zero through sampling and the
+door transition. This times the shared host path in that loaded scene. It
+does not estimate the memory or frame cost of a hypothetical node-per-actor
+design.
+Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID;
+the CMB-32 query maps that RID to the actor FormID or treats it as an
+obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
+150 range. Local `LIGH` and `CELL` layouts define the light radius, flags,
+fade and ambient/inheritance fields used by the current estimate. RAID's
+lighting note says detection lighting differs from screen brightness, but it
+does not define the world-light calculation. The implementation therefore
+keeps the estimate separate from rendered brightness and does not infer
+outdoor WTHR lighting.
 
 ### Character race and sex selection, UI-07
 
