@@ -21,6 +21,7 @@ const RE_FORM: &str = r"// Generated from crates/commonlib-shim/src/form.rs. Do 
 namespace RE {
 struct FormId {
     std::uint32_t value;
+    friend constexpr bool operator==(FormId, FormId) = default;
     static constexpr std::uint32_t LIGHT_PREFIX = 0xFE;
     static constexpr std::uint32_t LIGHT_LOCAL_MASK = 0x0FFF;
     std::optional<std::uint8_t> slot() const noexcept {
@@ -398,6 +399,43 @@ public:
 } // namespace RE
 "#;
 
+const RE_EXTRA_DATA: &str = r#"// Generated from crates/commonlib-shim/src/extra.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include <cstdint>
+#include <optional>
+
+namespace RE {
+enum class ExtraDataType : std::uint8_t { LeveledCreature = 0x2D, Hotkey = 0x49, Enchantment = 0x9B };
+struct ExtraEnchantment { FormId enchantment; std::uint16_t charge; std::optional<bool> remove_on_unequip; friend bool operator==(const ExtraEnchantment&, const ExtraEnchantment&) = default; };
+struct ExtraHotkey { std::optional<std::uint8_t> slot; friend bool operator==(const ExtraHotkey&, const ExtraHotkey&) = default; };
+struct ExtraLeveledCreature { FormId original_base; FormId template_base; friend bool operator==(const ExtraLeveledCreature&, const ExtraLeveledCreature&) = default; };
+
+class ExtraDataSource {
+public:
+    virtual ~ExtraDataSource() = default;
+    virtual bool has_type(ExtraDataType kind) const = 0;
+    virtual std::optional<ExtraEnchantment> enchantment() const = 0;
+    virtual std::optional<ExtraHotkey> hotkey() const = 0;
+    virtual std::optional<ExtraLeveledCreature> leveled_creature() const = 0;
+};
+class ExtraDataList {
+public:
+    explicit ExtraDataList(const ExtraDataSource& source) : source_(source) {}
+    bool has_type(ExtraDataType kind) const { return source_.has_type(kind); }
+    std::optional<ExtraEnchantment> enchantment() const { return source_.enchantment(); }
+    std::optional<ExtraHotkey> hotkey() const { return source_.hotkey(); }
+    std::optional<ExtraLeveledCreature> leveled_creature() const { return source_.leveled_creature(); }
+    static constexpr const char* ADD_UNSUPPORTED = "ExtraDataList::Add mutates engine-owned list state";
+    static constexpr const char* REMOVE_UNSUPPORTED = "ExtraDataList::Remove mutates engine-owned list state";
+    static constexpr const char* REMOVE_BY_TYPE_UNSUPPORTED = "ExtraDataList::RemoveByType mutates engine-owned list state";
+    static constexpr const char* SET_ENCHANTMENT_UNSUPPORTED = "ExtraDataList::SetEnchantment mutates engine-owned list state";
+ private:
+     const ExtraDataSource& source_;
+};
+} // namespace RE
+"#;
+
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
 #include <cstddef>
@@ -586,10 +624,11 @@ const FILES: &[(&str, &str)] = &[
     ("RE/Reference.h", RE_REFERENCE),
     ("RE/World.h", RE_WORLD),
     ("RE/Math.h", RE_MATH),
+    ("RE/ExtraData.h", RE_EXTRA_DATA),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Math.h\"\n#include \"RE/World.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Math.h\"\n#include \"RE/World.h\"\n#include \"RE/ExtraData.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/Plugin.h", SKSE_PLUGIN),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n"),

@@ -4,6 +4,7 @@
 #include "RE/Reference.h"
 #include "RE/Math.h"
 #include "RE/World.h"
+#include "RE/ExtraData.h"
 #include "RE/Events.h"
 #include "RE/Utility.h"
 #include "RE/VirtualMachine.h"
