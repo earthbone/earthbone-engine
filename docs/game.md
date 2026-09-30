@@ -49,7 +49,11 @@ week 6 to 9 gate.
   sources, validation and combat target selection.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
   shared by every observer of one target. `World::evaluate_detection` checks a
-  whole batch of observations before it changes any pool. See
+  whole batch of observations before it changes any pool. Active MGEF Disguise
+  effects add their magnitude to the target's effective Sneak value for this
+  calculation. The bonus ends when the active effect is dispelled or expires.
+  xEdit and UESP identify Disguise as archetype 44 and specify no extra
+  archetype data. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
 - `ObjectReference.CreateDetectionEvent` queues one sound at the calling

@@ -172,8 +172,24 @@ impl World {
         let blindness = observer.values.get("blindness").current();
         let fighting = observer.combat_target;
         let magic_invisible = self.is_invisible(o.target);
+        let mut disguise = 0.0;
+        for effect in self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == o.target)
+        {
+            let definition = self
+                .magic_effect(effect.effect)
+                .map_err(|_| Error::Effect(effect.effect))?;
+            if definition.data.archetype == 44 {
+                disguise += effect.magnitude;
+            }
+        }
+        if !disguise.is_finite() {
+            return Err(Error::Number);
+        }
         let target = self.actor(o.target).ok_or(Error::Actor(o.target))?;
-        let target_sneak = target.values.get("sneak").current();
+        let target_sneak = target.values.get("sneak").current() + disguise;
         let muffle = if target.values.contains("movementnoisemult") {
             target.values.get("movementnoisemult").current()
         } else {
