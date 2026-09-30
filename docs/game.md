@@ -2175,7 +2175,7 @@ queued during `OnEffectFinish`. VM storage checks are described in
 The four `mag_69_` predicate tests check true and false quest and reference
 variables through both spell natives. The ambiguous-variable case confirms a
 failed predicate applies no effect and queues no callbacks. The CK Papyrus
-introduction describes scripts as variables read by engine functions; the
+introduction describes scripts as variables read by engine functions. The
 conditional flag and ambiguity rules come from the local VM contract.
 
 Recover modifiers change the target once and reverse their own delta at the end.

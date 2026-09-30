@@ -3390,12 +3390,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The EffectShader and music systems are not implemented yet.
-        ("EffectShader", "Play"),
-        ("EffectShader", "Stop"),
-        // The effect, music and particle systems are not implemented yet.
-        ("VisualEffect", "Play"),
-        ("VisualEffect", "Stop"),
+        // Music and particle systems are not implemented yet.
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
