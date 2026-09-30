@@ -372,6 +372,8 @@ impl World {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
             },
             &node.conditions,
         )

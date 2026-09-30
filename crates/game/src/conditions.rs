@@ -28,6 +28,10 @@ pub struct Context {
     pub alchemy_making_poison: Option<bool>,
     /// Effect currently tested by an alchemy perk entry point.
     pub alchemy_effect: Option<GlobalFormId>,
+    /// Magic item whose spell or effect conditions are currently evaluated.
+    pub magic_item: Option<GlobalFormId>,
+    /// Dual-cast state is supplied by a cast driver when it is available.
+    pub dual_cast: Option<bool>,
 }
 
 /// A condition could not be evaluated. It must not be treated as true.
@@ -59,6 +63,8 @@ pub enum Error {
     Contract(u16),
     #[error("condition function {0} requires alchemy entry-point context")]
     AlchemyContext(u16),
+    #[error("condition function {0} requires magic context")]
+    MagicContext(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -162,6 +168,13 @@ pub fn supports_function(function: u16) -> bool {
             | 500
             | 501
             | 570
+            | 693
+            | 696
+            | 699
+            | 706
+            | 713
+            | 721
+            | 724
     )
 }
 
@@ -619,6 +632,81 @@ fn function_value(
         723 => {
             no_parameter(c)?;
             item_health_percent(world, subject)?
+        }
+        681 => return Err(Error::Function(681)),
+        693 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            boolean(world.has_keyword(item, keyword))
+        }
+        696 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            if actor_values::name(raw).is_none() {
+                return Err(Error::ActorValue(raw));
+            }
+            let effects = match world.tag_of(item) {
+                Some(Tag(tag)) if tag == *b"SPEL" => {
+                    world.spell(item).map_err(|_| Error::Form(item))?.effects
+                }
+                Some(Tag(tag)) if tag == *b"ALCH" => {
+                    world
+                        .ingestible(item)
+                        .map_err(|_| Error::Form(item))?
+                        .effects
+                }
+                _ => return Err(Error::Form(item)),
+            };
+            let mut matches = false;
+            for effect in effects {
+                let effect = world
+                    .resolve_from(item, effect.base_effect)
+                    .ok_or(Error::Form(item))?;
+                let definition = world
+                    .magic_effect(effect)
+                    .map_err(|_| Error::Form(effect))?;
+                if i32::try_from(raw).ok() == Some(definition.data.magic_skill) {
+                    matches = true;
+                    break;
+                }
+            }
+            boolean(matches)
+        }
+        699 => {
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            boolean(world.has_magic_effect_with_keyword(subject, keyword))
+        }
+        706 => {
+            let hand = match raw {
+                0 => crate::combat::Hand::Left,
+                1 => crate::combat::Hand::Right,
+                value => return Err(Error::Parameter(c.function, value)),
+            };
+            boolean(
+                world
+                    .has_bound_weapon_equipped(subject, hand)
+                    .map_err(|_| Error::Form(subject))?,
+            )
+        }
+        713 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            let perk = resolve(world, context.owner, raw, Some(*b"PERK"))?;
+            let spell = world.spell(item).map_err(|_| Error::Form(item))?;
+            let casting_perk = if spell.data.half_cost_perk == 0 {
+                None
+            } else {
+                world.resolve_from(item, spell.data.half_cost_perk)
+            };
+            boolean(casting_perk == Some(perk))
+        }
+        721 => {
+            no_parameter(c)?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let ingestible = world.ingestible(base).map_err(|_| Error::Form(base))?;
+            boolean(ingestible.data.flags & (1 << 17) != 0)
+        }
+        724 => {
+            no_parameter(c)?;
+            boolean(context.dual_cast.ok_or(Error::MagicContext(c.function))?)
         }
         other => return Err(Error::Function(other)),
     })

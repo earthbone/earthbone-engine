@@ -1501,11 +1501,11 @@ Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
 182, 214, 223, 264, 277, 289, 359, 378, 448, 500, 501, 543, 560, 570,
-629, 630 and 659. Functions 101 (`IsWeaponMagicOut`) and 552
+629, 630, 659, 693, 696, 699, 706, 713, 721 and 724. Functions 101
+(`IsWeaponMagicOut`) and 552
 (`GetSpellUsageNum`) return typed contract diagnostics because the local xEdit
 and CK sources name their parameters but do not define a usable runtime result.
-This is a bounded set,
-not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+This is a bounded set, not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -2162,6 +2162,22 @@ and Papyrus casts log that error. This includes aimed and location delivery,
 concentration, taper, perk adjustments, equip abilities and other archetypes.
 Area selection is covered separately below, under Area
 targeting, MAG-06.
+
+#### Bound Weapon archetype, MAG-38
+
+Archetype 17 resolves the MGEF Associated Item through the effect's owning
+plugin and requires a WEAP record marked with the WEAP Flags2 Bound Weapon bit.
+It grants one inventory copy to the target and selects that item in the right
+hand. Expiry and dispel clear its hand and equipped entries and remove one copy
+through the normal inventory event path. When another copy remains, its hand
+selection remains valid. Active applications and inventories already persist,
+so the associated weapon is resolved again from the winning MGEF after load.
+The acceptance tests cover both final-copy cleanup and preserving an existing
+copy when the temporary copy expires, plus a five-master link survey. xEdit's
+`wbDefinitionsTES5.pas` defines the MGEF associated-item types, archetype 17
+and the WEAP flag. CommonLib's `EffectArchetypes.h` confirms the numeric
+archetype name. The local CK corpus does not contain its Magic Effect page.
+
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching
@@ -2903,6 +2919,35 @@ SKSE name a FormList argument for 409 without defining what it matches. The
 describes 530 as a placebo vanilla command fixed by that mod. These queries
 remain unsupported pending a Skyrim contract. They are not counted as
 implemented predicates.
+
+## Magic condition batch AI-61
+
+The gameplay condition evaluator checks spell keywords (693) against the
+current spell's KWDA, spell skills (696) against each linked MGEF's magic-skill
+actor value, and SpellHasCastingPerk (713) against the SPEL half-cost perk.
+These three functions require the active spell context supplied while SPEL
+effect and MGEF conditions run. HasMagicEffectKeyword (699) checks live active
+effects on the subject. HasBoundWeaponEquipped (706) uses Casting Source 0 for
+the left hand and 1 for the right, then checks the equipped WEAP bound flag.
+IsPoison (721) reads the subject reference's ALCH base and its poison flag.
+EffectWasDualCast (724) reads optional caller-supplied cast context. Without
+that value it returns a typed magic-context error. The direct scripted cast
+path supplies false because it has no hand-cast dual-cast input. Function 681
+remains unsupported because the local xEdit and UESP tables identify its name
+and Actor Value parameter but the CK dump has no condition-function semantics
+for its skill-advancement entry point.
+
+Local xEdit `Core/wbDefinitionsTES5.pas` establishes the function IDs and
+parameter types. UESP `Raw_Function_Data.wikitext` identifies IsPoison as the
+poison-potion query. The CK `Magic_Effect` page supplies the shared spell/MGEF
+condition context and swapped subject/target behavior. The CK conditions page
+is absent from the local dump, and the available sources do not define an
+original-runtime dual-cast call path. No state is saved or duplicated.
+
+`ai_61_magic_conditions.rs` covers positive, negative and invalid-context
+cases, including unsupported diagnostics for 681 and missing dual-cast state
+for 724. The fixtures use synthetic records. No installed-record survey is
+claimed.
 
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the

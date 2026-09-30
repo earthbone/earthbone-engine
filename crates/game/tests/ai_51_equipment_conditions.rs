@@ -107,6 +107,8 @@ fn evaluate(
             tempering_item: item,
             alchemy_making_poison: None,
             alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         condition,
     )

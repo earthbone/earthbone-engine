@@ -360,6 +360,8 @@ fn entry_conditions(
             tempering_item: context.tempering_item,
             alchemy_making_poison: context.alchemy_making_poison,
             alchemy_effect: context.alchemy_effect,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -456,6 +458,8 @@ impl Game {
             tempering_item: None,
             alchemy_making_poison: None,
             alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

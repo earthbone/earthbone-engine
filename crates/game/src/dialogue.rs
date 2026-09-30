@@ -772,6 +772,8 @@ impl Game {
             tempering_item: None,
             alchemy_making_poison: None,
             alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &quest_conditions)? {
             return Ok(Candidates {
@@ -862,6 +864,8 @@ impl Game {
             tempering_item: None,
             alchemy_making_poison: None,
             alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);

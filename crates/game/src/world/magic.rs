@@ -13,6 +13,7 @@ use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
+use crate::combat::Hand;
 use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
@@ -31,6 +32,7 @@ const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
+const WEAPON_BOUND: u32 = 1 << 13;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const MAX_RESISTANCE: f32 = 85.0;
@@ -95,6 +97,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    bound_weapon: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -392,6 +395,8 @@ impl World {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -690,6 +695,7 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                bound_weapon: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -1166,6 +1172,8 @@ impl World {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                magic_item: Some(spell),
+                dual_cast: Some(false),
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -1183,7 +1191,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 17 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -1222,6 +1230,23 @@ impl World {
                     return Err(MagicError::Unsupported("summon actor not summonable"));
                 }
                 Some(base)
+            } else {
+                None
+            };
+            let bound_weapon = if data.archetype == 17 {
+                let weapon = self
+                    .resolve_from(effect, data.associated_item)
+                    .filter(|item| self.tag_of(*item) == Some(super::T(b"WEAP")))
+                    .ok_or(MagicError::Unsupported("bound weapon item"))?;
+                let (_, weapon_data) = self
+                    .combat_weapon_source(weapon)
+                    .map_err(|_| MagicError::Unsupported("bound weapon record"))?;
+                if weapon_data.flags2 & WEAPON_BOUND == 0 {
+                    return Err(MagicError::Unsupported("weapon is not marked bound"));
+                }
+                self.validate_hand_weapon_grant(target, Hand::Right, weapon)
+                    .map_err(|_| MagicError::Unsupported("bound weapon equipment"))?;
+                Some(weapon)
             } else {
                 None
             };
@@ -1307,6 +1332,7 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    bound_weapon,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -1332,6 +1358,26 @@ impl World {
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         for mut prepared in prepared {
+            if let Some(weapon) = prepared.bound_weapon {
+                let inventory = &mut self
+                    .reference(prepared.effect.target)
+                    .ok_or(MagicError::Target)?
+                    .inventory;
+                inventory
+                    .add(weapon, 1)
+                    .map_err(|_| MagicError::Unsupported("bound weapon inventory"))?;
+                if self
+                    .equip_hand_weapon(prepared.effect.target, Hand::Right, weapon)
+                    .is_err()
+                {
+                    self.reference(prepared.effect.target)
+                        .ok_or(MagicError::Target)?
+                        .inventory
+                        .take(weapon, 1);
+                    return Err(MagicError::Unsupported("bound weapon equipment"));
+                }
+                self.inventory_event(prepared.effect.target, weapon, 1, None, alloc);
+            }
             if let Some(base) = prepared.summon_base {
                 let summon = self.place_at(base, prepared.effect.source, false);
                 let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);
@@ -1599,6 +1645,30 @@ impl World {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
                 reference.enabled = false;
+            }
+        }
+        if let Ok(definition) = self.magic_effect(effect.effect) {
+            if definition.data.archetype == 17 {
+                if let Some(weapon) = self
+                    .resolve_from(effect.effect, definition.data.associated_item)
+                    .filter(|item| self.tag_of(*item) == Some(super::T(b"WEAP")))
+                {
+                    if self.item_count(effect.target, weapon) <= 1 {
+                        if let Some(actor) = self.actor(effect.target) {
+                            if actor.left_weapon == Some(weapon) {
+                                actor.left_weapon = None;
+                            }
+                            if actor.right_weapon == Some(weapon) {
+                                actor.right_weapon = None;
+                            }
+                            actor.equipped.remove(&weapon);
+                        }
+                        if let Some(reference) = self.reference(effect.target) {
+                            reference.inventory.unequip(weapon);
+                        }
+                    }
+                    self.remove_item_notified(effect.target, weapon, 1, None, alloc);
+                }
             }
         }
         self.active_effects.remove(&id);
