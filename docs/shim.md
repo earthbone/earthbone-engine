@@ -50,7 +50,7 @@ and events next, everything below the line waits on a runtime that does not exis
 | Group | Types | SPID | BOS | PO3 | TDM | No header | Engine |
 |---|---|---|---|---|---|---|---|
 | Forms and record enums | 86 | 23 | 12 | 78 | 15 | 16 | Bound now. `soe-esm` carries every record as subrecords and six typed views, the rest of the typed views are per-record work. |
-| References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Planned, round 2 `game` crate. The runtime object model Papyrus sees is the same one these types describe. |
+| References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Bound through the `game` crate's shared world. The runtime object model Papyrus sees is the same one these types describe. |
 | Papyrus VM | 11 | 3 | 0 | 11 | 3 | 11 | Bound now. `soe-papyrus` has the native registry with the first-registered-wins rule, `StaticFunctionTag` and the stack and handle ids map onto its thread and object ids. |
 | Conditions | 4 | 0 | 0 | 4 | 2 | 3 | Planned. `soe-esm` keeps CTDA bytes, the evaluator over the 736 function ids lands with the `game` crate. |
 | Event sources, sinks and story events | 26 | 7 | 0 | 23 | 6 | 4 | Planned as typed channels in the `game` crate. Each `TES*Event` becomes an enum variant, the sink trait keeps the continue or stop control. |
@@ -68,6 +68,23 @@ surface includes `FormId` with the master and light index rules, the `Form` and 
 traits, reference and actor handles, the VM registry types with the collision rule, event
 sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse math types,
 and a `support` table that keeps the group counts aligned with this document.
+
+SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
+read-only snapshot of the states the runtime currently tracks. The
+`ActorEquipManager` surface equips and unequips through the live world. The
+`game` crate implements these traits over its shared `World`, including actor
+values, race, death state, inventory and equipment. Handles contain runtime
+FormIDs and resolve against the load order on access. The current adapter
+supports Health, Magicka and Stamina actor values. Unsupported actor handles,
+forms and equipment records return errors. Address patches, call detours,
+vtable overrides and trampolines are explicit `HookError` variants with no
+implementation path.
+
+The declarations follow the names and responsibilities in the local
+CommonLibSSE-NG-alandtse headers `RE/A/Actor.h`,
+`RE/A/ActorEquipManager.h`, `RE/A/ActorState.h` and
+`RE/B/BSPointerHandle.h`. The shim keeps its own safe Rust API and does not
+copy those headers' implementation details.
 
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files

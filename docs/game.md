@@ -62,6 +62,11 @@ week 6 to 9 gate.
   aliases with forced references, and each objective target's alias, lock
   marker flag and CTDA conditions, plus local or external alias dependencies.
 - `natives`: the base game's natives, closed over the shared world.
+- `commonlib`: the SHM-04 CommonLib actor adapter. It resolves runtime
+  FormIDs into the load order and reads or changes actor values, inventory,
+  death flags, race and equipment through the same `World` state Papyrus
+  uses. Its equip manager reports invalid handles and unsupported equipment
+  as errors.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
