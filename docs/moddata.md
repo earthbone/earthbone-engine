@@ -224,17 +224,27 @@ resulting keywords, distributions and swaps for engine replay.
 ### What is applied and what is only carried
 
 Spells, levelled spells, perks, outfits, sleep outfits, factions, packages and
-shouts reach the actor. SPID package field 5 is a zero-based insertion position
-in the actor base's `PKID` list. The actor retains those entries and positions
-in a named actor save section, and `ai::candidates` inserts them into the base
-package list before schedule and condition evaluation. Shouts join the actor's
-learned shout set, where repeated rules for the same form add only one entry.
-That set is already part of the engine save format. Items reach the inventory.
-A `Skin` distribution is selected by actor
-appearance assembly before the NPC's direct skin and race fallback. It retains
-the resolved `ARMO` identity and uses that record's armor addons. Bare forms
-remain resolved, held in `mod_data` and counted in the report, but are not
-connected to actor behavior.
+shouts reach actor state. SPID package field 5 is a zero-based insertion
+position in the actor base's `PKID` list. The actor retains those entries and
+positions in a named actor save section, and `ai::candidates` inserts them into
+the base package list before schedule and condition evaluation. Repeated shout
+rules for one form add it once to the learned shout set, which is included in
+the engine save format. Items reach the inventory. SPID `Skin` rules update
+the NPC base's `WNAM` override and actor appearance assembly retains the
+resolved `ARMO` identity and uses that record's armor addons. Generic `Form`
+rules infer the supported type
+from the resolved record signature and use that type's consumer. Following
+SPID's schema, generic inference treats armor as `Item` and outfits as
+`Outfit`, since `Skin` and `SleepOutfit` cannot be inferred from signatures.
+Package rules have a runtime consumer. Generic forms with an unsupported
+signature are skipped and counted in `skipped_unsupported_consumer`. Explicit
+types with a signature outside SPID's declared schema are rejected through the
+same counter.
+
+The type list, type inference limits and generic signature groups come from
+Spell Perk Item Distributor's `resources/SPID Complete Reference.txt` and
+`SPID/src/LookupConfigs.h`. Shout state semantics follow the CK `AddShout - Actor`
+page. NPC skin distribution uses the existing `WNAM` override path.
 
 A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the
@@ -257,5 +267,5 @@ every fixture is still authored.
 | Test suite | Count | What it covers |
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
-| `crates/game/tests/moddata_apply.rs` | 12 | Each format through the game's own query paths, level and trait filter matches and misses, the actor-only skip, chance, determinism, and the gated scan |
+| `crates/game/tests/moddata_apply.rs` | 27 | Each format through the game's own query paths, level and trait filter matches and misses, the actor-only skip, chance, deterministic actor rules, consumer validation and the gated scan |
 | `crates/game/tests/mod_08_distributed_shouts.rs` | 2 | A duplicate shout distribution enters learned state once and survives whole-game save/load |

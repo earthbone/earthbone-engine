@@ -113,6 +113,8 @@ pub struct ActorDistribution {
     pub base: GlobalFormId,
     /// Resolved form handed to the actor.
     pub what: GlobalFormId,
+    /// Consumer selected from the explicit type or resolved record signature.
+    pub record_type: spid::RecordType,
     /// Parsed rule, including its per-entry chance seed.
     pub distribution: spid::Distribution,
     /// Resolved item count, at least one.
@@ -152,6 +154,9 @@ pub struct ModDataReport {
     pub skipped_unsupported_filter: usize,
     /// Rules skipped because their chance mode is unsupported.
     pub skipped_unsupported_chance: usize,
+    /// Rules whose record type has no runtime consumer, or whose generic
+    /// `Form` signature cannot be inferred to a supported type.
+    pub skipped_unsupported_consumer: usize,
     /// Lines the parser could not read, reported by the parser itself.
     pub unreadable_lines: usize,
 }
@@ -225,7 +230,7 @@ pub(crate) fn for_actor(
             continue;
         }
         result.push(Distributed {
-            record_type: rule.distribution.record_type,
+            record_type: rule.record_type,
             what: rule.what,
             count: rule.count,
             package_index: rule.package_index,
@@ -358,6 +363,59 @@ fn matches_spid_actor_filters(world: &World, base: GlobalFormId, d: &spid::Distr
 
 fn has_actor_only_filter(d: &spid::Distribution) -> bool {
     d.traits.starts_dead.is_some()
+}
+
+/// Resolve SPID's generic `Form` type from the winning record signature.
+/// `Skin` and `SleepOutfit` cannot be inferred from signatures, as SPID's
+/// reference documents, because their signatures overlap `Item` and `Outfit`.
+fn inferred_record_type(world: &World, form: GlobalFormId) -> Option<spid::RecordType> {
+    let tag = world.tag_of(form)?;
+    Some(match &tag.0 {
+        b"SPEL" => spid::RecordType::Spell,
+        b"LVSP" => spid::RecordType::LevSpell,
+        b"PERK" => spid::RecordType::Perk,
+        b"SHOU" => spid::RecordType::Shout,
+        b"PACK" | b"FLST" => spid::RecordType::Package,
+        b"OTFT" => spid::RecordType::Outfit,
+        b"KYWD" => spid::RecordType::Keyword,
+        b"FACT" => spid::RecordType::Faction,
+        b"ALCH" | b"AMMO" | b"ARMO" | b"BOOK" | b"INGR" | b"KEYM" | b"LVLI" | b"MISC" | b"SCRL"
+        | b"SLGM" | b"WEAP" => spid::RecordType::Item,
+        _ => return None,
+    })
+}
+
+/// Check that an explicit SPID type names a record signature in its schema.
+fn record_type_matches(world: &World, record_type: spid::RecordType, form: GlobalFormId) -> bool {
+    let Some(tag) = world.tag_of(form) else {
+        return false;
+    };
+    match record_type {
+        spid::RecordType::Form => inferred_record_type(world, form).is_some(),
+        spid::RecordType::Spell => matches!(&tag.0, b"SPEL" | b"LVSP"),
+        spid::RecordType::Perk => tag.0 == *b"PERK",
+        spid::RecordType::Item => matches!(
+            &tag.0,
+            b"ALCH"
+                | b"AMMO"
+                | b"ARMO"
+                | b"BOOK"
+                | b"INGR"
+                | b"KEYM"
+                | b"LVLI"
+                | b"MISC"
+                | b"SCRL"
+                | b"SLGM"
+                | b"WEAP"
+        ),
+        spid::RecordType::Shout => tag.0 == *b"SHOU",
+        spid::RecordType::LevSpell => tag.0 == *b"LVSP",
+        spid::RecordType::Package => matches!(&tag.0, b"PACK" | b"FLST"),
+        spid::RecordType::Outfit | spid::RecordType::SleepOutfit => tag.0 == *b"OTFT",
+        spid::RecordType::Keyword => tag.0 == *b"KYWD",
+        spid::RecordType::Faction => tag.0 == *b"FACT",
+        spid::RecordType::Skin => tag.0 == *b"ARMO",
+    }
 }
 
 /// Reads, resolves and applies every configuration file under `roots`, lowest
@@ -558,6 +616,18 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
         let Some(what) = d.form.resolve(world.order()) else {
             continue;
         };
+        let record_type = match d.record_type {
+            spid::RecordType::Form => inferred_record_type(world, what),
+            record_type => Some(record_type),
+        };
+        let Some(record_type) = record_type else {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        };
+        if !record_type_matches(world, record_type, what) {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        }
         if has_actor_only_filter(d) {
             report.skipped_unsupported_filter += 1;
             continue;
@@ -581,6 +651,7 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 world.mod_data.actor_rules.push(ActorDistribution {
                     base: *base,
                     what,
+                    record_type,
                     distribution: d.clone(),
                     count,
                     package_index,
@@ -591,13 +662,26 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 report.skipped_by_chance += 1;
                 continue;
             }
+            if record_type == spid::RecordType::Keyword {
+                if world
+                    .mod_data
+                    .added_keywords
+                    .entry(*base)
+                    .or_default()
+                    .insert(what)
+                {
+                    report.keywords_attached += 1;
+                }
+                report.distributions_applied += 1;
+                continue;
+            }
             world
                 .mod_data
                 .distributed
                 .entry(*base)
                 .or_default()
                 .push(Distributed {
-                    record_type: d.record_type,
+                    record_type,
                     what,
                     count,
                     package_index,

@@ -235,6 +235,9 @@ impl World {
                     .saturating_sub(self.mod_data.for_base(base).len());
                 self.mod_data.report.distributions_applied += actor_specific;
                 for d in distributions {
+                    if d.record_type == RecordType::Skin {
+                        self.set_actor_base_skin(base, Some(d.what)).ok()?;
+                    }
                     apply_distributed(&mut a, d);
                 }
             }
