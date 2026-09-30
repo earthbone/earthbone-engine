@@ -24,6 +24,7 @@
 //! SKYRIM_DATA=<Data> soe-bench all
 //! ```
 
+mod allocations;
 mod gates;
 mod stress;
 

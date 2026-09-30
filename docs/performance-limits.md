@@ -48,6 +48,13 @@ These are workload budgets, not claims about every machine.
 - CPU samples exclude backlog observation and final correctness checks.
   Their observer cost is reported separately as `telemetry_ms`. Script call
   creation and streaming allocation/release are inside the timed tick.
+- CPU samples count allocator allocation and reallocation requests while each
+  tick runs. Each window reports the highest per-tick request count as
+  `peak_allocations` and the highest bytes attributed to allocations and net
+  reallocation growth as `peak_allocation_bytes`. Setup, warm-up, sample
+  storage and telemetry are outside the region. The counts include
+  worker-thread requests in the child process. They are per-tick request
+  totals, not live heap size.
 - CPU windows default to 120 samples. Nearest-rank p99 uses actual samples.
   With fewer than 1,000 samples, p99.9 is effectively a maximum, not strong
   evidence about a rare population tail.
@@ -62,8 +69,9 @@ These are workload budgets, not claims about every machine.
   poll and CPU window snapshots. Short peaks can escape the parent poll.
   Godot's allocator and video-memory counters are also reported. They are
   not total process RSS or measurements of driver eviction.
-- No allocation counter is added. RSS growth can come from caches and retained
-  capacity as well as leaks. A breached growth budget is evidence to investigate.
+- RSS growth can come from caches and retained capacity as well as leaks. A
+  breached growth budget is evidence to investigate. Allocation request peaks
+  are a separate metric and do not measure live heap size.
 
 Soaks retain the same process and engine state. CPU streaming revisits a
 bounded route. Godot clears and rebuilds the same scene after each five-second
@@ -132,8 +140,9 @@ the gate, with a fresh `--out` directory.
 `tools/lint.sh` runs the runner's deterministic contract tests and Rust workload
 checks. `.github/workflows/performance.yml` separately runs optimized mixed
 and thousand-actor checks without proprietary assets. Its shared-runner limits
-are p99 100 ms, worst 500 ms and RSS 512 MiB. They catch large regressions and
-are not 60 Hz gameplay acceptance. Artifacts upload even when a check fails.
+are p99 100 ms, worst 500 ms, RSS 512 MiB and at most 100,000 allocation or
+reallocation requests in one tick. They catch large regressions and are not
+60 Hz gameplay acceptance. Artifacts upload even when a check fails.
 GPU sweeps and long soaks remain explicit machine-local runs.
 
 ## Sources and implementation choice
@@ -150,20 +159,25 @@ Read locally before implementation:
 - This repository's `TEST_PLAN.md`, `docs/performance.md`, and public engine
   fixtures in `crates/game/tests/packages.rs` and the host streaming test.
 
+The benchmark uses the `stats_alloc` system-allocator wrapper for scoped
+per-tick counts. It adds no transitive dependencies. The allocator statistics
+are process-wide, and each synthetic CPU run uses an isolated child process.
+
 The reference runners depend on their own scene and streaming APIs. This
 implementation reuses this engine's public APIs and existing builders instead
 of copying those runners. Python's standard library supplies process control
-and reports. No new Rust or Python dependencies are introduced.
+and reports. The Rust benchmark adds only the `stats_alloc` dependency.
 
 ## Remaining boundaries
 
 No integrated combat, dialogue, animation, physics and rendering stress is
 claimed. The mixed test combines currently available CPU systems. No large
-mod load order sweep, driver-level VRAM eviction tracing or allocation-count
-CI gate is supplied. The real exterior benchmark uses the current host's
-supported record types and rendering features. Missing host features remain
-missing from its measured cost. Recorded runs below distinguish what was
-executed from what the harness merely supports.
+mod load order sweep or driver-level VRAM eviction tracing is supplied. The
+allocation-count CI gate applies to the synthetic CPU mixed and actor checks,
+not the Godot renderer scenarios. The real exterior benchmark uses the current
+host's supported record types and rendering features. Missing host features
+remain missing from its measured cost. Recorded runs below distinguish what
+was executed from what the harness merely supports.
 
 ## Recorded validation, 2026-09-19
 

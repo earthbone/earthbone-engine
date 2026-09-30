@@ -58,6 +58,8 @@ def parser():
     cli.add_argument("--max-video-mib", type=positive, default=4096.0)
     cli.add_argument("--max-growth-mib", type=positive, default=64.0)
     cli.add_argument("--max-backlog", type=int, default=0)
+    cli.add_argument("--max-allocations", type=integer, default=100000,
+                     help="maximum allocation calls in any measured CPU tick")
     cli.add_argument("--timeout", type=positive, default=120.0, help="per-process watchdog, excluding requested soak duration")
     cli.add_argument("--duration", type=integer, default=600, help="soak wall seconds, at most 86400")
     cli.add_argument("--out", type=Path, required=True, help="new output directory, never overwritten")
@@ -75,7 +77,8 @@ def read_samples(path):
                 value = row.get(name)
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                     raise ValueError(f"missing or invalid {name}")
-            for name in ("backlog_peak", "rss_mib", "video_mib"):
+            for name in ("backlog_peak", "rss_mib", "video_mib", "peak_allocations",
+                         "peak_allocation_bytes"):
                 value = row.get(name)
                 if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
                     raise ValueError(f"invalid {name}")
@@ -97,6 +100,14 @@ def assess(samples, args):
             return ["missing backlog telemetry"], True
         if values and max(values) > limit:
             reasons.append(f"{metric}={max(values):.6f} exceeds {limit}")
+    allocation_peaks = [row["peak_allocations"] for row in samples if "peak_allocations" in row]
+    allocation_bytes = [row["peak_allocation_bytes"] for row in samples if "peak_allocation_bytes" in row]
+    if args.backend == "cpu" and len(allocation_peaks) != len(samples):
+        return ["missing allocation telemetry"], True
+    if args.backend == "cpu" and len(allocation_bytes) != len(samples):
+        return ["missing allocation byte telemetry"], True
+    if allocation_peaks and max(allocation_peaks) > args.max_allocations:
+        reasons.append(f"peak_allocations={max(allocation_peaks)} exceeds {args.max_allocations}")
     if args.backend == "godot" and any(row.get("draw_calls", 0) <= 0 or row.get("primitives", 0) <= 0 for row in samples):
         return ["scene produced no rendered work"], True
     if args.mode == "soak":
