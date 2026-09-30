@@ -150,6 +150,12 @@ impl World {
         }
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
+        if self.is_ethereal(hit.attacker) {
+            return Err(Error::Unsupported("ethereal action"));
+        }
+        if self.is_ethereal(hit.target) {
+            return Err(Error::Unsupported("ethereal target"));
+        }
         // Reading the target's actor base below may initialize it lazily, and
         // save_state persists that entry (CMB-36). Validate the equipped
         // weapon's quality extras first (CMB-10), a read-only pass, so a
