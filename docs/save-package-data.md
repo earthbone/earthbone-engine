@@ -143,6 +143,15 @@ for a plausible next extra, or copying an opaque body cannot supply that
 evidence. Executable disassembly is outside the method in [intent.md](intent.md).
 Runtime package restoration remains the separate SAV-13 contract.
 
+The SAV-12 follow-up on 2026-09-30 checked the public CommonLibSSE
+`TESCustomPackageData` declaration as well. Its `SaveGame` and `LoadGame`
+methods are empty stubs, so the runtime class layout still does not define a
+serialized Sequence body. `reference_contents.rs` now has a SAV-12 regression
+with a named Sequence followed by another extra. It verifies that the reader
+continues to reject the entry instead of accepting a guessed boundary. The
+Sequence payload and its successor remain undecoded, so the SAV-12 done check
+is still open.
+
 ## SAV-21 Stacked source audit, 2026-09-20
 
 SAV-21 is blocked on the serialized Stacked payload after its name. The
