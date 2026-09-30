@@ -427,6 +427,64 @@ fn mag_11_equip_item_drinks_a_potion_through_the_actor_native() {
 }
 
 #[test]
+fn mag_52_value_and_parts_changes_only_the_authored_value_on_its_target() {
+    let mut game = game(plugin(
+        effect(1 << 1, 31, 24, false),
+        vec![spell(SPELL, 0, false, 17.0, 5)],
+    ));
+
+    assert_eq!(cast(&mut game, SPELL, OTHER).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 117.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "magicka"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 100.0);
+    let active = game.world().active_effects().next().unwrap().clone();
+    assert_eq!(active.magnitude, 17.0);
+    assert_eq!(active.target, id(OTHER));
+    assert_eq!(
+        game.world()
+            .magic_effect(id(EFFECT))
+            .unwrap()
+            .data
+            .associated_item,
+        0
+    );
+}
+
+#[test]
+fn mag_52_value_and_parts_ingestible_changes_only_its_authored_value() {
+    let mut game = game(plugin(
+        effect(1 << 1, 31, 24, false),
+        vec![ingestible(POTION, 13.0, 5)],
+    ));
+    game.world_mut().add_item(id(ACTOR), id(POTION), 1);
+
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        })
+        .unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 113.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "magicka"), 100.0);
+    let active = game.world().active_effects().next().unwrap().clone();
+    assert_eq!(active.magnitude, 13.0);
+    assert_eq!(active.target, id(ACTOR));
+    assert_eq!(
+        game.world()
+            .magic_effect(id(EFFECT))
+            .unwrap()
+            .data
+            .associated_item,
+        0
+    );
+}
+
+#[test]
 fn mag_11_saved_timed_potion_keeps_its_effect_without_reconsuming_it() {
     let mut original = game(plugin(
         effect(1 << 1, 0, 24, false),

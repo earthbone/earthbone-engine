@@ -2076,7 +2076,8 @@ dependencies and the current direct-cast rejection boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Absorb, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
+of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts, and
+Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self, aimed actor and target-actor delivery are supported for constant
 and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
@@ -3477,6 +3478,21 @@ scene target, but the five Papyrus natives expose no target argument.
 Fallback target behavior, curve interpolation, unused channels and exact
 strength composition are not recovered contracts. They must not be inferred
 from similarly named Godot properties or a linear crossfade weight test.
+
+## Value and Parts archetype, MAG-52
+
+MGEF archetype 31 prepares the authored primary actor value as a reversible
+modifier on each selected actor, for spells and ingestibles. It does not change
+other actor values or actors outside the delivery target. The selected MGEF
+association field does not define a body-part target for this archetype.
+
+The local xEdit MGEF definition names archetype 31 and selects the `Unused`
+associated-item field for it. The local UESP `MGEF.wikitext` says the archetype
+uses PrimaryAV and is not used in game. The runtime follows that field contract
+for explicit records while keeping effect state in the shared actor-value
+system. The `mag_52_value_and_parts_changes_only_the_authored_value_on_its_target`
+and `mag_52_value_and_parts_ingestible_changes_only_its_authored_value` tests
+check the independent values and target actors for spell and ingestible paths.
 
 ## Dispel archetype, MAG-05
 
