@@ -3462,6 +3462,27 @@ results, actor and non-actor contexts, both invalid parameter slots and the
 three unavailable animation queries. SOEW version 36 stores the swimming,
 running and mount flags, with older saves loading them as false.
 
+## Legacy condition batch AI-53
+
+IsPS3 (520) has no parameters and returns false in this Skyrim Open Engine
+runtime, which does not run on PlayStation 3. The evaluator rejects nonzero
+parameter slots and invalid run-on context. Both the gameplay condition and
+package evaluators use this result.
+
+The VATS area-free functions 516 to 518 and target-visible functions 522 to
+525 remain unsupported. xEdit identifies their first parameter as a placed
+reference. The local CK function reference does not specify the result
+semantics, and this runtime has no VATS selection or targeting state to query.
+Gameplay condition evaluation returns `Error::Function` for these functions.
+Package conditions fail closed and increment the existing unsupported-function
+diagnostic.
+
+Sources are xEdit `wbDefinitionsTES5.pas` and the CK wiki's
+`Function_Reference.wikitext`. Mutagen's local `ConditionDatas.xml` confirms
+which VATS condition fields store a reference and marks the other fields as
+unused. The `ai_53_legacy_conditions` tests cover platform comparisons,
+parameter and run-on validation, both evaluator paths and VATS diagnostics.
+
 ### Sequential package validation
 
 AI-02 has synthetic tests for child order, nested and root repeats, early
