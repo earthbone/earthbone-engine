@@ -21,6 +21,8 @@ pub enum Root {
     Blender { parametric: bool },
     /// A manual selector with its index bound to `iState`.
     Selector,
+    /// A modifier generator whose deactivation modifier is bound to `Enabled`.
+    Deactivate,
 }
 
 /// Both clips loop at speed 1, the walk's speed is bound to `Speed`.
@@ -50,13 +52,14 @@ pub fn graph_with_masks(
     b.ptr(graph, 136, data);
     b.ptr(data, 120, strings);
     b.ptr(data, 112, values);
-    b.array_strings(strings, 16, &["idleStart", "walkStart"]);
-    b.array_strings(strings, 48, &["Speed", "iState"]);
-    let infos = b.array_structs(data, 32, 6, 2);
+    b.array_strings(strings, 16, &["idleStart", "walkStart", "deactivated"]);
+    b.array_strings(strings, 48, &["Speed", "iState", "Enabled"]);
+    let infos = b.array_structs(data, 32, 6, 3);
     b.set_i8(infos, 4, 4);
     b.set_i8(infos + 6, 4, 3);
-    b.array_u32(data, 64, &[0, 0]);
-    b.array_i32(values, 16, &[1.0f32.to_bits() as i32, 0]);
+    b.set_i8(infos + 12, 4, 1);
+    b.array_u32(data, 64, &[0, 0, 0]);
+    b.array_i32(values, 16, &[1.0f32.to_bits() as i32, 0, 1]);
 
     let idle = b.object("hkbClipGenerator", 272);
     b.string(idle, 56, "IdleClip");
@@ -175,6 +178,24 @@ pub fn graph_with_masks(
             b.string(bind, 0, "selectedGeneratorIndex");
             b.set_i32(bind, 28, 1);
             b.set_i32(bs, 32, -1);
+        }
+        Root::Deactivate => {
+            let modifier_generator = b.object("hkbModifierGenerator", 88);
+            let event_modifier = b.object("BSEventOnDeactivateModifier", 96);
+            b.ptr(graph, 128, modifier_generator);
+            b.string(modifier_generator, 56, "DeactivateRoot");
+            b.ptr(modifier_generator, 72, event_modifier);
+            b.ptr(modifier_generator, 80, idle);
+            b.string(event_modifier, 56, "DeactivateEvent");
+            b.set_bool(event_modifier, 72, true);
+            b.set_i32(event_modifier, 80, 2);
+
+            let bindings = b.object("hkbVariableBindingSet", 40);
+            b.ptr(event_modifier, 16, bindings);
+            let binding = b.array_structs(bindings, 16, 40, 1);
+            b.string(binding, 0, "enable");
+            b.set_i32(binding, 28, 2);
+            b.set_i32(bindings, 32, -1);
         }
     }
     b.finish()

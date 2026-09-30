@@ -20,6 +20,63 @@ use super::{
 use crate::clock::GameClock;
 use crate::combat::Difficulty;
 
+pub(crate) fn write_script_calls(world: &World, writer: &mut Writer, pool: &mut ArrayPool) {
+    let calls: Vec<_> = world
+        .pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, pending)| match pending {
+            Pending::CallScript {
+                object,
+                script,
+                function,
+                args,
+            } => Some((index, *object, script, function, args)),
+            _ => None,
+        })
+        .collect();
+    writer.len(calls.len());
+    for (index, object, script, function, args) in calls {
+        writer.len(index);
+        writer.u64(object.0);
+        writer.str(script);
+        writer.str(function);
+        writer.len(args.len());
+        for value in args {
+            pool.write_value(writer, value);
+        }
+    }
+}
+
+pub(crate) fn read_script_calls(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    for _ in 0..count {
+        let index = reader.len()?;
+        let object = ObjectId(reader.u64()?);
+        let script = reader.str()?;
+        let function = reader.str()?;
+        let count = reader.len()?;
+        let mut args = Vec::with_capacity(count);
+        for _ in 0..count {
+            args.push(table.read_value(reader)?);
+        }
+        world.pending.insert(
+            index.min(world.pending.len()),
+            Pending::CallScript {
+                object,
+                script,
+                function,
+                args,
+            },
+        );
+    }
+    Ok(())
+}
+
 /// Magic and version for [`World::save_state`]. Embedded as a length-prefixed
 /// block inside the whole-game save `Game::save_state` writes, self-describing
 /// on its own so a truncated or foreign blob is caught here too.
@@ -61,14 +118,22 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days and learned magic effects.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-/// Version 36 retains the active phase and completed action slots for each scene.
-/// Version 37 appends named sections at world, actor and reference levels,
-/// including saved reference persistence and world record flags. This is the
-/// last version this constant will reach. New state goes into a named section
-/// registered in `save_section_registry` at the level that owns it. Version 37
-/// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
-/// pending quest lifecycle tasks and unresolved records. The native game save
-/// envelope records dependency provenance.
+/// Version 36 retains BOS record flags on instantiated references and the
+/// active phase and completed action slots for each scene.
+/// Version 37 appends named section tables (`save_sections`) to the world,
+/// actor and reference records, after each record's saved fields. Versions
+/// before 37 have no section tables. This is the last version this constant
+/// will reach. New saved state goes into a section registered in
+/// `save_section_registry` at its owning level.
+/// World sections include SAV-53 base-object fields, SAV-42 static-object
+/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
+/// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
+/// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
+/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
+/// records and native game-save dependency provenance. AI-88 retains each
+/// actor's reserved furniture marker, and AI-36 retains the UseWeapon
+/// package procedure. Reference sections retain persistence, world record
+/// flags and the current destruction stage through CMB-37.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -137,13 +202,13 @@ impl World {
         body.len(self.refs.len());
         for (id, s) in self.refs.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
-            write_ref_state(&mut body, s);
+            write_ref_state_with_pool(&mut body, s, &mut pool);
         }
 
         body.len(self.actors.len());
         for (id, a) in self.actors.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
-            write_actor_state(&mut body, a);
+            write_actor_state_with_pool(&mut body, a, &mut pool);
         }
 
         body.len(self.quests.len());
@@ -176,8 +241,16 @@ impl World {
         body.f64(self.clock.game_days);
         body.f64(self.clock.timescale);
 
-        body.len(self.pending.len());
+        body.len(
+            self.pending
+                .iter()
+                .filter(|pending| !matches!(pending, Pending::CallScript { .. }))
+                .count(),
+        );
         for p in &self.pending {
+            if matches!(p, Pending::CallScript { .. }) {
+                continue;
+            }
             match p {
                 Pending::DeferredDeath {
                     actor,
@@ -229,6 +302,7 @@ impl World {
                         pool.write_value(&mut body, v);
                     }
                 }
+                Pending::CallScript { .. } => unreachable!("script calls use the AI-16 section"),
             }
         }
 
@@ -434,7 +508,7 @@ impl World {
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
         self.write_detection(&mut body);
-        save_sections::write_sections(&mut body, self, WORLD_SECTIONS);
+        save_sections::write_sections_with_pool(&mut body, self, WORLD_SECTIONS, &mut pool);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -489,8 +563,9 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            let mut state = read_ref_state(&mut r, version)?;
+            let mut state = read_ref_state_with_table(&mut r, version, &table)?;
             if version < 37 {
+                state.record_flags = self.order.winner(id).map_or(0, |record| record.flags);
                 state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
                     self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
                 });
@@ -502,7 +577,7 @@ impl World {
         let mut actors = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            actors.insert(id, read_actor_state(&mut r, version)?);
+            actors.insert(id, read_actor_state_with_table(&mut r, version, &table)?);
         }
 
         let n = r.len()?;
@@ -642,6 +717,24 @@ impl World {
                     }
                     pending.push(Pending::Call {
                         object,
+                        function,
+                        args,
+                    });
+                }
+                // Read version-37 saves emitted by the AI-16 branch before
+                // its calls moved into the named world section.
+                5 if version >= 37 => {
+                    let object = ObjectId(r.u64()?);
+                    let script = r.str()?;
+                    let function = r.str()?;
+                    let k = r.len()?;
+                    let mut args = Vec::with_capacity(k);
+                    for _ in 0..k {
+                        args.push(table.read_value(&mut r)?);
+                    }
+                    pending.push(Pending::CallScript {
+                        object,
+                        script,
                         function,
                         args,
                     });
@@ -877,49 +970,13 @@ impl World {
                 return Err(VmError::State("dialogue cursor without actors".into()));
             }
         }
-        let (next_effect, active_effects) = if version == 5 || version >= 9 {
+        let (next_effect, mut active_effects) = if version == 5 || version >= 9 {
             super::magic::read_magic(&mut r, version >= 33)?
         } else {
             (1, BTreeMap::new())
         };
-        for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
-                || !actors.contains_key(&effect.target)
-            {
-                return Err(VmError::State(
-                    "active effect without object or actor".into(),
-                ));
-            }
-            let entry = self
-                .magic_item_effect(effect.spell, effect.effect_index)
-                .map_err(|e| VmError::State(e.to_string()))?;
-            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
-                return Err(VmError::State("active effect definition mismatch".into()));
-            }
-            let definition = self
-                .magic_effect(effect.effect)
-                .map_err(|e| VmError::State(e.to_string()))?;
-            if let Some(summoned) = effect.summoned {
-                let base = self
-                    .resolve_from(effect.effect, definition.data.associated_item)
-                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
-                let reference = refs.get(&summoned);
-                let owner = Some(effect.caster.unwrap_or(effect.target));
-                if definition.data.archetype != 18
-                    || base.is_none()
-                    || reference.is_none_or(|reference| {
-                        reference.base != base
-                            || reference.owner != owner
-                            || !reference.is_actor
-                            || reference.deleted
-                    })
-                {
-                    return Err(VmError::State("invalid summoned actor state".into()));
-                }
-            } else if definition.data.archetype == 18 && version >= 33 {
-                return Err(VmError::State("summon effect without actor".into()));
-            }
-        }
+        // Active effects are validated below after the version 37 world section
+        // table has restored section-owned state such as summoned actor ownership.
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {
                 if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
@@ -1079,15 +1136,19 @@ impl World {
         if version >= 37 {
             self.scene_runs.clear();
         }
+        let previous_pending = std::mem::replace(&mut self.pending, pending);
         let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let section_result = if version >= 37 {
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
+            save_sections::read_sections_with_table(&mut r, "world", self, WORLD_SECTIONS, &table)
         } else {
             Ok(())
         };
+        pending = std::mem::replace(&mut self.pending, previous_pending);
+        active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         quests = std::mem::replace(&mut self.quests, previous_quests);
@@ -1096,6 +1157,86 @@ impl World {
         self.brewed_potions = previous_brewed;
         section_result?;
         r.expect_end()?;
+        for (id, effect) in &active_effects {
+            let headless_ability = effect.source == effect.target
+                && effect.caster == Some(effect.target)
+                && self.spell(effect.spell).is_ok_and(|spell| {
+                    spell.data.spell_type == 4
+                        && spell.data.cast_type == 0
+                        && spell.data.delivery == 0
+                });
+            if (!objects.contains_key(&Handle::ActiveEffect(*id)) && !headless_ability)
+                || !actors.contains_key(&effect.target)
+            {
+                return Err(VmError::State(
+                    "active effect without object or actor".into(),
+                ));
+            }
+            let entry = self
+                .magic_item_effect(effect.spell, effect.effect_index)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
+                return Err(VmError::State("active effect definition mismatch".into()));
+            }
+            let definition = self
+                .magic_effect(effect.effect)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            if let Some(summoned) = effect.summoned {
+                let base = self.resolve_from(effect.effect, definition.data.associated_item);
+                let reference = refs.get(&summoned);
+                let owner = active_effects
+                    .values()
+                    .find(|command| command.target == summoned && command.restore_owner.is_some())
+                    .and_then(|command| {
+                        command.caster.or_else(|| {
+                            actors
+                                .contains_key(&command.source)
+                                .then_some(command.source)
+                        })
+                    })
+                    .or(Some(effect.caster.unwrap_or(effect.target)));
+                let invalid = match definition.data.archetype {
+                    18 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"NPC_")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base
+                                    || reference.owner != owner
+                                    || !reference.is_actor
+                                    || reference.deleted
+                            })
+                    }
+                    12 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"LIGH")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base || reference.is_actor || reference.deleted
+                            })
+                    }
+                    _ => true,
+                };
+                if invalid {
+                    return Err(VmError::State("invalid summoned actor state".into()));
+                }
+            } else if matches!(definition.data.archetype, 12 | 18) && version >= 33 {
+                return Err(VmError::State("spawn effect without reference".into()));
+            }
+            if effect.restore_owner.is_some() {
+                let summoned_by_target = active_effects
+                    .values()
+                    .any(|summon| summon.summoned == Some(effect.target));
+                let command_owner = effect
+                    .caster
+                    .or_else(|| actors.contains_key(&effect.source).then_some(effect.source));
+                if definition.data.archetype != 10
+                    || !summoned_by_target
+                    || command_owner.is_none()
+                    || refs
+                        .get(&effect.target)
+                        .is_none_or(|reference| reference.owner != command_owner)
+                {
+                    return Err(VmError::State("invalid commanded actor state".into()));
+                }
+            }
+        }
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
                 || {
@@ -1218,19 +1359,24 @@ impl World {
     }
 }
 
-pub(super) fn write_learned_enchantment_effects(world: &World, writer: &mut Writer) {
+pub(super) fn write_learned_enchantment_effects(
+    world: &World,
+    writer: &mut Writer,
+    _pool: &mut ArrayPool,
+) {
     write_form_set(writer, &world.learned_enchantment_effects);
 }
 
 pub(super) fn read_learned_enchantment_effects(
     world: &mut World,
     reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     world.learned_enchantment_effects = read_form_set(reader)?;
     Ok(())
 }
 
-pub(super) fn write_scene_runs(world: &World, writer: &mut Writer) {
+pub(super) fn write_scene_runs(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.len(world.scene_runs.len());
     for (id, run) in &world.scene_runs {
         write_form_id(writer, *id);
@@ -1245,6 +1391,7 @@ pub(super) fn write_scene_runs(world: &World, writer: &mut Writer) {
 pub(super) fn read_scene_runs(
     world: &mut World,
     reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     let count = reader.len()?;
     let mut runs = BTreeMap::new();
@@ -1384,7 +1531,12 @@ fn read_handle(r: &mut FormReader<'_, '_>) -> Result<Handle, VmError> {
     })
 }
 
+#[cfg(test)]
 fn write_ref_state(w: &mut Writer, s: &RefState) {
+    write_ref_state_with_pool(w, s, &mut ArrayPool::new());
+}
+
+fn write_ref_state_with_pool(w: &mut Writer, s: &RefState, pool: &mut ArrayPool) {
     write_opt_form_id(w, s.base);
     write_opt_form_id(w, s.cell);
     for v in s.position {
@@ -1442,10 +1594,21 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
         w.bool(*v);
     }
     w.f32(s.alpha);
-    save_sections::write_sections(w, s, REF_SECTIONS);
+    save_sections::write_sections_with_pool(w, s, REF_SECTIONS, pool);
 }
 
+#[cfg(test)]
 fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_ref_state_with_table(r, version, &table)
+}
+
+fn read_ref_state_with_table(
+    r: &mut FormReader<'_, '_>,
+    version: u16,
+    table: &ArrayTable,
+) -> Result<RefState, VmError> {
     let base = read_opt_form_id(r)?;
     let cell = read_opt_form_id(r)?;
     let mut position = [0f32; 3];
@@ -1518,6 +1681,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         position,
         rotation,
         scale,
+        record_flags: 0,
         enabled,
         deleted,
         activation_blocked,
@@ -1538,6 +1702,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         on_map,
         fast_travel,
         destroyed,
+        destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
@@ -1546,12 +1711,17 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         persistent: false,
     };
     if version >= 37 {
-        save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;
+        save_sections::read_sections_with_table(r, "reference", &mut state, REF_SECTIONS, table)?;
     }
     Ok(state)
 }
 
+#[cfg(test)]
 fn write_actor_state(w: &mut Writer, a: &ActorState) {
+    write_actor_state_with_pool(w, a, &mut ArrayPool::new());
+}
+
+fn write_actor_state_with_pool(w: &mut Writer, a: &ActorState, pool: &mut ArrayPool) {
     a.values.write(w);
     w.bool(a.dead);
     w.bool(a.in_combat);
@@ -1579,11 +1749,14 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
-    crate::ai::write_record_state(w, &a.ai);
+    crate::ai::write_world_record_state(w, &a.ai);
     write_form_set(w, &a.perks);
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.restrained,
         a.arrested,
@@ -1635,7 +1808,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
-    save_sections::write_sections(w, a, ACTOR_SECTIONS);
+    save_sections::write_sections_with_pool(w, a, ACTOR_SECTIONS, pool);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1670,7 +1843,18 @@ fn read_object_list(r: &mut FormReader<'_, '_>) -> Result<Vec<ObjectId>, VmError
     Ok(out)
 }
 
+#[cfg(test)]
 fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorState, VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_actor_state_with_table(r, version, &table)
+}
+
+fn read_actor_state_with_table(
+    r: &mut FormReader<'_, '_>,
+    version: u16,
+    table: &ArrayTable,
+) -> Result<ActorState, VmError> {
     let mut a = ActorState {
         values: crate::actor_values::Values::read(r, version)?,
         ..ActorState::default()
@@ -1711,9 +1895,19 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
             "Wait procedure requires world version 22".into(),
         ));
     }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Shout {
+        return Err(VmError::State(
+            "Shout procedure requires world version 37".into(),
+        ));
+    }
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;
+    if version >= 36 {
+        a.swimming = r.bool()?;
+        a.running = r.bool()?;
+        a.riding_mount = r.bool()?;
+    }
     a.weapon_drawn = r.bool()?;
     a.restrained = r.bool()?;
     a.arrested = r.bool()?;
@@ -1760,7 +1954,7 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
         a.right_spell = read_opt_form_id(r)?;
     }
     if version >= 37 {
-        save_sections::read_sections(r, "actor", &mut a, ACTOR_SECTIONS)?;
+        save_sections::read_sections_with_table(r, "actor", &mut a, ACTOR_SECTIONS, table)?;
     }
     Ok(a)
 }
@@ -1818,7 +2012,7 @@ impl World {
 #[path = "save_tests.rs"]
 mod tests;
 
-pub(super) fn write_brewed_potions(world: &World, w: &mut Writer) {
+pub(super) fn write_brewed_potions(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
     w.len(world.brewed_potions.len());
     for (id, effects) in &world.brewed_potions {
         write_form_id(w, *id);
@@ -1835,6 +2029,7 @@ pub(super) fn write_brewed_potions(world: &World, w: &mut Writer) {
 pub(super) fn read_brewed_potions(
     world: &mut World,
     r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     let count = r.len()?;
     let mut potions = BTreeMap::new();

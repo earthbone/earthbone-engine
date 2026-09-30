@@ -12,7 +12,7 @@ use soe_papyrus::Value;
 use super::{le_u32, Alloc, Pending, World};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
-    Difficulty, Error, HitResult, MeleeHit,
+    Difficulty, Error, Hand, HitResult, MeleeHit,
 };
 use crate::crime::CrimeType;
 use crate::inventory::{Extra, Field, StackSource};
@@ -648,6 +648,7 @@ impl World {
         if !killed && self.player == Some(hit.attacker) {
             self.record_player_assault(hit.attacker, hit.target);
         }
+        self.break_invisibility(hit.attacker, alloc);
         Ok(HitResult {
             weapon_damage,
             armor_rating,
@@ -1270,6 +1271,20 @@ impl World {
         Ok((weapon, enchantment, maximum))
     }
 
+    pub(crate) fn has_bound_weapon_equipped(
+        &mut self,
+        actor: GlobalFormId,
+        hand: Hand,
+    ) -> Result<bool, Error> {
+        if self.actor(actor).is_none() {
+            return Err(Error::Actor(actor));
+        }
+        let Some(item) = self.hand_weapon(actor, hand) else {
+            return Ok(false);
+        };
+        Ok(self.combat_weapon(item)?.0.flags2 & (1 << 13) != 0)
+    }
+
     pub(super) fn combat_weapon_source(
         &self,
         id: GlobalFormId,
@@ -1302,10 +1317,7 @@ impl World {
                 .record(current)
                 .filter(|record| record.tag == Tag(*b"ARMO"))
                 .ok_or(Error::Equipment)?;
-            let (template, enchantment) = Armor::template_links(record)?;
-            if enchantment.is_some() {
-                return Err(Error::Unsupported("armor enchantment"));
-            }
+            let (template, _enchantment) = Armor::template_links(record)?;
             let Some(template) = template else {
                 return Ok(Armor::from_record(record)?);
             };

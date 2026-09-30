@@ -451,13 +451,18 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         "the save must carry the current world state version before the patch"
     );
     legacy::strip_world_sections(&mut bytes);
-    // Scene runtime state is in the removed section table. The detection
-    // pool count is the only remaining field past where a version 28 save ends.
-    bytes.truncate(bytes.len() - 4);
-    let visit_count = bytes.len() - 12;
-    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
-    bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&bytes, |candidate| {
+        fixture(
+            weapon(0xA00, 10, 6, 1.0),
+            None,
+            &[("fStaggerThreshold", 0.001)],
+        )
+        .world_mut()
+        .load_state(candidate)
+        .is_ok()
+    });
+    bytes.truncate(bytes.len() - tail);
 
     let loaded = fixture(
         weapon(0xA00, 10, 6, 1.0),

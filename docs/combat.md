@@ -90,7 +90,8 @@ these defaults. It rejects all perked actors and unsupported weapon
 skills/types. Supported enchantments execute as described under CMB-24, and
 weapon poison executes as described under CMB-25. Tempered item quality
 scales damage instead of rejecting, CMB-10. A weapon's resistance flags
-scale damage instead of rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
+scale damage instead of rejecting too, CMB-26: only a reserved DNAM Resist
+index still rejects. These
 are open execution requirements, not silently omitted modifiers. Protected
 and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
@@ -103,6 +104,9 @@ omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
 terminal record. Each link remains a form lookup, so templates do not create a
 parallel item store. Cycles, unresolved links and wrong record types reject
 the contact before it changes health or queues an event.
+Weapon enchantments in the chain use the nearest EITM link, with instance
+overrides and charge handled under CMB-24. Armor EITM links do not alter
+physical rating. Worn armor enchantment effects are applied by MAG-10.
 
 TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
 exposes the template pointers. None of these local sources states a

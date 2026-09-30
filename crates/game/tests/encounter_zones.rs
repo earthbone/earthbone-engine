@@ -252,20 +252,23 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     old.truncate(old.len() - 18);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&old, |candidate| {
+        fixture(6, 20, 0).load_state(candidate).is_ok()
+    });
+    old.truncate(old.len() - tail);
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
-    // The zone block is followed by the version 28 repeat history, so the
-    // zone count, its one entry and that trailing block are sliced apart.
-    // Visit history follows the lock table and precedes the repeat history.
-    // The extra 6 bytes are detection's now-unconditional empty pool count
-    // and the world-level save-section table version 37 added, both always
-    // present past the visit history regardless of version.
-    let visits_end = before.len() - 36;
-    let entry_at = visits_end - 16;
-    let count_at = entry_at - 4;
+    let mut visit = 1_u32.to_le_bytes().to_vec();
+    visit.extend(0_u16.to_le_bytes());
+    visit.extend(ZONE.to_le_bytes());
+    visit.extend(world.clock.game_days.to_le_bytes());
+    let count_at = legacy::unique_offset(&before, &visit);
+    let entry_at = count_at + 4;
+    let visits_end = count_at + visit.len();
     let mut invalid = before.clone();
-    invalid[entry_at + 8..visits_end].copy_from_slice(&f64::NAN.to_le_bytes());
+    let day_at = entry_at + 6;
+    invalid[day_at..visits_end].copy_from_slice(&f64::NAN.to_le_bytes());
     assert!(world.load_state(&invalid).is_err());
     assert_eq!(world.state_hash(), hash);
     let mut duplicate = before[..count_at].to_vec();
@@ -494,6 +497,10 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
             saved.extend_from_slice(&0_u32.to_le_bytes());
         }
         saved[4..6].copy_from_slice(&version.to_le_bytes());
+        let tail = legacy::version_tail_len(&saved, |candidate| {
+            reset_fixture(0).load_state(candidate).is_ok()
+        });
+        saved.truncate(saved.len() - tail);
         let mut loaded = reset_fixture(0);
         loaded.player_level = 20;
         loaded
