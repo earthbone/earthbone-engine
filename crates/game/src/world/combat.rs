@@ -575,22 +575,6 @@ impl World {
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
         }
-        for name in [
-            "onehandedmodifier",
-            "twohandedmodifier",
-            "marksmanmodifier",
-            "onehandedpowermodifier",
-            "twohandedpowermodifier",
-            "marksmanpowermodifier",
-            "lightarmormodifier",
-            "heavyarmormodifier",
-            "lightarmorpowermodifier",
-            "heavyarmorpowermodifier",
-        ] {
-            if actor.values.entries.contains_key(name) {
-                return Err(Error::Unsupported("combat actor-value multipliers"));
-            }
-        }
         Ok(())
     }
 
