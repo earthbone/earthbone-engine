@@ -767,6 +767,20 @@ installed scan found 428 graphs, 23 edge modifiers and 29 enabled slots, with
 no slot payloads. The linked locomotion run now resolves 195 bindings with
 four unbound, compared with the historical 194 and five above.
 
+### BSSpeedSamplerModifier (2026-09-28)
+
+`BSSpeedSamplerModifier` decodes `state`, `direction`, `goalSpeed` and
+`speedOut` from the 64-bit layout in
+`engine-refs/serde-hkx/assets/classes/BSSpeedSamplerModifier.json`. The
+interpreter resolves bindings for all four fields. On an enabled modifier
+update, it copies the bound or authored `goalSpeed` to `speedOut`, then
+publishes that value through the output binding. A disabled sampler leaves its
+output variable unchanged. `state` and `direction` bindings are accepted but
+do not change this output calculation. The class layout and local editor
+source expose the fields but do not document a more detailed sampling formula.
+The `anm_36_speed_sampler` tests cover field decoding, bindings, output and
+disabled behavior. No original-runtime capture establishes further semantics.
+
 ### Get time step modifier (2026-09-20)
 
 `BSGetTimeStepModifier` inherits the `hkbModifier` enable field and stores an

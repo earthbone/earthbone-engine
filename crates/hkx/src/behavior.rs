@@ -733,6 +733,14 @@ pub enum NodeKind {
         enable: bool,
         expressions: Vec<ExpressionData>,
     },
+    /// `BSSpeedSamplerModifier`: publishes its goal speed to `speedOut`.
+    SpeedSampler {
+        enable: bool,
+        state: i32,
+        direction: f32,
+        goal_speed: f32,
+        speed_out: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -820,6 +828,7 @@ impl Node {
             | NodeKind::RagdollContactListener { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::SpeedSampler { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1312,6 +1321,13 @@ impl<'a> Loader<'a> {
                     movement_direction: o.vec4(o.layout_offset(80, 112))?,
                     trigger_event: EventProperty::read(o, o.layout_offset(96, 128))?,
                 },
+            },
+            "BSSpeedSamplerModifier" => NodeKind::SpeedSampler {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                state: o.i32(o.layout_offset(44, 80))?,
+                direction: o.f32(o.layout_offset(48, 84))?,
+                goal_speed: o.f32(o.layout_offset(52, 88))?,
+                speed_out: o.f32(o.layout_offset(56, 92))?,
             },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
