@@ -3581,6 +3581,16 @@ and rejected on equip, and `EquipSpell`/menu equip agreeing on
 `GetEquippedSpell`. The existing `world.rs` and `hash.rs` suites were left
 unchanged since neither exercised the two new fields before this change.
 
+MAG-22 adds `Game::begin_hand_cast` and `Game::end_hand_cast` for input routed
+to an actor's equipped left or right spell. The first begin validates and
+executes one costed fire-and-forget cast through `World::cast_charged_spell`,
+including its `OnSpellCast` event. A repeated begin for that held hand returns
+false without charging or applying another effect. Releasing the hand clears
+the request guard, so a later press can cast again. This follows the CK
+`GetEquippedSpell` hand sources and `OnSpellCast` start event, with the cost and
+delivery fields read from xEdit's SPEL `SPIT` definition. It does not retain
+held cast state in save data.
+
 ## Actor controller scale, CMB-33
 
 `race::Attributes` reads two more pairs from `RACE`'s `DATA` prefix,

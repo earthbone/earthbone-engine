@@ -1136,6 +1136,13 @@ reaches the same shared Game path as other melee contacts. A single-key or
 single-button action can also be pressed through Godot's Input action API,
 while chorded bindings continue to require every device input.
 
+MAG-22 adds `Left Attack/Block` and `Right Attack/Block` as held gameplay
+actions. PlayerNode compares each frame with the prior held state and calls
+`Game::begin_hand_cast` once on a press, then `Game::end_hand_cast` on release.
+The actions use the PC control map's mouse, keyboard or gamepad binding. Losing
+input focus releases both hand requests so a missed device-up event cannot
+leave a hand latched.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
