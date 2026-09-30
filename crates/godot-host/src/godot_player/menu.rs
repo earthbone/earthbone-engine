@@ -14,7 +14,29 @@ use godot::prelude::*;
 use super::PlayerNode;
 use crate::dialogue_menu;
 use crate::inventory_menu::{self, Category};
+use crate::quest_journal::{self, Entry as QuestEntry};
 use soe_esm::GlobalFormId;
+use soe_game::dialogue::Line;
+
+fn render_quest_entry(rows: &mut Gd<VBoxContainer>, entry: &QuestEntry) {
+    if let Some(title) = &entry.title {
+        let mut heading = Label::new_alloc();
+        heading.set_text(title);
+        rows.add_child(&heading);
+    }
+    for objective in &entry.objectives {
+        let status = if objective.failed {
+            " [Failed]"
+        } else if objective.completed {
+            " [Completed]"
+        } else {
+            ""
+        };
+        let mut label = Label::new_alloc();
+        label.set_text(&format!("{}{}", objective.text, status));
+        rows.add_child(&label);
+    }
+}
 
 pub(super) struct MenuView {
     panel: Gd<PanelContainer>,
@@ -26,6 +48,69 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn refresh_quest_journal(&mut self) -> bool {
+        if self.menu.title() != Some("Quests") {
+            return false;
+        }
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let entries = quest_journal::entries(game);
+        if self.quest_journal_snapshot.as_ref() == Some(&entries) {
+            return false;
+        }
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        self.quest_journal_snapshot = Some(entries.clone());
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        if entries.is_empty() {
+            let mut label = Label::new_alloc();
+            label.set_text("No active quests");
+            rows.add_child(&label);
+        }
+        for entry in &entries {
+            render_quest_entry(&mut rows, entry);
+        }
+        true
+    }
+
+    fn stop_dialogue_voice(&mut self) {
+        if let Some(bank) = self.sound_bank.as_mut() {
+            crate::dialogue_menu::replace_voice(
+                &mut *bank.bind_mut(),
+                &mut self.dialogue_voice_slot,
+                None,
+            );
+        } else {
+            self.dialogue_voice_slot = None;
+        }
+    }
+
+    fn play_dialogue_voice(&mut self, line: &Line) {
+        let asset = self
+            .game
+            .as_mut()
+            .and_then(|game| crate::dialogue_menu::voice_asset(game, line));
+        let Some(bank) = self.sound_bank.as_mut() else {
+            return;
+        };
+        crate::dialogue_menu::replace_voice(
+            &mut *bank.bind_mut(),
+            &mut self.dialogue_voice_slot,
+            asset.as_ref(),
+        );
+    }
+
     pub(super) fn create_menu(&mut self) {
         let mut theme = Theme::new_gd();
         theme.set_default_font_size(22);
@@ -128,6 +213,56 @@ impl PlayerNode {
             ]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
+        }
+        true
+    }
+
+    fn mcm_content(&mut self) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let configs = game.mcm_configs();
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let selected = self.mcm_config;
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        for config in &configs {
+            let mut button = Button::new_alloc();
+            button.set_text(&config.name);
+            let callback = base.callable("mcm_select_config").bindv(&varray![
+                i64::from(config.form.file),
+                i64::from(config.form.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+        }
+        if let Some(config) = configs.iter().find(|config| Some(config.form) == selected) {
+            let mut heading = Label::new_alloc();
+            heading.set_text(&config.name);
+            rows.add_child(&heading);
+            for (index, page) in config.pages.iter().enumerate() {
+                let mut button = Button::new_alloc();
+                button.set_text(page);
+                let callback = base
+                    .callable("mcm_select_page")
+                    .bindv(&varray![index as i64]);
+                button.connect("pressed", &callback);
+                rows.add_child(&button);
+            }
         }
         true
     }
@@ -252,7 +387,14 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        self.lockpick_target = None;
+        self.lockpick_status = None;
+        if let Some(game) = self.game.as_mut() {
+            game.mcm_close();
+        }
+        self.mcm_config = None;
         if closing_dialogue {
+            self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
                 game.close_dialogue();
             }
@@ -333,6 +475,57 @@ impl PlayerNode {
         self.inventory_content(self.inventory_category)
     }
 
+    /// Open active quests and displayed objectives from the shared Game.
+    #[func]
+    pub fn open_quest_journal(&mut self) -> bool {
+        if self.game.is_none() || !self.open_menu("Quests".into()) {
+            return false;
+        }
+        self.quest_journal_snapshot = None;
+        self.refresh_quest_journal()
+    }
+
+    /// Open the native mod configuration list from live quest scripts.
+    #[func]
+    pub fn open_mcm_menu(&mut self) -> bool {
+        if self.game.is_none() || !self.open_menu("Mod Configuration".into()) {
+            return false;
+        }
+        self.mcm_config = None;
+        self.mcm_content()
+    }
+
+    /// Open one registered script config and render its declared pages.
+    #[func]
+    pub fn mcm_select_config(&mut self, file: i64, object: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let form = GlobalFormId { file, object };
+        if !self.game.as_mut().is_some_and(|game| game.mcm_open(form)) {
+            return false;
+        }
+        self.mcm_config = Some(form);
+        self.mcm_content()
+    }
+
+    /// Select one of the active script's declared pages.
+    #[func]
+    pub fn mcm_select_page(&mut self, index: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let Ok(index) = usize::try_from(index) else {
+            return false;
+        };
+        self.game
+            .as_mut()
+            .is_some_and(|game| game.mcm_select_page(index))
+    }
+
     /// Open a conversation with a reference through the shared Game and show its choices.
     #[func]
     pub fn open_dialogue_menu(&mut self, speaker_file: i64, speaker_object: i64) -> bool {
@@ -385,6 +578,7 @@ impl PlayerNode {
         let Ok(Some(line)) = dialogue_menu::choose(game, topic) else {
             return false;
         };
+        self.play_dialogue_voice(&line);
         self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
     }
 
@@ -398,8 +592,12 @@ impl PlayerNode {
             return false;
         };
         match game.advance_dialogue() {
-            Ok(Some(line)) => self.dialogue_response_content(line.text.as_deref().unwrap_or("")),
+            Ok(Some(line)) => {
+                self.play_dialogue_voice(&line);
+                self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
+            }
             Ok(None) => {
+                self.stop_dialogue_voice();
                 let still_open = self
                     .game
                     .as_ref()

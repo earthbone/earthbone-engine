@@ -96,6 +96,8 @@ fn still(observer: u32, target: u32, distance: f32, light: f32) -> Observation {
         light_level: light,
         motion: Motion::Still,
         action_sound: 0.0,
+        action_sound_distance: None,
+        action_sound_line_of_sight: None,
     }
 }
 

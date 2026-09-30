@@ -13,9 +13,12 @@
 //! SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-game --test debug_live -- --nocapture
 //! ```
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 
-use soe_esm::{GlobalFormId, LoadOrder, Plugin, Tag};
+use soe_esm::{GlobalFormId, Tag};
 use soe_game::debug::{Console, Outcome};
 use soe_game::world::Handle;
 use soe_game::Game;
@@ -32,14 +35,8 @@ const MASTERS: [&str; 5] = [
 /// when `SKYRIM_DATA` is unset, which is how every gated test skips.
 fn installed_game() -> Option<Game> {
     let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
-    let mut order = LoadOrder::new();
-    for name in MASTERS {
-        let path = data.join(name);
-        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        order.add(name, plugin).unwrap();
-    }
-    let mut game = Game::new(order);
+    let order = installed::load_order(&MASTERS).unwrap();
+    let mut game = Game::from_shared_order(order);
     game.load_scripts_from_data(&data);
     game.start();
     Some(game)

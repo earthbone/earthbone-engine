@@ -225,6 +225,7 @@ pub struct MagicEffectData {
     pub magic_skill: i32,
     pub resistance: i32,
     pub counter_effect_count: u16,
+    pub taper_weight: f32,
     pub minimum_skill: u32,
     pub area: u32,
     pub casting_time: f32,
@@ -233,12 +234,17 @@ pub struct MagicEffectData {
     pub second_actor_value_weight: f32,
     pub archetype: u32,
     pub primary_actor_value: i32,
+    pub projectile: u32,
+    pub explosion: u32,
     pub cast_type: u32,
     pub delivery: u32,
     pub second_actor_value: i32,
     pub skill_usage_multiplier: f32,
+    pub dual_cast_scale: f32,
     pub equip_ability: u32,
     pub perk: u32,
+    pub ai_score: f32,
+    pub ai_delay_time: f32,
 }
 
 /// MGEF metadata and the scoped gameplay fields in its DATA subrecord.
@@ -270,7 +276,10 @@ impl MagicEffect {
         let magic_skill = f.i32()?;
         let resistance = f.i32()?;
         let counter_effect_count = f.u16()?;
-        f.skip(18)?;
+        f.skip(2)?;
+        let _casting_light = f.u32()?;
+        let taper_weight = f.f32()?;
+        f.skip(8)?;
         let minimum_skill = f.u32()?;
         let area = f.u32()?;
         let casting_time = f.f32()?;
@@ -279,16 +288,22 @@ impl MagicEffect {
         let second_actor_value_weight = f.f32()?;
         let archetype = f.u32()?;
         let primary_actor_value = f.i32()?;
-        f.skip(8)?;
+        let projectile = f.u32()?;
+        let explosion = f.u32()?;
         let cast_type = f.u32()?;
         let delivery = f.u32()?;
         let second_actor_value = f.i32()?;
         f.skip(12)?;
         let skill_usage_multiplier = f.f32()?;
-        f.skip(20)?;
+        let _dual_cast_art = f.u32()?;
+        let dual_cast_scale = f.f32()?;
+        f.skip(12)?;
         let equip_ability = f.u32()?;
         f.skip(4)?;
         let perk = f.u32()?;
+        f.skip(4)?;
+        let ai_score = f.f32()?;
+        let ai_delay_time = f.f32()?;
         Ok(Self {
             form_id: rec.form_id,
             editor_id: rec.editor_id(),
@@ -301,6 +316,7 @@ impl MagicEffect {
                 magic_skill,
                 resistance,
                 counter_effect_count,
+                taper_weight,
                 minimum_skill,
                 area,
                 casting_time,
@@ -309,12 +325,17 @@ impl MagicEffect {
                 second_actor_value_weight,
                 archetype,
                 primary_actor_value,
+                projectile,
+                explosion,
                 cast_type,
                 delivery,
                 second_actor_value,
                 skill_usage_multiplier,
+                dual_cast_scale,
                 equip_ability,
                 perk,
+                ai_score,
+                ai_delay_time,
             },
             keywords: super::super::form_id_list(rec, Tag::new(b"KWDA"))?,
             counter_effects: super::super::form_id_list(rec, Tag::new(b"ESCE"))?,

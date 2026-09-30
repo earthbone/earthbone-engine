@@ -3,7 +3,8 @@
 //! Inventory notification contracts from CK OnItemAdded/OnItemRemoved and
 //! AddInventoryEventFilter. Filters are per recipient and apply when queued.
 //! CK AddItem and CommonLib ExtraOriginalReference define concrete item moves.
-//! xEdit REFR supplies loose quantity, charge and ownership fields.
+//! xEdit REFR and SLGM supply loose quantity, charge, ownership and gem capacity.
+//! CommonLib ExtraSoul supplies the per-instance filled soul level.
 
 use super::{Alloc, Handle, Pending, World, T};
 use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
@@ -76,6 +77,7 @@ impl World {
             let tag = match extra.kind {
                 155 => Some(*b"ENCH"),
                 62 => Some(*b"ALCH"),
+                156 => Some(*b"SLGM"),
                 _ => None,
             };
             if let Some(tag) = tag {
@@ -190,6 +192,9 @@ impl World {
 
     /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
+        if self.brewed_potions.contains_key(&item) {
+            return true;
+        }
         self.record(item).is_some_and(|record| {
             !record.is_deleted()
                 && matches!(
