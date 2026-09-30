@@ -20,6 +20,63 @@ use super::{
 use crate::clock::GameClock;
 use crate::combat::Difficulty;
 
+pub(crate) fn write_script_calls(world: &World, writer: &mut Writer, pool: &mut ArrayPool) {
+    let calls: Vec<_> = world
+        .pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, pending)| match pending {
+            Pending::CallScript {
+                object,
+                script,
+                function,
+                args,
+            } => Some((index, *object, script, function, args)),
+            _ => None,
+        })
+        .collect();
+    writer.len(calls.len());
+    for (index, object, script, function, args) in calls {
+        writer.len(index);
+        writer.u64(object.0);
+        writer.str(script);
+        writer.str(function);
+        writer.len(args.len());
+        for value in args {
+            pool.write_value(writer, value);
+        }
+    }
+}
+
+pub(crate) fn read_script_calls(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    for _ in 0..count {
+        let index = reader.len()?;
+        let object = ObjectId(reader.u64()?);
+        let script = reader.str()?;
+        let function = reader.str()?;
+        let count = reader.len()?;
+        let mut args = Vec::with_capacity(count);
+        for _ in 0..count {
+            args.push(table.read_value(reader)?);
+        }
+        world.pending.insert(
+            index.min(world.pending.len()),
+            Pending::CallScript {
+                object,
+                script,
+                function,
+                args,
+            },
+        );
+    }
+    Ok(())
+}
+
 /// Magic and version for [`World::save_state`]. Embedded as a length-prefixed
 /// block inside the whole-game save `Game::save_state` writes, self-describing
 /// on its own so a truncated or foreign blob is caught here too.
@@ -67,6 +124,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns
 /// it, not into a new version.
+/// The `AI-16` world section retains script-qualified package fragment calls.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -135,13 +193,13 @@ impl World {
         body.len(self.refs.len());
         for (id, s) in self.refs.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
-            write_ref_state(&mut body, s);
+            write_ref_state_with_pool(&mut body, s, &mut pool);
         }
 
         body.len(self.actors.len());
         for (id, a) in self.actors.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
-            write_actor_state(&mut body, a);
+            write_actor_state_with_pool(&mut body, a, &mut pool);
         }
 
         body.len(self.quests.len());
@@ -174,8 +232,16 @@ impl World {
         body.f64(self.clock.game_days);
         body.f64(self.clock.timescale);
 
-        body.len(self.pending.len());
+        body.len(
+            self.pending
+                .iter()
+                .filter(|pending| !matches!(pending, Pending::CallScript { .. }))
+                .count(),
+        );
         for p in &self.pending {
+            if matches!(p, Pending::CallScript { .. }) {
+                continue;
+            }
             match p {
                 Pending::DeferredDeath {
                     actor,
@@ -227,6 +293,7 @@ impl World {
                         pool.write_value(&mut body, v);
                     }
                 }
+                Pending::CallScript { .. } => unreachable!("script calls use the AI-16 section"),
             }
         }
 
@@ -441,7 +508,7 @@ impl World {
             }
         }
         self.write_detection(&mut body);
-        save_sections::write_sections(&mut body, self, WORLD_SECTIONS);
+        save_sections::write_sections_with_pool(&mut body, self, WORLD_SECTIONS, &mut pool);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -496,14 +563,14 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r, version)?);
+            refs.insert(id, read_ref_state_with_table(&mut r, version, &table)?);
         }
 
         let n = r.len()?;
         let mut actors = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            actors.insert(id, read_actor_state(&mut r, version)?);
+            actors.insert(id, read_actor_state_with_table(&mut r, version, &table)?);
         }
 
         let n = r.len()?;
@@ -642,6 +709,24 @@ impl World {
                     }
                     pending.push(Pending::Call {
                         object,
+                        function,
+                        args,
+                    });
+                }
+                // Read version-37 saves emitted by the AI-16 branch before
+                // its calls moved into the named world section.
+                5 if version >= 37 => {
+                    let object = ObjectId(r.u64()?);
+                    let script = r.str()?;
+                    let function = r.str()?;
+                    let k = r.len()?;
+                    let mut args = Vec::with_capacity(k);
+                    for _ in 0..k {
+                        args.push(table.read_value(&mut r)?);
+                    }
+                    pending.push(Pending::CallScript {
+                        object,
+                        script,
                         function,
                         args,
                     });
@@ -1068,14 +1153,13 @@ impl World {
         // World-level sections are read straight into `self`, unlike every
         // field above, which lands in a local and is only committed to
         // `self` in the block below once the whole stream has parsed
-        // cleanly. A registered section may touch any field on `World`, so
-        // there is no local `World` to stage it in. If a section later in
-        // this table fails, sections read earlier in the same call have
-        // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it. No section is registered today,
-        // so this call is a no-op until one is.
+        // cleanly. The AI-16 section inserts calls into the parsed pending
+        // queue so their original order is retained. If a section fails,
+        // the caller must discard this world after the returned error.
         if version >= 37 {
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+            self.pending = std::mem::take(&mut pending);
+            save_sections::read_sections_with_table(&mut r, "world", self, WORLD_SECTIONS, &table)?;
+            pending = std::mem::take(&mut self.pending);
         }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
@@ -1269,7 +1353,12 @@ fn read_handle(r: &mut FormReader<'_, '_>) -> Result<Handle, VmError> {
     })
 }
 
+#[cfg(test)]
 fn write_ref_state(w: &mut Writer, s: &RefState) {
+    write_ref_state_with_pool(w, s, &mut ArrayPool::new());
+}
+
+fn write_ref_state_with_pool(w: &mut Writer, s: &RefState, pool: &mut ArrayPool) {
     write_opt_form_id(w, s.base);
     write_opt_form_id(w, s.cell);
     for v in s.position {
@@ -1327,10 +1416,21 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
         w.bool(*v);
     }
     w.f32(s.alpha);
-    save_sections::write_sections(w, s, REF_SECTIONS);
+    save_sections::write_sections_with_pool(w, s, REF_SECTIONS, pool);
 }
 
+#[cfg(test)]
 fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_ref_state_with_table(r, version, &table)
+}
+
+fn read_ref_state_with_table(
+    r: &mut FormReader<'_, '_>,
+    version: u16,
+    table: &ArrayTable,
+) -> Result<RefState, VmError> {
     let base = read_opt_form_id(r)?;
     let cell = read_opt_form_id(r)?;
     let mut position = [0f32; 3];
@@ -1430,12 +1530,17 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         alpha,
     };
     if version >= 37 {
-        save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;
+        save_sections::read_sections_with_table(r, "reference", &mut state, REF_SECTIONS, table)?;
     }
     Ok(state)
 }
 
+#[cfg(test)]
 fn write_actor_state(w: &mut Writer, a: &ActorState) {
+    write_actor_state_with_pool(w, a, &mut ArrayPool::new());
+}
+
+fn write_actor_state_with_pool(w: &mut Writer, a: &ActorState, pool: &mut ArrayPool) {
     a.values.write(w);
     w.bool(a.dead);
     w.bool(a.in_combat);
@@ -1519,7 +1624,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
-    save_sections::write_sections(w, a, ACTOR_SECTIONS);
+    save_sections::write_sections_with_pool(w, a, ACTOR_SECTIONS, pool);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1554,7 +1659,18 @@ fn read_object_list(r: &mut FormReader<'_, '_>) -> Result<Vec<ObjectId>, VmError
     Ok(out)
 }
 
+#[cfg(test)]
 fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorState, VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_actor_state_with_table(r, version, &table)
+}
+
+fn read_actor_state_with_table(
+    r: &mut FormReader<'_, '_>,
+    version: u16,
+    table: &ArrayTable,
+) -> Result<ActorState, VmError> {
     let mut a = ActorState {
         values: crate::actor_values::Values::read(r, version)?,
         ..ActorState::default()
@@ -1644,7 +1760,7 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
         a.right_spell = read_opt_form_id(r)?;
     }
     if version >= 37 {
-        save_sections::read_sections(r, "actor", &mut a, ACTOR_SECTIONS)?;
+        save_sections::read_sections_with_table(r, "actor", &mut a, ACTOR_SECTIONS, table)?;
     }
     Ok(a)
 }

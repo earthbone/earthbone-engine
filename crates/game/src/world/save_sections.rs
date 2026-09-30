@@ -18,7 +18,7 @@
 //! the surrounding record uses, so a section that stores a `FormId` resolves
 //! it the same way the rest of that record does.
 
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::VmError;
 
 use super::save::FormReader;
@@ -29,12 +29,23 @@ use super::save::FormReader;
 /// table leaves the field it would have set at that default.
 pub(crate) struct Section<T> {
     pub(crate) name: &'static str,
-    pub(crate) write: fn(&T, &mut Writer),
-    pub(crate) read: fn(&mut T, &mut FormReader<'_, '_>) -> Result<(), VmError>,
+    pub(crate) write: fn(&T, &mut Writer, &mut ArrayPool),
+    pub(crate) read: fn(&mut T, &mut FormReader<'_, '_>, &ArrayTable) -> Result<(), VmError>,
 }
 
 /// Write every registered section for `value`, in registry order.
+#[cfg(test)]
 pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T>]) {
+    let mut pool = ArrayPool::new();
+    write_sections_with_pool(w, value, sections, &mut pool);
+}
+
+pub(crate) fn write_sections_with_pool<T>(
+    w: &mut Writer,
+    value: &T,
+    sections: &[Section<T>],
+    pool: &mut ArrayPool,
+) {
     // Registries are hand-written entries (a handful today, never near
     // 65536) and names are short `&'static str` literals (never near 256
     // bytes), so these casts cannot lose data in practice. See the
@@ -44,7 +55,7 @@ pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T
         w.u8(section.name.len() as u8);
         w.out.extend_from_slice(section.name.as_bytes());
         let mut payload = Writer::new();
-        (section.write)(value, &mut payload);
+        (section.write)(value, &mut payload, pool);
         w.bytes(&payload.out);
     }
 }
@@ -55,11 +66,24 @@ pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T
 /// example `"world"`, `"actor"` or `"reference"`), matching the unknown
 /// version error's shape. A truncated payload and a payload its reader
 /// does not fully consume are both errors too.
+#[cfg(test)]
 pub(crate) fn read_sections<T>(
     r: &mut FormReader<'_, '_>,
     level: &str,
     value: &mut T,
     sections: &[Section<T>],
+) -> Result<(), VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_sections_with_table(r, level, value, sections, &table)
+}
+
+pub(crate) fn read_sections_with_table<T>(
+    r: &mut FormReader<'_, '_>,
+    level: &str,
+    value: &mut T,
+    sections: &[Section<T>],
+    table: &ArrayTable,
 ) -> Result<(), VmError> {
     let n = r.u16()?;
     for _ in 0..n {
@@ -73,7 +97,7 @@ pub(crate) fn read_sections<T>(
         };
         let mut sub_reader = Reader::new(payload);
         let mut sub = FormReader::new(&mut sub_reader, r.namespace());
-        (section.read)(value, &mut sub)?;
+        (section.read)(value, &mut sub, table)?;
         sub.expect_end()
             .map_err(|_| VmError::State(format!("section {name} at {level} left unread bytes")))?;
     }
@@ -91,22 +115,34 @@ mod tests {
         b: u16,
     }
 
-    fn write_a(v: &Fixture, w: &mut Writer) {
+    fn write_a(v: &Fixture, w: &mut Writer, _pool: &mut ArrayPool) {
         w.u32(v.a);
     }
-    fn read_a(v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_a(
+        v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         v.a = r.u32()?;
         Ok(())
     }
-    fn write_b(v: &Fixture, w: &mut Writer) {
+    fn write_b(v: &Fixture, w: &mut Writer, _pool: &mut ArrayPool) {
         w.u16(v.b);
     }
-    fn read_b(v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_b(
+        v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         v.b = r.u16()?;
         Ok(())
     }
     /// Leaves a byte unread, to exercise the "left unread bytes" error.
-    fn read_b_partial(_v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_b_partial(
+        _v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         r.u8()?;
         Ok(())
     }

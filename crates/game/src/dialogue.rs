@@ -606,6 +606,9 @@ impl Game {
         };
         let (candidates, rejected) = match linked_topics {
             Some(topics) => (topics, Vec::new()),
+            None if session.last_info.is_none() && session.topic.is_some() => {
+                (session.topic.into_iter().collect(), Vec::new())
+            }
             None => self.root_dialogue_topics(&session),
         };
         let mut out = Choices {

@@ -10,6 +10,7 @@ use crate::world::record_overrides::{raw_words, RecordOverride};
 use crate::world::templates::TemplateChoice;
 use crate::world::DYNAMIC_FILE;
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Slot, Tag};
+use soe_papyrus::Value;
 
 fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
@@ -352,9 +353,9 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
-    // Every actor and reference record now ends with an empty save-section
-    // table (a `u16` count of 0, see `save_sections`), which a
-    // pre-version-37 writer never emitted. Locate each record's own tail by
+    // Every actor and reference record now ends with its save-section table,
+    // which a pre-version-37 writer never emitted. The actor table includes
+    // the PRG-01 skill-experience section. Locate each record's own tail by
     // re-serializing it exactly as `save_state` just did, form id then
     // state, while the sentinels set above are still in place, then drop
     // the matched span's last two bytes. `rich_world`'s two references
@@ -369,7 +370,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("actor record is serialized");
-        bytes.drain(at + probe.out.len() - 2..at + probe.out.len());
+        bytes.drain(at + probe.out.len() - 17..at + probe.out.len());
     }
     for id in world.refs.keys().copied().collect::<Vec<_>>() {
         let reference = world.refs.get(&id).unwrap();
@@ -415,9 +416,8 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
         // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the world-level save-section table version 37
-        // added.
-        legacy.truncate(legacy.len() - 43);
+        // pool count, and the world-level section table version 37 added.
+        legacy.truncate(legacy.len() - 57);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -482,7 +482,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 57);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -531,6 +531,33 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
 }
 
 #[test]
+fn sav_37_script_qualified_pending_fragment_round_trips() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    world.pending.push(Pending::CallScript {
+        object: ObjectId(1),
+        script: "PackFragments".into(),
+        function: "OnBegin".into(),
+        args: vec![Value::Object(ObjectId(2))],
+    });
+    let saved = world.save_state();
+    let mut loaded = World::new(legacy_order());
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(loaded.pending.len(), world.pending.len());
+    assert!(matches!(
+        loaded.pending.last().unwrap(),
+        Pending::CallScript {
+            object: ObjectId(1),
+            script,
+            function,
+            args,
+        } if script == "PackFragments"
+            && function == "OnBegin"
+            && args == &[Value::Object(ObjectId(2))]
+    ));
+    assert_eq!(loaded.save_state(), saved);
+}
+
+#[test]
 fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut order = legacy_order();
     for slot in 0..254 {
@@ -547,7 +574,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 57);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
@@ -627,10 +654,14 @@ fn no_section_name_repeats_within_or_across_the_three_registries() {
 /// section list kept out of the production registries.
 #[test]
 fn write_sections_and_read_sections_round_trip_for_world_actor_and_reference() {
-    fn write_world_note(w: &World, out: &mut Writer) {
+    fn write_world_note(w: &World, out: &mut Writer, _pool: &mut ArrayPool) {
         out.u32(w.next_dynamic);
     }
-    fn read_world_note(w: &mut World, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_world_note(
+        w: &mut World,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         w.next_dynamic = r.u32()?;
         Ok(())
     }
@@ -655,10 +686,14 @@ fn write_sections_and_read_sections_round_trip_for_world_actor_and_reference() {
     .unwrap();
     assert_eq!(restored_world.next_dynamic, 0x900);
 
-    fn write_actor_note(a: &ActorState, out: &mut Writer) {
+    fn write_actor_note(a: &ActorState, out: &mut Writer, _pool: &mut ArrayPool) {
         out.u32(a.level);
     }
-    fn read_actor_note(a: &mut ActorState, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_actor_note(
+        a: &mut ActorState,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         a.level = r.u32()?;
         Ok(())
     }
@@ -685,10 +720,14 @@ fn write_sections_and_read_sections_round_trip_for_world_actor_and_reference() {
     .unwrap();
     assert_eq!(restored_actor.level, 12);
 
-    fn write_ref_note(s: &RefState, out: &mut Writer) {
+    fn write_ref_note(s: &RefState, out: &mut Writer, _pool: &mut ArrayPool) {
         out.f32(s.scale);
     }
-    fn read_ref_note(s: &mut RefState, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_ref_note(
+        s: &mut RefState,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         s.scale = r.f32()?;
         Ok(())
     }

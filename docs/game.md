@@ -625,11 +625,22 @@ template flags say so). `ai::select` walks it and the first package whose
 schedule and conditions hold wins. `Once Per Day` skips a package that ran
 to completion on the current game day. `ai::evaluate` switches the actor
 when the winner changed and queues `OnPackageEnd`, `OnPackageChange` and
-`OnPackageStart` for its scripts. `Actor.EvaluatePackage` calls it at
+`OnPackageStart` for the actor's scripts. A new winner calls its PACK
+`OnBegin` fragment with `akActor`. A replaced package calls its `OnChange`
+fragment, while a package with no successor calls its `OnEnd` fragment.
+These named fragments run once at the package boundary on the package's VM
+object. `Actor.EvaluatePackage` calls it at
 once, `Actor.GetCurrentPackage` returns the running package, and the
 driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
+
+The `POBA`, `POCA` and `POEA` actions also start their authored idle or
+dialogue topic at the matching boundary. Idle delivery uses the actor's
+animation event path. A topic opens a dialogue session with the player as
+listener and makes that topic the session's initial choice. Dead and
+unconscious actors do not start boundary actions. Topic actions also require
+an available actor who can speak to the player and no active dialogue session.
 
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration
@@ -3263,9 +3274,10 @@ the existing weapon-hand fields, for World/replay determinism.
 written unconditionally (the writer always emits the current format) and read
 behind `if version >= 32`, the same pattern `witnessed_crimes` used for
 version 31. An older save simply loads with both hands empty, matching how a
-pre-31 save loads with no witnessed crimes. The version-31 unknown-version
-probe in `save_tests.rs` moved to 33 so it still names a version past the
-current one.
+pre-31 save loads with no witnessed crimes. The `AI-16` world section retains
+script-qualified pending calls for package fragments, including their actor
+argument and queue position. The unknown-version probe in `save_tests.rs` uses
+the version after `SAVE_VERSION`.
 
 `natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
 `equip_hand_spell`/`unequip_hand_spell`/`hand_spell` with the menu for source
