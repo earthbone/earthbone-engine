@@ -2256,34 +2256,35 @@ impl World {
             seconds.min((duration - effect.elapsed).max(0.0))
         });
         let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
-        let elapsed = (state.elapsed + dt).min(f64::MAX);
-        let pulse_due = elapsed >= CLOAK_CADENCE;
-        if !pulse_due {
-            state.elapsed = elapsed;
-            if let Some(active) = self.active_effects.get_mut(&id) {
-                active.elapsed = (active.elapsed + dt).min(f64::MAX);
+        state.elapsed = (state.elapsed + dt).min(f64::MAX);
+        while self
+            .cloak_effects
+            .get(&id)
+            .is_some_and(|state| state.elapsed >= CLOAK_CADENCE)
+        {
+            let old_owned = {
+                let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
+                state.elapsed -= CLOAK_CADENCE;
+                std::mem::take(&mut state.owned)
+            };
+            for child in old_owned {
+                self.dispel_effect(child, alloc);
             }
-            return Ok(());
-        }
-        state.elapsed = elapsed.rem_euclid(CLOAK_CADENCE);
-        let old_owned = std::mem::take(&mut state.owned);
-        for child in old_owned {
-            self.dispel_effect(child, alloc);
-        }
-        let targets = self.area_targets(effect.target, radius);
-        let mut owned = Vec::new();
-        for target in targets {
-            owned.extend(self.cast_spell_inner(
-                associated,
-                target,
-                effect.caster,
-                Some(target),
-                true,
-                alloc,
-            )?);
-        }
-        if let Some(state) = self.cloak_effects.get_mut(&id) {
-            state.owned = owned;
+            let targets = self.area_targets(effect.target, radius);
+            let mut owned = Vec::new();
+            for target in targets {
+                owned.extend(self.cast_spell_inner(
+                    associated,
+                    target,
+                    effect.caster,
+                    Some(target),
+                    true,
+                    alloc,
+                )?);
+            }
+            if let Some(state) = self.cloak_effects.get_mut(&id) {
+                state.owned = owned;
+            }
         }
         if let Some(active) = self.active_effects.get_mut(&id) {
             active.elapsed = (active.elapsed + dt).min(f64::MAX);
