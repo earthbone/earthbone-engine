@@ -6,6 +6,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
@@ -240,8 +243,11 @@ fn worlds_saved_before_wait_tags_remain_readable() {
     let game = game(2.0, false, false);
     let original = game.world().save_state();
     let mut legacy = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 21 predates the image-space, loose-item and zone blocks.
-    legacy.truncate(legacy.len() - 29);
+    // Version 21 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    legacy.truncate(legacy.len() - 35);
     legacy[4..6].copy_from_slice(&21u16.to_le_bytes());
     game.world_mut().load_state(&legacy).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -249,14 +255,10 @@ fn worlds_saved_before_wait_tags_remain_readable() {
 
 #[test]
 fn installed_wait_branches_have_seconds_then_movement_inputs() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         return;
     };
-    let bytes = std::fs::read(std::path::Path::new(&data).join("Skyrim.esm")).unwrap();
-    let mut order = LoadOrder::new();
-    order
-        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
-        .unwrap();
+    let order = installed::load_order(&["Skyrim.esm"]).unwrap();
     let mut count = 0;
     for (id, _) in order.winners_of(T(b"PACK")) {
         let record = order.record(order.winner_ref(id).unwrap());

@@ -15,6 +15,9 @@
 //! `crates/game/tests/actor_values.rs`'s `race()` helper and
 //! `crates/game/tests/actor_attributes_adversarial.rs`'s `clas()` helper.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -176,22 +179,19 @@ fn prg_03_autocalc_actor_derives_health_magicka_stamina_from_class_and_level_rec
 // Skipped without SKYRIM_DATA.
 #[test]
 fn prg_03_vanilla_class_attribute_formula_stays_finite_across_the_dlc() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping prg_03 vanilla attribute survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let game = Game::new(order);
+    ])
+    .unwrap();
+    let game = Game::from_shared_order(order);
     let world = game.world();
     let mut class_formula_eligible = 0usize;
     for (npc_id, record) in world

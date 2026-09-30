@@ -27,14 +27,11 @@
 //! [`Patch`] values, each one a form and the change to make to it. Nothing
 //! here touches a running world, and that hook belongs to the game crate.
 //!
-//! # What is deliberately left as written
+//! # What remains as written
 //!
-//! Two fields keep their text rather than being modelled. Keyword Item
-//! Distributor's traits field has a different grammar per item type, and Base
-//! Object Swapper's property field is its own small language of `pos`, `rot`,
-//! `scale` and `flags` calls. Modelling either badly would be worse than
-//! handing the caller the string, so both are reported as written and named in
-//! `docs/moddata.md` as open.
+//! Keyword Item Distributor's traits field keeps its text because the grammar
+//! differs by item type. Base Object Swapper property fields are parsed by
+//! [`bos::Properties`] and applied by the game crate.
 
 pub mod bos;
 pub mod error;
@@ -66,10 +63,17 @@ pub enum Change {
         /// Preserve SPID's trailing `!` through resolution.
         deterministic_chance: bool,
     },
-    /// Replace a base object, from Base Object Swapper.
-    SwapBase { to: GlobalFormId },
-    /// Override a reference's properties, from Base Object Swapper. Kept as
-    /// written, see the crate docs.
+    /// Replace a base object and optionally override its properties.
+    SwapBase {
+        to: GlobalFormId,
+        properties: String,
+    },
+    /// Replace the base object of one named placed reference.
+    SwapReference {
+        to: GlobalFormId,
+        properties: String,
+    },
+    /// Override a form or reference's properties, from Base Object Swapper.
     SetProperties { properties: String },
 }
 
@@ -200,7 +204,14 @@ pub fn resolve_bos(file: &bos::SwapFile, order: &LoadOrder) -> Vec<Patch> {
                     (bos::SwapKind::Properties, _) | (_, None) => Change::SetProperties {
                         properties: swap.properties.clone(),
                     },
-                    (_, Some(to)) => Change::SwapBase { to },
+                    (bos::SwapKind::References, Some(to)) => Change::SwapReference {
+                        to,
+                        properties: swap.properties.clone(),
+                    },
+                    (_, Some(to)) => Change::SwapBase {
+                        to,
+                        properties: swap.properties.clone(),
+                    },
                 };
                 out.push(Patch {
                     target: Some(target),

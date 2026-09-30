@@ -444,7 +444,9 @@ impl ScriptBuilder {
                 parent: parent.to_string(),
                 docstring: String::new(),
                 user_flags: 0,
+                is_const: false,
                 auto_state: String::new(),
+                structs: Vec::new(),
                 variables: Vec::new(),
                 properties: Vec::new(),
                 states: vec![State {
@@ -481,6 +483,7 @@ impl ScriptBuilder {
             type_name: type_name.to_string(),
             user_flags: 0,
             default,
+            is_const: false,
         });
         self
     }
@@ -493,6 +496,7 @@ impl ScriptBuilder {
             type_name: type_name.to_string(),
             user_flags: 0,
             default,
+            is_const: false,
         });
         self.object.properties.push(Property {
             name: name.to_string(),
@@ -595,6 +599,8 @@ impl ScriptBuilder {
                 },
             ],
             objects: vec![self.object],
+            property_groups: Vec::new(),
+            struct_orders: Vec::new(),
         }
     }
 

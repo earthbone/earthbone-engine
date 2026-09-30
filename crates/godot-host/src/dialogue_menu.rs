@@ -3,7 +3,171 @@
 //! Available conversation choices for the native Godot dialogue menu.
 //! Choice eligibility and response execution stay in the shared Game.
 
+use soe_audio::LipWeightTrack;
 use soe_esm::GlobalFormId;
+
+/// Native mouth weights sampled against the active voice's playback clock.
+#[derive(Default)]
+pub struct DialogueMouth {
+    track: Option<LipWeightTrack>,
+    duration: f64,
+    weights: Vec<f32>,
+}
+
+impl DialogueMouth {
+    /// Start a decoded track over the duration of its voice buffer.
+    pub fn start(&mut self, track: Option<LipWeightTrack>, duration: f64) {
+        self.clear();
+        let Some(track) = track else {
+            return;
+        };
+        self.weights.resize(track.target_count(), 0.0);
+        if duration.is_finite() && duration > 0.0 && track.frame_count() != 0 {
+            self.duration = duration;
+            self.track = Some(track);
+        }
+    }
+
+    /// Sample the stored frame nearest at or before the voice playback time.
+    pub fn sample(&mut self, seconds: f64) {
+        let Some(track) = self.track.as_ref() else {
+            return;
+        };
+        if !seconds.is_finite() || seconds < 0.0 || seconds >= self.duration {
+            self.weights.fill(0.0);
+            return;
+        }
+        let frame_offset = (seconds / self.duration * f64::from(track.frame_count())).floor();
+        let native_frame = i64::from(track.first_frame()) + frame_offset as i64;
+        if let Some(frame) = track.frame_at(native_frame) {
+            self.weights.copy_from_slice(frame.targets);
+        } else {
+            self.weights.fill(0.0);
+        }
+    }
+
+    /// Clear the active track and return its target weights to neutral.
+    pub fn clear(&mut self) {
+        self.weights.fill(0.0);
+        self.track = None;
+        self.duration = 0.0;
+    }
+
+    /// Current mouth weights in their stored LIP target order.
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+}
+
+/// A resolved voice file and the speaker's position in Godot metres.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceAsset {
+    pub path: String,
+    pub position: [f32; 3],
+}
+
+/// Output operations needed to replace one dialogue voice with another.
+pub trait VoiceOutput {
+    fn play_voice(&mut self, path: &str, position: [f32; 3]) -> i32;
+    fn stop_voice(&mut self, slot: i32) -> bool;
+}
+
+/// Stop the prior line before starting its replacement, retaining its slot.
+pub fn replace_voice(
+    output: &mut impl VoiceOutput,
+    active_slot: &mut Option<i32>,
+    asset: Option<&VoiceAsset>,
+) {
+    if let Some(slot) = active_slot.take() {
+        output.stop_voice(slot);
+    }
+    let Some(asset) = asset else {
+        return;
+    };
+    let slot = output.play_voice(&asset.path, asset.position);
+    if slot >= 0 {
+        *active_slot = Some(slot);
+    }
+}
+
+/// Resolve the selected INFO's voice file for its active speaker.
+///
+/// Responses with a sound override use that sound form instead of a voice
+/// file. The filename fields follow Mutagen's local
+/// `VoiceTypeAssetLookup.GetVoiceLineFilePaths` implementation.
+pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
+    if line.response.sound != 0 {
+        return None;
+    }
+    let mut world = game.world_mut();
+    let response_topic = world.dialogue_topic_of(line.response_info)?;
+    let topic = world.record(response_topic)?;
+    let raw_quest = topic.find(soe_esm::Tag(*b"QNAM"))?;
+    let raw_quest = u32::from_le_bytes(raw_quest.try_into().ok()?);
+    let quest_id = world.resolve_from(response_topic, raw_quest)?;
+    let quest = world.record(quest_id)?;
+    let quest_name = quest.editor_id()?;
+    let topic_name = topic.editor_id()?;
+
+    let response_plugin = world
+        .order()
+        .file(usize::from(line.response_info.file))
+        .name
+        .clone();
+    let response_name = format!("{:08X}", line.response_info.object);
+
+    let (speaker_base, speaker_position) = {
+        let speaker = world.reference(line.speaker)?;
+        (speaker.base?, speaker.position)
+    };
+    let voice_owner = match world.tag_of(speaker_base)?.as_bytes() {
+        b"NPC_" => world
+            .npc_component_source(speaker_base, soe_game::npc::template::TRAITS)
+            .ok()?,
+        b"TACT" => speaker_base,
+        _ => return None,
+    };
+    let voice_record = world.record(voice_owner)?;
+    let voice_tag = if voice_record.tag.as_bytes() == b"TACT" {
+        *b"VNAM"
+    } else {
+        *b"VTCK"
+    };
+    let raw_voice = voice_record.find(soe_esm::Tag(voice_tag))?;
+    let raw_voice = u32::from_le_bytes(raw_voice.try_into().ok()?);
+    let voice_id = world.resolve_from(voice_owner, raw_voice)?;
+    let voice_name = world.record(voice_id)?.editor_id()?;
+    let (quest_name, topic_name) = if quest_name.chars().count() + topic_name.chars().count() > 25 {
+        if quest_name.chars().count() > 10 {
+            (
+                quest_name.chars().take(10).collect(),
+                topic_name.chars().take(15).collect(),
+            )
+        } else {
+            let remaining = 25 - quest_name.chars().count();
+            (
+                quest_name.clone(),
+                topic_name.chars().take(remaining).collect(),
+            )
+        }
+    } else {
+        (quest_name.clone(), topic_name.clone())
+    };
+    let position = crate::units::SkyrimPos::new(
+        speaker_position[0],
+        speaker_position[1],
+        speaker_position[2],
+    )
+    .to_godot();
+
+    Some(VoiceAsset {
+        path: format!(
+            "Sound/Voice/{}/{}/{quest_name}_{topic_name}_{response_name}_{}.fuz",
+            response_plugin, voice_name, line.response.number
+        ),
+        position: [position.x, position.y, position.z],
+    })
+}
 use soe_game::dialogue::{Error, Line};
 use soe_game::Game;
 

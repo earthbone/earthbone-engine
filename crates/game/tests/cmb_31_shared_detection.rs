@@ -14,6 +14,7 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::detection::{DetectionLevel, Error, Motion, Observation};
 use soe_game::World;
+use soe_papyrus::ObjectId;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -95,6 +96,8 @@ fn still(observer: u32, target: u32, distance: f32, light: f32) -> Observation {
         light_level: light,
         motion: Motion::Still,
         action_sound: 0.0,
+        action_sound_distance: None,
+        action_sound_line_of_sight: None,
     }
 }
 
@@ -121,12 +124,63 @@ fn fixture(gmsts: Vec<Record>) -> World {
                 [(1_u32 << 2).to_le_bytes(), 0_u32.to_le_bytes()].concat(),
             ),
     );
+    let mut invisibility = vec![0; 152];
+    invisibility[64..68].copy_from_slice(&11_u32.to_le_bytes());
+    invisibility[80..84].copy_from_slice(&1_u32.to_le_bytes());
+    let mut spell_data = vec![0; 36];
+    spell_data[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    let effect_entry = [
+        1.0_f32.to_le_bytes(),
+        0_u32.to_le_bytes(),
+        20_u32.to_le_bytes(),
+    ]
+    .concat();
+    plugin.push_top(Record::new(Tag(*b"MGEF"), 0xB00).sub(Tag(*b"DATA"), invisibility));
+    plugin.push_top(
+        Record::new(Tag(*b"SPEL"), 0xB01)
+            .sub(Tag(*b"SPIT"), spell_data)
+            .sub(Tag(*b"EFID"), 0xB00_u32.to_le_bytes())
+            .sub(Tag(*b"EFIT"), effect_entry),
+    );
     for record in gmsts {
         plugin.push_top(record);
     }
     let mut order = LoadOrder::new();
     order.add("Detection.esm", plugin).unwrap();
     World::new(order)
+}
+
+#[test]
+fn mag_34_active_invisibility_reduces_record_backed_detection() {
+    let settings = detection_gmsts(&[("fSneakStealthBoyMult", 0.1)]);
+    let observation = still(0x900, 0x902, 0.0, 100.0);
+    let mut visible_world = fixture(settings.clone());
+    visible_world
+        .evaluate_detection(&[observation], 0.0)
+        .unwrap();
+    let visible = visible_world
+        .awareness(id(0x900), id(0x902))
+        .unwrap()
+        .detection;
+
+    let mut invisible_world = fixture(settings);
+    invisible_world
+        .cast_spell(id(0xB01), id(0x902), Some(id(0x902)), None, &mut |_, _| {
+            ObjectId(1)
+        })
+        .unwrap();
+    invisible_world
+        .evaluate_detection(&[observation], 0.0)
+        .unwrap();
+    let invisible = invisible_world
+        .awareness(id(0x900), id(0x902))
+        .unwrap()
+        .detection;
+
+    assert!(
+        invisible < visible,
+        "invisibility must lower detection: {visible} to {invisible}"
+    );
 }
 
 /// Two observers (0x900 Combat-level, 0x901 Alert-level) watching one

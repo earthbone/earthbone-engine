@@ -171,7 +171,7 @@ pub struct LocationData {
     pub radius: i32,
 }
 
-/// `PTDA` target kind.
+/// `PTDA` target kind. xEdit `wbObjectTypeEnum` supplies Object Type values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Reference(u32),
@@ -251,6 +251,10 @@ pub struct Action {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     pub form_id: u32,
+    /// Saved change-form waiting marker, when imported from an ESS.
+    pub saved_waiting: bool,
+    /// Saved change-form never-run marker, when imported from an ESS.
+    pub saved_never_run: bool,
     pub editor_id: Option<String>,
     pub general: General,
     pub schedule: Schedule,
@@ -289,6 +293,8 @@ impl Package {
         }
         let mut p = Package {
             form_id: rec.form_id,
+            saved_waiting: false,
+            saved_never_run: false,
             editor_id: rec.editor_id(),
             general: General::default(),
             schedule: Schedule::default(),
@@ -342,11 +348,7 @@ impl Package {
                     .idles
                     .extend(d.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c))),
                 b"IDLF" => p.idle_flags = d.first().copied().unwrap_or(0),
-                b"IDLT" => {
-                    if d.len() >= 4 {
-                        p.idle_timer = f32_at(d, 0);
-                    }
-                }
+                b"IDLT" if d.len() >= 4 => p.idle_timer = f32_at(d, 0),
                 b"QNAM" => {
                     if matches!(section, Section::Header) {
                         p.owner_quest = Some(u32_at_checked(d, "QNAM")?);

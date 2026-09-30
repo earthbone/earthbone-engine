@@ -4,6 +4,9 @@
 //! Actor state from `NPC_` records: a synthetic base through the natives,
 //! and the shipped Prisoner from Skyrim.esm when `SKYRIM_DATA` is set.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, flags as npc_flags, Config, Npc, Stats};
 use soe_game::Game;
@@ -90,16 +93,12 @@ fn an_actor_takes_its_stats_from_the_base_record() {
 
 #[test]
 fn the_prisoner_from_skyrim_esm() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
-    let mut order = LoadOrder::new();
-    order
-        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
-        .unwrap();
-    let game = Game::new(order);
+    let order = installed::load_order(&["Skyrim.esm"]).unwrap();
+    let game = Game::from_shared_order(order);
     let w = game.world();
     for edid in ["Player", "Prisoner", "MQ101Alduin"] {
         let Some(id) = w.form(edid) else {
