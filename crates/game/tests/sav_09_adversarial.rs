@@ -4,8 +4,9 @@
 use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{vanilla_save::RestoreError, Game};
 use soe_save::{
-    reference::{flags as change_flags, PlayerLocation}, ChangeForm, Compression, GlobalData,
-    GlobalVariable, GlobalVariables, Header, RefId, Save, WString,
+    reference::{flags as change_flags, PlayerLocation},
+    ChangeForm, Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save,
+    WString,
 };
 
 fn id(object: u32) -> GlobalFormId {
@@ -21,8 +22,7 @@ fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 7).sub(Tag(*b"EDID"), b"Player\0".to_vec()));
     plugin.push_top(
-        Record::new(Tag(*b"GLOB"), 0x900)
-            .sub(Tag(*b"FLTV"), 11.0_f32.to_le_bytes().to_vec()),
+        Record::new(Tag(*b"GLOB"), 0x900).sub(Tag(*b"FLTV"), 11.0_f32.to_le_bytes().to_vec()),
     );
     plugin.push_top(Record::new(Tag(*b"CELL"), 0x800));
     order.add("Skyrim.esm", plugin).unwrap();
@@ -98,13 +98,13 @@ fn with_global_change() -> Save {
         GlobalData {
             kind: GlobalData::GLOBAL_VARIABLES,
             data: GlobalVariables {
-            variables: vec![GlobalVariable {
-                form: reference(1),
-                value: 42.5,
-            }],
-        }
-        .write()
-        .unwrap(),
+                variables: vec![GlobalVariable {
+                    form: reference(1),
+                    value: 42.5,
+                }],
+            }
+            .write()
+            .unwrap(),
         },
     ];
     let mut placement = vec![];
@@ -131,7 +131,10 @@ fn assert_rollback(save: &Save, expected_error: impl FnOnce(&RestoreError) -> bo
     let before = game.save_state().unwrap();
 
     let error = game.restore_vanilla_world_and_vm(save).unwrap_err();
-    assert!(expected_error(&error), "unexpected restore error: {error:?}");
+    assert!(
+        expected_error(&error),
+        "unexpected restore error: {error:?}"
+    );
     assert_eq!(game.world_mut().global_value(id(0x900)), 7.0);
     assert_eq!(game.save_state().unwrap(), before);
 }
