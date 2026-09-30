@@ -2151,6 +2151,9 @@ The graph selects and plays its authored hit reaction, then follows its own
 transitions back to the locomotion state. This rendering step only reads World
 state and advances the animation interpreter. It never resolves the hit or
 changes health, so the combat event cannot apply damage twice.
+`cmb_27_shared_game_applies_stagger_damage_once_per_hit_frame` checks the
+shared Game applies damage once and consumes duplicate hit-frame events while
+the target is staggered.
 
 `activeragdoll/src/main.cpp`'s `StaggerActor` and the local Nemesis master,
 stagger and one-handed behavior graphs establish the variable and event names.
