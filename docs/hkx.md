@@ -585,6 +585,15 @@ vector and quaternion operands, unknown symbols, malformed source and
 non-finite arithmetic return expression errors. Their guards stay closed,
 with deduplicated entries in `Unsupported.conditions`.
 
+A comma after a relational comparison repeats its left operand for one more
+relational comparison and combines the two results with logical AND. Thus
+`staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
+at either bound. `serde-hkx` declares a comma token but does not document its
+evaluation. This interpretation is exercised by a state-machine trace and by
+a gated check of the serialized troll guard in `tests/conditions.rs` and the
+`expression` unit tests. The local source establishes the token and the shipped
+expression. No capture from the original runtime was available.
+
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
 An event ID of -1 with a condition is polled once per node each frame, before
