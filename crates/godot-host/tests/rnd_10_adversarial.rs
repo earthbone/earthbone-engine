@@ -15,10 +15,10 @@ use std::path::PathBuf;
 fn rnd_10_negative_cells_align_bto_name_to_the_world_anchor() {
     let anchor = CellCoord::new(-3, 5);
     let block = LodBlockCoord::containing_from(CellCoord::new(-4, 4), LodLevel::L4, anchor);
-    assert_eq!((block.x, block.y), (-7, 1));
+    assert_eq!((block.x, block.y), (-3, 5));
     assert_eq!(
         bto_path("Tamriel", block),
-        "meshes/terrain/Tamriel/Objects/tamriel.4.-7.1.bto"
+        "meshes/terrain/Tamriel/Objects/tamriel.4.-3.5.bto"
     );
 }
 

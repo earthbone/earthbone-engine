@@ -22,7 +22,7 @@
 //! landscape LOD generation itself the way `wbLOD.pas` documents tree and
 //! object LOD, so block alignment follows `TwbLodSettings.BlockForCell`
 //! (`Core/wbLOD.pas`): a block is named by its south-west cell,
-//! `SWCell + floor((cell - SWCell) / level) * level`, where `SWCell` is the
+//! `SWCell + trunc((cell - SWCell) / level) * level`, where `SWCell` is the
 //! worldspace's anchor from `lodsettings\<world>.lod`. The file name's `x`
 //! and `y` are that cell, not a block index: `miWorldspaceSaveAsLODClick`
 //! in the same `Worldspace browser.pas` steps `x` and `y` in cells by the
@@ -97,14 +97,14 @@ impl LodBlockCoord {
 
     /// The block a cell belongs to at `level` on a grid anchored at
     /// `anchor`, the worldspace's `SWCell`, following
-    /// `TwbLodSettings.BlockForCell`. Euclidean division keeps cells just
-    /// south or west of the anchor in the preceding block.
+    /// `TwbLodSettings.BlockForCell`. Integer division truncates toward zero,
+    /// so cells just south or west of the anchor name the anchor's block.
     pub fn containing_from(cell: CellCoord, level: LodLevel, anchor: CellCoord) -> Self {
         let span = level.cells();
         Self {
             level,
-            x: anchor.x + (cell.x - anchor.x).div_euclid(span) * span,
-            y: anchor.y + (cell.y - anchor.y).div_euclid(span) * span,
+            x: anchor.x + (cell.x - anchor.x) / span * span,
+            y: anchor.y + (cell.y - anchor.y) / span * span,
         }
     }
 
@@ -595,7 +595,7 @@ mod tests {
         let block = LodBlockCoord::containing_from(CellCoord::new(10, 20), LodLevel::L32, anchor);
         assert_eq!((block.x, block.y), (-5, 9));
         let west = LodBlockCoord::containing_from(CellCoord::new(-6, 8), LodLevel::L32, anchor);
-        assert_eq!((west.x, west.y), (-37, -23));
+        assert_eq!((west.x, west.y), (-5, 9));
     }
 
     #[test]

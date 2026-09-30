@@ -2802,8 +2802,8 @@ TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
 `LODLevelMin`/`LODLevelMax`), the only LOD block sizes the corpus documents.
 No corpus source documents landscape LOD generation the way `wbLOD.pas`
 documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
-`TwbLodSettings.BlockForCell` and this crate's own
-`terrain::RegionSpec::region_of`, with floor division for negative offsets.
+`TwbLodSettings.BlockForCell`, with integer division truncated toward zero
+relative to the worldspace's anchor, including negative offsets.
 
 ### Residency and budget
 
