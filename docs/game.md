@@ -52,13 +52,22 @@ week 6 to 9 gate.
   whole batch of observations before it changes any pool. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
-- `ObjectReference.CreateDetectionEvent` queues one sound at the calling
-  reference's current cell and position with the supplied actor owner. Sound
-  levels above 100 remain valid. Invalid actors, references and negative levels
-  leave the queue unchanged. The host takes queued events once per observation
-  step. Emitted sound uses the source's distance and line of sight, independently
-  of the owner's position. The queue is transient and adds no save field.
+CTDA function 513, `IsCombatTarget`, checks whether the condition subject's
+saved combat target is the placed NPC in parameter 1. It uses the same
+`ActorState::combat_target` relationship as `Actor.GetCombatTarget` and
+requires both forms to be actors. Functions 396 `GetCauseofDeath`, 397
+`IsLimbGone`, 477 `GetThreatRatio`, 488 `GetConcussed`, 495
+`GetKillingBlowLimb`, 508 `GetLastHitCritical` and 574 `GetAttackState` return
+an explicit unsupported-function error. The local CK condition pages do not
+specify usable return contracts for those functions. xEdit's condition table
+and the CK `GetCombatTarget` page informed the implemented target predicate.
 
+- `ObjectReference.CreateDetectionEvent` queues one sound at the calling
+reference's current cell and position with the supplied actor owner. Sound
+levels above 100 remain valid. Invalid actors, references and negative levels
+leave the queue unchanged. The host takes queued events once per observation
+step. Emitted sound uses the source's distance and line of sight, independently
+of the owner's position. The queue is transient and adds no save field.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives,
   aliases with forced references, and each objective target's alias, lock
   marker flag and CTDA conditions.
