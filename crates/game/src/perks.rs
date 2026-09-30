@@ -71,6 +71,8 @@ pub struct EntryPointContext {
     pub alchemy_making_poison: Option<bool>,
     /// Effect currently checked by alchemy perk entry points.
     pub alchemy_effect: Option<GlobalFormId>,
+    /// Skill-use inputs for EPModSkillUsage entry point conditions.
+    pub skill_use: Option<conditions::SkillUseContext>,
 }
 
 /// The decoded fields needed by an entry point handler.
@@ -362,6 +364,8 @@ fn entry_conditions(
             alchemy_effect: context.alchemy_effect,
             magic_item: None,
             dual_cast: None,
+            skill_use: context.skill_use,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -460,6 +464,8 @@ impl Game {
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

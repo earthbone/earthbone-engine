@@ -47,6 +47,8 @@ fn ai_76_player_knows_accepts_magic_effect_forms() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition,
         ),

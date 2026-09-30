@@ -5,6 +5,7 @@
 //! `PKID` list of its base record, and the first package whose schedule and
 //! conditions hold wins, the way the Creation Kit wiki describes the stack
 //! and `EvaluatePackage` (`engine-refs/ck-wiki/EvaluatePackage_-_Actor`).
+//! PACK begin, end and change fragments follow xEdit's `wbVMADFragmentedPACK` order, with the actor argument described by the CK wiki's Papyrus Fragments section.
 //! The chosen package's template names a procedure, and four of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds,
@@ -30,13 +31,14 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_navmesh::vanilla::{key_of, Builder};
 use soe_navmesh::NavGraph;
 use soe_papyrus::vm::state::{Reader, Writer};
-use soe_papyrus::VmError;
+use soe_papyrus::{Value, VmError};
 
 use crate::actor_values::actor_value_name;
 use crate::clock::GameClock;
 use crate::package::{
     condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
+use crate::vmad::Vmad;
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
@@ -646,8 +648,16 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     if let Some(old) = current {
         let old_value = world.form_value(Some(old), alloc);
         let name = if chosen.is_some() {
+            queue_pack_fragment(world, old, actor, PackBoundary::Change, alloc);
+            if let Some(p) = package(world, old) {
+                start_boundary_action(world, old, actor, p.on_change, alloc);
+            }
             "OnPackageChange"
         } else {
+            queue_pack_fragment(world, old, actor, PackBoundary::End, alloc);
+            if let Some(p) = package(world, old) {
+                start_boundary_action(world, old, actor, p.on_end, alloc);
+            }
             "OnPackageEnd"
         };
         world.pending.push(Pending::Event {
@@ -683,7 +693,9 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
     if let Some(c) = chosen {
+        queue_pack_fragment(world, c.package, actor, PackBoundary::Begin, alloc);
         if let Some(p) = package(world, c.package) {
+            start_boundary_action(world, c.package, actor, p.on_begin, alloc);
             ai.speed = movement_speed(
                 world,
                 actor,
@@ -707,6 +719,92 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+fn start_boundary_action(
+    world: &mut World,
+    package_id: GlobalFormId,
+    actor: GlobalFormId,
+    action: crate::package::Action,
+    alloc: Alloc<'_>,
+) {
+    if world
+        .actor(actor)
+        .is_none_or(|state| state.dead || state.unconscious)
+    {
+        return;
+    }
+
+    if let Some(raw_idle) = action.idle {
+        if let Some(idle) = world.resolve_from(package_id, raw_idle) {
+            if let Some(name) = world.editor_id(idle) {
+                world.animation_event(actor, &name, alloc);
+            }
+        }
+    }
+
+    let Some(crate::package::Topic::Dialogue(raw_topic)) = action.topic else {
+        return;
+    };
+    let Some(topic) = world.resolve_from(package_id, raw_topic) else {
+        return;
+    };
+    let listener = world.player();
+    if listener == actor
+        || world.dialogue.session.is_some()
+        || world.actor(actor).is_none_or(|state| {
+            state.dead || state.in_combat || state.unconscious || !state.allow_pc_dialogue
+        })
+        || world.actor(listener).is_none_or(|state| state.dead)
+    {
+        return;
+    }
+    world.dialogue.greeting_actor = None;
+    world.dialogue.session = Some(crate::dialogue::Session {
+        speaker: actor,
+        listener,
+        topic: Some(topic),
+        current_info: None,
+        last_info: None,
+        response_index: 0,
+    });
+}
+
+#[derive(Clone, Copy)]
+enum PackBoundary {
+    Begin,
+    End,
+    Change,
+}
+
+fn queue_pack_fragment(
+    world: &mut World,
+    package: GlobalFormId,
+    actor: GlobalFormId,
+    boundary: PackBoundary,
+    alloc: Alloc<'_>,
+) {
+    let fragment = world
+        .record(package)
+        .and_then(|record| record.find(Tag::new(b"VMAD")))
+        .and_then(|raw| Vmad::parse(raw, Tag::new(b"PACK")).ok())
+        .and_then(|vmad| vmad.pack_fragments)
+        .and_then(|fragments| match boundary {
+            PackBoundary::Begin => fragments.begin,
+            PackBoundary::End => fragments.end,
+            PackBoundary::Change => fragments.change,
+        });
+    let Some(fragment) = fragment else {
+        return;
+    };
+    let object = world.object_of(Handle::Form(package), alloc);
+    let actor = Value::Object(world.object_of(Handle::Form(actor), alloc));
+    world.pending.push(Pending::CallScript {
+        object,
+        script: fragment.script,
+        function: fragment.function,
+        args: vec![actor],
+    });
 }
 
 fn begin_procedure(
@@ -1046,6 +1144,24 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if ignores_combat(world, actor) {
             clear_combat_engagement(world, actor);
         }
+        let turn_undead_threat = world.turn_undead_threat(actor);
+        if world.is_fleeing(actor) || turn_undead_threat.is_some() {
+            if let Some(state) = world.actor(actor) {
+                state.in_combat = false;
+                state.combat_target = None;
+                state.ai.reevaluate = true;
+                state.ai.path.clear();
+                state.ai.path_cells.clear();
+                state.ai.destination = None;
+                state.ai.arrived = false;
+            }
+            if let Some(threat) = turn_undead_threat {
+                flee_turn_undead(world, actor, threat, dt as f32);
+            } else if let Some(source) = world.flee_source(actor) {
+                flee_from(world, actor, source, dt as f32);
+            }
+            continue;
+        }
         let active_target = combat_target(world, actor);
         if active_target.is_some() && !ignores_combat(world, actor) {
             let due = world.actor(actor).is_some_and(|a| {
@@ -1071,6 +1187,116 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             evaluate(world, actor, &mut *alloc);
         }
         step(world, actor, dt as f32, &mut *alloc);
+    }
+}
+
+/// Move away from a live hostile effect source along the vanilla navmesh.
+fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f32) {
+    let Some((position, cell)) = world
+        .reference(actor)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some(threat) = world.reference(source).map(|reference| reference.position) else {
+        return;
+    };
+    let offset = [
+        position[0] - threat[0],
+        position[1] - threat[1],
+        position[2] - threat[2],
+    ];
+    let length = distance(position, threat);
+    if length <= f32::EPSILON {
+        return;
+    }
+    let destination = std::array::from_fn(|axis| position[axis] + offset[axis] / length * 512.0);
+    let Some((path, cells)) = plan_combat(world, position, destination, cell) else {
+        return;
+    };
+    let speed = movement_speed(world, actor, speed::RUN);
+    let mut budget = speed * dt.max(0.0);
+    let mut position = position;
+    let mut cell = cell;
+    for (index, next) in path.iter().enumerate() {
+        let d = distance(position, *next);
+        if d <= budget {
+            position = *next;
+            budget -= d;
+            if let Some(Some(next_cell)) = cells.get(index) {
+                cell = Some(*next_cell);
+            }
+        } else if d > 0.0 {
+            let fraction = budget / d;
+            position = std::array::from_fn(|axis| {
+                position[axis] + (next[axis] - position[axis]) * fraction
+            });
+            break;
+        }
+        if budget <= 0.0 {
+            break;
+        }
+    }
+    if let Some(reference) = world.reference(actor) {
+        reference.position = position;
+        if cell.is_some() {
+            reference.cell = cell;
+        }
+    }
+}
+
+/// Run away from the caster while a Turn Undead application is active.
+fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId, dt: f32) {
+    let Some((mut position, mut cell)) = world
+        .reference(actor)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some(threat_position) = world.reference(threat).map(|reference| reference.position) else {
+        return;
+    };
+    let mut direction = [
+        position[0] - threat_position[0],
+        position[1] - threat_position[1],
+        position[2] - threat_position[2],
+    ];
+    let length = distance(position, threat_position);
+    if length <= f32::EPSILON {
+        direction = [1.0, 0.0, 0.0];
+    } else {
+        for component in &mut direction {
+            *component /= length;
+        }
+    }
+    let destination = std::array::from_fn(|axis| position[axis] + direction[axis] * 512.0);
+    let (path, cells) = plan(world, position, destination, cell);
+    let speed = movement_speed(world, actor, speed::RUN);
+    let mut budget = speed * dt.max(0.0);
+    for (index, next) in path.iter().enumerate() {
+        if budget <= 0.0 {
+            break;
+        }
+        let distance = distance(position, *next);
+        if distance <= budget {
+            position = *next;
+            budget -= distance;
+            if let Some(Some(next_cell)) = cells.get(index) {
+                cell = Some(*next_cell);
+            }
+        } else if distance > 0.0 {
+            let fraction = budget / distance;
+            position = std::array::from_fn(|axis| {
+                position[axis] + (next[axis] - position[axis]) * fraction
+            });
+            budget = 0.0;
+        }
+    }
+    if let Some(reference) = world.reference(actor) {
+        reference.position = position;
+        if cell.is_some() {
+            reference.cell = cell;
+        }
     }
 }
 
@@ -1104,7 +1330,8 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
         .filter(|state| state.in_combat)
         .and_then(|state| state.combat_target);
     let target = target?;
-    let valid = world.actor(target).is_some_and(|state| !state.dead);
+    let valid = world.actor(target).is_some_and(|state| !state.dead)
+        && world.actor_value(actor, "aggression") >= 1.0;
     if valid {
         return Some(target);
     }
@@ -1133,6 +1360,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(from) = world.reference(actor).map(|reference| reference.position) else {
         return false;
     };
+    let frenzied = world.is_frenzied(actor);
     let mut candidates = world.loaded_actors();
     candidates.sort();
     let mut best: Option<(GlobalFormId, f32)> = None;
@@ -1140,7 +1368,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
         if target == actor
             || world
                 .actor(target)
-                .is_none_or(|state| state.dead || state.unconscious || state.teammate)
+                .is_none_or(|state| state.dead || state.unconscious || state.teammate && !frenzied)
             || !world.awareness(actor, target).is_some_and(|awareness| {
                 awareness.level == crate::detection::DetectionLevel::Combat
             })

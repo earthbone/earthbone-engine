@@ -57,6 +57,8 @@ fn ai_51_item_health_percent_preserves_damaged_item_values() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition(expected),
         )

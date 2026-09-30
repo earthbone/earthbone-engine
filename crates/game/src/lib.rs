@@ -154,6 +154,8 @@ pub struct Game {
     mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
+    /// Hands currently held by direct player or scripted cast input.
+    active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
 
 impl Game {
@@ -195,6 +197,8 @@ impl Game {
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         conditions::evaluate(&mut world, &self.vm, context, &conditions)
     }
@@ -218,6 +222,7 @@ impl Game {
             mcm_registered: Vec::new(),
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
+            active_hand_casts: BTreeSet::new(),
         }
     }
 
@@ -353,6 +358,56 @@ impl Game {
         let vm = &self.vm;
         let mut world = self.world.borrow_mut();
         services::resolve_vendor_service(&mut world, vm, faction, merchant)
+    }
+
+    /// Buy an exact quantity from an available vendor, exchanging gold and
+    /// merchandise as one inventory transaction.
+    ///
+    /// `unit_price` is the already-adjusted menu price per item. A caller
+    /// applies the barter multiplier and rounding before calling this method.
+    ///
+    /// # Errors
+    /// Returns an error when vendor service data is invalid or unavailable,
+    /// the item is not listed, the price is invalid, or either holder cannot
+    /// complete the full exchange.
+    pub fn buy_vendor_item(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        unit_price: i32,
+    ) -> Result<(), services::TradeError> {
+        if count <= 0 || unit_price <= 0 {
+            return Err(services::TradeError::Price);
+        }
+        let service = self
+            .resolve_vendor_service(faction, merchant)?
+            .filter(|service| service.available)
+            .ok_or(services::TradeError::Unavailable)?;
+        if service.merchandise.count(item) < count {
+            return Err(services::TradeError::Stock);
+        }
+        let total = count
+            .checked_mul(unit_price)
+            .ok_or(services::TradeError::Price)?;
+        let currency = self.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 0xF,
+        });
+        let player = self.player();
+        let vm = &mut self.vm;
+        self.world.borrow_mut().trade_items_notified(
+            service.merchant_container,
+            item,
+            count,
+            player,
+            currency,
+            total,
+            &mut |name, class| vm.create_object_of(name, class),
+        )?;
+        self.run_until_idle(64);
+        Ok(())
     }
 
     /// Return the selected damage difficulty tier.
@@ -618,6 +673,7 @@ impl Game {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                skill_use: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
@@ -626,6 +682,7 @@ impl Game {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                skill_use: None,
             };
             (
                 perks::entry_point_invocations(
@@ -668,6 +725,64 @@ impl Game {
             direction,
             &mut |name, class| vm.create_object_of(name, class),
         )
+    }
+
+    /// Begin a costed cast from an actor's equipped hand spell.
+    ///
+    /// Repeated begins while that hand remains held do not request another
+    /// cast. Fire-and-forget spells execute on the initial press, while
+    /// concentration spells remain active until the hand is released.
+    ///
+    /// # Errors
+    /// Returns the magic validation, delivery, or magicka error for the spell.
+    pub fn begin_hand_cast(
+        &mut self,
+        actor: soe_esm::GlobalFormId,
+        hand: combat::Hand,
+        target: Option<soe_esm::GlobalFormId>,
+    ) -> Result<bool, world::magic::MagicError> {
+        let key = (actor, hand);
+        if self.active_hand_casts.contains(&key) {
+            return Ok(false);
+        }
+        let spell = self.world.borrow_mut().hand_spell(actor, hand);
+        let Some(spell) = spell else {
+            return Ok(false);
+        };
+        let vm = &mut self.vm;
+        let result = {
+            let mut world = self.world.borrow_mut();
+            if world.spell(spell)?.data.cast_type == 2 {
+                world
+                    .begin_concentration_cast(spell, actor, actor, target, &mut |name, class| {
+                        vm.create_object_of(name, class)
+                    })
+                    .map(|()| Vec::new())
+            } else {
+                world.cast_charged_spell(spell, actor, actor, target, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })
+            }
+        };
+        match result {
+            Ok(_) => {
+                self.active_hand_casts.insert(key);
+                self.run_until_idle(64);
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Release a casting hand after its input is lifted.
+    #[must_use]
+    pub fn end_hand_cast(&mut self, actor: soe_esm::GlobalFormId, hand: combat::Hand) -> bool {
+        let was_active = self.active_hand_casts.remove(&(actor, hand));
+        let stopped_concentration = {
+            let mut world = self.world.borrow_mut();
+            world.is_concentration_casting(actor) && world.release_concentration_cast()
+        };
+        was_active || stopped_concentration
     }
 
     /// Activate a reference the way a player click would, then settle.
@@ -760,6 +875,60 @@ impl Game {
         threads
     }
 
+    /// Resume mapped quest story events whose handlers are loaded.
+    ///
+    /// Saved `SCPT` contexts resume through `OnStoryScript`. Their mapped
+    /// arguments remain on the quest if the script has not been loaded yet or
+    /// a mapped reference is unresolved.
+    ///
+    /// # Errors
+    /// This operation currently has no error path.
+    pub fn resume_vanilla_quest_story_events(&mut self) -> usize {
+        let mut resumed = 0;
+        let events = self.world.borrow().saved_story_events();
+        for (id, event) in events {
+            if event.code != *b"SCPT" || event.parameters.len() != 6 {
+                continue;
+            }
+            let (object, args) = {
+                let vm = &mut self.vm;
+                let mut world = self.world.borrow_mut();
+                if event.parameters.iter().any(|parameter| match parameter {
+                    crate::quest::state::StoryParameter::Reference {
+                        reference: Some(reference),
+                        ..
+                    } => !world.exists(*reference),
+                    _ => false,
+                }) {
+                    continue;
+                }
+                let mut args = Vec::with_capacity(event.parameters.len());
+                for parameter in event.parameters {
+                    args.push(match parameter {
+                        crate::quest::state::StoryParameter::Reference { reference, .. } => world
+                            .form_value(reference, &mut |name, class| {
+                                vm.create_object_of(name, class)
+                            }),
+                        crate::quest::state::StoryParameter::Integer(value) => {
+                            Value::Int(i32::from_le_bytes(value.to_le_bytes()))
+                        }
+                    });
+                }
+                let object = world.object_of(Handle::Form(id), &mut |name, class| {
+                    vm.create_object_of(name, class)
+                });
+                (object, args)
+            };
+            let threads = self.vm.send_event(object, "OnStoryScript", &args);
+            if !threads.is_empty() {
+                self.world.borrow_mut().clear_saved_story_event(id);
+                resumed += threads.len();
+            }
+            self.run_until_idle(64);
+        }
+        resumed
+    }
+
     pub fn player(&mut self) -> GlobalFormId {
         self.world.borrow_mut().player()
     }
@@ -782,6 +951,10 @@ impl Game {
             w.advance_clock(real_seconds);
             w.tick_image_space(real_seconds);
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            for error in errors {
+                vm.log.push(vm.time(), error.to_string());
+            }
+            let errors = w.tick_concentration(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
@@ -890,6 +1063,18 @@ impl Game {
                         self.vm
                             .log
                             .push(self.vm.time(), format!("fragment {function}: {e}"));
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    if let Err(e) = self.vm.call_script(object, &script, &function, &args) {
+                        self.vm
+                            .log
+                            .push(self.vm.time(), format!("fragment {script}.{function}: {e}"));
                     }
                 }
             }

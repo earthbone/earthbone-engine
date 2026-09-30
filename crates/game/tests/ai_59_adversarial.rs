@@ -46,6 +46,8 @@ fn ai_59_has_equipped_spell_accepts_voice_casting_source() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition,
         ),

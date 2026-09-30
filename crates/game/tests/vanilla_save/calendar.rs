@@ -96,6 +96,8 @@ fn sav_08_restores_calendar_before_execution_and_preserves_it_in_engine_saves() 
         alchemy_effect: None,
         magic_item: None,
         dual_cast: None,
+        skill_use: None,
+        light_level: None,
     };
     assert!(soe_game::conditions::evaluate_one(
         &mut game.world_mut(),

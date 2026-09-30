@@ -228,6 +228,8 @@ impl Game {
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);
@@ -329,6 +331,8 @@ impl Game {
                     alchemy_effect: Some(effect),
                     magic_item: None,
                     dual_cast: None,
+                    skill_use: None,
+                    light_level: None,
                 };
                 if !conditions::evaluate(&mut world, &self.vm, context, &entry.conditions)? {
                     eligible = false;
@@ -620,6 +624,8 @@ impl Game {
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);

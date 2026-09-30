@@ -71,6 +71,8 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         c,
     )

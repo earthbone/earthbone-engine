@@ -85,6 +85,7 @@ mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+pub use quests::AliasResolutionError;
 mod story_manager;
 pub use story_manager::StoryError;
 mod record_save;
@@ -170,6 +171,8 @@ pub struct RefState {
     pub on_map: bool,
     pub fast_travel: bool,
     pub destroyed: bool,
+    /// Current destruction stage, with -1 meaning undamaged.
+    pub destruction_stage: i32,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -211,6 +214,7 @@ impl RefState {
             on_map: false,
             fast_travel: false,
             destroyed: false,
+            destruction_stage: -1,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),
@@ -250,6 +254,12 @@ pub struct ActorState {
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
+    /// The actor's current swimming state, supplied by runtime movement.
+    pub swimming: bool,
+    /// The actor's current running state, supplied by runtime movement.
+    pub running: bool,
+    /// Whether the actor is currently riding a mount.
+    pub riding_mount: bool,
     pub weapon_drawn: bool,
     /// The host movement driver's current sprint state, re-signaled after load.
     pub sprinting: bool,
@@ -290,6 +300,10 @@ pub struct ActorState {
     pub werewolf: bool,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
+    /// Player character head parts selected in the race menu, keyed by HDPT type.
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    /// Player character morph controls selected in the race menu.
+    pub face_morphs: BTreeMap<String, f32>,
     /// `SetCriticalStage`, the death-by-critical stages.
     pub critical_stage: i32,
     /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.
@@ -378,6 +392,13 @@ pub struct ActorBaseState {
     pub dead_count: i32,
 }
 
+/// A host menu request raised by a Papyrus native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuRequest {
+    /// Open the player's race and sex selection screen.
+    Race,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CellState {
     pub owner: Option<GlobalFormId>,
@@ -463,6 +484,12 @@ pub enum Pending {
         function: String,
         args: Vec<Value>,
     },
+    CallScript {
+        object: ObjectId,
+        script: String,
+        function: String,
+        args: Vec<Value>,
+    },
     /// Attach the winning MGEF's scripts before delivering its lifecycle events.
     BindEffect {
         object: ObjectId,
@@ -537,6 +564,8 @@ pub struct World {
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Host-facing requests raised by UI natives. These are transient commands.
+    pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
@@ -582,6 +611,10 @@ pub struct World {
     pub(crate) next_effect: u64,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
+    pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
+    /// A transient reference held by one Telekinesis concentration cast.
+    /// Physics handles are host-owned, so this state is never serialized.
+    pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -647,6 +680,7 @@ impl World {
             story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
@@ -682,6 +716,8 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             brewed_potions: BTreeMap::new(),
+            concentration_cast: None,
+            telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),

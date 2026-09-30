@@ -109,6 +109,8 @@ fn evaluate(
             alchemy_effect: None,
             magic_item: None,
             dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         condition,
     )
@@ -200,6 +202,7 @@ fn ai_51_perk_dispatch_passes_tempering_item_into_entry_conditions() {
         tempering_item: Some(id(GREAT_SWORD)),
         alchemy_making_poison: None,
         alchemy_effect: None,
+        skill_use: None,
     };
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context),

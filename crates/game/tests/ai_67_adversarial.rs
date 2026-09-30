@@ -55,6 +55,8 @@ fn ai_67_integer_graph_variable_condition_is_supported() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition(1.0)
         ),
@@ -81,6 +83,8 @@ fn ai_67_integer_graph_variable_condition_is_supported() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition(0.0)
         ),
@@ -111,6 +115,8 @@ fn ai_67_integer_graph_variable_condition_is_supported() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &missing_name
         ),
@@ -137,6 +143,8 @@ fn ai_67_integer_graph_variable_condition_is_supported() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &Condition {
                 run_on: 1,

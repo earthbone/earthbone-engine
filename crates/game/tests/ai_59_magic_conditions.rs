@@ -130,6 +130,8 @@ fn context() -> conditions::Context {
         alchemy_effect: None,
         magic_item: None,
         dual_cast: None,
+        skill_use: None,
+        light_level: None,
     }
 }
 
@@ -274,6 +276,7 @@ fn ai_59_perk_dispatch_passes_alchemy_entry_point_context() {
         tempering_item: None,
         alchemy_making_poison: Some(true),
         alchemy_effect: Some(id(EFFECT)),
+        skill_use: None,
     };
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY_POINT, &context),

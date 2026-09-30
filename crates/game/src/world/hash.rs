@@ -188,6 +188,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -379,6 +380,9 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.sprinting,
         a.restrained,
@@ -615,6 +619,21 @@ impl World {
                 } => {
                     h.u8(1);
                     h.u64(object.0);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
                     h.str(function);
                     h.len(args.len());
                     for a in args {

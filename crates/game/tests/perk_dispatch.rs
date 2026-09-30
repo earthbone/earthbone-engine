@@ -64,6 +64,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
         tempering_item: None,
         alchemy_making_poison: None,
         alchemy_effect: None,
+        skill_use: None,
     }
 }
 
@@ -161,6 +162,7 @@ fn prg_08_false_conditions_and_missing_tabs_do_not_run_handlers() {
                 tempering_item: None,
                 alchemy_making_poison: None,
                 alchemy_effect: None,
+                skill_use: None,
             }
         ),
         Ok(0)

@@ -16,7 +16,11 @@ use super::{ActorState, World, T};
 const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
 
-pub(crate) fn write_furniture_seat(state: &super::ActorState, writer: &mut Writer) {
+pub(crate) fn write_furniture_seat(
+    state: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(state.furniture_seat.is_some());
     if let Some((furniture, marker)) = state.furniture_seat {
         write_form_id(writer, furniture);
@@ -27,6 +31,7 @@ pub(crate) fn write_furniture_seat(state: &super::ActorState, writer: &mut Write
 pub(crate) fn read_furniture_seat(
     state: &mut super::ActorState,
     reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     if reader.bool()? {
         state.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
@@ -34,7 +39,11 @@ pub(crate) fn read_furniture_seat(
     Ok(())
 }
 
-fn write_seat(actor: &ActorState, writer: &mut Writer) {
+fn write_seat(
+    actor: &ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(actor.furniture_seat.is_some());
     if let Some((furniture, marker)) = actor.furniture_seat {
         write_form_id(writer, furniture);
@@ -42,7 +51,11 @@ fn write_seat(actor: &ActorState, writer: &mut Writer) {
     }
 }
 
-fn read_seat(actor: &mut ActorState, reader: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+fn read_seat(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
     if reader.bool()? {
         actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
     }

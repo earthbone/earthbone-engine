@@ -144,6 +144,8 @@ fn evaluate(
             alchemy_effect: None,
             magic_item: magic_item.map(id),
             dual_cast,
+            skill_use: None,
+            light_level: None,
         },
         c,
     )

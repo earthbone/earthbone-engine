@@ -541,6 +541,7 @@ impl World {
             poisoned = true;
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
+        self.break_invisibility(hit.attacker, alloc);
         Ok(HitResult {
             weapon_damage,
             armor_rating,

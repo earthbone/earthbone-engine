@@ -46,6 +46,8 @@ fn ai_66_furniture_entry_query_reports_unavailable_runtime_state() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition,
         ),

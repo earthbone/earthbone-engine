@@ -46,6 +46,8 @@ fn ai_65_non_sprinting_actor_evaluates_is_sprinting_false() {
                 alchemy_effect: None,
                 magic_item: None,
                 dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &condition,
         ),
