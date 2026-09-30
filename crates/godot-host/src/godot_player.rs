@@ -47,6 +47,7 @@ mod gameplay;
 mod magic;
 mod melee;
 mod menu;
+mod race;
 mod saves;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -130,6 +131,7 @@ pub struct PlayerNode {
     menu: crate::ui::MenuState,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
+    race_choice: Option<(GlobalFormId, bool)>,
     menu_view: Option<menu::MenuView>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
@@ -185,6 +187,7 @@ impl INode3D for PlayerNode {
             menu: crate::ui::MenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
+            race_choice: None,
             menu_view: None,
             container_menu: None,
             restore_mouse_on_focus: None,

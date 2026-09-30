@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use soe_esm::GlobalFormId;
+use soe_esm::{Error, GlobalFormId, Tag};
 
 use super::{ActorState, World};
 use crate::moddata::Distributed;
@@ -42,6 +42,48 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Return the player's selected race and sex, initializing the base view from its record.
+    pub fn player_character_traits(&mut self) -> Option<(GlobalFormId, bool)> {
+        let player = self.player();
+        let base = self.reference_ref(player)?.base?;
+        let state = self.actor_base(base)?;
+        Some((state.race?, state.female))
+    }
+
+    /// Apply a playable race and sex to the player without rebuilding initialized actor values.
+    ///
+    /// # Errors
+    /// Rejects a missing player base or a race record that is not playable.
+    pub fn set_player_character_traits(
+        &mut self,
+        race: GlobalFormId,
+        female: bool,
+    ) -> Result<(), Error> {
+        let data = self
+            .record(race)
+            .filter(|record| record.tag == Tag(*b"RACE") && !record.is_deleted())
+            .and_then(|record| record.find(Tag(*b"DATA")))
+            .ok_or_else(|| Error::Invalid("missing player race data".into()))?;
+        if data.len() < 36 || u32::from_le_bytes([data[32], data[33], data[34], data[35]]) & 1 == 0
+        {
+            return Err(Error::Invalid("player race is not playable".into()));
+        }
+        let player = self.player();
+        let base = self
+            .reference_ref(player)
+            .and_then(|reference| reference.base)
+            .ok_or_else(|| Error::Invalid("player has no NPC base".into()))?;
+        let state = self
+            .actor_base(base)
+            .ok_or_else(|| Error::Invalid("player NPC base is invalid".into()))?;
+        state.race = Some(race);
+        state.female = female;
+        if let Some(actor) = self.actors.get_mut(&player) {
+            actor.race = Some(race);
+        }
+        Ok(())
+    }
+
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
     pub fn npc(&self, base: GlobalFormId) -> Option<Npc> {
         let mut npc = self.npc_record(base).ok()?;
@@ -101,8 +143,11 @@ impl World {
                         a.values.set_base(name, f32::from(value)).ok()?;
                     }
                 }
+                let race_override = base
+                    .and_then(|base| self.actor_bases.get(&base))
+                    .and_then(|state| state.race);
                 for (name, value) in self
-                    .actor_values_from_sources(stats_source, traits_source)
+                    .actor_values_from_sources(stats_source, traits_source, race_override)
                     .ok()?
                 {
                     a.values.set_base(&name, value).ok()?;
@@ -117,7 +162,7 @@ impl World {
                     .get(&flags_source)
                     .map_or_else(|| flags.is_protected(), |base| base.protected);
                 a.ghost = flags.config.flags & crate::npc::flags::GHOST != 0;
-                a.race = self.npc_race(traits_source).ok()?;
+                a.race = race_override.or(self.npc_race(traits_source).ok()?);
                 a.perks = spells
                     .perks
                     .iter()
