@@ -1227,13 +1227,16 @@ definitions. Both have an optional six-byte form-flags section. The value and
 full-name change flags consume no payload bytes. The complete change-flags
 word, including unnamed bits, is retained. Typed payloads re-encode the known
 fields, and trailing or truncated form-flags data returns an error. FallrimTools
-keeps both types raw. The gated SAV-43 survey accounts for both types across
-the external save corpus and checks exact typed re-encoding. The 60-save corpus
-contains no APPA or IDLM changes, so payload coverage comes from synthetic
-fixtures. UESP's local mod-file format pages describe the APPA and IDLM records,
-not their save payloads. The game applies their form-flag inversion masks to
-winning records and keeps the decoded fields in the SAV-44 world section.
-This section leaves older version-37 saves unchanged when absent.
+keeps both types raw in `ChangeFormDefault`, so its reader does not establish
+these payload fields. UESP's save format page establishes the type indices,
+while its mod-file pages describe APPA and IDLM records rather than their save
+payloads. The gated SAV-43 survey accounts for every change form in each
+external save, reports APPA and IDLM counts and flag combinations, and checks
+exact typed re-encoding for any matching forms. The 60-save corpus contains no
+APPA or IDLM changes, so payload coverage comes from synthetic fixtures. The
+game applies their form-flag inversion masks to winning records and keeps the
+decoded fields in the SAV-44 world section. That section leaves older
+version-37 saves unchanged when absent.
 
 ## BOOK, NOTE and KEYM saved fields
 
