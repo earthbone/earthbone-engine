@@ -86,13 +86,21 @@ entry point. It rejects an unnamed hook, a missing export, an invalid manifest a
 entry point. The loader does not supply engine interfaces. Its ABI is separate from SKSE's
 Windows DLL ABI.
 
+`RE/World.h` exposes a `WorldState` contract for actor critical stages,
+actor-value modifier components, the selected AI package and procedure,
+authored `XAPR` activation parents, and active-effect applications. The game
+adapter binds those calls to live `World` state. Engine-internal `AIProcess`
+hooks that require character controllers or scene nodes return an explicit
+unsupported-hook error.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
-module through the new entry point and checks its unsupported hook report. No surveyed plugin
-has been compiled against the headers or loaded. The declarations are not linked to engine
-behavior. The counts are token counts,
+module through the new entry point and checks its unsupported hook report. The SHM-03 test
+compiles the generated headers, and its game-side test calls the adapter over live actor and AI
+state. No surveyed plugin has been compiled against the headers or loaded. The C++ declarations
+are not linked through an FFI bridge. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

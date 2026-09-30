@@ -53,6 +53,7 @@ pub mod race;
 pub mod save;
 pub mod save_generations;
 pub mod services;
+pub mod shim_world;
 pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
