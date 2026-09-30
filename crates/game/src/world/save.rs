@@ -883,7 +883,7 @@ impl World {
                 return Err(VmError::State("dialogue cursor without actors".into()));
             }
         }
-        let (next_effect, active_effects) = if version == 5 || version >= 9 {
+        let (next_effect, mut active_effects) = if version == 5 || version >= 9 {
             super::magic::read_magic(&mut r, version >= 33)?
         } else {
             (1, BTreeMap::new())
@@ -924,11 +924,7 @@ impl World {
         }
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {
-                if !(version == 5 || version >= 9)
-                    || id.0 == 0
-                    || id.0 >= next_effect
-                    || !active_effects.contains_key(id)
-                {
+                if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
                     return Err(VmError::State("invalid active effect handle".into()));
                 }
             }
@@ -1079,25 +1075,35 @@ impl World {
         // this table fails, sections read earlier in the same call have
         // already mutated `self`, and the `Err` this function returns
         // tells the caller to discard it.
-        self.brewed_potions.clear();
-        self.vampire_lord_forms.clear();
-        let unresolved_records = if version >= 37 {
-            let previous_overrides =
-                std::mem::replace(&mut self.record_overrides, record_overrides);
-            let previous_quests = std::mem::replace(&mut self.quests, quests);
-            let previous_unresolved = std::mem::take(&mut self.unresolved_records);
-            let section_result =
-                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
-            let unresolved_records = std::mem::take(&mut self.unresolved_records);
-            self.unresolved_records = previous_unresolved;
-            quests = std::mem::replace(&mut self.quests, previous_quests);
-            record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
-            section_result?;
-            super::magic::validate_vampire_lord_state(self, &actors, &active_effects)?;
-            unresolved_records
+        let previous_pending = std::mem::replace(&mut self.pending, pending);
+        let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
+        let previous_quests = std::mem::replace(&mut self.quests, quests);
+        let previous_unresolved = std::mem::take(&mut self.unresolved_records);
+        let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_vampire_forms = std::mem::take(&mut self.vampire_lord_forms);
+        let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
+        let section_result = if version >= 37 {
+            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
-            BTreeMap::new()
+            Ok(())
         };
+        let unresolved_records = std::mem::take(&mut self.unresolved_records);
+        let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
+        let validation_result = if section_result.is_ok() {
+            super::magic::validate_vampire_lord_state(self, &actors, &self.active_effects)
+        } else {
+            Ok(())
+        };
+        pending = std::mem::replace(&mut self.pending, previous_pending);
+        active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
+        quests = std::mem::replace(&mut self.quests, previous_quests);
+        record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+        self.unresolved_records = previous_unresolved;
+        self.brewed_potions = previous_brewed;
+        self.vampire_lord_forms = previous_vampire_forms;
+        section_result?;
+        validation_result?;
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1149,6 +1155,8 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.brewed_potions = brewed_potions;
+        self.vampire_lord_forms = vampire_lord_forms;
         self.unresolved_records = unresolved_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
