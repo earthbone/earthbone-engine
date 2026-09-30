@@ -70,7 +70,11 @@ bounded route. Godot clears and rebuilds the same scene after each five-second
 window, including the rebuild hitch in the next window. Report generation
 is timed separately and excluded from the following frame interval. The real exterior
 soak keeps its material/texture caches warm. Measurements are stored one row
-per window, keeping sample arrays bounded for runs up to 24 hours.
+per window, keeping sample arrays bounded for runs up to 24 hours. A soak passes
+only when every window reports frame-time and increasing elapsed-time telemetry,
+every window includes RSS across at least two windows, the requested duration
+completes, frame budgets hold, and peak RSS growth from the first window stays
+within the configured limit.
 
 ## Running
 

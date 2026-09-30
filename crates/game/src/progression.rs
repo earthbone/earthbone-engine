@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use soe_esm::{GlobalFormId, Tag};
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::{Value, VmError};
 
 use crate::actor_values::{actor_value_index, ACTOR_VALUE_NAMES};
@@ -312,7 +312,11 @@ fn level_setting(world: &World, name: &str) -> Result<f32, Error> {
 }
 
 /// Write the actor's partial skill use experience into its named save section.
-pub(crate) fn write_skill_experience(actor: &ActorState, writer: &mut Writer) {
+pub(crate) fn write_skill_experience(
+    actor: &ActorState,
+    writer: &mut Writer,
+    _pool: &mut ArrayPool,
+) {
     writer.len(actor.skill_experience.len());
     for (name, experience) in &actor.skill_experience {
         writer.str(name);
@@ -324,6 +328,7 @@ pub(crate) fn write_skill_experience(actor: &ActorState, writer: &mut Writer) {
 pub(crate) fn read_skill_experience(
     actor: &mut ActorState,
     reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     let count = reader.len()?;
     let mut values = BTreeMap::new();

@@ -263,7 +263,11 @@ pub(super) fn read_quest_aux(
     Ok(())
 }
 
-pub(super) fn write_lifecycle_tasks(world: &World, w: &mut Writer) {
+pub(super) fn write_lifecycle_tasks(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     let tasks: BTreeMap<_, _> = world
         .quests
         .iter()
@@ -285,6 +289,7 @@ pub(super) fn write_lifecycle_tasks(world: &World, w: &mut Writer) {
 pub(super) fn read_lifecycle_tasks(
     world: &mut World,
     r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     let mut seen = BTreeSet::new();
     for _ in 0..r.len()? {

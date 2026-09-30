@@ -925,6 +925,30 @@ mod tests {
     }
 
     #[test]
+    fn fmt_03_pack_single_fragment_flags_reproduce_authored_bytes() {
+        for (flags, function, expected_index) in [
+            (0b001, "Fragment_0", 0),
+            (0b010, "Fragment_1", 1),
+            (0b100, "Fragment_2", 2),
+        ] {
+            let bytes = authored_pack_bytes(flags, &[(2, "TIF__000A0001", function)]);
+            let parsed = Vmad::parse(&bytes, PACK).unwrap();
+            let fragments = parsed.pack_fragments.as_ref().unwrap();
+            let actual = [
+                fragments.begin.as_ref(),
+                fragments.end.as_ref(),
+                fragments.change.as_ref(),
+            ];
+            assert_eq!(actual[expected_index].unwrap().function, function);
+            assert!(actual
+                .into_iter()
+                .enumerate()
+                .all(|(index, fragment)| index == expected_index || fragment.is_none()));
+            assert_eq!(parsed.write(PACK), bytes);
+        }
+    }
+
+    #[test]
     fn fmt_03_pack_begin_end_and_change_together_reproduce_authored_bytes() {
         let bytes = authored_pack_bytes(
             0b111,

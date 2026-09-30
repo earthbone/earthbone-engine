@@ -278,10 +278,11 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
     }
     match &a.procedure {
-        Procedure::None => h.u8(0),
+        Procedure::None | Procedure::UseMagic => h.u8(0),
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
+        Procedure::Sit => h.u8(7),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());
@@ -295,9 +296,17 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
+        Procedure::UseWeapon => h.u8(9),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
+            h.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                h.f64(until);
+            }
+        }
+        Procedure::Shout => {
+            h.u8(7);
             h.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
                 h.f64(until);
@@ -375,6 +384,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.running,
         a.riding_mount,
         a.weapon_drawn,
+        a.sprinting,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -402,6 +412,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for (k, v) in &a.graph_floats {
         h.str(k);
         h.f32(*v);
+    }
+    h.len(a.graph_ints.len());
+    for (k, v) in &a.graph_ints {
+        h.str(k);
+        h.i32(*v);
     }
     h.len(a.skill_experience.len());
     for (skill, experience) in &a.skill_experience {
@@ -438,6 +453,10 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.bool(false);
     }
     h.u32(a.days_in_jail);
+    h.bool(a.voice_recovery_until.is_some());
+    if let Some(until) = a.voice_recovery_until {
+        h.f64(until);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -603,6 +622,21 @@ impl World {
                 } => {
                     h.u8(1);
                     h.u64(object.0);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
                     h.str(function);
                     h.len(args.len());
                     for a in args {
@@ -844,6 +878,7 @@ impl World {
         for rule in &self.mod_data.actor_rules {
             form(&mut h, rule.base);
             form(&mut h, rule.what);
+            h.str(&format!("{:?}", rule.record_type));
             h.u64(rule.distribution.line_seed);
             h.f32(rule.distribution.chance);
             h.i32(rule.count);

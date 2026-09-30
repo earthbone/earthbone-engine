@@ -51,6 +51,9 @@ pub const MAX_ARRAY_LEN: usize = 1 << 20;
 /// script legitimately builds.
 pub const MAX_STRING_LEN: usize = 1 << 20;
 
+/// The scheduler keeps results for this many most recently completed threads.
+pub const MAX_COMPLETED_THREAD_HISTORY: usize = 4096;
+
 mod collection;
 mod dispatch;
 mod execution;
