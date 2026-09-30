@@ -86,13 +86,14 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors, weapon enchantments, item poison and
-unsupported weapon skills/types. Tempered item quality scales damage instead
-of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
-rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
-are open execution requirements, not silently omitted modifiers. Protected
-and essential targets are rejected pending bleedout handling. Ghosts and dead
-actors are rejected.
+these defaults. CMB-09 applies the supported ModAttackDamage and
+ModIncomingDamage functions to eligible owned perk entries. Other combat perk
+entry points remain unsupported. Weapon enchantments, item poison and
+unsupported weapon skills/types are also rejected. Tempered item quality scales
+damage instead of rejecting, CMB-10. A weapon's resistance flags scale damage
+instead of rejecting too, CMB-26: only a reserved DNAM Resist index still
+rejects. Protected and essential targets are rejected pending bleedout
+handling. Ghosts and dead actors are rejected.
 An essential attacker can still attack an ordinary target.
 
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
