@@ -267,7 +267,13 @@ impl BoneMap {
     /// How many mesh bones found a skeleton bone, by either pass.
     #[must_use]
     pub fn matched(&self) -> usize {
-        self.skeleton_index.iter().filter(|i| i.is_some()).count()
+        let mut matched = 0;
+        for index in &self.skeleton_index {
+            if index.is_some() {
+                matched += 1;
+            }
+        }
+        matched
     }
 
     /// Mesh bones in the list.

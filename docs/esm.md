@@ -200,7 +200,7 @@ It preserves other LAND subrecords and sets the LAND height and normal flag. Its
 edit fails without changing the record when a gradient would exceed its signed-byte range.
 Its record layout and flags follow local xEdit's `Core/wbDefinitionsTES5.pas` LAND definition. The
 brush operation follows the position-based operation boundary in local Terrain3D's
-`project/addons/terrain_3d/src/operation_builder.gd`; the radial smooth falloff and
+`project/addons/terrain_3d/src/operation_builder.gd`. The radial smooth falloff and
 VNML generation are implemented here for the 33 by 33 LAND grid.
 
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`

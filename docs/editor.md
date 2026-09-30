@@ -328,7 +328,7 @@ not yet connect a transform gizmo to this operation.
 
 The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
-`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values; their
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. Their
 Godot callback is not wired to this Rust operation yet.
 
 ### Quest stage and objective text edits, EDT-07
@@ -346,7 +346,7 @@ The field grouping follows xEdit's `wbRecord(QUST)` definition in
 starts a stage, each `QSDT` starts a log entry, each `QOBJ` starts an objective, and
 `QSTA` targets and following conditions are retained. UESP notes that stage and objective
 numbers are not unique. xEdit's DIAL definition and UESP's `DIAL.wikitext` identify QNAM as
-the QUST owner link; DIAL editing is not part of this operation. No source implementation
+the QUST owner link. DIAL editing is not part of this operation. No source implementation
 was copied.
 
 The plugin writer stores non-localized quest strings inline as NUL-terminated UTF-8. Editing
