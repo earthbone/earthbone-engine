@@ -659,6 +659,10 @@ impl World {
         if cost_per_second > 0.0 && available <= 0.0 {
             return Err(MagicError::InsufficientMagicka);
         }
+        // Starting another concentration cast interrupts the previous one.
+        // Drop its transient Telekinesis hold only after the replacement has
+        // passed validation, so a rejected cast leaves the current hold intact.
+        self.release_concentration_cast();
         self.concentration_cast = Some(ConcentrationCast {
             spell,
             source,
