@@ -138,6 +138,7 @@ pub struct PlayerNode {
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
+    objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     lockpick_target: Option<GlobalFormId>,
@@ -200,6 +201,7 @@ impl INode3D for PlayerNode {
             appearance_choice: None,
             menu_view: None,
             quest_journal_snapshot: None,
+            objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
             lockpick_target: None,
@@ -333,6 +335,9 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
+        }
+        if self.menu.title() == Some("Map") {
+            self.refresh_objective_map();
         }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);

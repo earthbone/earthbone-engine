@@ -20,6 +20,68 @@ pub struct Marker {
     pub visible: bool,
 }
 
+/// Position and display state for one marker on the native 2D map surface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MapPoint {
+    pub x: f32,
+    pub y: f32,
+    pub visible: bool,
+    pub objective: u16,
+    pub reference: GlobalFormId,
+}
+
+/// Project Skyrim XY positions into a padded map surface, with north at the top.
+/// The bounds include hidden markers so objective visibility changes do not
+/// move the remaining markers around the map.
+pub fn project(markers: &[Marker], width: f32, height: f32) -> Vec<MapPoint> {
+    const PADDING: f32 = 24.0;
+    if markers.is_empty() || !width.is_finite() || !height.is_finite() {
+        return Vec::new();
+    }
+    let usable_width = (width - 2.0 * PADDING).max(0.0);
+    let usable_height = (height - 2.0 * PADDING).max(0.0);
+    let min_x = markers
+        .iter()
+        .map(|marker| marker.position[0])
+        .fold(f32::INFINITY, f32::min);
+    let max_x = markers
+        .iter()
+        .map(|marker| marker.position[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let min_y = markers
+        .iter()
+        .map(|marker| marker.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let max_y = markers
+        .iter()
+        .map(|marker| marker.position[1])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let span_x = max_x - min_x;
+    let span_y = max_y - min_y;
+    markers
+        .iter()
+        .map(|marker| {
+            let x_fraction = if span_x > 0.0 {
+                (marker.position[0] - min_x) / span_x
+            } else {
+                0.5
+            };
+            let y_fraction = if span_y > 0.0 {
+                (marker.position[1] - min_y) / span_y
+            } else {
+                0.5
+            };
+            MapPoint {
+                x: PADDING + x_fraction * usable_width,
+                y: PADDING + (1.0 - y_fraction) * usable_height,
+                visible: marker.visible,
+                objective: marker.objective,
+                reference: marker.reference,
+            }
+        })
+        .collect()
+}
+
 /// Resolve objective targets for active quests in stable quest and target order.
 ///
 /// Targets with unresolved aliases, missing location world markers, or

@@ -6,14 +6,15 @@
 use godot::classes::control::{LayoutPreset, SizeFlags};
 use godot::classes::input::MouseMode;
 use godot::classes::{
-    Button, CanvasLayer, Control, Input, Label, PanelContainer, ScrollContainer, StyleBoxFlat,
-    Theme, VBoxContainer,
+    Button, CanvasLayer, ColorRect, Control, Input, Label, PanelContainer, ScrollContainer,
+    StyleBoxFlat, Theme, VBoxContainer,
 };
 use godot::prelude::*;
 
 use super::PlayerNode;
 use crate::dialogue_menu;
 use crate::inventory_menu::{self, Category};
+use crate::objective_map;
 use crate::quest_journal::{self, Entry as QuestEntry};
 use soe_esm::GlobalFormId;
 use soe_game::dialogue::Line;
@@ -62,6 +63,7 @@ impl PlayerNode {
         let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
             return false;
         };
+        let base = self.base().clone();
         self.quest_journal_snapshot = Some(entries.clone());
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
@@ -72,6 +74,11 @@ impl PlayerNode {
         scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
         let mut rows = VBoxContainer::new_alloc();
         scroll.add_child(&rows);
+        let mut map = Button::new_alloc();
+        map.set_name("OpenObjectiveMap");
+        map.set_text("Map");
+        map.connect("pressed", &base.callable("open_objective_map"));
+        content.add_child(&map);
         content.add_child(&scroll);
         if entries.is_empty() {
             let mut label = Label::new_alloc();
@@ -81,6 +88,52 @@ impl PlayerNode {
         for entry in &entries {
             render_quest_entry(&mut rows, entry);
         }
+        true
+    }
+
+    /// Rebuild the map surface when the shared objective targets change.
+    pub(super) fn refresh_objective_map(&mut self) -> bool {
+        if self.menu.title() != Some("Map") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let markers = objective_map::markers(game);
+        if self.objective_map_snapshot.as_ref() == Some(&markers) {
+            return false;
+        }
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        self.objective_map_snapshot = Some(markers.clone());
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut surface = Control::new_alloc();
+        surface.set_name("ObjectiveMapSurface");
+        surface.set_custom_minimum_size(Vector2::new(640.0, 360.0));
+        surface.set_h_size_flags(SizeFlags::EXPAND_FILL);
+        surface.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut background = ColorRect::new_alloc();
+        background.set_name("MapBackground");
+        background.set_color(Color::from_rgb(0.10, 0.14, 0.13));
+        surface.add_child(&background);
+        background.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+        for point in objective_map::project(&markers, 640.0, 360.0) {
+            let mut label = Label::new_alloc();
+            label.set_name(&format!(
+                "Objective_{}_{}",
+                point.objective, point.reference.object
+            ));
+            label.set_text(&format!("◆ {}", point.objective));
+            label.set_position(Vector2::new(point.x, point.y));
+            label.set_visible(point.visible);
+            surface.add_child(&label);
+        }
+        content.add_child(&surface);
         true
     }
 
@@ -487,6 +540,20 @@ impl PlayerNode {
         }
         self.quest_journal_snapshot = None;
         self.refresh_quest_journal()
+    }
+
+    /// Open the native map surface with markers from the shared quest state.
+    #[func]
+    pub fn open_objective_map(&mut self) -> bool {
+        if self.game.is_none() || self.menu.title() != Some("Quests") {
+            return false;
+        }
+        self.close_menu();
+        if !self.open_menu("Map".into()) {
+            return false;
+        }
+        self.objective_map_snapshot = None;
+        self.refresh_objective_map()
     }
 
     /// Open the native mod configuration list from live quest scripts.
