@@ -81,6 +81,23 @@ are separate requirements. These decoder results do not establish full
 actor inventory restoration or a resumed game. The zero-failure criterion
 must remain in place as the missing layouts are implemented.
 
+## SAV-13 runtime boundary, 2026-09-30
+
+The engine-owned SOEW save stores each driven actor's package identity and
+procedure-tree cursor. Loading it restores the active branch, and the package
+driver continues that branch. `crates/game/tests/package_sequences.rs`
+checks that the package and cursor survive a save round trip and that the
+actor continues toward the saved procedure target.
+
+This does not restore package procedure state from a vanilla ESS save. The CK
+`GetCurrentPackage` page defines the running package query, and
+`EvaluatePackage` says it forces the actor to reevaluate its package stack.
+Neither page describes saved procedure state. UESP leaves nonempty
+PackageData undocumented, xEdit only names the extra, and the inspected
+CommonLib declarations do not provide a serialized layout. Sequence and
+Stacked payload decoding therefore remain prerequisites to connecting vanilla
+ESS data to the runtime cursor. No cursor is inferred from opaque payload bytes.
+
 ## SAV-12 source audit, 2026-09-20
 
 SAV-12 remains blocked. The sources checked below do not establish the field
