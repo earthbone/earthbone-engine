@@ -1551,9 +1551,9 @@ It also implements functions 53, 79, 230, 250, 280, 310, 325, 360, 444, 445,
 446, 470, 491, 519, 528, 561, 562, 563, 565, 567, 569, 591, 592, 598, 600,
 601, 603, 604, 605, 610, 625, 626, 651, 718, 185, 219, 286, 287, 313, 318,
 327, 339, 91, 98, 106, 107, 110, 111, 125 and 127.
-This is a bounded set, not the entire CTDA contract. It supports ordered
-AND/OR groups, numeric or
-global comparisons, explicit references and caller-supplied quest aliases.
+This is a bounded set, not the entire CTDA contract. AI-50 also implements
+functions 263, 306, 398, 465, 597 and 624. It supports ordered AND/OR groups,
+numeric or global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
 base when present, so forced player aliases and inventory notifications agree.
@@ -1685,6 +1685,18 @@ state or stolen-item value, and the runtime does not store those totals or
 flags. They are not inferred from bounty or inventory totals. See
 `crates/game/tests/ai_44_crime_conditions.rs` for positive, negative and
 invalid-context fixtures.
+AI-50 adds `IsWeaponOut` from actor draw state, `IsActorUsingATorch` from an
+equipped carryable `LIGH`, `IsWeaponInList` from assigned weapon hands,
+`GetKeywordItemCount` from the shared inventory totals, `GetEquippedItemType`
+from the CK hand values, and `GetInContainer` from an item's base-form count in
+the referenced container. The CK `GetEquippedItemType_-_Actor.wikitext` page
+defines hand arguments 0 and 1 and return values 0 through 12. xEdit's
+`wbDefinitionsTES5.pas` supplies the CTDA function ids and parameter types.
+The CK corpus has no usable semantic contract for conditions 479
+`GetIsUsedItemEquipType` and 487 `IsCarryable`, so evaluation returns a typed
+condition contract diagnostic for those ids. AI-50 fixtures cover true, false,
+and invalid form or hand contexts for the implemented functions, and the
+diagnostic paths for both source gaps.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
