@@ -1500,7 +1500,7 @@ impl World {
             }
             if data.archetype == 40 {
                 return Err(MagicError::Unsupported(
-                    "spawn hazard requires the typed HAZD view from FMT-28",
+                    "spawn hazard requires hazard ownership and expiry",
                 ));
             }
             if !matches!(

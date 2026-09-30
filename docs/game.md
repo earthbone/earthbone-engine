@@ -2080,14 +2080,15 @@ The active-effect tick and finish paths only handle actor applications, with
 no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
 records the corresponding resource boundary.
 
-The current worktree has no FMT-28 draft or typed HAZD view. Archetype 40
-therefore returns a specific unsupported error before any effect or world
-state changes. `mag_61_spawn_hazard_requires_typed_hazard_view_without_changes`
-checks this rejection. The row's acceptance check remains incomplete: no hazard
-is spawned at a target, and no owned collision or effect is removed on expiry.
-Target selection, contact application and save continuation also remain
-unimplemented. The survey establishes record dependencies and the direct-cast
-rejection boundary.
+The typed HAZD view from FMT-28 is available, but the game world has no owned
+hazard state or expiry path. Archetype 40 therefore returns a specific
+unsupported error before any effect or world state changes.
+`mag_61_valid_hazard_cast_rejects_without_owned_lifecycle` checks this
+boundary. The row's acceptance check remains incomplete: no hazard is spawned
+at a target, and no owned collision or effect is removed on expiry. Target
+selection, contact application and save continuation also remain unimplemented.
+The survey establishes record dependencies and the direct-cast rejection
+boundary.
 
 ### Direct active-effect foundation
 
@@ -2452,7 +2453,7 @@ targets follow the existing hostile-hit rejection path.
 
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` MGEF table names archetype 7
 Demoralize. The local `uesp-modfileformat/MGEF.wikitext` says its primary actor
-value is forced to Confidence. The CK wiki dump has no MGEF archetype page;
+value is forced to Confidence. The CK wiki dump has no MGEF archetype page.
 its local `OnMagicEffectApply_-_ObjectReference.wikitext` and
 `HasMagicEffect_-_Actor.wikitext` establish the application event and active
 effect query contracts. The implementation uses the existing active-effect

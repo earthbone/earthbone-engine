@@ -50,6 +50,7 @@ fn fixture() -> Game {
 
     let mut effect = vec![0; 152];
     put(&mut effect, 0, 1);
+    put(&mut effect, 16, u32::MAX);
     put(&mut effect, 64, 24);
     put(&mut effect, 68, 24);
     put(&mut effect, 80, 0);

@@ -22,6 +22,7 @@ pub fn put(data: &mut [u8], offset: usize, value: u32) {
 pub fn effect(form: u32, archetype: u32, flags: u32, primary_av: u32) -> Record {
     let mut data = vec![0; 152];
     put(&mut data, 0, flags);
+    put(&mut data, 16, u32::MAX);
     put(&mut data, 64, archetype);
     put(&mut data, 68, primary_av);
     put(&mut data, 80, 1);

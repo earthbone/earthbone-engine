@@ -1754,14 +1754,14 @@ fn mag_68_unnamed_archetypes_reject_without_changes() {
 }
 
 #[test]
-fn mag_61_spawn_hazard_requires_typed_hazard_view_without_changes() {
+fn mag_61_spawn_hazard_requires_owned_lifecycle_without_changes() {
     let mut game = fixture(0, 40, 20.0, 5);
     let before = game.save_state().unwrap();
 
     assert!(matches!(
         cast(&mut game, SPELL, OTHER),
         Err(MagicError::Unsupported(
-            "spawn hazard requires the typed HAZD view from FMT-28"
+            "spawn hazard requires hazard ownership and expiry"
         ))
     ));
     assert_eq!(game.save_state().unwrap(), before);

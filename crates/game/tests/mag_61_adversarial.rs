@@ -81,32 +81,19 @@ fn id(object: u32) -> soe_esm::GlobalFormId {
 }
 
 #[test]
-fn mag_61_valid_hazard_cast_spawns_at_the_selected_target() {
+fn mag_61_valid_hazard_cast_rejects_without_owned_lifecycle() {
     let mut game = game();
+    let confidence = game.world_mut().actor_value(id(TARGET), "confidence");
 
-    let applied = cast(&mut game).expect("valid HAZD link should spawn a hazard");
-
-    assert_eq!(applied.len(), 1);
-    let active = game
-        .world()
-        .active_effects()
-        .find(|effect| effect.id == applied[0])
-        .cloned()
-        .expect("spawn application remains owned while its hazard is active");
-    assert_eq!(active.target, id(TARGET));
-    assert_eq!(active.duration, Some(5.0));
-}
-
-#[test]
-fn mag_61_expiry_removes_the_owned_hazard_application() {
-    let mut game = game();
-    let applied = cast(&mut game).expect("valid HAZD link should spawn a hazard");
-    assert_eq!(game.world().active_effects().count(), 1);
-
-    game.tick(5.0);
-
+    assert!(matches!(
+        cast(&mut game),
+        Err(soe_game::world::magic::MagicError::Unsupported(
+            "spawn hazard requires hazard ownership and expiry"
+        ))
+    ));
+    assert_eq!(
+        game.world_mut().actor_value(id(TARGET), "confidence"),
+        confidence
+    );
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(applied
-        .into_iter()
-        .all(|id| game.world().active_effects().all(|effect| effect.id != id)));
 }

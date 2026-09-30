@@ -247,7 +247,7 @@ fn mag_05_later_unsupported_entry_cannot_partially_dispel() {
     assert!(matches!(
         cast(&mut game, DISPEL_SPELL, OTHER),
         Err(MagicError::Unsupported(
-            "spawn hazard requires the typed HAZD view from FMT-28"
+            "spawn hazard requires hazard ownership and expiry"
         ))
     ));
     assert_eq!(game.world().save_state(), before);
