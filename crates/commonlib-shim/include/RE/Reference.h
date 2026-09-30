@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace RE {
 struct ObjectRefHandle { std::uint32_t value; };
@@ -23,6 +24,33 @@ struct ActorState {
 };
 enum class HookError { AddressPatch, CallDetour, VtableOverride, Trampoline };
 enum class ActorApiError { InvalidActor, UnknownForm, UnsupportedOperation };
+
+struct ExtraLeveledItemBase { FormId leveled_item; };
+struct ExtraLightData {
+    float fov;
+    float fade;
+    float end_distance_cap;
+    float shadow_depth_bias;
+    std::uint8_t unknown;
+};
+struct LinkedRefChild { FormId keyword; ObjectRefHandle reference; };
+struct ExtraMapMarker { std::string name; std::uint8_t flags; std::uint16_t marker_type; };
+struct MissingLinkedRefId { FormId keyword; FormId linked_reference; };
+
+class ReferenceExtraData {
+public:
+    virtual ~ReferenceExtraData() = default;
+    virtual std::optional<ExtraLeveledItemBase> leveled_item_base() const = 0;
+    virtual std::optional<ExtraLightData> light_data() const = 0;
+    virtual const std::vector<LinkedRefChild>& linked_ref_children() const = 0;
+    virtual std::optional<ExtraMapMarker> map_marker() const = 0;
+    virtual const std::vector<MissingLinkedRefId>& missing_linked_ref_ids() const = 0;
+};
+struct UnsupportedHookInfo { const char* name; const char* reason; };
+inline constexpr UnsupportedHookInfo EXTRA_DATA_HOOKS{
+    "CommonLib extra-data vtable hooks",
+    "Skyrim executable vtables have no target in the Rust engine"};
+
 class ObjectRef {
 public:
     virtual ~ObjectRef() = default;

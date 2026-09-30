@@ -177,7 +177,12 @@ The declarations follow `CommonLibSSE-NG-alandtse/include/RE/E/ExtraDataList.h`,
 `ExtraDataTypes.h`, `ExtraEnchantment.h`, `ExtraHotkey.h` and
 `ExtraLeveledCreature.h`. The CommonLib implementation confirms enchantment
 equality includes its runtime removal flag and hotkey's unbound value is -1.
-
+The reference-extra API names `ExtraLeveledItemBase`, `ExtraLightData`,
+`ExtraLinkedRefChildren`, `ExtraMapMarker` and `ExtraMissingLinkedRefIDs` with
+read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
+implements for those values. Missing optional values mean the reference has no
+such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
+supported by this engine.
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
