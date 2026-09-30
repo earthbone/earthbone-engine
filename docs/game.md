@@ -1866,7 +1866,8 @@ speaker/listener and owning-quest context. Supported function IDs are 1, 18,
 99, 142, 159, 162, 163, 175, 403, 448, 543, 560, 566, 580, 606, 629, 630,
 659 and 694. Function 99
 measures the signed horizontal angle from a placed reference's heading to the
-target reference. Function 142 reads the race's resolved walk movement speed
+target reference, with clockwise angles positive and counterclockwise angles
+negative. Function 142 reads the race's resolved walk movement speed
 and falls back to the package driver's walk speed when race movement data is
 absent. Function 159 checks whether the subject has reserved a Sit marker.
 Functions 162 and 163 compare that reservation with a furniture reference or

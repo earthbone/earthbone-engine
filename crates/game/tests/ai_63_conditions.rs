@@ -102,11 +102,11 @@ fn ai_63_heading_angle_uses_reference_heading_and_reports_invalid_targets() {
     game.world_mut().reference(target).unwrap().position = [10.0, 10.0, 0.0];
     assert!(conditions::supports_function(99));
     assert_eq!(
-        evaluate(&game, id(ACTOR), condition(99, [TARGET, 0], 45.0)),
+        evaluate(&game, id(ACTOR), condition(99, [TARGET, 0], -45.0)),
         Ok(true)
     );
     assert_eq!(
-        evaluate(&game, id(ACTOR), condition(99, [TARGET, 0], 46.0)),
+        evaluate(&game, id(ACTOR), condition(99, [TARGET, 0], -46.0)),
         Ok(false)
     );
     assert_eq!(

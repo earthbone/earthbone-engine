@@ -691,7 +691,7 @@ fn function_value(
             let dy = target[1] - position[1];
             let bearing = dy.atan2(dx).to_degrees();
             let heading = heading.to_degrees();
-            (bearing - heading + 180.0).rem_euclid(360.0) - 180.0
+            (heading - bearing + 180.0).rem_euclid(360.0) - 180.0
         }
         142 => {
             no_parameter(c)?;
