@@ -123,6 +123,7 @@ pub fn supports_function(function: u16) -> bool {
             | 123
             | 434
             | 435
+            | 731
             | 128
             | 277
             | 408
@@ -453,6 +454,27 @@ fn function_value(
                     .ok_or(Error::Form(subject))?
                     .doing_favor,
             )
+        }
+        731 => {
+            // The CK CanFlyHere contract is a no-argument actor query. The
+            // matching Papyrus native uses the actor's SetAllowFlying state
+            // and its current cell's interior flag.
+            no_parameter(c)?;
+            let allow_flying = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .allow_flying;
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let cell = world
+                .reference(subject)
+                .and_then(|reference| reference.cell)
+                .ok_or(Error::Form(subject))?;
+            boolean(allow_flying && !world.cell_is_interior(cell))
         }
         225 | 315 => {
             // DLG-07 established current Speechcraft as the condition value.
