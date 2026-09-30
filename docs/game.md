@@ -209,6 +209,15 @@ Current behavior and compatibility limits:
   whether anything was removed. Neither dispel native changes known or equipped
   spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
   enchantments. Worn enchantment application is not implemented yet.
+- MGEF archetype 28 is labeled Cure Addiction by
+  `TES5Edit/Core/wbDefinitionsTES5.pas`. UESP's `MGEF.wikitext` says it has no
+  extra data, and CK's `DispelAllSpells_-_Actor.wikitext` only establishes
+  that addictions are excluded from general dispelling. Neither source
+  specifies the state a Cure Addiction effect changes. The MAG-49 installed
+  survey found zero nondeleted winning archetype 28 MGEFs across Skyrim.esm,
+  Update.esm, Dawnguard.esm, HearthFires.esm and Dragonborn.esm. The five
+  masters therefore provide no execution example. Archetype 28 remains
+  unsupported until a source or a mod record establishes its effect.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
