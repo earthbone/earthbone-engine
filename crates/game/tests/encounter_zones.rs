@@ -3,6 +3,9 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, World};
@@ -245,7 +248,8 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     // version 37 added (2 bytes), both always present at the tail regardless
     // of the simulated version. No reference is materialized yet at this
     // point, so none carries its own section table to strip.
-    old.truncate(old.len() - 48);
+    legacy::normalize_world_sections(&mut old);
+    old.truncate(old.len() - 18);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
@@ -477,12 +481,16 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     let current = world.save_state();
     for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
-        // Detection and the world section table were introduced in version 37.
-        saved.truncate(saved.len() - 36);
-        // Version 34 wrote the learned-effect set in the legacy body.
+        // Detection's now-unconditional empty pool count (4 bytes) and the
+        // empty world-level save-section table version 37 added (2 bytes)
+        // are always past a version 36 or older save's end, since a genuine
+        // save that old never wrote either.
+        legacy::normalize_world_sections(&mut saved);
+        saved.truncate(saved.len() - 6);
+        // Versions 34 to 36 stored learned enchantment effects in the body.
         saved.extend_from_slice(&0_u32.to_le_bytes());
-        if version == 36 {
-            // Version 36 stored the scene run in the legacy body.
+        if version >= 36 {
+            // Version 36 stores scene runtime state in the legacy body.
             saved.extend_from_slice(&0_u32.to_le_bytes());
         }
         saved[4..6].copy_from_slice(&version.to_le_bytes());

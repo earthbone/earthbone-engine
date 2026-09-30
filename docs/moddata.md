@@ -135,16 +135,18 @@ headers, and a standard ini crate models none of that.
 
 ## Measured
 
-No mods are installed on this machine, so the gated real-file tests have nothing
-to read. Every fixture in the test suite is authored from the syntax examples in
-the sources above and is marked as authored rather than real. That is the one
-honest gap in this crate: the grammars are taken from the parsers that consume
-them, but no shipped mod has been run through them yet.
+The installed game Data directory has no `_DISTR`, `_KID` or `_SWAP` files, so
+the gated real-file tests have nothing to read. Every fixture in the test suite
+is authored from the syntax examples in the sources above and is marked as
+authored rather than real. The MOD-07
+provenance regression checks that SPID, KID and BOS patches retain their input
+file and line. No shipped mod has been run through the parser or game application
+yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
-| `src/*` unit | 63 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity and OAR condition groups |
-| `tests/resolve.rs` | 11 | Resolution against a synthetic load order, including absent forms |
+| `src/*` unit | 60 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity |
+| `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
 
 ## Not done
 

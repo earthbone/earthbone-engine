@@ -152,6 +152,8 @@ fn cmb_06_target_combat_awareness_clears_sneak_multiplier() {
                 light_level: 100.0,
                 motion: Motion::Still,
                 action_sound: 0.0,
+                action_sound_distance: None,
+                action_sound_line_of_sight: None,
             }],
             0.0,
         )

@@ -89,24 +89,23 @@ pub struct LodBlockCoord {
 }
 
 impl LodBlockCoord {
-    /// The block a cell belongs to at `level` on a grid anchored at cell
-    /// (0, 0). Floor division keeps a block's span contiguous across the
-    /// origin. Tamriel's anchor sits on a multiple of 32 on both axes, so
-    /// this and `containing_from` agree there.
+    /// The block assigned to a cell at `level` on a grid anchored at cell
+    /// (0, 0), following `TwbLodSettings.BlockForCell`.
     pub fn containing(cell: CellCoord, level: LodLevel) -> Self {
         Self::containing_from(cell, level, CellCoord::new(0, 0))
     }
 
     /// The block a cell belongs to at `level` on a grid anchored at
-    /// `anchor`, the worldspace's `SWCell`: `TwbLodSettings.BlockForCell`,
-    /// with floor division so a cell south or west of the anchor still
-    /// lands in a block that contains it.
+    /// `anchor`, the worldspace's `SWCell`, following
+    /// `TwbLodSettings.BlockForCell`. Pascal integer `div` truncates toward
+    /// zero, so a cell just south or west of the anchor can name the anchor's
+    /// block even though the cell lies outside that block's span.
     pub fn containing_from(cell: CellCoord, level: LodLevel, anchor: CellCoord) -> Self {
         let span = level.cells();
         Self {
             level,
-            x: anchor.x + (cell.x - anchor.x).div_euclid(span) * span,
-            y: anchor.y + (cell.y - anchor.y).div_euclid(span) * span,
+            x: anchor.x + ((cell.x - anchor.x) / span) * span,
+            y: anchor.y + ((cell.y - anchor.y) / span) * span,
         }
     }
 
@@ -158,6 +157,15 @@ fn btr_stem(world_editor_id: &str, block: LodBlockCoord) -> String {
 pub fn btr_path(world_editor_id: &str, block: LodBlockCoord) -> String {
     format!(
         "meshes/terrain/{world_editor_id}/{}.btr",
+        btr_stem(world_editor_id, block)
+    )
+}
+
+/// The BTO file path for one worldspace object LOD block. TES5Edit writes
+/// object LOD meshes below `Objects` with the same block stem as BTR files.
+pub fn bto_path(world_editor_id: &str, block: LodBlockCoord) -> String {
+    format!(
+        "meshes/terrain/{world_editor_id}/Objects/{}.bto",
         btr_stem(world_editor_id, block)
     )
 }
@@ -568,7 +576,11 @@ mod tests {
     /// (-68, -36) is a real Tamriel file on a vanilla install.
     #[test]
     fn btr_path_names_the_south_west_cell() {
-        let block = LodBlockCoord::containing(CellCoord::new(-66, -35), LodLevel::L4);
+        let block = LodBlockCoord::containing_from(
+            CellCoord::new(-66, -35),
+            LodLevel::L4,
+            CellCoord::new(-96, -64),
+        );
         assert_eq!(block.origin_cell(), CellCoord::new(-68, -36));
         assert_eq!(
             btr_path("Tamriel", block),
@@ -584,7 +596,7 @@ mod tests {
         let block = LodBlockCoord::containing_from(CellCoord::new(10, 20), LodLevel::L32, anchor);
         assert_eq!((block.x, block.y), (-5, 9));
         let west = LodBlockCoord::containing_from(CellCoord::new(-6, 8), LodLevel::L32, anchor);
-        assert_eq!((west.x, west.y), (-37, -23));
+        assert_eq!((west.x, west.y), (-5, 9));
     }
 
     #[test]

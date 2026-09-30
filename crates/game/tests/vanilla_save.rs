@@ -22,6 +22,20 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/record_changes.rs"]
+mod record_changes;
+
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+
+#[path = "vanilla_save/pack_navmesh.rs"]
+mod pack_navmesh;
+
+#[path = "common/installed.rs"]
+mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -444,28 +458,21 @@ fn collect_saves(path: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn installed_save_globals_restore_into_live_forms_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES not set, skipping global restoration survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

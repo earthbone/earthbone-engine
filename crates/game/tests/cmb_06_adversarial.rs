@@ -126,6 +126,8 @@ fn combat_awareness_stops_sneak_damage_even_while_actor_remains_sneaking() {
                 light_level: 100.,
                 motion: Motion::Still,
                 action_sound: 0.,
+                action_sound_distance: None,
+                action_sound_line_of_sight: None,
             }],
             0.,
         )

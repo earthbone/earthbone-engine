@@ -290,6 +290,17 @@ impl SurfaceArrays {
         self.indices.len() / 3
     }
 
+    /// Bytes in the vertex and index arrays submitted for mesh upload.
+    pub fn mesh_byte_count(&self) -> usize {
+        self.positions.len() * std::mem::size_of::<[f32; 3]>()
+            + self.normals.len() * std::mem::size_of::<[f32; 3]>()
+            + self.tangents.len() * std::mem::size_of::<f32>()
+            + self.uvs.len() * std::mem::size_of::<[f32; 2]>()
+            + self.indices.len() * std::mem::size_of::<i32>()
+            + self.bones.len() * std::mem::size_of::<i32>()
+            + self.weights.len() * std::mem::size_of::<f32>()
+    }
+
     pub fn is_skinned(&self) -> bool {
         !self.bones.is_empty()
     }

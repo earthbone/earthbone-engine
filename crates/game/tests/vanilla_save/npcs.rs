@@ -286,29 +286,26 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    let mut marker = 1_u32.to_le_bytes().to_vec();
-    marker.extend_from_slice(&0_u16.to_le_bytes());
-    marker.extend_from_slice(&0x800_u32.to_le_bytes());
-    let offsets: Vec<_> = before
-        .windows(marker.len())
-        .enumerate()
-        .filter_map(|(offset, window)| (window == marker).then_some(offset))
-        .collect();
-    assert_eq!(offsets.len(), 1, "record override marker is unique");
-    let origin_fields = offsets[0];
-    // Version 13 has no origin identities or list metadata byte.
-    v13.drain(origin_fields + 10..origin_fields + 23);
-    let mut list_flag = origin_fields + 11;
-    for payload_size in [6, 4, 6] {
-        let present = v13[list_flag] != 0;
-        list_flag += 1;
-        if present {
-            list_flag += payload_size;
-        }
-    }
-    v13.remove(list_flag);
-    // Version 13 ends after record overrides. Remove every later field.
-    v13.truncate(origin_fields + 4 + before.len() - empty.len() - 14);
+    // NPC restoration changes only the record override block, so its count
+    // is the first byte that differs from the empty save.
+    let override_count = empty
+        .iter()
+        .zip(&before)
+        .position(|(empty, saved)| empty != saved)
+        .unwrap();
+    assert_eq!(&empty[override_count..override_count + 4], &[0; 4]);
+    assert_eq!(
+        &before[override_count..override_count + 4],
+        &1_u32.to_le_bytes()
+    );
+    let override_entry = override_count + 4;
+    // Version 13 stores the form identity, but not the two source identities
+    // and temporary marker added in version 14.
+    v13.drain(override_entry + 6..override_entry + 19);
+    // Version 13 predates the list override marker.
+    v13.remove(override_entry + 20);
+    let tail_len = empty.len() - override_entry;
+    v13.truncate(v13.len() - tail_len);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -326,8 +323,7 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    // Version 12 predates the record override count and every later field.
-    v12.truncate(origin_fields);
+    v12.truncate(override_count);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());
@@ -397,27 +393,20 @@ fn unresolved_links_and_unapplied_form_masks_are_retained_and_reported() {
 
 #[test]
 fn installed_npc_changes_restore_into_shared_records_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

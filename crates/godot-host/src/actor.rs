@@ -13,9 +13,9 @@
 
 use soe_bsa::Vfs;
 use soe_hkx::behavior::BehaviorGraph;
-use soe_hkx::character::{CharacterData, ProjectData};
 use soe_hkx::interp::{Clip, ClipLibrary};
-use soe_hkx::skeleton::{AnimationContainer, Bone as HkxBone, Skeleton};
+use soe_hkx::ragdoll::Ragdoll;
+use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
 use soe_nif::types::Transform as NifTransform;
@@ -33,6 +33,9 @@ pub const HUMAN_SKELETON: &str = "character assets/skeleton.hkx";
 /// The locomotion graph, relative to [`CHARACTER_ROOT`]. It is the graph the
 /// `behavior-2` work proved out, and it names the idle and walk clips.
 pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
+
+/// The human behavior graph that connects locomotion, stagger and combat.
+pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
 
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
@@ -106,6 +109,7 @@ pub struct ActorSurface {
 /// A character's skeleton, graph, clips and skinned shapes.
 pub struct ActorAssets {
     pub skeleton: Skeleton,
+    pub ragdoll: Option<Ragdoll>,
     pub graph: BehaviorGraph,
     pub clips: ClipLibrary,
     pub surfaces: Vec<ActorSurface>,
@@ -198,7 +202,7 @@ impl ActorAssets {
     /// [`ActorError`] when a required file is missing or will not parse, or
     /// when the mesh carries no skinned shape.
     pub fn load(vfs: &Vfs, mesh_path: &str) -> Result<ActorAssets, ActorError> {
-        Self::load_with_rig(vfs, mesh_path, HUMAN_SKELETON, LOCOMOTION_BEHAVIOR)
+        Self::load_with_behavior(vfs, mesh_path, LOCOMOTION_BEHAVIOR)
     }
 
     /// Load the human character with an explicitly selected behavior graph.
@@ -210,141 +214,20 @@ impl ActorAssets {
         mesh_path: &str,
         behavior: &str,
     ) -> Result<ActorAssets, ActorError> {
-        Self::load_with_rig(vfs, mesh_path, HUMAN_SKELETON, behavior)
-    }
-
-    /// Load the current actor race's sex-specific rig and appearance.
-    pub fn load_for_actor(
-        world: &mut soe_game::World,
-        actor: soe_esm::GlobalFormId,
-        vfs: &Vfs,
-    ) -> Result<ActorAssets, ActorError> {
-        let selected = world.actor_animation_rig(actor)?;
-        let selected = selected.ok_or_else(|| {
-            ActorError::Appearance(soe_esm::Error::Invalid("actor has no current race".into()))
-        })?;
-        let skeleton = selected
-            .skeleton
-            .as_deref()
-            .ok_or(ActorError::MissingRaceModel {
-                race: selected.race,
-                asset: "skeleton",
-            })?;
-        let behavior = selected
-            .behavior
-            .as_deref()
-            .ok_or(ActorError::MissingRaceModel {
-                race: selected.race,
-                asset: "behavior graph",
-            })?;
-        let appearance = world.actor_appearance(actor)?;
-        let mut assets = Self::load_race_rig(vfs, skeleton, behavior)?;
-        assets.surfaces = Self::appearance_surfaces(vfs, &appearance, &assets.skeleton)?;
-        Self::extend_race_bones(vfs, &mut assets)?;
-        assets.actor_race = Some(selected.race);
-        assets.actor_female = Some(selected.female);
-        let bones: std::collections::BTreeSet<_> = assets
-            .surfaces
-            .iter()
-            .flat_map(|surface| surface.map.unmatched.iter().cloned())
-            .collect();
-        if !bones.is_empty() {
-            return Err(ActorError::RigMismatch {
-                bones: bones.into_iter().collect(),
-            });
-        }
-        Ok(assets)
-    }
-
-    /// Load an appearance with the model paths selected from its race record.
-    pub fn load_for_race(
-        vfs: &Vfs,
-        race: &soe_esm::Record,
-        female: bool,
-        appearance: &soe_game::appearance::ActorAppearance,
-    ) -> Result<ActorAssets, ActorError> {
-        let models = soe_game::race::AnimationModels::from_record(race)?;
-        let selected = models.select(female);
-        let skeleton = selected.skeleton.as_deref().ok_or_else(|| {
-            ActorError::Appearance(soe_esm::Error::Invalid(
-                "race has no selected skeletal model".into(),
-            ))
-        })?;
-        let behavior = selected.behavior.as_deref().ok_or_else(|| {
-            ActorError::Appearance(soe_esm::Error::Invalid(
-                "race has no selected behavior graph".into(),
-            ))
-        })?;
-        let mut assets = Self::load_race_rig(vfs, skeleton, behavior)?;
-        assets.surfaces = Self::appearance_surfaces(vfs, appearance, &assets.skeleton)?;
-        Self::extend_race_bones(vfs, &mut assets)?;
-        assets.actor_female = Some(female);
-        let bones: std::collections::BTreeSet<_> = assets
-            .surfaces
-            .iter()
-            .flat_map(|surface| surface.map.unmatched.iter().cloned())
-            .collect();
-        if !bones.is_empty() {
-            return Err(ActorError::RigMismatch {
-                bones: bones.into_iter().collect(),
-            });
-        }
-        Ok(assets)
-    }
-
-    fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
-        let missing: std::collections::BTreeSet<_> = assets
-            .surfaces
-            .iter()
-            .flat_map(|surface| surface.map.unmatched.iter().cloned())
-            .collect();
-        if missing.is_empty() {
-            return Ok(());
-        }
-        let bytes = read(vfs, &assets.skeleton_model_path)?;
-        let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
-            path: assets.skeleton_model_path.clone(),
-            source,
-        })?;
-        extend_skeleton(&mut assets.skeleton, &file, &missing)
-            .map_err(|bones| ActorError::RigMismatch { bones })?;
-        for surface in &mut assets.surfaces {
-            surface.map = BoneMap::build(&surface.skin.bones, &assets.skeleton);
-        }
-        Ok(())
-    }
-
-    /// Load a character using the skeleton and graph paths selected from its
-    /// current `RACE` record. Record paths may omit the `meshes/` prefix.
-    pub fn load_with_rig(
-        vfs: &Vfs,
-        mesh_path: &str,
-        skeleton_path: &str,
-        behavior_path: &str,
-    ) -> Result<ActorAssets, ActorError> {
-        let mut assets = Self::load_rig(vfs, skeleton_path, behavior_path)?;
-        assets.surfaces = Self::load_surfaces(vfs, mesh_path, &assets.skeleton)?;
-        Ok(assets)
-    }
-
-    fn load_rig(
-        vfs: &Vfs,
-        skeleton_path: &str,
-        behavior_path: &str,
-    ) -> Result<ActorAssets, ActorError> {
-        let skeleton_model_path = asset_path(skeleton_path);
-        let skeleton_path = skeleton_model_path.clone();
-        let behavior_path = asset_path(behavior_path);
-        let skeleton = Self::load_skeleton(vfs, &skeleton_path)?;
-        let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
-        let root = actor_root(&behavior_path);
-        let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
+        let (skeleton, ragdoll) = Self::load_skeleton(vfs)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
+        let (clips, missing_clips) = Self::load_clips(vfs, &graph, CHARACTER_ROOT);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
+        let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
+        let skeleton_path = HUMAN_SKELETON.to_string();
+        let skeleton_model_path = HUMAN_SKELETON.to_string();
+        let behavior_path = behavior.to_string();
         Ok(ActorAssets {
             skeleton,
+            ragdoll,
             graph,
             clips,
-            surfaces: Vec::new(),
+            surfaces,
             skeleton_path,
             skeleton_model_path,
             behavior_path,
@@ -356,56 +239,91 @@ impl ActorAssets {
         })
     }
 
-    fn load_race_rig(
+    /// Load the rig, behavior and visible armor selected by an actor's records.
+    pub fn load_for_actor(
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
         vfs: &Vfs,
-        skeleton_model_path: &str,
-        project_path: &str,
     ) -> Result<ActorAssets, ActorError> {
-        let skeleton_model_path = asset_path(skeleton_model_path);
-        let project_path = asset_path(project_path);
-        let bytes = read(vfs, &project_path)?;
-        let project_packfile = packfile(&bytes, &project_path)?;
-        let project =
-            ProjectData::from_packfile(&project_packfile).map_err(|error| ActorError::Project {
-                path: project_path.clone(),
-                reason: error.to_string(),
+        let rig = world
+            .actor_animation_rig(actor)?
+            .ok_or(ActorError::MissingRaceModel {
+                race: actor,
+                asset: "race",
             })?;
-        let root = actor_root(&project_path);
-        let character_name =
-            project
-                .character_filenames
-                .first()
-                .ok_or_else(|| ActorError::Project {
-                    path: project_path.clone(),
-                    reason: "project names no character data".into(),
-                })?;
-        let character_path = join_project_path(&root, &project.character_path, character_name);
-        let bytes = read(vfs, &character_path)?;
-        let character_packfile = packfile(&bytes, &character_path)?;
-        let character = CharacterData::from_packfile(&character_packfile).map_err(|error| {
-            ActorError::Project {
-                path: character_path.clone(),
-                reason: error.to_string(),
-            }
-        })?;
-        let skeleton_name = nonempty(&character.rig_name).ok_or_else(|| ActorError::Project {
-            path: character_path.clone(),
-            reason: "character data names no skeleton rig".into(),
-        })?;
-        let behavior_name =
-            nonempty(&character.behavior_filename).ok_or_else(|| ActorError::Project {
-                path: character_path.clone(),
-                reason: "character data names no behavior graph".into(),
-            })?;
-        let skeleton_path = join_project_path(&root, &project.character_path, skeleton_name);
-        let behavior_path = join_project_path(&root, &project.behavior_path, behavior_name);
-        let mut assets = Self::load_rig(vfs, &skeleton_path, &behavior_path)?;
-        assets.skeleton_model_path = skeleton_model_path;
-        assets.project_path = Some(project_path);
+        let race = world
+            .record(rig.race)
+            .ok_or(ActorError::MissingRaceModel {
+                race: rig.race,
+                asset: "record",
+            })?
+            .clone();
+        let mut assets =
+            Self::load_for_race(vfs, &race, rig.female, &world.actor_appearance(actor)?)?;
+        assets.actor_race = Some(rig.race);
         Ok(assets)
     }
 
-    fn load_skeleton(vfs: &Vfs, path: &str) -> Result<Skeleton, ActorError> {
+    /// Load a sex-specific rig and appearance from a winning RACE record.
+    pub fn load_for_race(
+        vfs: &Vfs,
+        race: &soe_esm::Record,
+        female: bool,
+        appearance: &soe_game::appearance::ActorAppearance,
+    ) -> Result<ActorAssets, ActorError> {
+        let race_id = soe_esm::GlobalFormId {
+            file: 0,
+            object: race.form_id,
+        };
+        let selected = soe_game::race::AnimationModels::from_record(race)?.select(female);
+        let skeleton_model_path = selected
+            .skeleton
+            .as_deref()
+            .and_then(nonempty)
+            .map(asset_path)
+            .ok_or(ActorError::MissingRaceModel {
+                race: race_id,
+                asset: "skeleton",
+            })?;
+        let behavior_path = selected
+            .behavior
+            .as_deref()
+            .and_then(nonempty)
+            .map(asset_path)
+            .ok_or(ActorError::MissingRaceModel {
+                race: race_id,
+                asset: "behavior",
+            })?;
+        let root = actor_root(&behavior_path);
+        let project_path = join_project_path(&root, "", &behavior_path);
+        let skeleton_path = skeleton_model_path.clone();
+        let (skeleton, ragdoll) = Self::load_skeleton_at(vfs, &skeleton_path)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, &project_path)?;
+        let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
+        crate::combat::contact_annotation_triggers(&mut graph, &clips);
+        let surfaces = Self::appearance_surfaces(vfs, appearance, &skeleton)?;
+        Ok(ActorAssets {
+            skeleton,
+            ragdoll,
+            graph,
+            clips,
+            surfaces,
+            skeleton_path,
+            skeleton_model_path,
+            behavior_path: project_path.clone(),
+            project_path: Some(project_path),
+            actor_race: Some(race_id),
+            actor_female: Some(female),
+            missing_clips,
+            unresolved_references,
+        })
+    }
+
+    fn load_skeleton(vfs: &Vfs) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
+        Self::load_skeleton_at(vfs, &format!("{CHARACTER_ROOT}{HUMAN_SKELETON}"))
+    }
+
+    fn load_skeleton_at(vfs: &Vfs, path: &str) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
         let bytes = read(vfs, path)?;
         let pf = packfile(&bytes, path)?;
         let container =
@@ -413,13 +331,25 @@ impl ActorAssets {
                 path: path.to_string(),
                 source,
             })?;
-        container
-            .skeletons
-            .into_iter()
-            .next()
-            .ok_or_else(|| ActorError::NoSkeleton {
-                path: path.to_string(),
-            })
+        let ragdoll = match Ragdoll::from_packfile(&pf) {
+            Ok(ragdoll) => Some(ragdoll),
+            Err(soe_hkx::Error::NullPointer("hkaRagdollInstance")) => None,
+            Err(source) => {
+                return Err(ActorError::Havok {
+                    path: path.to_string(),
+                    source,
+                })
+            }
+        };
+        let skeleton =
+            container
+                .skeletons
+                .into_iter()
+                .next()
+                .ok_or_else(|| ActorError::NoSkeleton {
+                    path: path.to_string(),
+                })?;
+        Ok((skeleton, ragdoll))
     }
 
     fn load_graph(vfs: &Vfs, path: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
@@ -588,143 +518,14 @@ impl ActorAssets {
     }
 }
 
-#[derive(Clone)]
-struct NifRigNode {
-    parent: Option<String>,
-    transform: NifTransform,
-}
-
-fn extend_skeleton(
-    skeleton: &mut Skeleton,
-    file: &soe_nif::NifFile,
-    required: &std::collections::BTreeSet<String>,
-) -> Result<(), Vec<String>> {
-    let mut nodes = std::collections::BTreeMap::new();
-    let mut visited = std::collections::BTreeSet::new();
-    for root in &file.roots {
-        collect_rig_nodes(file, *root, None, &mut visited, &mut nodes);
-    }
-    let mut missing = Vec::new();
-    for name in required {
-        if ensure_rig_node(skeleton, &nodes, name).is_err() {
-            missing.push(name.clone());
-        }
-    }
-    if missing.is_empty() {
-        Ok(())
+fn actor_root(behavior_path: &str) -> String {
+    if let Some(at) = behavior_path.rfind("/behaviors/") {
+        behavior_path[..=at].to_string()
     } else {
-        Err(missing)
-    }
-}
-
-fn collect_rig_nodes(
-    file: &soe_nif::NifFile,
-    reference: soe_nif::BlockRef,
-    parent: Option<String>,
-    visited: &mut std::collections::BTreeSet<usize>,
-    nodes: &mut std::collections::BTreeMap<String, NifRigNode>,
-) {
-    use soe_nif::blocks::Block;
-    let Some(index) = reference.get() else {
-        return;
-    };
-    if !visited.insert(index) {
-        return;
-    }
-    let Some(Block::Node(node)) = file.blocks.get(index) else {
-        return;
-    };
-    let name = node.av.name().to_string();
-    if !name.is_empty() {
-        nodes.entry(name.clone()).or_insert_with(|| NifRigNode {
-            parent: parent.clone(),
-            transform: node.av.transform,
-        });
-    }
-    let parent = (!name.is_empty()).then_some(name).or(parent);
-    for child in &node.children {
-        collect_rig_nodes(file, *child, parent.clone(), visited, nodes);
-    }
-}
-
-fn ensure_rig_node(
-    skeleton: &mut Skeleton,
-    nodes: &std::collections::BTreeMap<String, NifRigNode>,
-    name: &str,
-) -> Result<usize, ()> {
-    if let Some(index) = skeleton
-        .bones
-        .iter()
-        .position(|bone| bone.name.eq_ignore_ascii_case(name))
-    {
-        return Ok(index);
-    }
-    let node = nodes
-        .iter()
-        .find_map(|(node_name, node)| node_name.eq_ignore_ascii_case(name).then_some(node))
-        .ok_or(())?;
-    let parent = if let Some(parent) = &node.parent {
-        Some(i16::try_from(ensure_rig_node(skeleton, nodes, parent)?).map_err(|_| ())?)
-    } else {
-        None
-    };
-    let index = skeleton.bones.len();
-    skeleton.bones.push(HkxBone {
-        name: name.to_string(),
-        lock_translation: false,
-    });
-    skeleton.parent_indices.push(parent.unwrap_or(-1));
-    skeleton
-        .reference_pose
-        .push(nif_transform_to_hkx(&node.transform));
-    Ok(index)
-}
-
-fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
-    let m = transform.rotation.rows;
-    let trace = m[0][0] + m[1][1] + m[2][2];
-    let (x, y, z, w) = if trace > 0.0 {
-        let s = (trace + 1.0).sqrt() * 2.0;
-        (
-            (m[2][1] - m[1][2]) / s,
-            (m[0][2] - m[2][0]) / s,
-            (m[1][0] - m[0][1]) / s,
-            0.25 * s,
+        behavior_path.rfind('/').map_or_else(
+            || CHARACTER_ROOT.to_string(),
+            |at| behavior_path[..=at].to_string(),
         )
-    } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
-        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
-        (
-            0.25 * s,
-            (m[0][1] + m[1][0]) / s,
-            (m[0][2] + m[2][0]) / s,
-            (m[2][1] - m[1][2]) / s,
-        )
-    } else if m[1][1] > m[2][2] {
-        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
-        (
-            (m[0][1] + m[1][0]) / s,
-            0.25 * s,
-            (m[1][2] + m[2][1]) / s,
-            (m[0][2] - m[2][0]) / s,
-        )
-    } else {
-        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
-        (
-            (m[0][2] + m[2][0]) / s,
-            (m[1][2] + m[2][1]) / s,
-            0.25 * s,
-            (m[1][0] - m[0][1]) / s,
-        )
-    };
-    soe_hkx::QsTransform {
-        translation: [
-            transform.translation.x,
-            transform.translation.y,
-            transform.translation.z,
-            0.0,
-        ],
-        rotation: [x, y, z, w],
-        scale: [transform.scale, transform.scale, transform.scale, 0.0],
     }
 }
 
@@ -737,17 +538,6 @@ fn asset_path(name: &str) -> String {
         format!("meshes/{path}")
     } else {
         format!("{CHARACTER_ROOT}{path}")
-    }
-}
-
-fn actor_root(behavior_path: &str) -> String {
-    if let Some(at) = behavior_path.rfind("/behaviors/") {
-        behavior_path[..=at].to_string()
-    } else {
-        behavior_path.rfind('/').map_or_else(
-            || CHARACTER_ROOT.to_string(),
-            |at| behavior_path[..=at].to_string(),
-        )
     }
 }
 

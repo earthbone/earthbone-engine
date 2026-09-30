@@ -215,12 +215,18 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         [0, 0],
         "an actor with no hand spells must write two unset presence bytes after its crime set"
     );
-    // Remove the actor fields and its empty version 37 section table in one
-    // span so later offsets stay aligned.
-    bytes.drain(offsets[0]..end + 4);
-    // Version 29 predates encounter-zone visits, detection and world-level
-    // sections. Scene runtime data is inside the section table.
-    bytes.truncate(bytes.len() - 40);
+    // The right spell field is immediately followed by this actor's own
+    // named save-section table, which a version 29 writer never emitted.
+    let section_start = end + 2;
+    let section_len = legacy::section_table_len(&bytes, section_start);
+    bytes.drain(offsets[0]..section_start + section_len);
+    legacy::strip_world_sections(&mut bytes);
+    // The world section table held scene runtime data. The detection pool
+    // count is the only remaining field past where a version 29 save ends.
+    bytes.truncate(bytes.len() - 4);
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     // Roll the header back to a real pre-witness-tracking version.
     bytes[4..6].copy_from_slice(&29u16.to_le_bytes());
 

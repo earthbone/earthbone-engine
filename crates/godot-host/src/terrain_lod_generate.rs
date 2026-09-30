@@ -129,6 +129,7 @@ pub fn generate_terrain_lod_btr<S: std::hash::BuildHasher>(
         positions,
         normals: Vec::new(),
         tangents: Vec::new(),
+        uv_sets: vec![uvs.clone()],
         uvs,
         colors: Vec::new(),
         indices,

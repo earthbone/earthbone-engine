@@ -13,8 +13,9 @@ Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
   every VM test. It is also the seed of an assembler for tooling.
 - `psc`: a bounded Skyrim source compiler using the assembler. It accepts a
   script header with `extends`, `Hidden` and `Conditional`, native functions
-  without parameters, and functions with literal returns. Other declarations
-  and statements return a source line error. It checks the source filename
+  without parameters, scalar `Auto` properties, and functions with literal
+  returns. Other declarations and statements return a source line error. It
+  checks the source filename
   against `ScriptName` without case, generates Skyrim's `GetState` and
   `GotoState` functions, and emits a Skyrim PEX file. The parser follows the
   Open Papyrus script header, identifier, keyword and `.psc` filename rules
@@ -46,11 +47,12 @@ source fingerprints, so the VM records them at the PEX load boundary.
 ## Format facts, checked against the references
 
 - Skyrim and Skyrim SE files (format 3.1 and 3.2) are big-endian. Fallout 4
-  files are little-endian. Caprica detects the order from the byte-swapped
-  magic and skymp's reader is big-endian throughout, so this reader does the
-  same: `DE C0 57 FA` on disk is a Skyrim file. Format 3.9 and later use a
-  different object layout (const flags, structs, property groups) and are
-  rejected with `UnsupportedVersion`.
+  format 3.9 and later files use the extended object layout and little-endian
+  fields. The reader chooses byte order from the magic and chooses the object
+  layout from the header game ID. The extended layout stores object, variable
+  and struct-member const flags, struct definitions, property groups and struct
+  member order. These const flags are preserved in the parsed model. They do
+  not change VM assignment behavior.
 - Object layout for 3.1 and 3.2: name, a size field that counts itself, parent
   class, docstring, user flags, auto state name, variables (name, type, user
   flags, default value), properties (name, type, docstring, user flags, flags
@@ -66,6 +68,19 @@ source fingerprints, so the VM records them at the PEX load boundary.
   carry a trailing integer operand with the count of variable arguments.
 - Jump offsets are relative to the jump instruction itself.
 - Debug function kinds: 0 method, 1 property getter, 2 property setter.
+
+The 3.9 sections follow Champollion's `Pex/FileReader.cpp` and Caprica's
+`pex/PexObject.cpp`, `PexVariable.cpp`, `PexStruct.cpp`,
+`PexStructMember.cpp` and `PexDebugInfo.cpp`. The reader stores the added
+metadata in the existing Rust PEX model rather than adding a C++ parser
+dependency. The 3.9 parser test builds a small byte fixture with each extended
+section populated.
+
+Champollion's `Pex/Instruction.cpp` and Caprica's
+`Caprica/pex/PexInstruction.cpp` supply the opcode IDs and arities for `Is`
+and struct access. Caprica's `PapyrusStruct.h` and
+`PapyrusStructMember.h` establish the declared member types and defaults used
+when a runtime struct is created.
 
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
@@ -181,6 +196,21 @@ handle. Casts follow the declared type of the destination variable, which is
 why locals and script variables keep their type names. Floats print with six
 decimals, as in the game's log.
 
+**Fallout 4 array mutation opcodes.** The VM executes `ArrayAdd`, `ArrayInsert`,
+`ArrayRemoveLast`, `ArrayRemove` and `ArrayClear` on the existing shared array
+reference. Add appends the requested number of typed copies, Insert accepts an
+index from zero through the current length, Remove deletes up to the requested
+count starting at a valid index, and RemoveLast and Clear are safe on empty
+arrays. Nonpositive counts do nothing. Invalid insertion and removal indexes
+are logged and leave the array unchanged. Mutations that would exceed
+`MAX_ARRAY_LEN` are logged and leave it unchanged. A None array logs an error.
+The PEX opcode names and operand layout follow Champollion's
+`Pex/Instruction.cpp` and Caprica's `pex/PexFunctionBuilder.h`. Caprica's
+`PapyrusFunctionCallExpression.cpp` shows the default Add and Remove count is
+one and that these mutation calls do not produce a result value. The state
+format already saves array identity and contents through the shared array pool,
+so these mutations need no save version change.
+
 **Object reclamation.** `Vm::collect_objects` traces a host-supplied candidate set
 from non-candidate objects, frame locals and owners, thread results and explicit
 host roots. It follows instance variables and shared arrays, including cycles.
@@ -243,13 +273,19 @@ inventory, and package evaluation, before combat or magic.
 -> Result<Vec<u8>, VmError>` and `Vm::load_state(&mut self, bytes) ->
 Result<(), VmError>`. No serde, an own little-endian binary format read and
 written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vmad.rs`.
-`load_state` expects the caller to have loaded the same scripts first, the
-same way the VM itself never owns PEX bytes across a save, only the objects
-and threads built from them.
+`load_state` resolves saved script names against definitions already loaded.
+The VM itself does not store PEX bytes across a save, only objects and threads
+built from them.
 
-Magic `SOEV`, a `u16` version (3), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (4), then an array pool, a sorted table of
+script source fingerprints, and the VM body. Version 4 checks that a saved
+instance or frame still refers to the same PEX bytes. A missing or changed
+definition parks the original state until compatible PEX bytes are loaded.
+Version 3 and earlier states have no source fingerprints and continue to use
+name and frame-function checks.
 Everything a script variable can hold round trips: objects by id, strings,
-ints, floats, bools, and arrays. An array is a shared reference
+ints, floats, bools, arrays and Fallout 4 struct values. Struct members are
+written in name order. An array is a shared reference
 (`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
 every variable or stack slot that names it writes only its pool index. Two
 variables pointing at the same array come back pointing at the same array
@@ -283,9 +319,10 @@ queries can name the parent or child declaration through the script argument.
 The internal key prefixes the lowercase script name with its byte length,
 so names cannot collide through separator characters.
 
-Version 1 and 2 files still load. Their flat value is copied into each matching
+Version 1 to 3 files still load. Their flat value is copied into each matching
 declaration. Those files cannot recover a parent value already discarded by
-the old VM. Distinct slots then remain independent in version 3.
+the old VM. Distinct slots then remain independent in version 3. Version 4
+adds struct values to the value encoding.
 
 This follows the declaring-object resolution in Caprica's
 `PapyrusResolutionContext.cpp`, the inherited slot layout in FallrimTools
@@ -302,9 +339,23 @@ invalidate their frames. Saved state names remain valid even when the loaded
 PEX has no body for that state, as the existing `GoToState` path permits.
 Function lookup then uses its normal empty-state fallback.
 
-The save crate supplies the vanilla slot-to-name adapter. This API restores
-instance data only. It does not restore saved stacks, schedule latent calls
-or resolve a vanilla object's game-world identity.
+If `Vm::load_state` finds a missing script, changed PEX fingerprint or saved
+frame function absent from the loaded PEX, it parks the original SOEV bytes
+and clears the live objects and threads. `save_state` returns those bytes
+unchanged while parked, and the scheduler executes no work. Loading definitions
+retries restoration.
+The state becomes live only when all named scripts and frame functions resolve.
+The parked state keeps array identity, frames, latent waiters and pending return
+destinations without substituting null values.
+
+The save crate supplies the vanilla slot-to-name adapter and converts decoded
+active frames into VM frames after object identities and instances are mapped.
+`Vm::restore_threads` checks every owner, script, function, instruction body,
+program counter and local slot before adding any thread. Caller return targets
+come from the saved call instruction. The game import entry point restores
+instances and schedules the saved active scripts. Queued messages, suspended
+stack tables and latent native waits remain inert. Object identity mapping is
+still supplied by the host.
 
 A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
 frame sitting inside the wait, nothing about the scheduler is special-cased,
@@ -351,8 +402,12 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 ## Not done, and known gaps
 
-- Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
-  thread with the line number when executed. Skyrim never emits them.
+- Fallout 4 `Is` and struct create/get/set opcodes run only in Fallout 4 3.9
+  scripts. `Is` checks object classes and attached script inheritance. Struct
+  creation uses the declared PEX member defaults, member writes enforce the
+  member type and const flag, and invalid field operands log an error without
+  changing the struct. The remaining Fallout 4 array mutators still abort the
+  thread with the line number when executed. Skyrim never emits these opcodes.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was

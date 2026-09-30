@@ -126,6 +126,11 @@ fn import_node(
                 positions: std::mem::take(&mut positions),
                 normals,
                 tangents: Vec::new(),
+                uv_sets: if uvs.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![uvs.clone()]
+                },
                 uvs,
                 colors: Vec::new(),
                 indices,

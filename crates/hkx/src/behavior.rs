@@ -343,6 +343,9 @@ impl Condition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionInfo {
+    /// Data-section offset of the serialized transition, when loaded from a
+    /// packfile. Synthetic runtime transitions have no source offset.
+    pub source_offset: Option<u32>,
     pub trigger_interval: TimeInterval,
     pub initiate_interval: TimeInterval,
     /// The transition effect node, when one is set.
@@ -394,6 +397,80 @@ pub struct StateMachine {
 impl StateMachine {
     pub fn state(&self, id: i32) -> Option<&StateInfo> {
         self.states.iter().find(|s| s.state_id == id)
+    }
+}
+
+impl BehaviorGraph {
+    /// Change the destination of one transition in a state machine.
+    ///
+    /// The transition remains in its existing array slot. The destination
+    /// must name a state in the same machine. The document is updated in
+    /// place and can then be serialized with [`crate::document::PackfileDocument::to_bytes`].
+    ///
+    /// # Errors
+    /// Returns an error if the machine or transition does not exist, the
+    /// destination state is unknown, the graph did not come from a packfile,
+    /// or the document has no writable data section for the source offset.
+    pub fn edit_transition_destination(
+        &self,
+        document: &mut crate::document::PackfileDocument,
+        machine_id: NodeId,
+        from_state_id: i32,
+        transition_index: usize,
+        to_state_id: i32,
+    ) -> Result<()> {
+        let unsupported = |message: String| crate::Error::Unsupported(message);
+        let node = self
+            .nodes
+            .get(machine_id.0)
+            .ok_or_else(|| unsupported("state machine node is out of range".into()))?;
+        let NodeKind::StateMachine(machine) = &node.kind else {
+            return Err(unsupported("node is not a state machine".into()));
+        };
+        let state = machine
+            .state(from_state_id)
+            .ok_or_else(|| unsupported("source state does not exist".into()))?;
+        let transition = state
+            .transitions
+            .get(transition_index)
+            .ok_or_else(|| unsupported("transition index is out of range".into()))?;
+        if machine.state(to_state_id).is_none() {
+            return Err(unsupported("destination state does not exist".into()));
+        }
+        let source = transition
+            .source_offset
+            .ok_or_else(|| unsupported("transition has no serialized source".into()))?;
+        let field = match document.header().pointer_size {
+            4 => 44,
+            8 => 52,
+            _ => return Err(unsupported("unsupported packfile pointer size".into())),
+        };
+        let section = document
+            .sections
+            .iter_mut()
+            .find(|section| section.tag.starts_with(b"__data__\0"))
+            .ok_or(crate::Error::MissingSection("__data__"))?;
+        let start = source as usize + field;
+        let Some(current) = section.data.get(start..start + 4) else {
+            return Err(unsupported(
+                "transition source is outside data section".into(),
+            ));
+        };
+        let current = i32::from_le_bytes(current.try_into().map_err(|_| {
+            unsupported("transition destination field has an invalid width".into())
+        })?);
+        if current != transition.to_state_id {
+            return Err(unsupported(
+                "document does not match the loaded graph transition".into(),
+            ));
+        }
+        let Some(target) = section.data.get_mut(start..start + 4) else {
+            return Err(unsupported(
+                "transition source is outside data section".into(),
+            ));
+        };
+        target.copy_from_slice(&to_state_id.to_le_bytes());
+        Ok(())
     }
 }
 
@@ -507,6 +584,19 @@ pub struct FalseToTrueSlot {
     pub event: EventProperty,
 }
 
+/// One `hkbExpressionData` entry in an expression modifier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpressionData {
+    /// The scalar expression source.
+    pub expression: String,
+    /// Graph variable index to receive the result, or a negative value.
+    pub assignment_variable_index: i32,
+    /// Graph event index to raise, or a negative value.
+    pub assignment_event_index: i32,
+    /// `ExpressionEventMode` from the Havok class definition.
+    pub event_mode: i8,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -612,6 +702,11 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `hkbEvaluateExpressionModifier`: evaluates entries in array order.
+    EvaluateExpression {
+        enable: bool,
+        expressions: Vec<ExpressionData>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +783,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::EvaluateExpression { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -828,6 +924,7 @@ impl<'a> Loader<'a> {
         for t in arr.array_structs(arr.layout_offset(8, 16), arr.layout_offset(60, 72))? {
             let transition = self.opt_id(t.ptr(32)?);
             out.push(TransitionInfo {
+                source_offset: Some(t.base),
                 trigger_interval: TimeInterval::read(t, 0)?,
                 initiate_interval: TimeInterval::read(t, 16)?,
                 transition,
@@ -1126,6 +1223,33 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "hkbEvaluateExpressionModifier" => {
+                let expressions = o
+                    .ptr(o.layout_offset(44, 80))?
+                    .map(|array| {
+                        array.expect_class("hkbExpressionDataArray")?;
+                        array
+                            .array_structs(array.layout_offset(8, 16), array.layout_offset(16, 24))?
+                            .into_iter()
+                            .map(|entry| {
+                                Ok(ExpressionData {
+                                    expression: entry.string_or_empty(0)?,
+                                    assignment_variable_index: entry
+                                        .i32(entry.layout_offset(4, 8))?,
+                                    assignment_event_index: entry
+                                        .i32(entry.layout_offset(8, 12))?,
+                                    event_mode: entry.i8(entry.layout_offset(12, 16))?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default();
+                NodeKind::EvaluateExpression {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    expressions,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
