@@ -393,6 +393,13 @@ What each node does:
   describes serialized fields but does not execute them.
 - `BSEventOnDeactivateModifier` reads its authored event property and raises
   that event once when an active instance is deactivated.
+- `BSIStateManagerModifier` reads `iStateVar` as an index into the graph's
+  variable table. After generation, an active modifier finds the first
+  `stateData` entry whose state machine is in the listed state, then writes
+  `iStateToSetAs` into that variable. An unmatched state leaves the variable
+  unchanged. The entry layout comes from serde-hkx's
+  `BSIStateManagerModifier` and `BSIStateManagerModifierBSiStateData` class
+  descriptions.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
