@@ -3,9 +3,12 @@
 //! Authored HitFrame contacts, following CK equipment semantics and Nemesis
 //! animation event tables. Spatial queries return the first obstruction.
 
+#[cfg(feature = "godot")]
 use std::collections::HashMap;
+#[cfg(feature = "godot")]
 use std::hash::BuildHasher;
 
+#[cfg(feature = "godot")]
 use godot::builtin::Rid;
 use soe_esm::GlobalFormId;
 use soe_game::combat::{
@@ -112,6 +115,7 @@ pub struct RangedRelease {
 
 /// One terminal projectile contact, retaining its first-hit identity and point.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
 pub struct ProjectileContact {
     pub hit: crate::godot_combat::ContactHit,
     pub position: [f32; 3],
@@ -123,6 +127,7 @@ pub enum ProjectileUpdate {
     /// The projectile moved without reaching its configured range.
     Flying { position: [f32; 3] },
     /// The first obstruction or actor stopped the projectile.
+    #[cfg(feature = "godot")]
     Contact(ProjectileContact),
     /// The projectile reached its configured maximum range.
     RangeEnded { position: [f32; 3] },
@@ -153,6 +158,7 @@ impl ProjectileFlight {
     ///
     /// # Errors
     /// An invalid time step, invalid motion or unavailable physics space.
+    #[cfg(feature = "godot")]
     pub fn advance<S: BuildHasher>(
         &mut self,
         space: Rid,
