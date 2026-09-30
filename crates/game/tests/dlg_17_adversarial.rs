@@ -144,10 +144,13 @@ fn dlg_17_recruiting_twice_preserves_the_original_restore_values() {
     game.world_mut()
         .recruit_follower(id(ACTOR), id(FACTION), id(FOLLOW_PACKAGE), true)
         .unwrap();
-    let second = game
-        .world_mut()
-        .recruit_follower(id(ACTOR), id(FACTION), id(FOLLOW_PACKAGE), false);
-    assert!(matches!(second, Err(soe_game::services::FollowerError::AlreadyRecruited(_))));
+    let second =
+        game.world_mut()
+            .recruit_follower(id(ACTOR), id(FACTION), id(FOLLOW_PACKAGE), false);
+    assert!(matches!(
+        second,
+        Err(soe_game::services::FollowerError::AlreadyRecruited(_))
+    ));
     game.world_mut().dismiss_follower(id(ACTOR)).unwrap();
 
     let mut world = game.world_mut();
@@ -155,7 +158,10 @@ fn dlg_17_recruiting_twice_preserves_the_original_restore_values() {
     assert!(!actor.teammate);
     assert!(!actor.can_do_favors);
     assert!(!actor.factions.contains_key(&id(FACTION)));
-    assert_eq!(ai::candidates(&mut world, id(ACTOR))[0].package, id(PRIOR_PACKAGE));
+    assert_eq!(
+        ai::candidates(&mut world, id(ACTOR))[0].package,
+        id(PRIOR_PACKAGE)
+    );
 }
 
 #[test]

@@ -246,7 +246,7 @@ impl World {
             .get(action_slot as usize)
             .is_none_or(|action| {
                 (matches!(action.data, SceneActionData::Timer { .. }) && !timer_expired)
-                    || action.end_phase != Some(phase)
+                    || action.end_phase.is_none_or(|end| end < phase)
                     || action.start_phase.is_some_and(|start| start > phase)
             })
         {

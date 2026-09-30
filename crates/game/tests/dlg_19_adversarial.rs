@@ -233,8 +233,14 @@ fn dlg_19_stopping_scene_restores_package_and_alias_owner() {
     let mut allocate = |_: &str, _: &str| ObjectId(1);
     assert!(game.world_mut().stop_scene(scene, &mut allocate));
     assert_eq!(game.world().current_package(actor), Some(id(0x811)));
-    assert_eq!(game.world().actor_ref(actor).unwrap().ai.alias, Some((quest, 0)));
-    assert_eq!(game.world().actor_ref(actor).unwrap().ai.scene_package, None);
+    assert_eq!(
+        game.world().actor_ref(actor).unwrap().ai.alias,
+        Some((quest, 0))
+    );
+    assert_eq!(
+        game.world().actor_ref(actor).unwrap().ai.scene_package,
+        None
+    );
 }
 
 #[test]
