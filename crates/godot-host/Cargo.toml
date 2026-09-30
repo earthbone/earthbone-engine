@@ -67,6 +67,7 @@ godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
 thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-game = { path = "../game" }
+soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
 soe-audio = { path = "../audio" }
@@ -77,5 +78,4 @@ soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
 
 [dev-dependencies]
-soe-papyrus = { path = "../papyrus" }
 tempfile = "3"

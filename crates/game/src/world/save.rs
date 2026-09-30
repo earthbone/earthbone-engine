@@ -61,14 +61,16 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-/// Version 36 retains the active phase and completed action slots for each scene.
+/// Version 36 retains BOS record flags on instantiated references and the
+/// active phase and completed action slots for each scene.
 /// Version 37 appends named sections at world, actor and reference levels,
 /// including saved reference persistence and world record flags. This is the
 /// last version this constant will reach. New state goes into a named section
 /// registered in `save_section_registry` at the level that owns it. Version 37
 /// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
 /// pending quest lifecycle tasks and unresolved records. The native game save
-/// envelope records dependency provenance.
+/// envelope records dependency provenance. The `CMB-37` reference section
+/// retains each reference's current destruction stage.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -500,6 +502,7 @@ impl World {
             let id = read_form_id(&mut r)?;
             let mut state = read_ref_state(&mut r, version)?;
             if version < 37 {
+                state.record_flags = self.order.winner(id).map_or(0, |record| record.flags);
                 state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
                     self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
                 });
@@ -892,7 +895,14 @@ impl World {
             (1, BTreeMap::new())
         };
         for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
+            let headless_ability = effect.source == effect.target
+                && effect.caster == Some(effect.target)
+                && self.spell(effect.spell).is_ok_and(|spell| {
+                    spell.data.spell_type == 4
+                        && spell.data.cast_type == 0
+                        && spell.data.delivery == 0
+                });
+            if (!objects.contains_key(&Handle::ActiveEffect(*id)) && !headless_ability)
                 || !actors.contains_key(&effect.target)
             {
                 return Err(VmError::State(
@@ -909,24 +919,32 @@ impl World {
                 .magic_effect(effect.effect)
                 .map_err(|e| VmError::State(e.to_string()))?;
             if let Some(summoned) = effect.summoned {
-                let base = self
-                    .resolve_from(effect.effect, definition.data.associated_item)
-                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
+                let base = self.resolve_from(effect.effect, definition.data.associated_item);
                 let reference = refs.get(&summoned);
                 let owner = Some(effect.caster.unwrap_or(effect.target));
-                if definition.data.archetype != 18
-                    || base.is_none()
-                    || reference.is_none_or(|reference| {
-                        reference.base != base
-                            || reference.owner != owner
-                            || !reference.is_actor
-                            || reference.deleted
-                    })
-                {
+                let invalid = match definition.data.archetype {
+                    18 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"NPC_")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base
+                                    || reference.owner != owner
+                                    || !reference.is_actor
+                                    || reference.deleted
+                            })
+                    }
+                    12 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"LIGH")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base || reference.is_actor || reference.deleted
+                            })
+                    }
+                    _ => true,
+                };
+                if invalid {
                     return Err(VmError::State("invalid summoned actor state".into()));
                 }
-            } else if definition.data.archetype == 18 && version >= 33 {
-                return Err(VmError::State("summon effect without actor".into()));
+            } else if matches!(definition.data.archetype, 12 | 18) && version >= 33 {
+                return Err(VmError::State("spawn effect without reference".into()));
             }
         }
         for handle in objects.keys() {
@@ -1437,6 +1455,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         position,
         rotation,
         scale,
+        record_flags: 0,
         enabled,
         deleted,
         activation_blocked,
@@ -1457,6 +1476,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         on_map,
         fast_travel,
         destroyed,
+        destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
@@ -1503,6 +1523,9 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.restrained,
         a.arrested,
@@ -1633,6 +1656,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;
+    if version >= 36 {
+        a.swimming = r.bool()?;
+        a.running = r.bool()?;
+        a.riding_mount = r.bool()?;
+    }
     a.weapon_drawn = r.bool()?;
     a.restrained = r.bool()?;
     a.arrested = r.bool()?;
