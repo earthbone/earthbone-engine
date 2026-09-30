@@ -49,6 +49,7 @@ const RESIST_MAGIC: i32 = 44;
 const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
 const LAST_SPECIFIC_RESISTANCE: i32 = 45;
 const IGNORE_RESISTANCE: u32 = 1 << 20;
+const PEAK_VALUE_MODIFIER: u32 = 34;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -583,6 +584,9 @@ impl World {
                 .ok_or(MagicError::Missing(resolution))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            if data.archetype == PEAK_VALUE_MODIFIER {
+                self.peak_value_keyword(effect, &base)?;
+            }
             if !conditions_evaluated
                 && (!entry.conditions.is_empty() || !base.conditions.is_empty())
             {
@@ -594,7 +598,10 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 5 | 29 | 31 | 32 | 33) {
+            if !matches!(
+                data.archetype,
+                0 | 1 | 2 | 3 | 5 | 29 | 31 | 32 | 33 | PEAK_VALUE_MODIFIER
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -618,7 +625,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5 | 31) {
+            if matches!(data.archetype, 0 | 5 | 31 | PEAK_VALUE_MODIFIER) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -1337,6 +1344,9 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            if data.archetype == PEAK_VALUE_MODIFIER {
+                self.peak_value_keyword(effect, &base)?;
+            }
             let context = Context {
                 owner: spell,
                 subject: target,
@@ -1362,7 +1372,23 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | OPEN | 17 | 18 | 29 | 31 | 32 | 33
+                0 | 1
+                    | 2
+                    | 3
+                    | 4
+                    | 5
+                    | 9
+                    | 11
+                    | 12
+                    | LOCK
+                    | OPEN
+                    | 17
+                    | 18
+                    | 29
+                    | 31
+                    | 32
+                    | 33
+                    | PEAK_VALUE_MODIFIER
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -1404,7 +1430,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if matches!(data.archetype, 0 | 5 | PEAK_VALUE_MODIFIER) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -1534,7 +1560,7 @@ impl World {
                     magnitude
                 };
                 let mut changes = Vec::new();
-                if matches!(data.archetype, 0 | 4 | 5 | 31 | 32) {
+                if matches!(data.archetype, 0 | 4 | 5 | 31 | 32 | PEAK_VALUE_MODIFIER) {
                     let name = actor_value_name(data.primary_actor_value)
                         .ok_or(MagicError::Unsupported("actor value"))?;
                     let amount = if data.archetype == 4 {
@@ -1716,7 +1742,10 @@ impl World {
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+            if prepared.effect.recover
+                || prepared.effect.duration == Some(0.0)
+                || self.is_peak_value_effect(prepared.effect.effect)?
+            {
                 self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
             }
             applied.push(id);
@@ -1983,7 +2012,9 @@ impl World {
         let Some(effect) = self.active_effects.get(&id).cloned() else {
             return false;
         };
-        if effect.recover && self.apply_effect_values(&effect, -1.0, alloc).is_err() {
+        if (effect.recover || self.is_peak_value_effect(effect.effect).unwrap_or(false))
+            && self.apply_effect_values(&effect, -1.0, alloc).is_err()
+        {
             return false;
         }
         if let Some(summon) = effect.summoned {
@@ -2066,7 +2097,9 @@ impl World {
                     .is_ok_and(|base| base.data.archetype == 32)
                 {
                     self.accumulate_effect_value(&effect, dt)
-                } else if !effect.recover {
+                } else if !effect.recover
+                    && !self.is_peak_value_effect(effect.effect).unwrap_or(false)
+                {
                     self.apply_effect_values(&effect, dt, alloc)
                 } else {
                     Ok(())
@@ -2119,7 +2152,11 @@ impl World {
         let (protected, essential) = (actor.protected, actor.essential);
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
-        change_values(&mut values, effect, scale)?;
+        if self.is_peak_value_effect(effect.effect)? {
+            self.change_peak_value(&mut values, effect, scale)?;
+        } else {
+            change_values(&mut values, effect, scale)?;
+        }
         let touches_health = effect.changes.iter().any(|(name, _)| name == "health");
         // The caster stands in for melee_hit's attacker (combat.rs,
         // CMB-13/CMB-34): a merely protected, non-essential actor still
@@ -2197,6 +2234,88 @@ impl World {
             self.kill_actor(effect.target, effect.caster);
         }
         Ok(())
+    }
+
+    fn is_peak_value_effect(&self, effect: GlobalFormId) -> Result<bool, MagicError> {
+        Ok(self.magic_effect(effect)?.data.archetype == PEAK_VALUE_MODIFIER)
+    }
+
+    fn peak_value_keyword(
+        &self,
+        effect: GlobalFormId,
+        definition: &MagicEffect,
+    ) -> Result<GlobalFormId, MagicError> {
+        let keyword = self
+            .resolve_from(effect, definition.data.associated_item)
+            .ok_or(MagicError::Missing(effect))?;
+        if self.tag_of(keyword) != Some(super::T(b"KYWD")) {
+            return Err(MagicError::Unsupported("peak value keyword"));
+        }
+        Ok(keyword)
+    }
+
+    /// Apply only the strongest active modifier sharing this MGEF's keyword
+    /// and primary actor value. The group is rebuilt from winning records and
+    /// live applications, so expiration needs no additional saved state.
+    fn change_peak_value(
+        &self,
+        values: &mut crate::actor_values::Values,
+        effect: &ActiveEffect,
+        scale: f64,
+    ) -> Result<(), MagicError> {
+        let definition = self.magic_effect(effect.effect)?;
+        let keyword = self.peak_value_keyword(effect.effect, &definition)?;
+        let Some((actor_value, _)) = effect.changes.first() else {
+            return Err(MagicError::Unsupported("peak value actor value"));
+        };
+        let candidate = |active: &ActiveEffect| -> Result<Option<f32>, MagicError> {
+            if active.target != effect.target {
+                return Ok(None);
+            }
+            let active_definition = self.magic_effect(active.effect)?;
+            if active_definition.data.archetype != PEAK_VALUE_MODIFIER {
+                return Ok(None);
+            }
+            let active_keyword = self.peak_value_keyword(active.effect, &active_definition)?;
+            if active_keyword != keyword {
+                return Ok(None);
+            }
+            Ok(active
+                .changes
+                .iter()
+                .find(|(name, _)| name == actor_value)
+                .map(|(_, amount)| *amount))
+        };
+        let without_current = self
+            .active_effects
+            .values()
+            .filter(|active| active.id != effect.id)
+            .map(candidate)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .fold(None, |peak: Option<f32>, amount| {
+                Some(peak.map_or(amount, |current| current.max(amount)))
+            });
+        let with_current = self
+            .active_effects
+            .values()
+            .map(candidate)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .fold(None, |peak: Option<f32>, amount| {
+                Some(peak.map_or(amount, |current| current.max(amount)))
+            });
+        let (before, after) = if scale < 0.0 {
+            (with_current.unwrap_or(0.0), without_current.unwrap_or(0.0))
+        } else {
+            (without_current.unwrap_or(0.0), with_current.unwrap_or(0.0))
+        };
+        let delta = after - before;
+        values
+            .modify_temporary(actor_value, delta)
+            .map_err(|_| MagicError::Number)
     }
 }
 

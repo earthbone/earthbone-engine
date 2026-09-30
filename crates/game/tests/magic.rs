@@ -52,6 +52,8 @@ mod mag_03_concentration;
 mod mag_09_cast_cost;
 #[path = "magic/mag_22_hand_cast.rs"]
 mod mag_22_hand_cast;
+#[path = "magic/peak_value.rs"]
+mod peak_value;
 #[path = "magic/scroll.rs"]
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]
