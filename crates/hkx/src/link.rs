@@ -400,6 +400,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::DecomposeVector { .. }
         | NodeKind::LookAtModifier { .. }
         | NodeKind::LimbIk { .. }
+        | NodeKind::FootIk { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }

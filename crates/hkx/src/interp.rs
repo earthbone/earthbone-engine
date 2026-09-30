@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
-    NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
+    FootIkLeg, NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet,
+    VariableInfo, VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
 use crate::expression::{Expression, ExpressionError};
 use crate::skeleton::AnimationContainer;
@@ -316,6 +316,13 @@ pub struct Event {
     pub id: i32,
 }
 
+/// A local-Z correction supplied by the host's ground query for one ankle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkGroundTarget {
+    pub ankle_index: usize,
+    pub vertical_correction: f32,
+}
+
 /// A state machine changed state during an update.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateChange {
@@ -592,6 +599,40 @@ fn multiply_quaternions(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     }
 }
 
+fn apply_foot_ik(
+    output: &mut Output,
+    legs: &[FootIkLeg],
+    targets: &[FootIkGroundTarget],
+    raycast_distance_up: f32,
+    raycast_distance_down: f32,
+    vertical_offset: f32,
+    ground_ascending_gain: f32,
+    ground_descending_gain: f32,
+) {
+    let up = raycast_distance_up.max(0.0);
+    let down = raycast_distance_down.max(0.0);
+    for leg in legs {
+        let Some(target) = targets
+            .iter()
+            .find(|target| target.ankle_index == leg.ankle_index)
+        else {
+            continue;
+        };
+        let Some(ankle) = output.pose.get_mut(leg.ankle_index) else {
+            continue;
+        };
+        let correction = (target.vertical_correction + vertical_offset).clamp(-down, up);
+        let gain = if correction >= 0.0 {
+            ground_ascending_gain
+        } else {
+            ground_descending_gain
+        };
+        if gain.is_finite() {
+            ankle.translation[2] += correction * gain;
+        }
+    }
+}
+
 pub struct Interpreter<'a> {
     graph: &'a BehaviorGraph,
     clips: &'a ClipLibrary,
@@ -612,6 +653,7 @@ pub struct Interpreter<'a> {
     unsupported: Unsupported,
     output: Output,
     expression_random_state: u64,
+    foot_ik_ground_targets: Vec<FootIkGroundTarget>,
     frame: u64,
     condition_frames: Vec<u64>,
 }
@@ -665,6 +707,7 @@ impl<'a> Interpreter<'a> {
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
             },
+            foot_ik_ground_targets: Vec::new(),
             reference_pose,
             expression_random_state: 0x4d59_5df4_d0f3_3173,
             frame: 0,
@@ -891,6 +934,19 @@ impl<'a> Interpreter<'a> {
 
     pub fn graph(&self) -> &'a BehaviorGraph {
         self.graph
+    }
+
+    /// Replace the per-ankle local-Z corrections used by future updates.
+    ///
+    /// Non-finite corrections are ignored.
+    pub fn set_foot_ik_ground_targets(&mut self, targets: &[FootIkGroundTarget]) {
+        self.foot_ik_ground_targets.clear();
+        self.foot_ik_ground_targets.extend(
+            targets
+                .iter()
+                .copied()
+                .filter(|target| target.vertical_correction.is_finite()),
+        );
     }
 
     pub fn unsupported(&self) -> &Unsupported {
@@ -1274,6 +1330,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::DirectAt { enable, .. }
             | NodeKind::IStateManager { enable, .. }
             | NodeKind::LimbIk { enable, .. }
+            | NodeKind::FootIk { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1681,6 +1738,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::LookAtModifier { .. }
             | NodeKind::IStateManager { .. }
             | NodeKind::LimbIk { .. }
+            | NodeKind::FootIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -2233,6 +2291,26 @@ impl<'a> Interpreter<'a> {
                         NodeKind::LimbIk { .. } => {
                             self.apply_limb_ik(modifier, &mut output);
                         }
+                        NodeKind::FootIk {
+                            legs,
+                            raycast_distance_up,
+                            raycast_distance_down,
+                            vertical_offset,
+                            ground_ascending_gain,
+                            ground_descending_gain,
+                            ..
+                        } => {
+                            apply_foot_ik(
+                                &mut output,
+                                legs,
+                                &self.foot_ik_ground_targets,
+                                *raycast_distance_up,
+                                *raycast_distance_down,
+                                *vertical_offset,
+                                *ground_ascending_gain,
+                                *ground_descending_gain,
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -2301,6 +2379,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::LookAtModifier { .. }
             | NodeKind::IStateManager { .. }
             | NodeKind::LimbIk { .. }
+            | NodeKind::FootIk { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -4083,6 +4162,111 @@ mod tests {
         assert_eq!(vm.variables.word(0), Some(0));
         vm.update(1.0 / 60.0);
         assert_eq!(vm.variables.word(0), Some(1));
+    }
+
+    #[test]
+    fn anm_42_ground_target_adjusts_declared_ankle_and_preserves_body_pose() {
+        let mut graph = modifier_generator_graph();
+        graph.nodes[1].bindings = None;
+        graph.nodes[1].kind = NodeKind::FootIk {
+            enable: true,
+            legs: vec![
+                FootIkLeg {
+                    hip_index: 0,
+                    knee_index: 1,
+                    ankle_index: 2,
+                    max_ankle_height: 1.0,
+                    min_ankle_height: -1.0,
+                },
+                FootIkLeg {
+                    hip_index: 0,
+                    knee_index: 1,
+                    ankle_index: 3,
+                    max_ankle_height: 1.0,
+                    min_ankle_height: -1.0,
+                },
+            ],
+            raycast_distance_up: 0.8,
+            raycast_distance_down: 0.5,
+            vertical_offset: 0.25,
+            ground_ascending_gain: 0.5,
+            ground_descending_gain: 0.75,
+        };
+        let source_clip = modifier_generator_clip();
+        let clip = Clip::from_parts("modifier-pose", source_clip.animation, &[2]).unwrap();
+        let mut clips = ClipLibrary::new();
+        clips.insert(clip);
+        let mut pose = vec![QsTransform::IDENTITY; 4];
+        pose[0].translation = [3.0, 4.0, 5.0, 0.0];
+        pose[1].translation = [1.0, 2.0, 3.0, 0.0];
+        let mut vm = Interpreter::new(&graph, &clips, pose);
+
+        vm.update(1.0 / 60.0);
+        let before = vm.output().pose.clone();
+        vm.set_foot_ik_ground_targets(&[
+            FootIkGroundTarget {
+                ankle_index: 2,
+                vertical_correction: 0.75,
+            },
+            FootIkGroundTarget {
+                ankle_index: 3,
+                vertical_correction: -0.4,
+            },
+        ]);
+        vm.update(1.0 / 60.0);
+
+        assert_eq!(
+            vm.output().pose[0],
+            before[0],
+            "root body transform changed"
+        );
+        assert_eq!(vm.output().pose[1], before[1], "knee transform changed");
+        assert_eq!(vm.output().pose[2].translation[0], before[2].translation[0]);
+        assert_eq!(vm.output().pose[2].translation[1], before[2].translation[1]);
+        let upward = vm.output().pose[2].translation[2] - before[2].translation[2];
+        assert!((upward - 0.4).abs() < 0.0001, "upward correction: {upward}");
+        let downward = vm.output().pose[3].translation[2] - before[3].translation[2];
+        assert!(
+            (downward + 0.1125).abs() < 0.0001,
+            "downward correction: {downward}"
+        );
+
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.output().pose[0],
+            before[0],
+            "body pose drifted across frames"
+        );
+    }
+
+    #[test]
+    fn anm_42_disabled_modifier_ignores_ground_targets() {
+        let mut graph = modifier_generator_graph();
+        graph.nodes[1].bindings = None;
+        graph.nodes[1].kind = NodeKind::FootIk {
+            enable: false,
+            legs: vec![FootIkLeg {
+                hip_index: 0,
+                knee_index: 1,
+                ankle_index: 0,
+                max_ankle_height: 1.0,
+                min_ankle_height: -1.0,
+            }],
+            raycast_distance_up: 1.0,
+            raycast_distance_down: 1.0,
+            vertical_offset: 0.0,
+            ground_ascending_gain: 1.0,
+            ground_descending_gain: 1.0,
+        };
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.set_foot_ik_ground_targets(&[FootIkGroundTarget {
+            ankle_index: 0,
+            vertical_correction: 1.0,
+        }]);
+        vm.update(1.0 / 60.0);
+        assert!(!vm.is_active(NodeId(1)));
+        assert_eq!(vm.output().pose[0], QsTransform::IDENTITY);
     }
 
     #[test]

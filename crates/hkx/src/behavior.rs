@@ -604,6 +604,15 @@ pub struct IStateData {
     pub state_id: i32,
     pub state_to_set_as: i32,
 }
+/// One leg handled by `hkbFootIkModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkLeg {
+    pub hip_index: usize,
+    pub knee_index: usize,
+    pub ankle_index: usize,
+    pub max_ankle_height: f32,
+    pub min_ankle_height: f32,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -793,6 +802,16 @@ pub enum NodeKind {
         bone_radius: f32,
         cast_offset: f32,
     },
+    /// Applies caller supplied vertical ground corrections to declared ankle bones.
+    FootIk {
+        enable: bool,
+        legs: Vec<FootIkLeg>,
+        raycast_distance_up: f32,
+        raycast_distance_down: f32,
+        vertical_offset: f32,
+        ground_ascending_gain: f32,
+        ground_descending_gain: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -890,6 +909,7 @@ impl Node {
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::LookAtModifier { .. }
             | NodeKind::LimbIk { .. }
+            | NodeKind::FootIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1484,6 +1504,40 @@ impl<'a> Loader<'a> {
                     gain,
                     bone_radius,
                     cast_offset,
+                }
+            }
+            "hkbFootIkModifier" => {
+                let legs = o
+                    .array_structs(o.layout_offset(92, 128), 160)?
+                    .into_iter()
+                    .map(|leg| {
+                        Ok(FootIkLeg {
+                            hip_index: usize::try_from(leg.i16(leg.layout_offset(136, 144))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK hip index".into())
+                                })?,
+                            knee_index: usize::try_from(leg.i16(leg.layout_offset(138, 146))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK knee index".into())
+                                })?,
+                            ankle_index: usize::try_from(leg.i16(leg.layout_offset(140, 148))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK ankle index".into())
+                                })?,
+                            max_ankle_height: leg.f32(leg.layout_offset(112, 120))?,
+                            min_ankle_height: leg.f32(leg.layout_offset(116, 124))?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let gains = o.layout_offset(44, 80);
+                NodeKind::FootIk {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    legs,
+                    raycast_distance_up: o.f32(o.layout_offset(104, 144))?,
+                    raycast_distance_down: o.f32(o.layout_offset(108, 148))?,
+                    vertical_offset: o.f32(o.layout_offset(160, 192))?,
+                    ground_ascending_gain: o.f32(gains + 4)?,
+                    ground_descending_gain: o.f32(gains + 8)?,
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {

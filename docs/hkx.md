@@ -689,7 +689,9 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,175 nodes across 31 classes. `BSIsActiveModifier` is excluded because
+The last recorded inventory found 4,176 nodes across 32 classes. The merged
+typed handling leaves 4,174 nodes across 31 classes in the no-op inventory.
+`BSIsActiveModifier` is excluded because
 its bound activity slots already write their output variables. The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
@@ -714,7 +716,6 @@ row whose title names that class.
 | `hkbEventDrivenModifier` | 158 | [ANM-17](../BACKLOG.csv) |
 | `hkbEventsFromRangeModifier` | 3 | [ANM-15](../BACKLOG.csv) |
 | `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
-| `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
 | `hkbGetUpModifier` | 46 | [ANM-43](../BACKLOG.csv) |
 | `hkbKeyframeBonesModifier` | 91 | [ANM-44](../BACKLOG.csv) |
 | `hkbModifierGenerator` | 1,909 | [ANM-52](../BACKLOG.csv) |
@@ -788,6 +789,25 @@ local pose inputs. Its heading and pitch axes are Z and X, with Y as the
 forward axis. The direct-at synthetic tests cover clamping, chain scope,
 offsets, gains, target modes, enable state and invalid ranges. These choices
 are not verified against a captured Havok runtime.
+
+### Foot IK modifier (ANM-42)
+
+The behavior decoder reads `hkbFootIkModifier` and its leg array using the
+layouts in `engine-refs/serde-hkx/assets/classes/hkbFootIkModifier.json` and
+`hkbFootIkModifierLeg.json`. It retains hip, knee and ankle indices and ankle
+height limits, and reads the enabled flag, raycast distances, vertical offset,
+and ascending and descending gains. Runtime fields marked
+`SERIALIZE_IGNORED` are not read as authored values.
+
+The host supplies local-Z corrections for ankle indices through
+`Interpreter::set_foot_ik_ground_targets`. During the wrapped generator's
+update, the modifier clamps each correction plus the vertical offset to the
+configured up and down ray distances, scales it by the matching directional
+gain, and applies it to the declared ankle bone's local Z translation. Other
+pose transforms, including the root, pass through. The interpreter does not
+issue physics raycasts or solve hip and knee rotations. Synthetic tests cover
+target application, ray distance clamping, directional gain, root and knee
+continuity, and the disabled modifier path.
 
 ### False-to-true event slots (2026-09-20)
 
