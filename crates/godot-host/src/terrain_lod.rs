@@ -595,7 +595,7 @@ mod tests {
         let block = LodBlockCoord::containing_from(CellCoord::new(10, 20), LodLevel::L32, anchor);
         assert_eq!((block.x, block.y), (-5, 9));
         let west = LodBlockCoord::containing_from(CellCoord::new(-6, 8), LodLevel::L32, anchor);
-        assert_eq!((west.x, west.y), (-5, 9));
+        assert_eq!((west.x, west.y), (-37, -23));
     }
 
     #[test]
