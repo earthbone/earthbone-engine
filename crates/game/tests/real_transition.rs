@@ -8,10 +8,13 @@
 //! numbers are already known from the streaming and collision work and a
 //! surprise here is worth chasing.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 use std::time::Instant;
 
-use soe_esm::{GlobalFormId, LoadOrder, Plugin};
+use soe_esm::GlobalFormId;
 use soe_game::Game;
 
 const MASTERS: [&str; 5] = [
@@ -26,15 +29,9 @@ fn data_dir() -> Option<PathBuf> {
     std::env::var_os("SKYRIM_DATA").map(PathBuf::from)
 }
 
-fn real_game(data: &std::path::Path) -> Game {
-    let mut order = LoadOrder::new();
-    for name in MASTERS {
-        let path = data.join(name);
-        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        order.add(name, plugin).unwrap();
-    }
-    Game::new(order)
+fn real_game(_data: &std::path::Path) -> Game {
+    let order = installed::load_order(&MASTERS).unwrap();
+    Game::from_shared_order(order)
 }
 
 #[test]

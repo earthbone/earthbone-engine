@@ -3,6 +3,9 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, World};
@@ -239,14 +242,23 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
-    old.truncate(old.len() - 16);
+    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. No reference is materialized yet at this
+    // point, so none carries its own section table to strip.
+    legacy::normalize_world_sections(&mut old);
+    old.truncate(old.len() - 22);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
     // Visit history follows the lock table and precedes the repeat history.
-    let visits_end = before.len() - 4;
+    // The extra 6 bytes are detection's now-unconditional empty pool count
+    // and the world-level save-section table version 37 added, both always
+    // present past the visit history regardless of version.
+    let visits_end = before.len() - 10;
     let entry_at = visits_end - 16;
     let count_at = entry_at - 4;
     let mut invalid = before.clone();
@@ -466,6 +478,12 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     let current = world.save_state();
     for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
+        // Detection's now-unconditional empty pool count (4 bytes) and the
+        // empty world-level save-section table version 37 added (2 bytes)
+        // are always past a version 36 or older save's end, since a genuine
+        // save that old never wrote either.
+        legacy::normalize_world_sections(&mut saved);
+        saved.truncate(saved.len() - 6);
         if version < 36 {
             // CONTEXT: Versions 34 and 35 end before the scene-run table.
             saved.truncate(saved.len() - 4);

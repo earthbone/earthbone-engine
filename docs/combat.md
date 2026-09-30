@@ -1,5 +1,26 @@
 # Physical melee execution
 
+## Perk hit damage, CMB-09
+
+Ordinary non-bash hits evaluate owned winning PERK records for entry point 35
+(`ModAttackDamage`) on the attacker and entry point 36
+(`ModIncomingDamage`) on the target. Each entry receives the authored tabs:
+owner, weapon, target for outgoing damage, and owner, attacker, weapon for
+incoming damage. Entry CTDAs use the shared condition evaluator. Outgoing
+operations run before incoming operations, after weapon skill, power attack,
+`AttackDamageMult` and item quality, and before armor, block, resistance and
+difficulty reduction.
+
+The numeric functions supported for these two entry points are set, add,
+multiply, absolute value, negative absolute value, add actor-value multiplier,
+set actor-value multiplier, multiply actor-value multiplier and multiply by
+one plus actor-value multiplier. Handler data and actor values are validated
+before damage or events commit. Unsupported functions and malformed data
+reject the contact. Eligible operations follow the dispatcher's current
+winning-record load order and each PERK record's section order. Local sources
+do not establish priority ties, acquisition ordering, or exact versus
+cumulative PRKE rank selection, so those remain unverified.
+
 The combat-hits worktree builds on the frozen 63-file NPC and death-lifecycle
 review. Game::melee_hit accepts a host-confirmed ordinary melee contact and
 settles its scripts. World::melee_hit retains the queued events for save/load
@@ -65,7 +86,7 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors, enchantments, item poison and
+these defaults. It rejects all perked actors, weapon enchantments, item poison and
 unsupported weapon skills/types. Tempered item quality scales damage instead
 of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
 rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
@@ -79,9 +100,10 @@ record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may
 omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
 terminal record. Each link remains a form lookup, so templates do not create a
-parallel item store. Cycles, unresolved links, wrong record types and
+parallel item store. Cycles, unresolved links, wrong record types and weapon
 enchantments anywhere in the chain reject the contact before it changes health
-or queues an event.
+or queues an event. Armor EITM links do not alter physical rating. Worn armor
+enchantment effects are applied by MAG-10.
 
 TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
 exposes the template pointers. None of these local sources states a
@@ -334,8 +356,9 @@ application. They also cover misses, cancellation, equipment changes, rejected
 damage, slot-parent cycles, animation-independent hand occupancy and save/load.
 These tests use synthetic records and query results. A live Godot swing and
 installed attack-animation corpus have not been exercised. CMB-28 owns the
-scene wiring that supplies weapon segments and registered bodies. CMB-04 owns
-device input and depends on both CMB-03 and CMB-28.
+scene wiring that supplies weapon segments and registered bodies. CMB-04 binds
+the PC `Right Attack/Block` input to the right-hand swing latch. Left-hand attack
+input remains outside that row.
 
 Additional local sources read for this increment:
 
@@ -348,6 +371,32 @@ Additional local sources read for this increment:
 - godot-docs/classes/class_physicsdirectspacestate3d.rst for first-contact
   ray results, RID identity and exclusions.
 
+## Ranged release, CMB-08
+
+`World::ranged_equipment` reads the explicitly assigned right-hand weapon and
+the actor's equipped AMMO forms. WEAP animation types 7 and 9 identify bows
+and crossbows. AMMO DATA bit 2 selects arrows versus bolts, so a bow accepts
+arrows and a crossbow accepts bolts. Missing, exhausted or ambiguous compatible
+ammo rejects the release.
+
+`World::release_projectile` validates the AMMO projectile link, AMMO damage,
+PROJ arrow type, gravity, speed, range, origin and direction before consuming
+one selected round. It queues the ordinary OnItemRemoved inventory event and
+returns a transient `FlightRequest` with normalized direction and record-backed
+flight fields. A rejected request leaves ammunition unchanged. The host's
+`RangedRelease` captures the weapon at draw start and invokes that transaction
+only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. Flight
+movement and impact remain CMB-22 work. No runtime or save field was added.
+
+Sources read for CMB-08:
+
+- TES5Edit/Core/wbDefinitionsTES5.pas AMMO DATA, WEAP animation types and PROJ
+  DATA.
+- uesp-modfileformat/AMMO.wikitext and PROJ.wikitext for ammo flags and
+  projectile field meanings.
+- ck-wiki/Actor_Script.wikitext for `OnPlayerBowShot`, and
+  ck-wiki/OnHit_-_ObjectReference.wikitext for projectile event arguments.
+
 ### Live contact prerequisites
 
 PlayerNode now owns actor collision RIDs keyed by the shared World's resident
@@ -355,8 +404,8 @@ actors. A SkinnedActorNode bound to that World supplies its model-space weapon
 attachment pose at HitFrame. The one-handed graph emits the authored marker,
 and PlayerNode queries the first actor or obstruction using the selected
 weapon's reach. The installed-data contact script runs the path across a load
-door. Input binding remains CMB-04, and the host script forwards the relevant
-HitFrame marker while a swing is armed.
+door. The host script forwards the relevant HitFrame marker while a swing is
+armed by CMB-04 or another caller.
 
 CMB-29 exposes and validates character controller metadata first. The local
 serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,
@@ -666,26 +715,31 @@ dies to a non-player caster). Their own comments name the threshold, 20, and
 bleedout without death as the documented contract, which the implementation
 now meets, so they fail against it and are left for review unchanged.
 
-## Combat actor-value modifiers, CMB-15 in progress
+## Combat actor-value modifiers, CMB-15
 
 The intrinsic AttackDamageMult milestone uses the shared actor-value store,
 including its default, native reads and mutations, and serialization. There
 is no combat-private multiplier cache and no save-format change. An older
 save without the entry receives the documented default. Saved explicit
 values are retained. The value is applied after weapon skill scaling and
-before armor and difficulty reduction. Its exact floating-point rounding
-relative to the original runtime remains unmeasured.
+before armor and difficulty reduction. Invalid negative and overflowing
+values reject a hit before health or events change. Its exact floating-point
+rounding relative to the original runtime remains unmeasured.
 
 Local CommonLibSSE and skymp actor-value enums identify AttackDamageMult as
 154. The [Skills-based Damage and Magnitude Multipliers author](https://www.nexusmods.com/skyrim/mods/21828)
 documents its native default of 1 and its damage-multiplier role. That public
 mod description supplies the behavior missing from the local enum declarations.
-The four `cmb_15` combat tests cover shared components, armor and difficulty
+The five `cmb_15` combat tests cover shared components, armor and difficulty
 composition, explicit zero, unarmed damage, save/load, overflow and rejection
-without health or event changes.
+without health or event changes. They also check every PERK-driven combat
+modifier actor value on both attacker and target.
 
-CMB-15 remains unfinished because the skill Mod and PowerMod values are
-PERK inputs, not intrinsic percentage multipliers. The installed five-master
+The skill Mod and PowerMod values are not applied because they are PERK
+inputs, not intrinsic percentage multipliers. Actors with any OneHanded,
+TwoHanded, Marksman, LightArmor or HeavyArmor modifier or power modifier
+actor value are rejected before damage or events change. These checks use the
+canonical actor-value names in the shared store. The installed five-master
 survey finds PerkSkillBoosts at 0:0CF788 and AlchemySkillBoosts at 0:0A725C.
 Both use function 14, multiply by one plus actor value times coefficient.
 OneHanded, TwoHanded and Marksman modifier entries use ModAttackDamage with
@@ -694,11 +748,11 @@ ModIncomingDamage with coefficient -0.01. Their conditions and priorities
 come from the winning PERK records. Hardcoding those effects into armor
 rating would ignore record edits and apply the wrong term. The
 `combat_modifier_survey` example prints the relevant subrecords using the
-existing plugin reader, without copying installed assets.
+existing plugin reader, without copying installed assets. Applying these
+PERK effects requires the CMB-09 entry point evaluator.
 
-CMB-15 now depends on CMB-09 so those modifiers will execute through the perk
-path. They continue to reject pending that work. `docs/combat-perks.md`
-records the dispatch prerequisites and the ordering evidence still needed.
+`docs/combat-perks.md` records the dispatch prerequisites and the ordering
+evidence still needed.
 
 ## Stagger from hit magnitude, CMB-14
 

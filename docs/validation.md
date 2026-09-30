@@ -83,6 +83,24 @@ the scenario that backs each row.
 
 ## Running
 
+Build and run the validation binary with a portable MO2 profile and a directory
+of `.scenario` files:
+
+```bash
+cargo run -p soe-game --bin soe-validate -- \
+  /path/to/Skyrim\ Special\ Edition /path/to/MO2 Default crates/game/tests/scenarios
+```
+
+The profile is resolved through `soe-profile` using its normal plugin lists,
+enabled mods and data-root order. Scripts, mod data and start-enabled quests
+are loaded into a fresh game world before each scenario runs. Scenario files
+can live in subdirectories.
+Each file's first comment line must say `# preserve: ...` or
+`# redesign: ...`. Paths in `expect traces-match` are relative to that scenario
+file. The conformance report prints the claim, pass or failure state, and every
+capture path cited by the scenario. Exit status is zero when all scenarios
+pass, one for scenario failures or runner errors, and two for invalid arguments.
+
 ```bash
 cargo test -p soe-game
 ```

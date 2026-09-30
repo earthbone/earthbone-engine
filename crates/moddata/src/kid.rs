@@ -84,11 +84,26 @@ pub struct KeywordRule {
     pub line: usize,
 }
 
+/// A named set of keywords that cannot be added to the same record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExclusiveGroup {
+    /// The group name, shared across all KID files.
+    pub name: String,
+    /// Keywords included by this line.
+    pub include: Vec<FormRef>,
+    /// Keywords removed from this group by this line.
+    pub exclude: Vec<FormRef>,
+    /// The source line.
+    pub line: usize,
+}
+
 /// Every keyword one file attaches, in file order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KidFile {
     pub path: std::path::PathBuf,
     pub rules: Vec<KeywordRule>,
+    /// Exclusive group declarations, in file order.
+    pub exclusive_groups: Vec<ExclusiveGroup>,
     /// Lines whose type field named nothing, which KID skips silently.
     pub skipped: Vec<(String, usize)>,
 }
@@ -107,10 +122,42 @@ impl KidFile {
     /// Reads an already parsed file.
     pub fn from_ini(ini: &Ini) -> Self {
         let mut rules = Vec::new();
+        let mut exclusive_groups = Vec::new();
         let mut skipped = Vec::new();
         for entry in ini.anonymous() {
+            if entry.key == "ExclusiveGroup" {
+                let mut fields = entry.value.split('|');
+                let name = fields.next().unwrap_or_default().trim();
+                let filters = fields.next().unwrap_or_default();
+                let (include, exclude): (Vec<_>, Vec<_>) = filters
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|filter| !filter.is_empty())
+                    .map(|filter| {
+                        if let Some(excluded) = filter.strip_prefix('-') {
+                            (None, Some(FormRef::parse(excluded.trim())))
+                        } else {
+                            (Some(FormRef::parse(filter)), None)
+                        }
+                    })
+                    .fold((Vec::new(), Vec::new()), |(mut yes, mut no), (a, b)| {
+                        yes.extend(a);
+                        no.extend(b);
+                        (yes, no)
+                    });
+                if name.is_empty() || include.is_empty() && exclude.is_empty() {
+                    skipped.push((entry.value.clone(), entry.line));
+                } else {
+                    exclusive_groups.push(ExclusiveGroup {
+                        name: name.to_string(),
+                        include,
+                        exclude,
+                        line: entry.line,
+                    });
+                }
+                continue;
+            }
             if !entry.key.eq_ignore_ascii_case("Keyword") {
-                // Exclusive group lines share the file and use other keys.
                 skipped.push((entry.key.clone(), entry.line));
                 continue;
             }
@@ -135,6 +182,7 @@ impl KidFile {
         Self {
             path: ini.path.clone(),
             rules,
+            exclusive_groups,
             skipped,
         }
     }
@@ -199,7 +247,17 @@ mod tests {
     fn a_line_with_another_key_is_kept_apart() {
         let f = parse("Keyword = A|Armor\nExclusiveGroup = G|x,y\n");
         assert_eq!(f.rules.len(), 1);
-        assert_eq!(f.skipped[0].0, "ExclusiveGroup");
+        assert!(f.skipped.is_empty());
+        assert_eq!(f.exclusive_groups[0].name, "G");
+        assert_eq!(f.exclusive_groups[0].include.len(), 2);
+    }
+
+    #[test]
+    fn a_group_exclusion_removes_a_keyword_from_its_named_set() {
+        let f = parse("ExclusiveGroup = G|A,-B\n");
+        assert_eq!(f.exclusive_groups[0].include.len(), 1);
+        assert_eq!(f.exclusive_groups[0].exclude.len(), 1);
+        assert!(f.skipped.is_empty());
     }
 
     #[test]

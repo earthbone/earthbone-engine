@@ -73,15 +73,32 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
+                let should_stand = world
+                    .furniture_seat(player)
+                    .and_then(|(furniture, _)| {
+                        let (actor_position, actor_cell) = world
+                            .reference_ref(player)
+                            .map(|actor| (actor.position, actor.cell))?;
+                        let seat = world.reference(furniture)?;
+                        let moved = actor_position
+                            .iter()
+                            .zip(seat.position)
+                            .map(|(actor, seat)| (*actor - seat).powi(2))
+                            .sum::<f32>()
+                            > 24.0_f32.powi(2);
+                        Some(moved || actor_cell != seat.cell)
+                    })
+                    .unwrap_or(false);
+                if should_stand {
+                    world.stand_from_furniture(player);
+                }
             }
         }
-        // Reflect the frame's enable and placement changes (activation,
-        // scripted moves, editor drags) into the streamed geometry and its
-        // collision before anything else reads either this tick. World stays
-        // the source of truth, the streamer only presents it (HST-04).
-        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
-            let world = game.world();
-            streamer.bind_mut().sync_reference_changes(&world);
+        // CONTEXT: Apply game edits before reading simulated body poses back
+        // into World, then draw the shared placement on this tick.
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let mut world = game.world_mut();
+            streamer.bind_mut().sync_reference_changes(&mut world);
         }
         if !self.advance_exterior() {
             self.auto_step = false;
@@ -93,6 +110,13 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
+        }
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let requests = game.world_mut().take_effect_shader_requests();
+            let world = game.world();
+            streamer
+                .bind_mut()
+                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
         }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
@@ -130,33 +154,7 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
-        let should_pick = self.game.as_mut().is_some_and(|game| {
-            let player = game.player();
-            let pick = game.world().form("Lockpick");
-            let (locked, level, blocked) = game
-                .world_mut()
-                .reference(target)
-                .map(|reference| {
-                    (
-                        reference.locked,
-                        reference.lock_level,
-                        reference.activation_blocked,
-                    )
-                })
-                .unwrap_or((false, 0, true));
-            if !locked || level == 255 || blocked {
-                return false;
-            }
-            let key = game.world().key(target);
-            let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
-            let has_pick = pick.is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
-            !has_key && has_pick
-        });
-        if should_pick {
-            self.open_lockpicking_menu(target);
-            return false;
-        }
-        let (activated, show_container) = {
+        let (activated, show_container, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -170,6 +168,10 @@ impl PlayerNode {
                 return false;
             }
             let player = game.player();
+            if game.world_mut().can_sleep_at_furniture(target) {
+                let activated = game.activate_deferred(target, player);
+                return activated && game.sleep_player_at_furniture(target, 8.0, false);
+            }
             let (container, blocked) = {
                 let mut world = game.world_mut();
                 let container = world.base_of(target).is_some_and(|base| {
@@ -182,13 +184,37 @@ impl PlayerNode {
                     .is_some_and(|reference| reference.activation_blocked);
                 (container, blocked)
             };
-            let activated = game.activate_deferred(target, player);
+            let lockpick = game.world().form("Lockpick");
+            let key = game.world().key(target);
+            let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
+            let lockpick_request = !blocked
+                && game.world().reference_ref(target).is_some_and(|reference| {
+                    reference.locked && reference.lock_level != 255 && !has_key
+                })
+                && lockpick.is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
+            let activated = if lockpick_request {
+                false
+            } else {
+                game.activate_deferred(target, player)
+            };
             let opened = game
                 .world_mut()
                 .reference_ref(target)
                 .is_some_and(|reference| reference.opened);
-            (activated, activated && container && !blocked && opened)
+            (
+                activated,
+                activated && container && !blocked && opened,
+                lockpick_request,
+            )
         };
+        if lockpick_request {
+            self.pending_lockpick = Some(target);
+            if self.open_lockpicking_menu(target) {
+                self.pending_lockpick = None;
+            }
+            return false;
+        }
+        self.pending_lockpick = None;
         if show_container {
             self.open_container_menu(target);
         }

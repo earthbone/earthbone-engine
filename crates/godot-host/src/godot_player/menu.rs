@@ -16,6 +16,7 @@ use crate::dialogue_menu;
 use crate::inventory_menu::{self, Category};
 use crate::quest_journal::{self, Entry as QuestEntry};
 use soe_esm::GlobalFormId;
+use soe_game::dialogue::Line;
 
 fn render_quest_entry(rows: &mut Gd<VBoxContainer>, entry: &QuestEntry) {
     if let Some(title) = &entry.title {
@@ -81,6 +82,33 @@ impl PlayerNode {
             render_quest_entry(&mut rows, entry);
         }
         true
+    }
+
+    fn stop_dialogue_voice(&mut self) {
+        if let Some(bank) = self.sound_bank.as_mut() {
+            crate::dialogue_menu::replace_voice(
+                &mut *bank.bind_mut(),
+                &mut self.dialogue_voice_slot,
+                None,
+            );
+        } else {
+            self.dialogue_voice_slot = None;
+        }
+    }
+
+    fn play_dialogue_voice(&mut self, line: &Line) {
+        let asset = self
+            .game
+            .as_mut()
+            .and_then(|game| crate::dialogue_menu::voice_asset(game, line));
+        let Some(bank) = self.sound_bank.as_mut() else {
+            return;
+        };
+        crate::dialogue_menu::replace_voice(
+            &mut *bank.bind_mut(),
+            &mut self.dialogue_voice_slot,
+            asset.as_ref(),
+        );
     }
 
     pub(super) fn create_menu(&mut self) {
@@ -366,6 +394,7 @@ impl PlayerNode {
         }
         self.mcm_config = None;
         if closing_dialogue {
+            self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
                 game.close_dialogue();
             }
@@ -549,6 +578,7 @@ impl PlayerNode {
         let Ok(Some(line)) = dialogue_menu::choose(game, topic) else {
             return false;
         };
+        self.play_dialogue_voice(&line);
         self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
     }
 
@@ -562,8 +592,12 @@ impl PlayerNode {
             return false;
         };
         match game.advance_dialogue() {
-            Ok(Some(line)) => self.dialogue_response_content(line.text.as_deref().unwrap_or("")),
+            Ok(Some(line)) => {
+                self.play_dialogue_voice(&line);
+                self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
+            }
             Ok(None) => {
+                self.stop_dialogue_voice();
                 let still_open = self
                     .game
                     .as_ref()

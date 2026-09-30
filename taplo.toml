@@ -1,7 +1,7 @@
 # crates/game is another workstream's crate, see CLAUDE.md "Working rules".
 # Its Cargo.toml carries one line this pass added (`[lints]\nworkspace = true`)
 # and nothing else here should reformat the rest of that file.
-exclude = ["crates/game/Cargo.toml"]
+exclude = ["crates/game/Cargo.toml", "target/**"]
 
 # Matches rustfmt.toml so a TOML file and a Rust file wrap at the same column.
 [formatting]

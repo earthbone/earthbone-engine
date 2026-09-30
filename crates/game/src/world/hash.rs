@@ -49,9 +49,8 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
-    /// What the mod data files attached, distributed and swapped. Distribution
-    /// rolls a chance from the world generator, so this part moving between
-    /// two runs of one seed is a real divergence and not noise.
+    /// What the mod data files attached, distributed and swapped, including
+    /// retained actor-specific deterministic distribution rules.
     pub mod_data: u64,
 }
 
@@ -141,7 +140,9 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.position);
     point(h, s.rotation);
     h.f32(s.scale);
+    h.u32(s.record_flags);
     h.bool(s.enabled);
+    h.bool(s.persistent);
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
@@ -398,6 +399,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.skill_experience.len());
+    for (skill, experience) in &a.skill_experience {
+        h.str(skill);
+        h.f32(*experience);
+    }
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -418,6 +424,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some((furniture, marker)) = a.furniture_seat {
+        h.bool(true);
+        form(h, furniture);
+        h.u16(marker);
+    } else {
+        h.bool(false);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -425,6 +438,11 @@ fn quest_state(h: &mut StateHasher, q: &QuestState) {
     h.bool(q.completed);
     h.bool(q.failed);
     h.bool(q.active);
+    h.u8(match q.lifecycle_task {
+        None => 0,
+        Some(crate::quest::state::LifecycleTask::Starting) => 1,
+        Some(crate::quest::state::LifecycleTask::Stopping) => 2,
+    });
     h.u16(q.current);
     h.u16(q.highest);
     h.len(q.done.len());
@@ -497,6 +515,20 @@ impl World {
             form(h, *id);
             quest_state(h, q);
         });
+        h.len(self.story_history.len());
+        for (quest, (starts, deadline)) in &self.story_history {
+            form(&mut h, *quest);
+            h.u32(*starts);
+            h.f64(*deadline);
+        }
+        h.len(self.story_selection.len());
+        for (node, selected) in &self.story_selection {
+            form(&mut h, *node);
+            h.len(selected.len());
+            for quest in selected {
+                form(&mut h, *quest);
+            }
+        }
         let quests = h.finish();
 
         let mut h = StateHasher::new();
@@ -762,6 +794,17 @@ impl World {
         self.write_magic(&mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
+        h.len(self.brewed_potions.len());
+        for (id, effects) in &self.brewed_potions {
+            form(&mut h, *id);
+            h.len(effects.len());
+            for (effect, magnitude, area, duration) in effects {
+                form(&mut h, *effect);
+                h.f32(*magnitude);
+                h.u32(*area);
+                h.u32(*duration);
+            }
+        }
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
         h.bytes(&records.out);
@@ -790,10 +833,40 @@ impl World {
                 h.bool(d.on_death);
             }
         }
+        h.len(self.mod_data.actor_rules.len());
+        for rule in &self.mod_data.actor_rules {
+            form(&mut h, rule.base);
+            form(&mut h, rule.what);
+            h.u64(rule.distribution.line_seed);
+            h.f32(rule.distribution.chance);
+            h.i32(rule.count);
+            h.str(&format!("{:?}", rule.distribution));
+        }
         h.len(self.mod_data.base_swaps.len());
         for (from, to) in &self.mod_data.base_swaps {
             form(&mut h, *from);
             form(&mut h, *to);
+        }
+        for (from, chance) in &self.mod_data.base_swap_chances {
+            form(&mut h, *from);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        h.len(self.mod_data.reference_swaps.len());
+        for (reference, to) in &self.mod_data.reference_swaps {
+            form(&mut h, *reference);
+            form(&mut h, *to);
+        }
+        for (reference, chance) in &self.mod_data.reference_swap_chances {
+            form(&mut h, *reference);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        for (target, properties) in &self.mod_data.properties {
+            form(&mut h, *target);
+            h.str(&format!("{properties:?}"));
         }
         let mod_data = h.finish();
 
@@ -862,6 +935,7 @@ mod tests {
                 aliases: HashMap::new(),
                 journal: crate::quest::state::Journal::default(),
                 runtime: crate::quest::state::Runtime::default(),
+                lifecycle_task: None,
             },
         );
         w
