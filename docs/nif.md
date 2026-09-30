@@ -182,7 +182,7 @@ of the ambient, diffuse, specular or self-illumination channels in
 has no keys, while `NifFile::apply_material_color_controller` uses the
 interpolator's default value when its track is absent or empty.
 `MaterialColorTarget` uses the four values declared by `MaterialColor` in
-`nifxml/nif.xml`; the sampling and cycle mapping use the existing track and
+`nifxml/nif.xml`. The sampling and cycle mapping use the existing track and
 clock evaluators grounded on OpenMW's `components/nifosg/controller.cpp`.
 The block reader decodes `NiMaterialColorController` and
 `NiPoint3Interpolator`, and `NifFile::apply_material_color_controller`

@@ -2803,7 +2803,7 @@ TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
 No corpus source documents landscape LOD generation the way `wbLOD.pas`
 documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
 `TwbLodSettings.BlockForCell` and this crate's own
-`terrain::RegionSpec::region_of` rather than a landscape-specific reference.
+`terrain::RegionSpec::region_of`, with floor division for negative offsets.
 
 ### Residency and budget
 
