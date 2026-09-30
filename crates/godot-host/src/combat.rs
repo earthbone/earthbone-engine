@@ -3,14 +3,17 @@
 //! Authored HitFrame contacts, following CK equipment semantics and Nemesis
 //! animation event tables. Spatial queries return the first obstruction.
 
+#[cfg(feature = "godot")]
 use std::collections::HashMap;
+#[cfg(feature = "godot")]
 use std::hash::BuildHasher;
 
+#[cfg(feature = "godot")]
 use godot::builtin::Rid;
 use soe_esm::GlobalFormId;
-use soe_game::combat::{
-    Error, FlightMotion, FlightRequest, FlightSegment, Hand, HitResult, MeleeHit,
-};
+use soe_game::combat::{Error, FlightRequest, Hand, HitResult, MeleeHit};
+#[cfg(feature = "godot")]
+use soe_game::combat::{FlightMotion, FlightSegment};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
@@ -111,6 +114,7 @@ pub struct RangedRelease {
 }
 
 /// One terminal projectile contact, retaining its first-hit identity and point.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProjectileContact {
     pub hit: crate::godot_combat::ContactHit,
@@ -118,6 +122,7 @@ pub struct ProjectileContact {
 }
 
 /// Result of advancing one transient arrow or bolt.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProjectileUpdate {
     /// The projectile moved without reaching its configured range.
@@ -131,6 +136,7 @@ pub enum ProjectileUpdate {
 }
 
 /// Deterministic, transient flight and one-contact latch for a released shot.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectileFlight {
     attacker: GlobalFormId,
@@ -140,6 +146,7 @@ pub struct ProjectileFlight {
     missed_arrow: Option<[f32; 3]>,
 }
 
+#[cfg(feature = "godot")]
 impl ProjectileFlight {
     /// Start flight from the host's record-backed release request.
     #[must_use]

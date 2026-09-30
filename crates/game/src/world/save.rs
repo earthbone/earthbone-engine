@@ -1196,7 +1196,7 @@ impl World {
         self.difficulty = difficulty;
         self.player = player;
         self.player_level = player
-            .and_then(|id| self.actors.get(&id).map(|actor| actor.level))
+            .and_then(|id| self.actors.get(&id).map(|actor| actor.level.max(1)))
             .unwrap_or(1);
         self.loaded_cell = loaded_cell;
         self.rng = rng;
