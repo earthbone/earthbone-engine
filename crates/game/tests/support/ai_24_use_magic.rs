@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! AI-24 UseMagic procedure execution through the shared charged magic path.
+// AI-24 UseMagic procedure execution through the shared charged magic path.
 
 use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::combat::Hand;

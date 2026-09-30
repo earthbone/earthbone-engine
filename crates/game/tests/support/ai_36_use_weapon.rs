@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! AI-36 covers package-authored UseWeapon calls through the common combat path.
+// AI-36 covers package-authored UseWeapon calls through the common combat path.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;

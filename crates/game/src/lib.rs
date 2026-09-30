@@ -190,6 +190,7 @@ impl Game {
             target: target_ref,
             quest: Some(quest),
             tempering_enchanted: None,
+            tempering_item: None,
         };
         conditions::evaluate(&mut world, &self.vm, context, &conditions)
     }
@@ -610,11 +611,13 @@ impl Game {
                 tabs: vec![hit.attacker, hit.weapon, hit.target],
                 target: Some(hit.target),
                 quest: None,
+                tempering_item: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
                 target: Some(hit.attacker),
                 quest: None,
+                tempering_item: None,
             };
             (
                 perks::entry_point_invocations(

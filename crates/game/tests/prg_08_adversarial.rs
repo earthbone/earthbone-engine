@@ -55,6 +55,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
         tabs: vec![actor],
         target: None,
         quest: None,
+        tempering_item: None,
     }
 }
 

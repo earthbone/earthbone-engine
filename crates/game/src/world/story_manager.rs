@@ -369,6 +369,7 @@ impl World {
                 target,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
             },
             &node.conditions,
         )

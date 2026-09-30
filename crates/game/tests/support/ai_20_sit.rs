@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! AI-20 Sit procedure reservation, approach and completion.
+// AI-20 Sit procedure reservation, approach and completion.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};

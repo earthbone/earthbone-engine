@@ -389,6 +389,7 @@ impl World {
                 target: Some(actor),
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
@@ -1160,6 +1161,7 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;
