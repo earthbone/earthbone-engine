@@ -5,7 +5,7 @@
 //! CMB-23 one-time recovery after a projectile hits the world.
 
 use godot::builtin::Rid;
-use soe_esm::GlobalFormId;
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::FlightRequest, Game};
 use soe_godot_host::combat::{ProjectileContact, ProjectileFlight, ProjectileUpdate};
 use soe_godot_host::godot_combat::ContactHit;
@@ -28,9 +28,15 @@ fn request() -> FlightRequest {
 
 #[test]
 fn cmb_23_world_impact_creates_one_placed_arrow_reference() {
-    let mut game = Game::new(soe_esm::LoadOrder::new());
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"AMMO"), request().ammunition.object));
+    let mut order = LoadOrder::new();
+    order.add("Cmb23.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let mut request = request();
+    request.attacker = game.player();
     let impact = [15.0, 0.0, 0.0];
-    let mut flight = ProjectileFlight::new(request());
+    let mut flight = ProjectileFlight::new(request);
     assert_eq!(
         flight
             .advance_with(0.1, |_| {
@@ -49,7 +55,7 @@ fn cmb_23_world_impact_creates_one_placed_arrow_reference() {
     assert!(flight.recover_missed_arrow(&mut game).is_none());
     let world = game.world_mut();
     let reference = world.reference_ref(arrow).unwrap();
-    assert_eq!(reference.base, Some(request().ammunition));
+    assert_eq!(reference.base, Some(request.ammunition));
     assert_eq!(reference.position, impact);
 }
 

@@ -4725,7 +4725,7 @@ the taught skill as an actor value index minus six and the training level as
 the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
 the per-level session counter, and the CK `Game.ShowTrainingMenu` page
 establishes the trainer actor passed to the menu. The trainer purchase path is
-available on `World`; the CK menu itself is not connected here.
+available on `World`. The CK menu itself is not connected here.
 
 ## Saved static-object changes, SAV-42
 
