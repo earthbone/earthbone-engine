@@ -67,6 +67,8 @@ pub enum Error {
     AlchemyContext(u16),
     #[error("condition function {0} requires magic context")]
     MagicContext(u16),
+    #[error("condition function {0} has no runtime state contract for this form")]
+    StateContract(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -129,6 +131,8 @@ pub fn supports_function(function: u16) -> bool {
             | 408
             | 430
             | 494
+            | 476
+            | 493
             | 18
             | 46
             | 47
@@ -321,6 +325,31 @@ fn function_value(
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
+        }
+        476 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).ok_or(Error::Form(base))?.protected)
+        }
+        493 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let form = resolve(world, context.owner, raw, None)?;
+            if world.tag_of(form) != Some(Tag(*b"SPEL")) {
+                return Err(Error::StateContract(c.function));
+            }
+            let player = world.player();
+            boolean(
+                world
+                    .actor(player)
+                    .ok_or(Error::Form(player))?
+                    .spells
+                    .contains(&form),
+            )
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
