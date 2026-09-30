@@ -226,6 +226,12 @@ pub fn supports_function(function: u16) -> bool {
             | 724
             | 447
             | 568
+            | 358
+            | 450
+            | 584
+            | 589
+            | 594
+            | 613
             | 640
             | 691
             | 692
@@ -688,7 +694,9 @@ fn function_value(
             let values = &world.actor(subject).ok_or(Error::Form(subject))?.values;
             boolean(values.get("inventoryweight").current() > values.get("carryweight").current())
         }
-        735 => return Err(Error::UnavailableContract(c.function)),
+        735 | 358 | 450 | 584 | 589 | 613 => {
+            return Err(Error::UnavailableContract(c.function));
+        }
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
@@ -1306,6 +1314,7 @@ fn function_value(
             )
         }
         447 => {
+            no_second_parameter(c)?;
             let name = c.strings[0]
                 .as_deref()
                 .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
@@ -1330,6 +1339,10 @@ fn function_value(
             no_parameter(c)?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(actor.sprinting)
+        }
+        594 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.flying)
         }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
@@ -1903,6 +1916,92 @@ mod ai_47_tests {
             assert_eq!(
                 evaluate(&game, id(0x900), &bad_parameter),
                 Err(Error::Parameter(function, 1))
+            );
+        }
+    }
+
+    #[test]
+    fn ai_65_graph_float_sprint_and_flight_conditions_match_runtime_state() {
+        let game = fixture();
+        let actor = id(0x900);
+        let mut graph = condition(447, 0);
+        graph.strings[0] = Some("SpeedBlend".into());
+        game.world_mut()
+            .actor(actor)
+            .unwrap()
+            .graph_floats
+            .insert("speedblend".into(), 1.25);
+        graph.comparison = Comparison::Number(1.25);
+        assert!(supports_function(447));
+        assert_eq!(evaluate(&game, actor, &graph), Ok(true));
+        graph.comparison = Comparison::Number(0.75);
+        assert_eq!(evaluate(&game, actor, &graph), Ok(false));
+        let mut malformed = graph.clone();
+        malformed.parameters[1] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &malformed),
+            Err(Error::Parameter(447, 1))
+        );
+        let mut missing_graph = graph;
+        missing_graph.strings[0] = Some("Missing".into());
+        assert!(matches!(
+            evaluate(&game, actor, &missing_graph),
+            Err(Error::Variable(_))
+        ));
+
+        let mut sprint = condition(568, 0);
+        game.world_mut().actor(actor).unwrap().sprinting = true;
+        assert!(supports_function(568));
+        assert_eq!(evaluate(&game, actor, &sprint), Ok(true));
+        game.world_mut().actor(actor).unwrap().sprinting = false;
+        assert_eq!(evaluate(&game, actor, &sprint), Ok(false));
+        sprint.parameters[0] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &sprint),
+            Err(Error::Parameter(568, 1))
+        );
+
+        let mut flying = condition(594, 0);
+        game.world_mut().actor(actor).unwrap().flying = true;
+        assert!(supports_function(594));
+        assert_eq!(evaluate(&game, actor, &flying), Ok(true));
+        game.world_mut().actor(actor).unwrap().flying = false;
+        assert_eq!(evaluate(&game, actor, &flying), Ok(false));
+        flying.parameters[0] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &flying),
+            Err(Error::Parameter(594, 1))
+        );
+        assert!(matches!(
+            evaluate(&game, id(0x910), &condition(594, 0)),
+            Err(Error::Form(_))
+        ));
+    }
+
+    #[test]
+    fn ai_65_undocumented_motion_conditions_return_explicit_contract_diagnostics() {
+        let game = fixture();
+        for function in [358, 450, 584, 589, 613] {
+            assert!(supports_function(function), "recognized CTDA {function}");
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0)),
+                Err(Error::UnavailableContract(function)),
+                "function {function}"
+            );
+            assert_eq!(
+                evaluate(&game, id(0x910), &condition(function, 0)),
+                Err(Error::UnavailableContract(function)),
+                "function {function} diagnostic does not assume a context"
+            );
+        }
+        for function in [447, 568] {
+            let mut predicate = condition(function, 0);
+            if function == 447 {
+                predicate.strings[0] = Some("SpeedBlend".into());
+            }
+            assert!(
+                matches!(evaluate(&game, id(0x910), &predicate), Err(Error::Form(_))),
+                "function {function} requires an actor"
             );
         }
     }

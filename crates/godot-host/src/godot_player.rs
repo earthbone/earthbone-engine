@@ -627,7 +627,7 @@ impl PlayerNode {
         self.last_activate_reference =
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
-        self.advance_game(delta);
+        self.advance_game(delta, intent.sprinting);
         let player_motion = if input.is_moving() {
             if input.sprint || self.driver.always_run != input.walk {
                 soe_game::detection::Motion::Running
