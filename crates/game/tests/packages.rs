@@ -37,12 +37,14 @@ const MARKER_BASE: u32 = 0x704;
 const TRAVEL_TEMPLATE: u32 = 0x710;
 const SANDBOX_TEMPLATE: u32 = 0x711;
 const SLEEP_TEMPLATE: u32 = 0x712;
+const IDLE_MARKER_TEMPLATE: u32 = 0x713;
 const TRAVEL: u32 = 0x720;
 const SLEEP: u32 = 0x721;
 const SANDBOX: u32 = 0x722;
 const ALIAS_TRAVEL: u32 = 0x723;
 const LOCATION_ALIAS_TRAVEL: u32 = 0x724;
 const RUN_SANDBOX: u32 = 0x725;
+const USE_IDLE_MARKER: u32 = 0x726;
 const GUARD_QUEST: u32 = 0x730;
 const ALIAS_QUEST: u32 = 0x731;
 const LOCATION_ALIAS_QUEST: u32 = 0x732;
@@ -58,6 +60,8 @@ const MARKER_A: u32 = 0x808;
 const NAVM_A: u32 = 0x810;
 const NAVM_B: u32 = 0x811;
 const IDLE_A: u32 = 0x822;
+const IDLE_TOO_FAR: u32 = 0x823;
+const MOD_06_PACKAGE: u32 = 0x826;
 
 fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record {
     let mut data = Vec::with_capacity(24);
@@ -257,6 +261,12 @@ fn test_plugin_for_race(race: Record) -> Plugin {
         "Sleep",
         "Sleep Location",
     ));
+    p.push_top(template(
+        IDLE_MARKER_TEMPLATE,
+        "IdleMarkerTemplate",
+        "UseIdleMarker",
+        "Location",
+    ));
 
     let stage_reached = Condition {
         comparison: condition::GREATER_OR_EQUAL,
@@ -314,6 +324,19 @@ fn test_plugin_for_race(race: Record) -> Plugin {
     p.push_top(package::with_actions(package::finish(
         with_preferred_speed(run_sandbox, package::speed::RUN),
     )));
+    let use_idle_marker = package::build_record(
+        USE_IDLE_MARKER,
+        "GuardUseIdleMarker",
+        0,
+        Schedule {
+            hour: 5,
+            duration_minutes: 60,
+            ..Default::default()
+        },
+    );
+    let use_idle_marker = package::close_header(use_idle_marker, Some(IDLE_MARKER_TEMPLATE));
+    let use_idle_marker = package::with_location_input(use_idle_marker, 0, Location::NearSelf, 200);
+    p.push_top(package::with_actions(package::finish(use_idle_marker)));
 
     let q = quest::build_record(GUARD_QUEST, "GuardQuest", 0);
     let q = quest::with_stage(q, 0, quest::stage_flags::START_UP, 0, "");
@@ -352,6 +375,7 @@ fn test_plugin_for_race(race: Record) -> Plugin {
         },
     )
     .sub(T(b"RNAM"), RACE.to_le_bytes())
+    .sub(T(b"PKID"), USE_IDLE_MARKER.to_le_bytes())
     .sub(T(b"PKID"), TRAVEL.to_le_bytes())
     .sub(T(b"PKID"), SLEEP.to_le_bytes())
     .sub(T(b"PKID"), RUN_SANDBOX.to_le_bytes())
@@ -378,6 +402,13 @@ fn test_plugin_for_race(race: Record) -> Plugin {
                 [90.0, 90.0, 0.0],
             ),
             placed(*b"REFR", IDLE_A, "IdleA", IDLE_BASE, [50.0, 50.0, 0.0]),
+            placed(
+                *b"REFR",
+                IDLE_TOO_FAR,
+                "IdleTooFar",
+                IDLE_BASE,
+                [900.0, 900.0, 0.0],
+            ),
             Record::new(T(b"NAVM"), NAVM_A).sub(
                 T(b"NVNM"),
                 square(CELL_A, 0.0, Some((NAVM_B, 1)), None).to_bytes(),
@@ -593,6 +624,57 @@ fn a_sandbox_walks_to_an_idle_marker_and_dwells() {
     let a = w.actor(guard).unwrap();
     assert!(a.ai.arrived);
     assert!(a.ai.dwell_until > w.clock.game_hours());
+}
+
+#[test]
+fn ai_23_reserves_and_uses_an_eligible_idle_marker_then_releases_it_on_interruption() {
+    let mut game = game_at_hour(5.0);
+    let guard = game.form("GuardRef").unwrap();
+    let marker = game.form("IdleA").unwrap();
+    tick(&mut game, 0.1);
+    assert_eq!(package_name(&game, guard), "GuardUseIdleMarker");
+    assert_eq!(
+        game.world().actor_ref(guard).unwrap().ai.procedure,
+        Procedure::UseIdleMarker {
+            marker: Some(marker)
+        }
+    );
+    tick(&mut game, 1.0);
+    assert!(game.world().actor_ref(guard).unwrap().ai.arrived);
+    let (guard_position, marker_position) = {
+        let mut world = game.world_mut();
+        (
+            world.reference(guard).unwrap().position,
+            world.reference(marker).unwrap().position,
+        )
+    };
+    assert_eq!(guard_position, marker_position);
+
+    let saved = game.world().save_state();
+    let mut old_version = saved.clone();
+    // This relabeled current payload is malformed for the older layout. It
+    // only checks atomic rejection, not migration of an authentic old save.
+    old_version[4..6].copy_from_slice(&35_u16.to_le_bytes());
+    assert!(!game
+        .world_mut()
+        .load_state(&old_version)
+        .unwrap_err()
+        .to_string()
+        .is_empty());
+    assert_eq!(game.world().save_state(), saved);
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(game.world().save_state(), saved);
+
+    let quest = game.form("AliasQuest").unwrap();
+    assert!(game.start_quest(quest));
+    tick(&mut game, 1.1);
+    assert_ne!(package_name(&game, guard), "GuardUseIdleMarker");
+    assert_ne!(
+        game.world().actor_ref(guard).unwrap().ai.procedure,
+        Procedure::UseIdleMarker {
+            marker: Some(marker)
+        }
+    );
 }
 
 #[test]
@@ -849,6 +931,70 @@ fn the_driver_state_survives_a_save() {
 }
 
 #[test]
+fn mod_06_distributed_package_is_selected_and_survives_save_load() {
+    let mut plugin = test_plugin();
+    let distributed = package::build_record(
+        MOD_06_PACKAGE,
+        "Mod06DistributedPackage",
+        0,
+        Schedule::default(),
+    );
+    let distributed = package::close_header(distributed, Some(SANDBOX_TEMPLATE));
+    let distributed = package::with_location_input(distributed, 0, Location::NearSelf, 0);
+    plugin.push_top(package::with_actions(package::finish(distributed)));
+
+    let mut order = LoadOrder::new();
+    order.add("Packages.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let root = std::env::temp_dir().join(format!("soe-mod-06-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("Mod06_DISTR.ini"),
+        "Package = Mod06DistributedPackage|GuardBase||||0\n",
+    )
+    .unwrap();
+    let report = game.apply_mod_data(std::slice::from_ref(&root));
+    assert_eq!(report.distributions_applied, 1);
+
+    let guard = game.form("GuardRef").unwrap();
+    let selected = ai::select(&mut game.world_mut(), guard).expect("a package is selected");
+    assert_eq!(
+        selected.package,
+        game.form("Mod06DistributedPackage").unwrap()
+    );
+
+    let bytes = game.save_state().unwrap();
+    let plugin = test_plugin_with_mod_06_package();
+    let mut order = LoadOrder::new();
+    order.add("Packages.esm", plugin).unwrap();
+    let mut restored = Game::new(order);
+    restored.load_state(&bytes).unwrap();
+    let restored_guard = restored.form("GuardRef").unwrap();
+    let selected = ai::select(&mut restored.world_mut(), restored_guard)
+        .expect("the restored actor still has a package");
+    assert_eq!(
+        selected.package,
+        restored.form("Mod06DistributedPackage").unwrap()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn test_plugin_with_mod_06_package() -> Plugin {
+    let mut plugin = test_plugin();
+    let distributed = package::build_record(
+        MOD_06_PACKAGE,
+        "Mod06DistributedPackage",
+        0,
+        Schedule::default(),
+    );
+    let distributed = package::close_header(distributed, Some(SANDBOX_TEMPLATE));
+    let distributed = package::with_location_input(distributed, 0, Location::NearSelf, 0);
+    plugin.push_top(package::with_actions(package::finish(distributed)));
+    plugin
+}
+
+#[test]
 fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping");
@@ -924,6 +1070,16 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::UseMagic => "UseMagic".to_string(),
             Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
+            Procedure::Hover => "Hover".to_string(),
+            Procedure::Follow => "Follow".to_string(),
+            Procedure::Escort => "Escort".to_string(),
+            Procedure::Orbit { .. } => "Orbit".to_string(),
+            Procedure::ForceGreet => "ForceGreet".to_string(),
+            Procedure::DialogueActivate => "DialogueActivate".to_string(),
+            Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
+            Procedure::HoldPosition => "HoldPosition".to_string(),
+            Procedure::Activate => "Activate".to_string(),
+            Procedure::Find => "Find".to_string(),
             Procedure::Shout => "Shout".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
@@ -935,6 +1091,16 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Sit
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
+                | Procedure::Hover
+                | Procedure::Follow
+                | Procedure::Escort
+                | Procedure::Orbit { .. }
+                | Procedure::ForceGreet
+                | Procedure::DialogueActivate
+                | Procedure::UseIdleMarker { .. }
+                | Procedure::HoldPosition
+                | Procedure::Activate
+                | Procedure::Find
                 | Procedure::Shout
                 | Procedure::UseMagic
                 | Procedure::UseWeapon
