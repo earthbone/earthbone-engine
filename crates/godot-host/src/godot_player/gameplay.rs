@@ -8,6 +8,25 @@ use super::{
     PlayerNode, Vec3,
 };
 
+fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
+    world
+        .furniture_seat(player)
+        .and_then(|(furniture, _)| {
+            let (actor_position, actor_cell) = world
+                .reference_ref(player)
+                .map(|actor| (actor.position, actor.cell))?;
+            let seat = world.reference(furniture)?;
+            let moved = actor_position
+                .iter()
+                .zip(seat.position)
+                .map(|(actor, seat)| (*actor - seat).powi(2))
+                .sum::<f32>()
+                > 24.0_f32.powi(2);
+            Some(moved || actor_cell != seat.cell)
+        })
+        .unwrap_or(false)
+}
+
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
         if self.game.is_some() {
@@ -73,23 +92,7 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
-                let should_stand = world
-                    .furniture_seat(player)
-                    .and_then(|(furniture, _)| {
-                        let (actor_position, actor_cell) = world
-                            .reference_ref(player)
-                            .map(|actor| (actor.position, actor.cell))?;
-                        let seat = world.reference(furniture)?;
-                        let moved = actor_position
-                            .iter()
-                            .zip(seat.position)
-                            .map(|(actor, seat)| (*actor - seat).powi(2))
-                            .sum::<f32>()
-                            > 24.0_f32.powi(2);
-                        Some(moved || actor_cell != seat.cell)
-                    })
-                    .unwrap_or(false);
-                if should_stand {
+                if should_stand_from_furniture(&mut world, player) {
                     world.stand_from_furniture(player);
                 }
             }
@@ -373,5 +376,71 @@ impl PlayerNode {
         self.rig.set_facing(rotation[2], -rotation[0]);
         self.update_camera();
         true
+    }
+}
+
+#[cfg(test)]
+mod furniture_tests {
+    use super::should_stand_from_furniture;
+    use soe_esm::records::Transform;
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+    use soe_game::Game;
+
+    const T: fn(&[u8; 4]) -> Tag = Tag::new;
+    const CHAIR: u32 = 0x200;
+    const CHAIR_BASE: u32 = 0x300;
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn game() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        let furniture = Record::new(T(b"FURN"), CHAIR_BASE)
+            .sub(T(b"MNAM"), 1_u32.to_le_bytes())
+            .sub(T(b"FNPR"), [1_u8, 0, 0, 0]);
+        plugin.push_top(furniture);
+        plugin.push_top(
+            Record::new(T(b"REFR"), CHAIR)
+                .sub(T(b"NAME"), CHAIR_BASE.to_le_bytes())
+                .sub(
+                    T(b"DATA"),
+                    Transform {
+                        position: [25.0, 50.0, 75.0],
+                        rotation: [0.0, 0.0, 1.5],
+                    }
+                    .to_bytes(),
+                ),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        let mut game = Game::new(order);
+        let player = game.player();
+        game.world_mut().reference(player).unwrap().is_actor = true;
+        assert!(game.activate(id(CHAIR), player));
+        game
+    }
+
+    #[test]
+    fn hst_09_host_stands_after_movement_or_cell_change() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            assert!(!should_stand_from_furniture(&mut world, player));
+            world.reference(player).unwrap().position[0] += 24.0;
+            assert!(!should_stand_from_furniture(&mut world, player));
+            world.reference(player).unwrap().position[0] += 0.1;
+            assert!(should_stand_from_furniture(&mut world, player));
+            assert!(world.stand_from_furniture(player));
+            assert!(!world.furniture_marker_in_use(id(CHAIR), Some(0)));
+        }
+
+        assert!(game.activate(id(CHAIR), player));
+        {
+            let mut world = game.world_mut();
+            world.reference(player).unwrap().cell = Some(id(9));
+            assert!(should_stand_from_furniture(&mut world, player));
+        }
     }
 }

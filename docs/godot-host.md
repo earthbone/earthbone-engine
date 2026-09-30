@@ -1653,8 +1653,10 @@ Player activation of a FURN reference reserves an active Sit marker in the
 shared game state and moves the actor to the furniture reference transform.
 The player releases the reservation after moving more than 24 Skyrim units
 from that transform or changing cells. Activating the same furniture again
-also releases the reservation. The marker selection and saved actor state are
-described in [game.md](game.md#furniture-activation-hst-09).
+also releases the reservation. The strict distance boundary and cell-change
+release are covered by `hst_09_host_stands_after_movement_or_cell_change`.
+The marker selection and saved actor state are described in
+[game.md](game.md#furniture-activation-hst-09).
 
 ### Player sleep, HST-11
 
