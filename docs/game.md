@@ -873,6 +873,16 @@ fixtures, parameter and actor-context errors, and diagnostics for untracked
 queries. The fixtures use synthetic records and do not need installed game
 data.
 
+AI-52 implements condition 309, `IsXBox`, as false for this PC runtime and
+rejects either nonzero parameter. Conditions 224 `GetVATSMode`, 235
+`GetVatsTargetHeight`, 381 `GetHasNote`, 407 `GetVATSValue`, 427
+`GetPlantedExplosive`, 473 `GetIsAlignment` and 515 `GetVATSRightAreaFree`
+remain unsupported and return explicit condition errors. The AI package
+evaluator counts those functions as unsupported. xEdit's
+`wbDefinitionsTES5.pas` supplies their IDs and parameter types. No individual
+CK condition pages for these functions exist in the local CK corpus, so the
+engine does not infer their runtime values.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches

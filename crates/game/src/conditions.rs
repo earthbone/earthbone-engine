@@ -148,6 +148,7 @@ pub fn supports_function(function: u16) -> bool {
             | 434
             | 435
             | 731
+            | 309
             | 128
             | 277
             | 408
@@ -1228,6 +1229,13 @@ fn function_value(
                 .and_then(|reference| reference.cell)
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
+        }
+        309 => {
+            // CONTEXT: xEdit declares no parameters. The CK corpus has no page
+            // for this legacy platform predicate. This runtime targets PC, so
+            // its Xbox query is false.
+            no_parameter(c)?;
+            0.0
         }
         225 | 315 => {
             // DLG-07 established current Speechcraft as the condition value.
