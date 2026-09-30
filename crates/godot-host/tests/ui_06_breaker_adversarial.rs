@@ -45,3 +45,77 @@ fn ui_06_compass_wraps_negative_and_full_turn_headings() {
     assert_eq!(west.compass, "S   SW   [W]   NW   N");
     assert_eq!(wrapped.compass, west.compass);
 }
+
+#[test]
+fn ui_06_meter_clamps_depleted_values_to_an_empty_fill() {
+    let mut order = LoadOrder::new();
+    order
+        .add("Hud.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        for name in ["health", "magicka", "stamina"] {
+            world.damage_actor_value(player, name, 150.0).unwrap();
+        }
+    }
+
+    let snapshot = Snapshot::read(&mut game, player, 0.0);
+
+    for meter in [snapshot.health, snapshot.magicka, snapshot.stamina] {
+        assert_eq!(meter.current, -50.0);
+        assert_eq!(meter.maximum, 100.0);
+        assert_eq!(meter.fraction, 0.0);
+    }
+}
+
+#[test]
+fn ui_06_all_meter_maxima_and_fills_follow_temporary_modifiers() {
+    let mut order = LoadOrder::new();
+    order
+        .add("Hud.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        for name in ["health", "magicka", "stamina"] {
+            world.damage_actor_value(player, name, 50.0).unwrap();
+            world.mod_temporary_actor_value(player, name, 25.0).unwrap();
+        }
+    }
+
+    let snapshot = Snapshot::read(&mut game, player, 0.0);
+
+    for meter in [snapshot.health, snapshot.magicka, snapshot.stamina] {
+        assert_eq!(meter.current, 75.0);
+        assert_eq!(meter.maximum, 125.0);
+        assert_eq!(meter.fraction, 0.6);
+    }
+}
+
+#[test]
+fn ui_06_refreshes_each_meter_after_only_its_actor_value_changes() {
+    let mut order = LoadOrder::new();
+    order
+        .add("Hud.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+
+    for (name, changed) in [
+        ("health", 0),
+        ("magicka", 1),
+        ("stamina", 2),
+    ] {
+        game.world_mut().damage_actor_value(player, name, 20.0).unwrap();
+        let snapshot = Snapshot::read(&mut game, player, 0.0);
+        let meters = [snapshot.health, snapshot.magicka, snapshot.stamina];
+        for (index, meter) in meters.into_iter().enumerate() {
+            let expected = if index <= changed { 80.0 } else { 100.0 };
+            assert_eq!(meter.current, expected);
+            assert_eq!(meter.fraction, expected / 100.0);
+        }
+    }
+}
