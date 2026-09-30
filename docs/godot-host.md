@@ -35,6 +35,7 @@ MUST conditions and palette leaves. This uses Godot's audio server path
 documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
