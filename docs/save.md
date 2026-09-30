@@ -142,7 +142,7 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
- - `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
   MGEF form flags, the two payload-free base-object change markers, and retain
   unnamed flag bits. Only the form-flags marker contributes payload bytes.
   The game crate applies these fields as persisted record metadata. It leaves
