@@ -280,6 +280,16 @@ impl World {
         self.active_effects.values()
     }
 
+    /// Whether an actor currently has a live Calm application.
+    pub(crate) fn is_calmed(&self, target: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 6)
+        })
+    }
+
     /// Whether a live Demoralize application is making this actor flee.
     pub fn is_fleeing(&self, target: GlobalFormId) -> bool {
         self.active_effects.values().any(|effect| {

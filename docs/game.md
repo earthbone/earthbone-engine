@@ -2203,9 +2203,11 @@ another Small favor).
 MGEF archetype 6 applies a temporary reduction to the target's `aggression`
 actor value, regardless of the MGEF's serialized primary actor value or
 detrimental flag. Recoverable effect state restores the prior value when the
-effect expires or is dispelled. The combat driver drops an existing combat
-target when the actor's live aggression falls below 1, matching its target
-acquisition threshold. This supports Calm delivery through the existing spell
+effect expires or is dispelled. While Calm is active, the combat driver drops
+an existing combat target when the actor's live aggression falls below 1,
+matching its target acquisition threshold. Passive actors without Calm retain
+their existing targets for authored Flee procedures.
+This supports Calm delivery through the existing spell
 and ingestible effect paths, subject to their existing validation limits.
 
 The archetype and forced Aggression actor value are identified in the local

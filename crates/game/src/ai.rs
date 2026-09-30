@@ -1183,6 +1183,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if ignores_combat(world, actor) {
             clear_combat_engagement(world, actor);
         }
+        if world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0 {
+            clear_combat_engagement(world, actor);
+        }
         let turn_undead_threat = world.turn_undead_threat(actor);
         if world.is_fleeing(actor) || turn_undead_threat.is_some() {
             if let Some(state) = world.actor(actor) {
