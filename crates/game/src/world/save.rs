@@ -71,7 +71,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// pending quest lifecycle tasks and unresolved records. The native game save
 /// envelope records dependency provenance. The `CMB-37` reference section
 /// retains each reference's current destruction stage. The `DLG-14` actor
-/// section retains active ForceGreet package procedures.
+/// section retains active ForceGreet package procedures. The `DLG-17` world
+/// and actor sections retain follower service ownership and favor permission.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1049,12 +1050,15 @@ impl World {
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
+        let previous_follower_services = std::mem::take(&mut self.follower_services);
         let section_result = if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
             Ok(())
         };
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
+        let follower_services =
+            std::mem::replace(&mut self.follower_services, previous_follower_services);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         quests = std::mem::replace(&mut self.quests, previous_quests);
@@ -1062,6 +1066,12 @@ impl World {
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
         section_result?;
+        if follower_services
+            .keys()
+            .any(|actor| !refs.get(actor).is_some_and(|reference| reference.is_actor))
+        {
+            return Err(VmError::State("invalid follower service state".into()));
+        }
         r.expect_end()?;
         for (id, effect) in &active_effects {
             let headless_ability = effect.source == effect.target
@@ -1205,6 +1215,7 @@ impl World {
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
         self.detection_events.clear();
+        self.follower_services = follower_services;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;

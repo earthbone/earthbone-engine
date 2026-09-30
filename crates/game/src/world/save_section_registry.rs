@@ -23,6 +23,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
     super::magic::SAVE_SECTION,
+    Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -34,6 +35,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
+    Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -44,6 +46,74 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
     Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
+
+fn write_follower_services(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.len(world.follower_services.len());
+    for (actor, service) in &world.follower_services {
+        super::save::write_form_id(writer, *actor);
+        super::save::write_form_id(writer, service.package);
+        super::save::write_form_id(writer, service.faction);
+        writer.bool(service.previous_faction_rank.is_some());
+        if let Some(rank) = service.previous_faction_rank {
+            writer.i32(rank);
+        }
+        writer.bool(service.previous_teammate);
+        writer.bool(service.previous_can_do_favors);
+    }
+}
+
+fn read_follower_services(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    let mut services = std::collections::BTreeMap::new();
+    for _ in 0..count {
+        let actor = super::save::read_form_id(reader)?;
+        let package = super::save::read_form_id(reader)?;
+        let faction = super::save::read_form_id(reader)?;
+        let previous_faction_rank = if reader.bool()? {
+            Some(reader.i32()?)
+        } else {
+            None
+        };
+        let previous_teammate = reader.bool()?;
+        let previous_can_do_favors = reader.bool()?;
+        let service = crate::services::FollowerServiceState {
+            package,
+            faction,
+            previous_faction_rank,
+            previous_teammate,
+            previous_can_do_favors,
+        };
+        if world
+            .record(package)
+            .is_none_or(|record| record.tag != super::T(b"PACK"))
+            || world
+                .record(faction)
+                .is_none_or(|record| record.tag != super::T(b"FACT"))
+            || services.insert(actor, service).is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "invalid follower service state".into(),
+            ));
+        }
+    }
+    world.follower_services = services;
+    Ok(())
+}
+
+fn write_can_do_favors(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.bool(state.can_do_favors);
+}
+
+fn read_can_do_favors(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    state.can_do_favors = reader.bool()?;
+    Ok(())
+}
 
 fn write_destruction_stage(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
     writer.i32(state.destruction_stage);

@@ -1124,8 +1124,10 @@ fn actor(vm: &mut Vm, w: &Shared) {
     ));
     method!(vm, w, "Actor", "SetPlayerTeammate", |world, call, me| {
         let on = call.args.first().is_none_or(Value::as_bool);
+        let can_do_favors = call.args.get(1).is_none_or(Value::as_bool);
         if let Some(a) = world.actor(me) {
             a.teammate = on;
+            a.can_do_favors = can_do_favors;
         }
         none()
     });

@@ -290,6 +290,17 @@ The runtime does not yet own learned enchantment state, so the caller supplies
 that set. Enchantment strength and charge calculation are not part of this
 transaction.
 
+**Follower services.** `World::recruit_follower` validates the actor,
+service faction and follow package. It enables teammate status and the
+requested favor permission, joins the faction at rank zero, and adds the
+service package before the actor's ordinary AI candidates. Dismissal restores
+the actor's prior teammate and favor values and its previous rank or absence
+in that faction, then removes the package overlay. The normal alias and base
+package stack remains underneath and becomes eligible again on reevaluation.
+This follows the CK `SetPlayerTeammate - Actor` description of teammate and
+favor flags. SOEW version 37 stores favor permission and active follower
+service ownership, including the values dismissal restores.
+
 ## Conformance table
 
 `natives::register` has 367 stateful registrations, including

@@ -265,6 +265,12 @@ pub fn procedure_of(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
 /// The packages an actor could run, in evaluation order.
 pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
     let mut out = Vec::new();
+    if let Some(package) = world.follower_package(actor) {
+        out.push(Candidate {
+            package,
+            alias: None,
+        });
+    }
     let mut alias_packages: Vec<(u8, Candidate)> = Vec::new();
     for quest in world.loaded_quests() {
         let Some(q) = world.quest(quest) else {
