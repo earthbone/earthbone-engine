@@ -1332,10 +1332,11 @@ contract excludes the restrained and unconscious states. `GetRealHoursPassed`
 returns `GameClock.real_seconds` in hours and rejects either parameter. xEdit's
 `wbConditionFunctions` declares both functions parameterless. The UESP raw function
 table describes real hours as elapsed real-life play time and identifies
-`IsWaterObject` as a drinking-animation query. No usable local CK behavior contract
-was found for functions 255, 265, 266, 267, 304 or 332. Those function IDs remain
-unsupported and return `conditions::Error::Function`, rather than inventing vendor,
-weather or water state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
+`IsWaterObject` as a drinking-animation query. Function 304 checks whether the
+tested reference's base record is `WATR`. No usable local CK behavior contract
+was found for functions 255, 265, 266, 267 or 332. Those function IDs remain
+unsupported and return `conditions::Error::Function`, rather than inventing vendor
+or weather state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
 `uesp-modfileformat/Raw_Function_Data.wikitext`, CK
 `SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
 

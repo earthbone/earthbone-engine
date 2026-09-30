@@ -60,6 +60,16 @@ fn ai_85_is_water_object_distinguishes_water_from_non_water_references() {
     assert!(conditions::supports_function(304));
     assert_eq!(evaluate(&game, id(0x912), &condition(304, 1.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x910), &condition(304, 1.0)), Ok(false));
+    assert_eq!(
+        evaluate(&game, id(0x812), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0x812)))
+    );
+    let mut parameter = condition(304, 1.0);
+    parameter.parameters[0] = 1;
+    assert_eq!(
+        evaluate(&game, id(0x912), &parameter),
+        Err(conditions::Error::Parameter(304, 1))
+    );
 }
 
 #[test]

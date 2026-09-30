@@ -128,6 +128,7 @@ pub fn supports_function(function: u16) -> bool {
             | 242
             | 278
             | 300
+            | 304
             | 403
             | 566
             | 74
@@ -668,6 +669,12 @@ fn function_value(
             no_parameter(c)?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(actor.restrained && !actor.unconscious)
+        }
+        304 => {
+            // IsWaterObject asks whether the tested reference's base is WATR.
+            no_parameter(c)?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.tag_of(base) == Some(Tag(*b"WATR")))
         }
         403 => {
             let other = resolve_reference(world, context.owner, raw)?;
