@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;

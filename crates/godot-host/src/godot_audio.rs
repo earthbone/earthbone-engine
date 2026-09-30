@@ -74,6 +74,7 @@ pub struct SoundBank {
     music_current: Option<usize>,
     music_current_fade_out: f32,
     music_fade: Option<MusicFadeState>,
+    ambience: Option<Gd<AudioStreamPlayer>>,
     last_error: GString,
 }
 
@@ -112,6 +113,7 @@ impl INode3D for SoundBank {
             music_current: None,
             music_current_fade_out: 0.0,
             music_fade: None,
+            ambience: None,
             last_error: GString::new(),
         }
     }
@@ -131,6 +133,9 @@ impl INode3D for SoundBank {
             self.base_mut().add_child(&player);
             self.music_players.push(player);
         }
+        let player = AudioStreamPlayer::new_alloc();
+        self.base_mut().add_child(&player);
+        self.ambience = Some(player);
     }
 
     fn process(&mut self, _delta: f64) {
@@ -156,6 +161,33 @@ impl INode3D for SoundBank {
 
 #[godot_api]
 impl SoundBank {
+    /// Stop the current non-positional ambience stream.
+    pub(crate) fn stop_ambience(&mut self) {
+        if let Some(player) = &mut self.ambience {
+            player.stop();
+        }
+    }
+
+    /// Start a non-positional ambience track resolved from a MUST record.
+    pub(crate) fn play_ambience(&mut self, data_path: &str) -> bool {
+        let stream = match self.stream(data_path) {
+            Ok((stream, _, _)) => stream,
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                return false;
+            }
+        };
+        let Some(player) = &mut self.ambience else {
+            self.last_error = "SoundBank must be inside the scene tree".into();
+            return false;
+        };
+        player.stop();
+        player.set_stream(&stream);
+        player.play();
+        self.last_error = GString::new();
+        true
+    }
+
     /// Indexes the resolved vanilla profile for `data_dir`, including only the
     /// voice archives named by its selected language. Returns false and records
     /// the reason on failure.
@@ -353,7 +385,7 @@ impl SoundBank {
 
     /// Why the last call that returned false or -1 failed.
     #[func]
-    fn last_error(&self) -> GString {
+    pub(crate) fn last_error(&self) -> GString {
         self.last_error.clone()
     }
 

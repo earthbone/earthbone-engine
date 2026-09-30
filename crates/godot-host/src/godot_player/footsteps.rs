@@ -23,6 +23,30 @@ impl PlayerNode {
             bank.bind_mut().use_source(source);
         }
         self.footstep_cadence.reset();
+        if let Some(cell) = self.loaded_cell {
+            self.sync_cell_ambience(cell);
+        }
+    }
+
+    pub(super) fn sync_cell_ambience(&mut self, cell: soe_esm::GlobalFormId) {
+        let Some(bank) = &mut self.sound_bank else {
+            return;
+        };
+        let tracks = self
+            .game
+            .as_ref()
+            .and_then(|game| soe_game::ambience::tracks_for_cell(&game.world(), cell).ok());
+        let track = tracks.and_then(|tracks| tracks.into_iter().next());
+        if !self.ambience_owner.set(track.as_ref()) {
+            return;
+        }
+        let mut bank = bank.bind_mut();
+        bank.stop_ambience();
+        if let Some(track) = track {
+            if !bank.play_ambience(&track.path) {
+                godot_error!("cell ambience {}: {}", track.path, bank.last_error());
+            }
+        }
     }
 
     pub(super) fn advance_footsteps(
