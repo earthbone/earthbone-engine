@@ -374,7 +374,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | DEMORALIZE) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | DEMORALIZE | 38) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -448,7 +448,7 @@ impl World {
                     elapsed: 0.0,
                     summoned: None,
                     restore_owner: None,
-                    recover: data.flags & RECOVER != 0 || data.archetype == DEMORALIZE,
+                    recover: data.flags & RECOVER != 0 || matches!(data.archetype, DEMORALIZE | 38),
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
@@ -875,7 +875,7 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 5 | 6 | 10 | 18 | 20 | DEMORALIZE | FRENZY_ARCHETYPE | TURN_UNDEAD
+                0 | 1 | 2 | 5 | 6 | 10 | 18 | 20 | 38 | DEMORALIZE | FRENZY_ARCHETYPE | TURN_UNDEAD
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -1019,6 +1019,7 @@ impl World {
                 } else {
                     None
                 };
+                let recipient_changes = changes.clone();
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
                         id: EffectId(0),
@@ -1033,8 +1034,9 @@ impl World {
                         elapsed: 0.0,
                         summoned: None,
                         restore_owner,
-                        recover: data.flags & RECOVER != 0 || data.archetype == DEMORALIZE,
-                        changes: changes.clone(),
+                        recover: data.flags & RECOVER != 0
+                            || matches!(data.archetype, DEMORALIZE | 38),
+                        changes: recipient_changes,
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
@@ -1171,6 +1173,13 @@ impl World {
                     entry.insert(base)
                 }
             };
+            if self.magic_effect(prepared.effect.effect)?.data.archetype == 38 {
+                let confidence = values.get("confidence").current();
+                prepared.effect.changes = vec![(
+                    "confidence".to_string(),
+                    (prepared.effect.magnitude - confidence).max(0.0),
+                )];
+            }
             if prepared.no_recast
                 && live
                     .iter()

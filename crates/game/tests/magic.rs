@@ -328,6 +328,45 @@ fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
 }
 
 #[test]
+fn mag_59_rally_modifies_confidence_for_its_duration_and_restores_prior_value() {
+    let mut game = game(plugin(
+        effect(0, 38, 24, false),
+        vec![spell(SPELL, 0, false, 4.0, 3)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 2.0)
+        .unwrap();
+
+    let applied = cast(&mut game, SPELL, ACTOR).unwrap();
+    assert_eq!(applied.len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+
+    game.tick(1.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    game.tick(2.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 2.0);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_59_rally_preserves_confidence_already_above_its_magnitude() {
+    let mut game = game(plugin(
+        effect(0, 38, 24, false),
+        vec![spell(SPELL, 0, false, 3.0, 2)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 4.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, ACTOR).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    game.tick(2.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+}
+
+#[test]
 fn mag_11_equip_item_drinks_a_potion_through_the_actor_native() {
     let mut game = game(plugin(
         effect(1 << 1, 0, 24, false),
