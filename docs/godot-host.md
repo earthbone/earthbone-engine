@@ -2211,7 +2211,28 @@ execution is not part of this HUD.
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
 The controls compile with gdext, but their appearance in a running Godot
-window has not been exercised.
+window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
+in the installed Bannered Mare cell and checks viewport pixels in the three
+meter labels, bars and compass after Godot processes frames. The synthetic
+Rust update test changes all three shared actor values and checks their
+updated fractions.
+
+Run the host check with the release extension loaded and installed data set:
+
+```sh
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --display-driver wayland --path godot --script ui_06_hud_render_test.gd
+```
+
+The local `engine-refs/skyui/src/HUDWidgets/skyui/widgets/meter/MeterWidget.as`
+and `engine-refs/skyui/src/Common/skyui/components/Meter.as` informed the
+0-to-1 bounded fill. SkyUI keeps a meter hidden until `initCommit` and permits
+fill-direction, color, flash and animation settings; this native HUD displays
+the three meters when gameplay starts and does not implement those Scaleform
+widget calls. `MiniMapWidget.as` reads a player angle separately from a
+compass angle. The native compass currently centers `PlayerNode` camera yaw,
+so it does not apply cell NorthMarker orientation. The CK
+`GetActorValue - Actor` and `GetActorValueMax - Actor` pages define current and
+modified-maximum stat inputs. Compass direction is not an actor value.
 
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
 PanelContainer, two VBoxContainers, one Label and one Button form the fixed
