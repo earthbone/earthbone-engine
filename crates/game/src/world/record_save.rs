@@ -4,10 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
+use soe_esm::{plugin::Subrecord, GlobalFormId, Record, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    normalize_unresolved_id, raw_words, DialogueRecordExtra, ListRecordExtra, NavmeshRecordExtra,
+    NpcRecordExtra, PackRecordExtra, RecordOverride, UnresolvedRecord, UnresolvedRecordId,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -15,7 +18,72 @@ fn bad(reason: &str) -> VmError {
     VmError::State(format!("record override: {reason}"))
 }
 
+fn write_extra_flags(w: &mut Writer, flags: Option<(u32, u16)>) {
+    w.bool(flags.is_some());
+    if let Some((mask, value)) = flags {
+        w.u32(mask);
+        w.u16(value);
+    }
+}
+
+fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, VmError> {
+    if r.bool()? {
+        Ok(Some((r.u32()?, r.u16()?)))
+    } else {
+        Ok(None)
+    }
+}
+
 impl World {
+    pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+        if world.unresolved_records.is_empty() {
+            return;
+        }
+        w.len(world.unresolved_records.len());
+        for (id, value) in &world.unresolved_records {
+            write_unresolved_id(w, id);
+            w.bytes(&value.payload);
+            w.len(value.links.len());
+            for link in &value.links {
+                write_unresolved_id(w, link);
+            }
+        }
+    }
+
+    pub(super) fn read_unresolved_records(
+        world: &mut World,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let mut records = BTreeMap::new();
+        let count = r.len()?;
+        if count > r.remaining() / 13 {
+            return Err(bad("unresolved record count exceeds remaining bytes"));
+        }
+        for _ in 0..count {
+            let mut id = read_unresolved_id(r)?;
+            normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
+            let payload = r.bytes()?.to_vec();
+            let link_count = r.len()?;
+            if link_count > r.remaining() / 13 {
+                return Err(bad("unresolved link count exceeds remaining bytes"));
+            }
+            let mut links = Vec::with_capacity(link_count);
+            for _ in 0..link_count {
+                let mut link = read_unresolved_id(r)?;
+                normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
+                links.push(link);
+            }
+            if records
+                .insert(id.clone(), UnresolvedRecord { id, payload, links })
+                .is_some()
+            {
+                return Err(bad("duplicate unresolved record identity"));
+            }
+        }
+        world.unresolved_records = records;
+        Ok(())
+    }
+
     fn saved_record_identity(&self, id: GlobalFormId) -> Result<(), VmError> {
         let limit = if id.file == super::DYNAMIC_FILE {
             0xFFFFFF
@@ -65,6 +133,32 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            if let Some(dialogue) = &value.dialogue {
+                w.bool(dialogue.form_flags.is_some());
+                if let Some((flags, unknown)) = dialogue.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(dialogue.info_said_once.is_some());
+                if let Some(said) = dialogue.info_said_once {
+                    w.bool(said);
+                }
+                w.bool(dialogue.smqn_last_run_times.is_some());
+                if let Some(times) = &dialogue.smqn_last_run_times {
+                    w.len(times.len());
+                    for time in times {
+                        w.u32(*time);
+                    }
+                }
+                w.bool(dialogue.scene_active.is_some());
+                if let Some(active) = dialogue.scene_active {
+                    w.bool(active);
+                }
+                w.bool(dialogue.scene_active_data.is_some());
+                if let Some(data) = &dialogue.scene_active_data {
+                    w.bytes(data);
+                }
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -98,31 +192,68 @@ impl World {
             } else {
                 None
             };
+            let synthetic_relationship = id.file == super::DYNAMIC_FILE
+                && origin == id
+                && text_origin == id
+                && temporary_for.is_none();
             if (temporary_for.is_some() && id.file != super::DYNAMIC_FILE)
                 || (temporary_for.is_none() && origin != id)
-                || self.order.winner(text_origin).is_none_or(|r| {
-                    !matches!(
-                        &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
-                    )
-                })
+                || (!synthetic_relationship
+                    && self.order.winner(text_origin).is_none_or(|r| {
+                        !matches!(
+                            &r.tag.0,
+                            b"NPC_"
+                                | b"RACE"
+                                | b"FLST"
+                                | b"LVLN"
+                                | b"LVLI"
+                                | b"LVSP"
+                                | b"CLAS"
+                                | b"FACT"
+                                | b"RELA"
+                                | b"INFO"
+                                | b"SMQN"
+                                | b"SCEN"
+                                | b"PACK"
+                                | b"NAVM"
+                        )
+                    }))
             {
-                return Err(bad("invalid NPC origin or temporary identity"));
+                return Err(bad("invalid record override origin or identity"));
             }
-            let original = self
-                .order
-                .winner(origin)
-                .filter(|rec| {
-                    matches!(
-                        &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
-                    ) && !rec.is_deleted()
-                })
-                .ok_or_else(|| bad("missing record origin"))?;
-            if self
-                .order
-                .winner(text_origin)
-                .is_none_or(|record| record.tag != original.tag)
+            let original_record = if synthetic_relationship {
+                Record::new(T(b"RELA"), 0xFF00_0000 | id.object)
+            } else {
+                self.order
+                    .winner(origin)
+                    .filter(|rec| {
+                        matches!(
+                            &rec.tag.0,
+                            b"NPC_"
+                                | b"RACE"
+                                | b"FLST"
+                                | b"LVLN"
+                                | b"LVLI"
+                                | b"LVSP"
+                                | b"CLAS"
+                                | b"FACT"
+                                | b"RELA"
+                                | b"INFO"
+                                | b"SMQN"
+                                | b"SCEN"
+                                | b"PACK"
+                                | b"NAVM"
+                        ) && !rec.is_deleted()
+                    })
+                    .ok_or_else(|| bad("missing record origin"))?
+                    .clone()
+            };
+            let original = &original_record;
+            if !synthetic_relationship
+                && self
+                    .order
+                    .winner(text_origin)
+                    .is_none_or(|record| record.tag != original.tag)
             {
                 return Err(bad("record and text origins have different types"));
             }
@@ -159,6 +290,44 @@ impl World {
             } else {
                 None
             };
+            let dialogue =
+                if version >= 37 && [T(b"INFO"), T(b"SMQN"), T(b"SCEN")].contains(&original.tag) {
+                    let form_flags = if r.bool()? {
+                        Some((r.u32()?, r.u16()?))
+                    } else {
+                        None
+                    };
+                    let info_said_once = if r.bool()? { Some(r.bool()?) } else { None };
+                    let smqn_last_run_times = if r.bool()? {
+                        let count = r.len()?;
+                        if count > r.remaining() / 4 {
+                            return Err(bad("SMQN time count exceeds remaining bytes"));
+                        }
+                        let mut times = Vec::with_capacity(count);
+                        for _ in 0..count {
+                            times.push(r.u32()?);
+                        }
+                        Some(times)
+                    } else {
+                        None
+                    };
+                    let scene_active = if r.bool()? { Some(r.bool()?) } else { None };
+                    let scene_active_data = if r.bool()? {
+                        Some(r.bytes()?.to_vec())
+                    } else {
+                        None
+                    };
+                    Some(DialogueRecordExtra {
+                        form_flags,
+                        info_said_once,
+                        smqn_last_run_times,
+                        scene_active,
+                        scene_active_data,
+                    })
+                } else {
+                    None
+                };
+            let (pack, navmesh) = (None, None);
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -184,6 +353,9 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
+            if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
+                record.flags = flags;
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
@@ -191,19 +363,69 @@ impl World {
             if record.editor_id() != original.editor_id() {
                 return Err(bad("NPC override changed editor identity"));
             }
+            if dialogue.is_some() {
+                let valid = match record.tag {
+                    tag if tag == T(b"INFO") => dialogue.as_ref().is_some_and(|d| {
+                        (d.info_said_once.is_some() || d.form_flags.is_some())
+                            && d.smqn_last_run_times.is_none()
+                            && d.scene_active.is_none()
+                            && d.scene_active_data.is_none()
+                    }),
+                    tag if tag == T(b"SMQN") => dialogue.as_ref().is_some_and(|d| {
+                        d.info_said_once.is_none()
+                            && d.scene_active.is_none()
+                            && d.scene_active_data.is_none()
+                    }),
+                    tag if tag == T(b"SCEN") => dialogue.as_ref().is_some_and(|d| {
+                        d.info_said_once.is_none()
+                            && d.smqn_last_run_times.is_none()
+                            && (d.scene_active.is_some() || d.form_flags.is_some())
+                            && (d.scene_active == Some(true)) == d.scene_active_data.is_some()
+                    }),
+                    _ => false,
+                };
+                if !valid
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                    || plain_full
+                {
+                    return Err(bad("invalid saved dialogue record override"));
+                }
+            } else if !matches!(
+                &record.tag.0,
+                b"NPC_"
+                    | b"RACE"
+                    | b"FLST"
+                    | b"LVLN"
+                    | b"LVLI"
+                    | b"LVSP"
+                    | b"CLAS"
+                    | b"FACT"
+                    | b"RELA"
+                    | b"PACK"
+                    | b"NAVM"
+            ) {
+                return Err(bad("missing saved dialogue record state"));
+            }
             let localized = !plain_full
                 && self
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
             if record.tag == T(b"NPC_") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("race has list metadata"));
                 }
                 // Race overrides currently expose only WNAM. Reject other
@@ -253,7 +475,70 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
-            } else {
+            } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || unchanged_record(&record) != unchanged_record(original)
+                    || record.editor_id() != original.editor_id()
+                {
+                    return Err(bad("invalid saved PACK or NAVM override"));
+                }
+                if record.tag == T(b"PACK") {
+                    crate::package::Package::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                } else {
+                    soe_esm::records::navm::NavMesh::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                }
+            } else if matches!(record.tag.as_bytes(), b"CLAS" | b"FACT" | b"RELA") {
+                let unchanged = |source: &soe_esm::Record| {
+                    source
+                        .subrecords
+                        .iter()
+                        .filter(|sub| match &record.tag.0 {
+                            b"FACT" => {
+                                sub.tag != T(b"DATA")
+                                    && sub.tag != T(b"XNAM")
+                                    && sub.tag != T(b"CRVA")
+                            }
+                            b"RELA" => sub.tag != T(b"DATA"),
+                            _ => true,
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                let data_valid = match &record.tag.0 {
+                    b"CLAS" => true,
+                    b"FACT" => {
+                        record.all(T(b"DATA")).all(|data| data.len() == 4)
+                            && record.all(T(b"XNAM")).all(|data| data.len() == 12)
+                            && record.all(T(b"CRVA")).all(|data| data.len() == 16)
+                    }
+                    _ => {
+                        record.all(T(b"DATA")).count() == 1
+                            && record.find(T(b"DATA")).is_some_and(|data| data.len() == 16)
+                    }
+                };
+
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || unchanged(original) != unchanged(&record)
+                    || !data_valid
+                {
+                    return Err(bad("invalid saved record change"));
+                }
+            } else if [T(b"FLST"), T(b"LVLN"), T(b"LVLI"), T(b"LVSP")].contains(&record.tag) {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
                 } else {
@@ -318,11 +603,123 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                saved_form_flags: None,
+                dialogue,
+                pack,
+                navmesh,
             };
             if values.insert(id, value).is_some() {
-                return Err(bad("duplicate NPC record"));
+                return Err(bad("duplicate record override"));
             }
         }
         Ok(values)
     }
+}
+
+pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+    World::write_unresolved_records(world, w);
+}
+
+pub(super) fn read_unresolved_records(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    World::read_unresolved_records(world, r)
+}
+
+pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter(|(_, value)| value.pack.is_some() || value.navmesh.is_some())
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, value) in entries {
+        write_form_id(w, *id);
+        w.bool(value.pack.is_some());
+        if let Some(pack) = value.pack {
+            write_extra_flags(w, pack.form_flags);
+            w.bool(pack.waiting);
+            w.bool(pack.never_run);
+        }
+        w.bool(value.navmesh.is_some());
+        if let Some(navmesh) = value.navmesh {
+            write_extra_flags(w, navmesh.form_flags);
+            w.bool(navmesh.value_changed);
+            w.bool(navmesh.full_name_changed);
+        }
+    }
+}
+
+pub(super) fn read_pack_navmesh_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate PACK or NAVM section record"));
+        }
+        let pack = if r.bool()? {
+            Some(PackRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                waiting: r.bool()?,
+                never_run: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let navmesh = if r.bool()? {
+            Some(NavmeshRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("PACK or NAVM section names a missing override"))?;
+        match value.record.tag {
+            tag if tag == T(b"PACK") && pack.is_some() && navmesh.is_none() => {
+                value.pack = pack;
+            }
+            tag if tag == T(b"NAVM") && navmesh.is_some() && pack.is_none() => {
+                value.navmesh = navmesh;
+            }
+            _ => return Err(bad("PACK or NAVM section has mismatched record metadata")),
+        }
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (value.record.tag == T(b"PACK") && value.pack.is_none())
+            || (value.record.tag == T(b"NAVM") && value.navmesh.is_none())
+            || (!seen.contains(id) && (value.pack.is_some() || value.navmesh.is_some()))
+    }) {
+        return Err(bad("PACK or NAVM section is incomplete"));
+    }
+    Ok(())
+}
+
+fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
+    record.subrecords.clone()
+}
+
+fn write_unresolved_id(w: &mut Writer, id: &UnresolvedRecordId) {
+    w.str(&id.plugin);
+    w.bool(id.light);
+    w.u32(id.object);
+}
+
+fn read_unresolved_id(r: &mut FormReader<'_, '_>) -> Result<UnresolvedRecordId, VmError> {
+    Ok(UnresolvedRecordId {
+        plugin: r.str()?,
+        light: r.bool()?,
+        object: r.u32()?,
+    })
 }

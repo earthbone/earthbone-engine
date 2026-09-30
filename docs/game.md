@@ -25,6 +25,7 @@ week 6 to 9 gate.
   concern, each an `impl World`: `lookup` (editor ids, records, run-time
   FormIDs, keywords, names, classes), `objects` (handle to VM object table),
   `refs` (reference state, placement, the player, inventory, activation),
+  `furniture` (Sit marker reservations and actor seating),
   `actors` (the `NPC_` view, actor state and values), `quests` (stages,
   objectives, aliases), `forms` (globals, form lists, leveled lists,
   locations, factions, actor bases, cells, game settings), `events` (what
@@ -45,17 +46,35 @@ week 6 to 9 gate.
   or malformed ability effects are skipped. Their active effect state uses
   the existing SOEW active-effect table and survives save/load.
   AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
-  sources, validation and the unimplemented engagement boundary.
+  sources, validation and combat target selection.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
   shared by every observer of one target. `World::evaluate_detection` checks a
   whole batch of observations before it changes any pool. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
+
+  `ObjectReference.CreateDetectionEvent` queues one sound at the calling
+  reference's current cell and position with the supplied actor owner. Sound
+  levels above 100 remain valid. Invalid actors, references and negative levels
+  leave the queue unchanged. The host takes queued events once per observation
+  step. Emitted sound uses the source's distance and line of sight, independently
+  of the owner's position. The queue is transient and adds no save field.
+
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
+- `soe-validate`: the `soe-game` binary that resolves a portable MO2 profile,
+  starts a fresh game world for each `.scenario` file, and reports its pass
+  state and cited captures. See `docs/validation.md` for invocation and rules.
+- The weekly mod corpus sweep is `tests/tst_12_mod_corpus.rs`. With
+  `SOE_MOD_CORPUS` set to a directory containing one mod directory per child,
+  it reports parser failures, unresolved Papyrus native declarations and
+  plugin asset paths absent from that corpus and optional `SKYRIM_DATA`.
+  It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
+  WAV containers. Wabbajack's local README describes modlists as reproduced
+  without bundling assets, so the sweep reads the installed files in place.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
@@ -68,12 +87,82 @@ week 6 to 9 gate.
 
 ## Design
 
+### Furniture activation, HST-09
+
+Activating a FURN reference selects the first unreserved Sit marker from its
+FNPR entries whose corresponding low MNAM bit is active. The actor reserves
+that marker and moves to the furniture reference transform. Activating the
+same furniture again, or calling `World::stand_from_furniture`, releases the
+reservation. `World::furniture_seat` exposes the actor's current furniture and
+marker, and `World::furniture_marker_in_use` reports active reservations.
+SOEW version 37 stores the furniture reference and marker with actor state.
+The FURN field layout follows local xEdit `wbRecord(FURN)` and
+`uesp-modfileformat/FURN.wikitext`. Marker types and the active MNAM mask come
+from those definitions. Marker transforms are not read from the furniture
+model by this path.
+
+Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
+linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
+resolved `INAM` IDLE form emits its editor ID through the actor's animation
+event path once when the actor arrives. A marker whose base is FURN uses the
+existing Sit-marker reservation. The reservation is released before the route
+advances, and the Patrol dwell deadline prevents the idle event from firing
+again after save and restore. PDTO references and subtype fields are
+validated, but they do not start a conversation. AI-23's UseIdleMarker
+reservation and interruption behavior is not in this worktree, and its
+reservation contract remains separate from Patrol's FURN reservation.
+
+### Player sleep, HST-11
+
+`World::sleep_at_furniture` accepts only enabled, non-deleted FURN references
+with an active FNPR Sleep marker and an available reservation. It places the
+player at the bed, emits `OnSleepStart`, advances the shared clock for the
+requested elapsed game hours, emits `OnSleepStop` with the interruption flag,
+and releases the marker. Non-finite or non-positive durations, a paused
+timescale, inactive markers and occupied markers leave the clock unchanged.
+`Game::sleep_player_at_furniture` settles the queued Papyrus events.
+
+This marker path follows local xEdit `wbRecord(FURN)` and
+`uesp-modfileformat/FURN.wikitext`: FNPR value 2 is Sleep, and the low 24 MNAM
+bits enable marker indices 0 through 23. The CK furniture-use pages describe
+reservations as in-use, so an occupied marker cannot be selected by another
+actor. The host currently completes an eight-hour sleep on bed activation.
+
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
-applies the global table to winning GLOB forms. Values reach the existing
-Papyrus native path and engine save state. This is one restoration component,
-not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
-failure behavior and the remaining world and VM work.
+applies the global table to winning GLOB forms. `Game::restore_vanilla_papyrus`
+resolves saved script-instance RefIDs to live form objects and imports their
+saved variables into the VM. `Game::restore_vanilla_papyrus_execution` also
+converts and schedules validated active script frames, rolling back VM state
+if the import fails. Saved reference-only objects are created using their
+saved runtime type. Instances whose signed
+`unknown` field is `-1` ignore their saved RefID and receive standalone VM
+objects. Values reach the existing Papyrus native path and engine save state.
+Queued messages and suspended stacks remain inert. This is not a full ESS load
+or resumed game. See
+[save.md](save.md) for mapping rules, failure behavior and the remaining work.
+
+Reference placement reserves created identities found in saved change forms,
+the FormID array and the four Created Objects tables before runtime placement
+can allocate another identity. Regular and light plugin IDs map by their saved
+owner names. Their masks follow Mutagen's `FormID.cs`, while the FormID array
+and Created Objects table order follow UESP's save format. The reservation
+keeps identities stable, but it does not materialize saved enchantment, potion
+or poison definitions as live records. Inventory restoration accepts a
+missing base identity listed in those tables, applies item deltas by saved
+identity and reports items without live records. Created Objects decoding
+follows UESP `Created_Objects` and skymp's reader and writer field order in
+`soe-save`.
+
+`World::restore_vanilla_record_changes` validates CLAS changes and atomically
+applies FACT and RELA fields to record overrides. FACT reaction records feed
+the faction runtime state, and FACT crime values and RELA data are read from
+the overridden records. `Actor.GetRelationshipRank` falls back to matching
+RELA records when no runtime relationship value exists. Record overrides
+persist through SOEW save and load.
+xEdit defines CLAS tag-skills as a null payload, so it changes no runtime
+field. The `SAV-46` world save section retains the saved form flags and their
+undocumented 16-bit word.
 
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
@@ -99,18 +188,22 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
-**World reads out, host never writes back.** `World::ref_placement` (in
+**Shared reference placement.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
 position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
 struct, not the mutable `RefState` a native or VM path uses to change that
-state. It returns `None` for a reference never instantiated, its
-record-authored placement is still current and there is nothing to sync, and
-for a deleted one. The host side of this contract, and the split it takes
+state. It returns `None` for a reference never instantiated, whose
+record-authored placement is still current. A deleted reference remains
+present with `visible: false` so the host can release its resources. The host
+side of this contract, and the split it takes
 between collision and rendering change detection, is documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
-`World` stays the only writer of reference state either way, so no host code
-takes the mutable `reference` accessor.
+`World::set_host_ref_pose` accepts finite position and rotation from a live
+rigid body for an enabled, non-deleted, non-actor reference. The host calls it
+after a physics step, and rendering reads the resulting placement in the same
+tick. It writes the existing saved fields, so the world save format is
+unchanged. A late pose from a disabled or deleted body is rejected.
 
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
@@ -152,25 +245,31 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
+instance, one selected soul gem stack, an ENCH form and the caller's learned
+enchantment set. It checks the selected soul level against the gem's SLCP
+capacity from SLCP and its per-instance ExtraSoul value, writes
+ExtraEnchantment to only that item instance, consumes the gem, and queues its
+inventory removal event as one inventory transaction. The ENCH
+record and ExtraEnchantment fields follow `TES5Edit/Core/wbDefinitionsTES5.pas`
+and CommonLibSSE-NG `ExtraEnchantment.h`, `ExtraSoul.h` and `TESSoulGem.h`.
+The runtime does not yet own learned enchantment state, so the caller supplies
+that set. Enchantment strength and charge calculation are not part of this
+transaction.
+
 ## Conformance table
 
-Counts from `natives::register`: 364 natives with state behind them and 177
-
-Counts from `natives::register`: 366 natives with state behind them and 175
-
-Counts from `natives::register`: 365 natives with state behind them and 180
-quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
-before the DLC round). A stub returns the value the game gives when nothing
-is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
-run past it.
+`natives::register` has 367 stateful registrations, including
+`CreateDetectionEvent`. Quiet stubs still return an idle value so vanilla
+scripts can continue when their owning system has no behavior yet.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
-| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation, CreateDetectionEvent |
+| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, CreateDetectionEvent | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation |
 | Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
-| Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
+| Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
@@ -239,6 +338,12 @@ Current behavior and compatibility limits:
   initialized actor values, so reload does not seed bonuses again. Leveled
   templates return an error pending spawn selection. Missing race DATA
   retains the synthetic-record fallback. See [actor values](actor-values.md).
+- `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
+  multipliers and offsets. The improve multiplier and offset plus
+  `fSkillUseCurve` determine experience needed at each current skill level.
+  Earned levels update the shared actor-value base and stop at 100. Partial
+  skill experience is stored per actor in the `PRG-01` section of SOEW version
+  37 actor records. This path applies only explicitly recorded skill use.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
@@ -284,8 +389,9 @@ Current behavior and compatibility limits:
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Action slots use zero-based positions from the SCEN action
-  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  action slots. Version 37 stores each reference's persistent flag. Action
+  slots use zero-based positions from the SCEN action list because two vanilla
+  scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
   `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
   action dispatch, and the scene flags are not implemented. `Sound.Play`
@@ -294,8 +400,17 @@ Current behavior and compatibility limits:
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
+  Transitional QUST start and stop flags restore pending promotion tasks.
+  `IsStarting` and `IsStopping` report the task direction, and `IsRunning` stays
+  false until the task completes. SOEW version 37 retains those tasks.
 
 ## Tests
+
+Installed integration tests use `tests/common/installed.rs`. Each test
+process caches parsed plugin files and load orders by their installed master
+set, then gives each `Game` its own mutable world over the shared immutable
+load order. `tst_14` checks in `combat_hits.rs` and `dialogue.rs` verify the
+cache reuse and world isolation.
 
 The `leveled-lists` follow-up adds `World::roll_leveled_items` for ordinary
 LVLI quantities. Callers supply the selection level and requested count.
@@ -714,6 +829,17 @@ link changes `RefState::cell`. Explicit gap departures retain the source cell
 until the arrival waypoint. Off the graph the route is a straight line. The driver
 skips the player, the dead and the unconscious.
 
+**Combat movement.** An Aggressive, Very Aggressive or Frenzied actor acquires
+the nearest live actor whose awareness reaches Combat and retains that target
+while it remains live. A package with `Ignore Combat` leaves package movement
+in control. Combat movement uses the same NAVM graph but requires a route,
+stops within four units of the target, and does not use the package driver's
+straight-line fallback. The driver clears combat and requests package
+reevaluation after the target dies. Combat target selection is simpler than
+the retail selector and does not compare ranged loadouts, group attacker
+counts, fleeing state or encounter zones. The `cmb_17_combat_engagement` tests cover acquisition,
+unaggressive rejection, the package flag, navmesh pursuit and death cleanup.
+
 **Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
 `Skyrim.esm` parses (104 templates, 2,384 with conditions, 1,545 with a
 scheduled hour) in 7.9 s including the plugin parse. 4,635 packages
@@ -737,7 +863,7 @@ calling the `On Begin`, `On End` and `On Change` package fragments at
 package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
 driver does not yet call them, AI-04), idles and topics, once per day for
 packages that end without arriving, `Must Complete`, interrupt flags, combat
-overrides, door unlocking flags, the `Package Data` and `Event Data`
+interrupt overrides, door unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
 
 ## Natives round two (2026-09-18)
@@ -875,7 +1001,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 37. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -893,13 +1019,28 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
-version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
-components, version 8 adds dialogue to those components, version 9 adds
-active magic. Version 10 adds per-reference leveled template choices.
-Version 11 adds quest journal instances and mapped runtime metadata. Versions
-12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
-adds an actor's active exclusive dialogue branch, and version 17 adds active
-do-all dialogue cycles.
+Versions 32 to 36 add assigned hand spells, summoned references, encounter-zone
+visit times, saved list flags and chances, active scene phase state, and BOS
+record flags on instantiated references. Version
+37 persists INFO said-once markers, SMQN last-run float bit patterns, and SCEN
+active markers and opaque active data in record overrides. The
+`World::restore_vanilla_dialogue_scene_changes` path validates all targets
+before applying them. INFO state updates dialogue history, SCEN state updates
+the playing-scene set, and the record accessors expose the saved values. INFO
+has no saved timestamp, so its said-once marker uses the current game day.
+Version 37 also retains PACK and NAVM change markers in record overrides.
+
+SAV-59 stores opaque unresolved record payloads and plugin-relative links in a
+world section. These records are not installed into the live form table.
+Papyrus SOEV version 4 carries script source fingerprints so missing or
+changed definitions keep saved VM state suspended.
+
+SOEW versions 21 and later retain each driven actor's package procedure
+cursor, including the owning procedure tree, branch index and active or
+finished state. Loading an engine save lets the driver continue that branch.
+Vanilla ESS package state is not connected to this cursor: named Sequence and
+Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
+its vanilla procedure.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -921,6 +1062,15 @@ at most 255 loaded plugins. At 256 or more, the old namespace is ambiguous
 and loading fails before world or VM mutation. Engine saves still require
 the identical load order used to write them. This change does not infer a
 missing or reordered plugin list from the legacy format.
+
+`World::retain_unresolved_record` stores opaque bytes under a normalized plugin
+filename, regular/light kind and local object number. Link identities use the
+same fields. The SAV-59 world section preserves these values without resolving them
+through the current load order, so removed plugins and compacted slots cannot
+alias these retained records. This storage API does not populate itself from
+ESS change forms. Whole-game `Game::load_state` still requires matching plugin
+provenance, and ordinary world state does not yet remap identities for removed
+plugins.
 
 The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
 `Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
@@ -953,16 +1103,37 @@ update timers, notifications, message boxes, animation events, the INI
 overlay), is written and read in full since there is nothing to recompute it
 from.
 
+Actor values retain base, permanent, temporary and damage components. The
+SAV-06 `sav_06_actor_value_modifiers` tests verify current and maximum values
+through `Game::save_state` and `Game::load_state`.
+
 `Game::save_state(&self) -> Result<Vec<u8>, VmError>` and
 `Game::load_state(&mut self, bytes) -> Result<(), VmError>`
 (`crates/game/src/save.rs`) wrap `World::save_state`/`load_state` and
 `soe_papyrus::Vm::save_state`/`load_state` behind one envelope, magic
-`SOEG`, version 1, each inner blob length-prefixed. Neither the load order
-nor the loaded scripts travel in the file, `load_state` expects a `Game`
-built against the same load order with the same scripts already loaded, the
-way `Game::new` and `Game::load_script` already ask for them, and it should
-not have been bound or started first since it overwrites object and instance
-state wholesale.
+`SOEG`, version 2. The envelope stores sorted plugin names, regular/light
+kind, load-order slot and SHA-256 plugin fingerprints, followed by loaded
+script names and optional SHA-256 PEX fingerprints. `Game::saved_provenance`
+reads this evidence. `load_state` checks it before replacing state, rejecting
+missing or changed plugins, slot movement and changed script fingerprints.
+This prevents a reordered plugin from silently retargeting saved form IDs.
+Programmatically loaded scripts have unknown source fingerprints. Each world
+and VM blob remains length-prefixed. The caller loads the same definitions
+before restoring into a game that has not been bound or started.
+
+`Game::preflight_dependencies` compares native save provenance with the
+current load order and scripts. Its deterministic findings identify missing
+or added plugins and scripts, plugin kind or slot changes, changed
+fingerprints, and fingerprints that cannot be compared because source bytes
+are unknown. Each finding identifies whether it affects world or VM state.
+The method reads the save envelope and does not mutate the game.
+
+`Game::preflight_vanilla_dependencies` compares ESS plugin names and Papyrus
+script names from definitions, instances, references, active frames, queued
+messages and suspended calls with the current definitions. It reports missing
+plugins and scripts, regular/light kind changes and unknown provenance for
+each saved plugin or script because ESS stores no content fingerprints. A
+malformed Papyrus block returns an error. Findings have a stable ordering.
 
 `Game::write_file` serializes and validates native state before replacing an
 existing file. `Game::write_state_file` accepts previously serialized bytes and
@@ -990,6 +1161,25 @@ until idle and checks it reaches the same end state as
 `a_quest_advances_on_activation_end_to_end`: the quest completed at stage 20,
 the objective completed, the gold given, the lever disabled, the
 notification fired, and the alias resolved to the lever.
+
+### Save sections
+
+Version 37 is the last `SAVE_VERSION` bump, and appends a named section
+table (`crates/game/src/world/save_sections.rs`) after the world's own
+saved fields, after each actor record and after each reference record.
+A table is a `u16` count then, per section, a name and a length-prefixed
+payload, read through the same `FormReader` context (so a section that
+stores a FormId resolves it the way the rest of that record does). A row
+that adds saved state registers a `Section` in
+`crates/game/src/world/save_section_registry.rs`, at the level that owns
+the field, named after the row (for example `"MAG-39"`), instead of
+raising `SAVE_VERSION` again. The registry file carries `.gitattributes`
+`merge=union` so two branches adding sections in parallel merge without a
+conflict. An absent section leaves its field at the default. An unknown
+section name, a truncated payload or a payload a section's reader does not
+fully consume are all load errors naming the section and the level.
+Versions before 37 have no section table at any level, and the reader
+skips looking for one below version 37.
 
 ## Not done, and known gaps
 
@@ -1290,9 +1480,88 @@ iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
 also passed. Predicate presence across the survey does not establish that
 every recipe is executable or that all predicate contexts match vanilla.
 
-Tempering, alchemy, enchanting, skill advancement, crafting story events,
-item instance state and host menus remain unfinished. The full requested
-execution scope is tracked in [execution-plan.md](execution-plan.md).
+`Game::temper` executes COBJ improvement recipes at grindstones and workbenches.
+The recipe output must be a weapon or armor form also listed as one input
+instance. Other COBJ inputs are consumed together with that instance quality
+update, and removal events are queued only after the inventory transaction
+commits. The item keeps its other extra data. Quality is selected from the
+actor's Smithing value, with a minimum increase from 1.0 and a 1.6 cap. Recipes
+must use the improvement bench keyword matching their station. The CK
+`SetItemHealthPercent` page describes 1.0 as untempered, values below 1.0 as
+having no effect, and 1.6 as appearing legendary. The engine writes only
+tempering qualities at or above 1.0. It does not implement perk or equipment
+bonuses to the quality calculation.
+
+The local xEdit `wbRecord(COBJ)` definition establishes the recipe fields, and
+the UESP COBJ description states that the bench keyword distinguishes item
+creation from improvement. CK `SetItemHealthPercent` and
+`ObjectReference_Script` describe the quality range used above. The xEdit
+definitions contain no `SMIT` record declaration.
+
+Alchemy combines exactly two INGR forms at a FURN alchemy station. It selects
+shared effects whose ingredient-level CTDAs pass, creates a dynamic ALCH
+inventory form with the first ingredient's effect data, and consumes one of
+each input in the same inventory transaction. Brewed potion definitions and
+resolved MGEF links persist in a named world save section. A CK wiki Ingredient
+page is absent. The shipped `Ingredient.psc` defines `LearnEffect`,
+`LearnNextEffect` and `LearnAllEffects`, which remain outside this transaction.
+Ingredient and effect layouts follow xEdit `wbDefinitionsTES5.pas` and UESP
+ALCH/INGR format pages. CommonLibSSE-NG `TESFurniture.h` defines WBDT value 5
+as alchemy, value 4 as enchanting experiment, and value 6 as alchemy experiment.
+
+The tempering station check follows xEdit's `wbDefinitionsTES5.pas` WBDT
+enumeration: value 2 is weapon smithing and value 7 is armor smithing. The
+station keyword must match that type. Enchanting reads the ENCH ENIT enchant
+type at bytes 20 to 23, as xEdit defines it. Type 0x06 is ordinary enchanting
+and type 0x0C is staff enchanting. Staff enchantments can be applied to weapon
+forms, while armor accepts only ordinary enchantments.
+
+Enchanting, skill advancement, routing crafting inputs through Story Manager
+quest selection, item instance state and host menus remain unfinished. The full
+requested execution scope is tracked in [execution-plan.md](execution-plan.md).
+
+## Story Manager quest routing
+
+`Game::send_story_event` accepts a typed story event and routes it through
+winning `SMEN`, `SMBN` and `SMQN` records. Parent links and previous-node links
+determine the authored tree and sibling order. Node conditions use the game
+condition evaluator. Random nodes draw from the world's saved random stream.
+Quest nodes read their `NNAM`, `FNAM` and `RNAM` quest entries, respect their
+concurrent-quest limit, `MNAM` run count, run-once quest flag, reset deadline,
+and do-all-before-repeating cursor. Nodes with the warning flag append a
+notification when none of their child quests starts.
+
+A started quest records the event code and ordered arguments in its existing
+quest run data, starts through the normal `Quest.Start` path, then queues its
+mapped `OnStory...` event after `OnInit`. `PRG-14` world save state retains
+per-quest start counts and reset deadlines plus the selected quest set for
+each do-all quest node. The implementation reads record fields described in
+`TES5Edit/Core/wbDefinitionsTES5.pas` and event signatures listed in
+`ck-wiki/Quest_Script.wikitext` and node field descriptions in
+`uesp-modfileformat/SMEN.wikitext`, `SMBN.wikitext` and `SMQN.wikitext` under
+`../engine-refs`. This state is included in the quest part of the world
+determinism hash.
+
+`Game::send_story_event` is an explicit runtime API. Gameplay actions do not
+generally emit story events automatically. The AI-69 draft was not present in
+this worktree. Its condition functions `GetScriptVariable`, `GetQuestVariable`,
+`GetDestructionStage`, `IsInCriticalStage`, `GetEventData`,
+`GetIsCrashLandRequest` and `GetIsHastyLandRequest` remain a dependency of
+conditioned trees. Unsupported or unavailable predicates return a typed
+routing error. Unknown event codes queue `OnStoryEvent` because this branch
+has no authored Papyrus event name for them.
+
+Successful `Game::craft` transactions enqueue one `CraftItem` Story Manager
+input with bench, current location and created item arguments. Rejected
+transactions enqueue none. `World::take_story_manager_events` transfers these
+inputs to the scheduler. This submission path does not automatically route
+every gameplay action, and event routing remains dependent on the explicit
+Story Manager API and supported predicates above.
+
+Tempering, alchemy, enchanting, skill advancement, routing crafting inputs
+through Story Manager quest selection, item instance state and host menus
+remain unfinished. The full requested execution scope is tracked in
+[execution-plan.md](execution-plan.md).
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
@@ -1588,13 +1857,11 @@ Morrowind's extended activation distance, so that policy is not reused here.
 The local skymp search found enum declarations, without a Telekinesis runtime
 implementation to reuse.
 
-The host currently omits movable collision bodies and does not synchronize
-their simulated placement with the shared World and rendered references.
-[The host audit](godot-host.md#movable-reference-physics-prerequisite-hst-12)
-records those prerequisites under HST-04 and HST-12. MAG-41 retains its object
-manipulation and interruption acceptance check and stays blocked on these
-dependencies. No grab events, force policy, object eligibility, release motion
-or host runtime behavior were implemented or tested by this audit.
+The host now installs movable rigid bodies and synchronizes their simulated
+placement with the shared World and rendered references.
+[The host implementation](godot-host.md#movable-reference-physics-hst-12)
+records that path. Telekinesis grab events, object eligibility, force policy
+and release motion are not implemented here.
 
 Repeat the survey with `SKYRIM_DATA` set:
 
@@ -2209,6 +2476,15 @@ remain pending. Lock events currently target reference scripts, without alias
 forwarding. Logical closing does not animate or update the host collision of
 a swinging door. The ordinary unloaded/load-door resource path is unchanged.
 
+`Game::resolve_lockpick` applies a result from a host interaction. It requires
+the activator to carry the `Lockpick` item, refuses unlocked and key-only
+references, preserves the pick on success and consumes one after a failed
+attempt. Success clears the same reference lock state used by Papyrus and
+queues `OnLockStateChanged`. The host is responsible for deciding whether the
+pick succeeds. The resolver does not calculate difficulty, skill, leveled
+lock scaling or lockpick durability. HST-03 tests cover successful and failed
+results and key-only refusal.
+
 ## Vanilla reference placement restoration
 
 `World::restore_vanilla_reference_placements` applies saved identities, bases
@@ -2218,6 +2494,15 @@ before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
 separate requirements. See [save.md](save.md#reference-placements) for sources,
 validation and the limits of this intermediate reconstruction pass.
+
+For reference headers with the generic form-flags bit, the pass applies the
+`Mask Invert Flags` word to authored `INITIALLY_DISABLED` and `PERSISTENT`
+record bits with XOR. It accepts only ESS header version 12, form version 78
+and change-form version 78 when that mask is present. The second 16-bit word
+is retained in the report and does not affect these two runtime properties.
+The effective persistence value feeds cell-unload retention and
+encounter-zone reset decisions. SOEW version 37 stores it with each reference.
+Older SOEW states derive persistence from the current winning record.
 
 ## Inventory instances and ESS application, work in progress
 
@@ -2391,6 +2676,10 @@ weapon/armor records, current skills, equipment and game settings, then queues
 OnHit before any death notifications. It builds on the frozen lifecycle review.
 Host hit detection, special attacks, perks and full combat remain unfinished.
 See [physical melee execution](combat.md) for supported rules and sources.
+Ranged release reads the selected bow or crossbow and equipped compatible AMMO
+form from actor equipment. A valid release consumes one round, queues the
+ordinary item removal notification, and returns a transient PROJ flight
+request to the host. See [ranged release](combat.md#ranged-release-cmb-08).
 The combined full gate passes 1,163 Rust tests and 11 Python tests, with no
 warnings or skipped optional tools. Installed-data validation passes 12 melee
 and 11 death-lifecycle tests. It decodes 3,262 winning weapons and 3,675 armors,
@@ -2428,9 +2717,11 @@ save decoding, identity mapping, global import, ticking and serialization are
 reused. No parser, dependency or host node was added.
 
 SAV-08 has no backlog prerequisite. It establishes calendar values before
-execution. SAV-18 separately restores scheduler epochs and deadlines. Import
-does not execute queued scripts, fire timers or resume quests. Full ESS loading
-and host resumption remain separate backlog items.
+execution. SAV-18 separately restores scheduler epochs and deadlines. Calendar
+import does not execute queued messages, fire timers or resume quests.
+`restore_vanilla_papyrus_execution` separately restores instances and schedules
+validated active Papyrus frames. Full ESS loading and host resumption remain
+separate backlog items.
 
 The installed survey passes all 60 saves and all 360 calendar values, with
 exact engine-save bytes and world hashes after reloading. Synthetic checks
@@ -2447,7 +2738,9 @@ The partial reference-extra pass writes the shared owner, locked bit and
 lock level. GetActorOwner, GetFactionOwner, IsLocked and GetLockLevel observe
 those values immediately. GetKey and default door/container activation prefer
 the saved key, including explicit null, over the authored XLOC link. The
-activator's key is retained after unlocking. Restoration queues no events.
+activator's key is retained after unlocking. Restoration queues no events. A
+synthetic restoration check applies placements first, then extras, before
+checking native queries and keyed activation.
 
 Rank and global ownership metadata and unassigned lock fields persist in the
 SOEW version 20 extension and contribute to the world hash. Older saves
@@ -2884,9 +3177,10 @@ Synthetic inventory tests cover selected quality updates retaining enchantment,
 poison, charge and opaque fields, exact transfer, adjacent stacks, save/load,
 plain quantity splits, stale indices, identical restoration, malformed patches,
 ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
-Tempering formulas, learned enchantments, recipe eligibility, poison use and
-host menus belong to their separate backlog items. These tests do not compare
-selection policy against the original runtime or load installed save files.
+Learned enchantments, poison use and host menus belong to their separate
+backlog items. Tempering uses this exact-selection API and does not change
+Papyrus RemoveItem selection policy. These tests do not compare selection
+policy against the original runtime or load installed save files.
 
 ## Alias-backed dialogue eligibility (DLG-13)
 
@@ -3174,6 +3468,16 @@ also return errors before that entry's handler runs. Non-complex PRKE sections
 are not dispatched. Handler changes are applied as the dispatcher reaches
 each eligible section.
 
+The combat entry points `ModAttackDamage` (35) and `ModIncomingDamage` (36)
+are consumed by `World::melee_hit`. CMB-09 applies supported numeric functions
+to the staged weapon damage, with outgoing effects before incoming effects.
+Their condition tabs are owner/weapon/target and owner/attacker/weapon,
+respectively. Malformed function payloads, unknown actor values, unsupported
+functions and condition errors reject the hit before health or events change.
+This path retains the dispatcher's winning-record and source-section order.
+It does not claim the unresolved priority-tie, acquisition-order or exact
+versus cumulative rank behavior documented above.
+
 ## Leveled item entry extras
 
 `World::roll_leveled_inventory` returns the existing `Inventory` model with
@@ -3382,8 +3686,7 @@ written unconditionally (the writer always emits the current format) and read
 behind `if version >= 32`, the same pattern `witnessed_crimes` used for
 version 31. An older save simply loads with both hands empty, matching how a
 pre-31 save loads with no witnessed crimes. The version-31 unknown-version
-probe in `save_tests.rs` moved to 33 so it still names a version past the
-current one.
+probe in `save_tests.rs` tracks the current version and remains one past it.
 
 `natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
 `equip_hand_spell`/`unequip_hand_spell`/`hand_spell` with the menu for source
@@ -3540,3 +3843,22 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Saved PACK and NAVM changes, SAV-48
+
+`World::restore_vanilla_pack_navmesh` validates all decoded PACK and NAVM
+changes before installing any record override. Package and navmesh records
+remain readable through the shared world record table. The override retains
+the optional six-byte form flags and the PACK waiting and never-run markers or
+NAVM value and full-name markers. `restored_pack_extra` and
+`restored_navmesh_extra` expose those saved fields to runtime queries. SOEW
+persists this metadata in the `SAV-48` world section alongside the matching
+record overrides. `SAV-48` follows the version 37 section table, so it does not
+raise `SAVE_VERSION`.
+`ai::package` carries the saved waiting and never-run markers on its parsed
+package view.
+The `sav_48_pack_navmesh_restore_is_atomic_and_survives_engine_save_load`
+fixture exercises both record types, query results, failure atomicity and
+engine save/load. `sav_48_installed_pack_and_navmesh_records_accept_restored_markers`
+checks installed Skyrim.esm records when `SKYRIM_DATA` is set. The field order
+and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.

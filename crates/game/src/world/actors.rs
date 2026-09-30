@@ -183,7 +183,12 @@ impl World {
             // loads long after the distribution still receives what its base
             // was given. See `crate::moddata`.
             if let Some(base) = base {
-                for d in self.mod_data.for_base(base).to_vec() {
+                let distributions = crate::moddata::for_actor(self, id, base);
+                let actor_specific = distributions
+                    .len()
+                    .saturating_sub(self.mod_data.for_base(base).len());
+                self.mod_data.report.distributions_applied += actor_specific;
+                for d in distributions {
                     apply_distributed(&mut a, d);
                 }
             }

@@ -25,6 +25,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod bhk;
+pub mod export;
 pub mod hull;
 pub mod math;
 pub mod shape;

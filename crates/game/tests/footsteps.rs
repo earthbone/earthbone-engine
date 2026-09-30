@@ -3,6 +3,9 @@
 
 //! Footstep selection from plugin records, including sparse DLC defaults.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::footsteps::{material_name_hash, Footsteps, Gait};
 
@@ -230,25 +233,18 @@ fn malformed_counts_and_deleted_sound_descriptors_are_errors() {
 
 #[test]
 fn installed_default_footsteps_resolve_both_feet_in_each_ground_gait() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let steps = Footsteps::new(&order);
     let set = steps.default_object(*b"DFTS").unwrap().unwrap();
     assert_eq!(set, id(0x12F16));

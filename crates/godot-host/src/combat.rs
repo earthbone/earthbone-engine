@@ -4,7 +4,7 @@
 //! animation event tables. Spatial queries return the first obstruction.
 
 use soe_esm::GlobalFormId;
-use soe_game::combat::{Error, Hand, HitResult, MeleeHit};
+use soe_game::combat::{Error, FlightRequest, Hand, HitResult, MeleeHit};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
@@ -96,6 +96,57 @@ struct Swing {
 #[derive(Debug, Default)]
 pub struct MeleeContact {
     swing: Option<Swing>,
+}
+
+/// Armed bow or crossbow release, canceled without consuming ammunition.
+#[derive(Debug, Default)]
+pub struct RangedRelease {
+    shot: Option<(GlobalFormId, GlobalFormId)>,
+}
+
+impl RangedRelease {
+    /// Arm the actor's currently equipped bow or crossbow.
+    ///
+    /// # Errors
+    /// Missing ranged equipment or ammunition.
+    pub fn begin(&mut self, game: &mut Game, attacker: GlobalFormId) -> Result<(), Error> {
+        if self.shot.is_some() {
+            return Err(Error::Unsupported("projectile release already armed"));
+        }
+        let equipment = game.world_mut().ranged_equipment(attacker)?;
+        self.shot = Some((attacker, equipment.weapon));
+        Ok(())
+    }
+
+    /// Cancel a draw before its release event.
+    pub fn cancel(&mut self) {
+        self.shot = None;
+    }
+
+    /// Consume the armed shot only when the authored bow release event arrives.
+    ///
+    /// # Errors
+    /// Equipment changed or the game rejected the release transaction.
+    pub fn event(
+        &mut self,
+        game: &mut Game,
+        name: &str,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<Option<FlightRequest>, Error> {
+        if name == "attackStop" || name == "bowCancel" {
+            self.cancel();
+            return Ok(None);
+        }
+        if name != "bowRelease" {
+            return Ok(None);
+        }
+        let Some((attacker, weapon)) = self.shot.take() else {
+            return Ok(None);
+        };
+        game.release_projectile(attacker, weapon, origin, direction)
+            .map(Some)
+    }
 }
 
 impl MeleeContact {
