@@ -83,10 +83,13 @@ fn ai_30_guard_drops_a_combat_target_after_it_leaves_the_assigned_radius() {
 
     world.ai_tick(0.1, &mut |_, _| soe_papyrus::value::ObjectId(0));
 
-    let actor = world.actor(id(GUARD)).unwrap();
+    let (in_combat, combat_target) = {
+        let actor = world.actor(id(GUARD)).unwrap();
+        (actor.in_combat, actor.combat_target)
+    };
     let position = world.reference(id(GUARD)).unwrap().position;
     assert!(
-        !actor.in_combat && actor.combat_target.is_none(),
+        !in_combat && combat_target.is_none(),
         "outside-radius intrusion remains an active guard target"
     );
     assert!(

@@ -1025,6 +1025,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             clear_combat_engagement(world, actor);
         }
         let active_target = combat_target(world, actor);
+        if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
+            clear_combat_engagement(world, actor);
+        }
         let fleeing = world
             .actor(actor)
             .is_some_and(|state| state.ai.procedure == Procedure::Flee);
@@ -1101,6 +1104,23 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
         state.ai.reevaluate = true;
     }
     None
+}
+
+/// A Guard only engages targets inside its assigned area.
+fn target_in_guard_area(world: &mut World, actor: GlobalFormId, target: GlobalFormId) -> bool {
+    let Some(state) = world.actor(actor) else {
+        return false;
+    };
+    if state.ai.procedure != Procedure::Guard {
+        return true;
+    }
+    let Some(center) = state.ai.center else {
+        return true;
+    };
+    let radius = state.ai.radius.max(ARRIVAL_DISTANCE);
+    world
+        .reference(target)
+        .is_some_and(|reference| distance(center, reference.position) <= radius)
 }
 
 /// Acquire the nearest detected target for an aggressive actor.
