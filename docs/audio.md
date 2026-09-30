@@ -284,6 +284,21 @@ Dependency cost, only when the feature is on: five crates, `serde_json`, `serde_
 `memchr` and `zmij`, for reading what the tool prints. The default build adds none of them, and
 the viseme types and the race mapping work with no tool present.
 
+### INFO response hints, AUD-10
+
+`Rhubarb::visemes_for_response` takes the plain text carried by an ESM `INFO` response and passes
+it to Rhubarb through `--dialogFile`. Rhubarb still recognizes the recording, while preferring
+words and phrases that match the hint. A localized string ID is not resolved in this crate, so the
+caller must resolve it before generating cues. Missing or unresolved text uses audio-only
+recognition.
+
+The gated AUD-10 check selects eight matching Skyrim.esm INFO responses in ascending form ID and
+response number from the English voice archive. It generates each track both with and without the
+response text and checks that each reported track duration differs from decoded audio duration by
+no more than 50 ms. This measures temporal coverage only. Rhubarb exports mouth cues rather than
+recognized words, so the check does not claim that hints improve transcript accuracy or exact
+phoneme alignment.
+
 ### Shapes onto phonemes
 
 Rhubarb emits mouth positions and a race maps morph targets per phoneme, so one sound from each

@@ -253,6 +253,26 @@ impl Rhubarb {
         let settings = self.cache_settings(pcm, dialog)?;
         cache.get_or_generate(asset, &settings, || self.visemes(pcm, dialog))
     }
+
+    /// Generates mouth cues using the plain text of one INFO response as a
+    /// recognition hint when that text is available.
+    ///
+    /// Localized string IDs have to be resolved by the caller before this
+    /// method can use them. Missing or unresolved text falls back to audio-only
+    /// recognition.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same decode error as [`VisemeSource::visemes`] when the
+    /// recognizer cannot run or its output is invalid.
+    pub fn visemes_for_response(
+        &self,
+        pcm: &Pcm,
+        response: &soe_esm::records::gameplay::Response,
+    ) -> Result<VisemeTrack> {
+        let dialog = response.text.as_ref().and_then(|text| text.plain());
+        self.visemes(pcm, dialog)
+    }
 }
 impl VisemeSource for Rhubarb {
     fn visemes(&self, pcm: &Pcm, dialog: Option<&str>) -> Result<VisemeTrack> {
@@ -298,6 +318,8 @@ mod tests {
     use super::{parse_json, write_wav, Rhubarb};
     use crate::pcm::Pcm;
     use crate::viseme::Shape;
+
+    static NEXT_TEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     #[test]
     fn the_documented_json_parses_into_a_track() {
@@ -394,6 +416,88 @@ mod tests {
             source.cache_settings_from_version("1.14.0", &pcm, Some("first line")),
             source.cache_settings_from_version("1.14.0", &changed_channels, Some("first line"))
         );
+    }
+
+    #[cfg(unix)]
+    fn aud_10_fixture(text_path: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let program = text_path.with_extension("sh");
+        let script = format!(
+            "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--dialogFile\" ]; then\n    cat \"$2\" > '{}'\n    shift 2\n  else\n    shift\n  fi\ndone\ncat <<'JSON'\n{{\"metadata\":{{\"duration\":0.1}},\"mouthCues\":[{{\"start\":0.0,\"end\":0.1,\"value\":\"B\"}}]}}\nJSON\n",
+            text_path.display()
+        );
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        program
+    }
+
+    #[cfg(unix)]
+    fn aud_10_response(
+        text: Option<soe_esm::records::Text>,
+    ) -> soe_esm::records::gameplay::Response {
+        soe_esm::records::gameplay::Response {
+            emotion: 0,
+            emotion_value: 0,
+            number: 1,
+            sound: 0,
+            use_emotion_animation: 0,
+            text,
+            speaker_idle: None,
+            listener_idle: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aud_10_plain_info_response_is_sent_as_the_rhubarb_hint() {
+        let prefix = format!(
+            "soe-aud-10-text-{}-{}",
+            std::process::id(),
+            NEXT_TEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let dialog_path = std::env::temp_dir().join(prefix);
+        let program = aud_10_fixture(&dialog_path);
+        let pcm = Pcm {
+            sample_rate: 16_000,
+            channels: 1,
+            samples: vec![0.0; 1600],
+        };
+        let response = aud_10_response(Some(soe_esm::records::Text::Plain(
+            "Speak clearly".to_string(),
+        )));
+        Rhubarb::at(program.to_string_lossy())
+            .visemes_for_response(&pcm, &response)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&dialog_path).unwrap(),
+            "Speak clearly"
+        );
+        std::fs::remove_file(program).unwrap();
+        std::fs::remove_file(dialog_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aud_10_unresolved_info_text_runs_without_a_dialog_hint() {
+        let prefix = format!(
+            "soe-aud-10-empty-{}-{}",
+            std::process::id(),
+            NEXT_TEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let dialog_path = std::env::temp_dir().join(prefix);
+        let program = aud_10_fixture(&dialog_path);
+        let pcm = Pcm {
+            sample_rate: 16_000,
+            channels: 1,
+            samples: vec![0.0; 1600],
+        };
+        let response = aud_10_response(Some(soe_esm::records::Text::Localized(0x1234)));
+        Rhubarb::at(program.to_string_lossy())
+            .visemes_for_response(&pcm, &response)
+            .unwrap();
+        assert!(!dialog_path.exists());
+        std::fs::remove_file(program).unwrap();
     }
 
     #[test]
