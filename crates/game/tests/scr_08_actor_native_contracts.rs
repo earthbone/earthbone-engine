@@ -4,6 +4,7 @@
 //! SCR-08 Actor queries that have an owning World state field.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
 use soe_papyrus::{
     asm::{ident, s, FunctionBuilder, ScriptBuilder},
@@ -17,7 +18,17 @@ fn id(object: u32) -> GlobalFormId {
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    plugin.push_top(npc::build_record(
+        0x800,
+        "Probe",
+        "Probe",
+        Config {
+            flags: npc::flags::BLEEDOUT_OVERRIDE | npc::flags::PROTECTED,
+            bleedout: 20,
+            ..Config::default()
+        },
+        Stats::default(),
+    ));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Scr08.esm", plugin).unwrap();
@@ -65,7 +76,18 @@ fn scr_08_is_bleeding_out_reads_world_down_state() {
         actor_query(&mut game, id(0x900), "IsBleedingOut"),
         Value::Bool(false)
     );
+    game.world_mut()
+        .set_actor_value(id(0x900), "health", 100.0)
+        .unwrap();
     game.world_mut().actor(id(0x900)).unwrap().unconscious = true;
+    assert_eq!(
+        actor_query(&mut game, id(0x900), "IsBleedingOut"),
+        Value::Bool(false)
+    );
+    game.world_mut().actor(id(0x900)).unwrap().unconscious = false;
+    game.world_mut()
+        .damage_actor_value(id(0x900), "health", 100.0)
+        .unwrap();
     assert_eq!(
         actor_query(&mut game, id(0x900), "IsBleedingOut"),
         Value::Bool(true)

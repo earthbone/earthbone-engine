@@ -278,8 +278,9 @@ transaction.
 
 `natives::register` has 369 stateful registrations, including
 `CreateDetectionEvent`, `Actor.IsAlarmed` and `Actor.IsBleedingOut`.
-`IsAlarmed` reads the actor's alert flag. `IsBleedingOut` reads the actor's
-unconscious flag used by the bleedout path. Quiet stubs still return an idle
+`IsAlarmed` reads the actor's alert flag. `IsBleedingOut` requires an actor to
+be unconscious, alive and at or below its record-derived bleedout threshold.
+Quiet stubs still return an idle
 value so vanilla scripts can continue when their owning system has no behavior
 yet.
 
@@ -319,15 +320,17 @@ Current behavior and compatibility limits:
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
 `Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
-the sleep procedure is active and 0 otherwise. Transitional sleep states 2
-and 4 are not represented. These values follow the CK pages
+the sleep procedure is active and 0 otherwise. Transitional sleep states are
+not represented, including 2 (wants to sleep) and 4 (wants to wake). These values follow the CK pages
 `GetCombatState_-_Actor` and `GetSleepState_-_Actor` in the local `ck-wiki`
 corpus.
 
-`Actor.HasLOS`, `Actor.PathToReference` and `Actor.IsFlying` remain quiet
-stubs returning false. Host LOS observations are not retained for Papyrus
-queries, `PathToReference` needs a latent path completion API, and the actor
-model has no current flight state. Their CK contracts are described by
+`Actor.HasLOS` returns true when both references are at the same position and
+the target is visible. Other geometry is not checked. `Actor.PathToReference`
+returns true for a visible target already at the actor's position and valid
+speed. Other requests need a latent path completion API. `Actor.IsFlying`
+remains a quiet stub because the actor model has no current flight state.
+Their CK contracts are described by
 `HasLOS_-_Actor`, `PathToReference_-_Actor` and `IsFlying_-_Actor` in the local
 `ck-wiki` corpus.
 

@@ -18,7 +18,17 @@ fn id(object: u32) -> GlobalFormId {
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(npc::build_record(0x800, "Probe", "Probe", Config::default(), Stats::default()));
+    plugin.push_top(npc::build_record(
+        0x800,
+        "Probe",
+        "Probe",
+        Config {
+            flags: npc::flags::BLEEDOUT_OVERRIDE | npc::flags::PROTECTED,
+            bleedout: 20,
+            ..Config::default()
+        },
+        Stats::default(),
+    ));
     plugin.push_top(Record::new(Tag(*b"ACHR"), ACTOR).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Scr08Breaker.esm", plugin).unwrap();
@@ -34,17 +44,25 @@ fn actor_bool(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let mut operands = vec![s(name), ident("actor"), ident("result")];
     for (index, arg) in args.iter().enumerate() {
         let parameter = format!("arg{index}");
-        function = function.param(&parameter, match arg {
-            Value::Bool(_) => "Bool",
-            Value::Float(_) => "Float",
-            Value::Int(_) => "Int",
-            Value::Str(_) => "String",
-            _ => "ObjectReference",
-        });
+        function = function.param(
+            &parameter,
+            match arg {
+                Value::Bool(_) => "Bool",
+                Value::Float(_) => "Float",
+                Value::Int(_) => "Int",
+                Value::Str(_) => "String",
+                _ => "ObjectReference",
+            },
+        );
         operands.push(ident(&parameter));
     }
     let bytes = ScriptBuilder::new(&class, "Form")
-        .function(function.ins(CallMethod, operands).ins(Return, vec![ident("result")]).build())
+        .function(
+            function
+                .ins(CallMethod, operands)
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
         .bytes();
     game.load_script(&bytes).unwrap();
     let object = game.object_of_form(id(ACTOR));
@@ -70,8 +88,25 @@ fn scr_08_bleeding_out_is_distinct_from_dead_or_ordinary_unconscious_state() {
     let mut game = game();
     let actor = id(ACTOR);
     game.world_mut().actor(actor).unwrap().dead = true;
-    assert_eq!(actor_bool(&mut game, "IsBleedingOut", &[]), Value::Bool(false));
+    assert_eq!(
+        actor_bool(&mut game, "IsBleedingOut", &[]),
+        Value::Bool(false)
+    );
     game.world_mut().actor(actor).unwrap().dead = false;
+    game.world_mut()
+        .set_actor_value(actor, "health", 100.0)
+        .unwrap();
     game.world_mut().actor(actor).unwrap().unconscious = true;
-    assert_eq!(actor_bool(&mut game, "IsBleedingOut", &[]), Value::Bool(false));
+    assert_eq!(
+        actor_bool(&mut game, "IsBleedingOut", &[]),
+        Value::Bool(false)
+    );
+    game.world_mut().actor(actor).unwrap().unconscious = false;
+    game.world_mut()
+        .damage_actor_value(actor, "health", 100.0)
+        .unwrap();
+    assert_eq!(
+        actor_bool(&mut game, "IsBleedingOut", &[]),
+        Value::Bool(true)
+    );
 }

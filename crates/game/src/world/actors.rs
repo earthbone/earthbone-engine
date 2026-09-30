@@ -210,16 +210,22 @@ impl World {
         self.actor_ref(id).is_some_and(|actor| actor.alerted)
     }
 
-    /// Whether an instantiated actor is marked unconscious by the bleedout path.
-    ///
-    /// # Errors
-    /// This query does not fail.
+    /// Whether an instantiated actor is unconscious at or below its bleedout threshold.
+    /// Missing or invalid bleedout threshold data returns `false`.
     ///
     /// # Panics
     /// This query does not panic.
     #[must_use]
-    pub fn actor_is_bleeding_out(&self, id: GlobalFormId) -> bool {
-        self.actor_ref(id).is_some_and(|actor| actor.unconscious)
+    pub fn actor_is_bleeding_out(&mut self, id: GlobalFormId) -> bool {
+        let Some(actor) = self.actor_ref(id) else {
+            return false;
+        };
+        if actor.dead || !actor.unconscious {
+            return false;
+        }
+        let health = actor.values.get("health").current();
+        self.actor_bleedout_threshold(id)
+            .is_ok_and(|threshold| health <= threshold)
     }
 
     pub fn actor_value(&mut self, id: GlobalFormId, name: &str) -> f32 {

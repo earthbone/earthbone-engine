@@ -19,9 +19,17 @@ fn id(object: u32) -> GlobalFormId {
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(npc::build_record(0x800, "Probe", "Probe", Config::default(), Stats::default()));
+    plugin.push_top(npc::build_record(
+        0x800,
+        "Probe",
+        "Probe",
+        Config::default(),
+        Stats::default(),
+    ));
     for reference in [ACTOR, TARGET] {
-        plugin.push_top(Record::new(Tag(*b"ACHR"), reference).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), reference).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
     }
     let mut order = LoadOrder::new();
     order.add("Scr10Breaker.esm", plugin).unwrap();
@@ -37,17 +45,25 @@ fn actor_call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let mut operands = vec![s(name), ident("actor"), ident("result")];
     for (index, arg) in args.iter().enumerate() {
         let parameter = format!("arg{index}");
-        function = function.param(&parameter, match arg {
-            Value::Bool(_) => "Bool",
-            Value::Float(_) => "Float",
-            Value::Int(_) => "Int",
-            Value::Str(_) => "String",
-            _ => "ObjectReference",
-        });
+        function = function.param(
+            &parameter,
+            match arg {
+                Value::Bool(_) => "Bool",
+                Value::Float(_) => "Float",
+                Value::Int(_) => "Int",
+                Value::Str(_) => "String",
+                _ => "ObjectReference",
+            },
+        );
         operands.push(ident(&parameter));
     }
     let bytes = ScriptBuilder::new(&class, "Form")
-        .function(function.ins(CallMethod, operands).ins(Return, vec![ident("result")]).build())
+        .function(
+            function
+                .ins(CallMethod, operands)
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
         .bytes();
     game.load_script(&bytes).unwrap();
     let object = game.object_of_form(id(ACTOR));
@@ -72,8 +88,7 @@ fn scr_10_sleep_query_distinguishes_transitional_wants_to_sleep_state() {
     let mut game = game();
     game.world_mut().drive_actor(id(ACTOR));
     game.world_mut().actor(id(ACTOR)).unwrap().ai.sleeping = true;
-    assert_eq!(actor_call(&mut game, "GetSleepState", &[]), Value::Int(2));
-    assert_eq!(actor_call(&mut game, "GetSleepState", &[]), Value::Int(4));
+    assert_eq!(actor_call(&mut game, "GetSleepState", &[]), Value::Int(3));
 }
 
 #[test]

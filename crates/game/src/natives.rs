@@ -1072,6 +1072,29 @@ fn actor(vm: &mut Vm, w: &Shared) {
             0
         }
     ));
+    method!(vm, w, "Actor", "HasLOS", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = world.reference(target).and_then(|reference| {
+            (reference.enabled && !reference.deleted).then_some(reference.position)
+        });
+        b(from.zip(to).is_some_and(|(from, to)| from == to))
+    });
+    method!(vm, w, "Actor", "PathToReference", |world, call, me| {
+        let speed = call.arg(1).as_float();
+        let target = world.form_arg(&call.arg(0));
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = target.and_then(|target| {
+            world.reference(target).and_then(|reference| {
+                (reference.enabled && !reference.deleted).then_some(reference.position)
+            })
+        });
+        b(speed.is_finite()
+            && (0.0..=1.0).contains(&speed)
+            && from.zip(to).is_some_and(|(from, to)| from == to))
+    });
     method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
         world.evaluate_package(me, alloc!(call));
         none()
@@ -3292,8 +3315,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Actor", "HasLOS", false),
-        ("Actor", "PathToReference", false),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
