@@ -1404,7 +1404,6 @@ impl World {
                     | ETHEREALIZE
                     | 42
                     | SPAWN_SCRIPTED_REF
-                    | 44
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }

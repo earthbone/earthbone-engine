@@ -97,7 +97,7 @@ fn fixture() -> Game {
 }
 
 #[test]
-fn mag_65_disguise_with_no_archetype_data_expires() {
+fn mag_65_unknown_disguise_semantics_are_rejected_without_applying() {
     let mut game = fixture();
     let shared = game.shared_world();
     let applied = shared.borrow_mut().cast_spell(
@@ -107,8 +107,11 @@ fn mag_65_disguise_with_no_archetype_data_expires() {
         Some(id(TARGET)),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
-    applied.expect("fixture cast succeeds");
-    assert_eq!(game.world().active_effects().count(), 1);
-    game.tick(3.0);
+    assert!(matches!(
+        applied,
+        Err(soe_game::world::magic::MagicError::Unsupported(
+            "effect archetype"
+        ))
+    ));
     assert_eq!(game.world().active_effects().count(), 0);
 }

@@ -459,8 +459,6 @@ pub enum Error {
     Setting(&'static str),
     #[error("invalid worn armor record {0}")]
     Armor(GlobalFormId),
-    #[error("invalid active magic effect record {0}")]
-    Effect(GlobalFormId),
     #[error("non-finite detection calculation")]
     Number,
 }
