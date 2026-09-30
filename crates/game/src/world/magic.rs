@@ -51,6 +51,7 @@ const LAST_SPECIFIC_RESISTANCE: i32 = 45;
 const IGNORE_RESISTANCE: u32 = 1 << 20;
 const PEAK_VALUE_MODIFIER: u32 = 34;
 const CLOAK_CADENCE: f64 = 1.0;
+const SLOW_TIME: u32 = 37;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -162,6 +163,19 @@ impl World {
         };
         self.brewed_potions.insert(id, effects);
         id
+    }
+
+    pub(crate) fn slow_time_scale(&self) -> f64 {
+        let slow_percent = self
+            .active_effects
+            .values()
+            .filter_map(|active| {
+                let definition = self.magic_effect(active.effect).ok()?;
+                (definition.data.archetype == SLOW_TIME).then_some(active.magnitude)
+            })
+            .fold(0.0_f32, f32::max)
+            .min(100.0);
+        f64::from(100.0 - slow_percent) / 100.0
     }
 
     /// All currently applied effects, in application order.
@@ -1427,6 +1441,7 @@ impl World {
                     | 32
                     | 33
                     | PEAK_VALUE_MODIFIER
+                    | SLOW_TIME
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
