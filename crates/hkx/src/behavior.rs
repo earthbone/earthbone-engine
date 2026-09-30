@@ -696,6 +696,13 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    /// `BSModifyOnceModifier`: activates its selected child modifiers on
+    /// the corresponding parent lifecycle edge.
+    ModifyOnce {
+        enable: bool,
+        on_activate: Option<NodeId>,
+        on_deactivate: Option<NodeId>,
+    },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -773,6 +780,14 @@ impl Node {
                 out.extend(*offset_clip_generator);
             }
             NodeKind::EventDrivenModifier { modifier, .. } => out.extend(*modifier),
+            NodeKind::ModifyOnce {
+                on_activate,
+                on_deactivate,
+                ..
+            } => {
+                out.extend(*on_activate);
+                out.extend(*on_deactivate);
+            }
             // Only after linking. An unlinked reference has no child, which
             // is why an unlinked graph leaves the state it guards silent.
             NodeKind::BehaviorReference { resolved, .. } => out.extend(*resolved),
@@ -1218,6 +1233,12 @@ impl<'a> Loader<'a> {
                     ],
                 }
             }
+
+            "BSModifyOnceModifier" => NodeKind::ModifyOnce {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                on_activate: self.opt_id(o.ptr(o.layout_offset(48, 80))?),
+                on_deactivate: self.opt_id(o.ptr(o.layout_offset(56, 96))?),
+            },
 
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,

@@ -1076,3 +1076,18 @@ writer. The `edt_09_transition_edit` tests check a one-transition edit through
 write and reread, plus rejection without mutation when the destination is
 missing. They use a synthetic graph and do not claim to validate rewritten
 files in Havok or Skyrim.
+
+## BSModifyOnceModifier (ANM-33, 2026-09-28)
+
+`BSModifyOnceModifier` inherits the modifier enable flag and stores
+`pOnActivateModifier` and `pOnDeactivateModifier` pointers at offsets 80 and
+96 in the 64-bit layout. The offsets and inherited class fields come from
+`../engine-refs/serde-hkx/assets/classes/BSModifyOnceModifier.json`. The
+decoder retains both pointers as modifier children and graph linking shifts
+them when behavior graphs are combined. When an enabled node activates, the
+interpreter synchronizes its activation child once. When it deactivates, it
+synchronizes its deactivation child before normal child cleanup. Repeated
+updates do not repeat either lifecycle edge. Synthetic `anm_33` tests cover
+the decoded children, activation, stable repeated updates and deactivation.
+The available class metadata defines layout and fields, but does not establish
+more detailed behavior from an original-runtime capture.
