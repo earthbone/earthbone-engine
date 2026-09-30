@@ -82,6 +82,7 @@ fn ui_12_slider_accept_dispatches_selected_value_within_authored_bounds() {
     let mut page = ConfigPage::new(0);
     let slider = page.add_slider("Scale", 1.0, 0.5, 3.0, 0.5, 0).unwrap();
 
+    assert!(page.open_slider(&mut game, CONFIG_SCRIPT, slider).is_some());
     assert!(page.accept_slider(&mut game, CONFIG_SCRIPT, slider, 4.0));
 
     assert_eq!(
@@ -109,6 +110,7 @@ fn ui_12_slider_accept_snaps_to_authored_interval() {
     let mut page = ConfigPage::new(0);
     let slider = page.add_slider("Scale", 1.0, 0.5, 3.0, 0.5, 0).unwrap();
 
+    assert!(page.open_slider(&mut game, CONFIG_SCRIPT, slider).is_some());
     assert!(page.accept_slider(&mut game, CONFIG_SCRIPT, slider, 2.6));
 
     assert!(matches!(
@@ -175,8 +177,8 @@ fn ui_12_cancel_keeps_selected_values_and_sends_no_accept_callback() {
         .unwrap();
 
     assert!(page.open_slider(&mut game, CONFIG_SCRIPT, slider).is_some());
-    assert!(page.open_menu(&mut game, CONFIG_SCRIPT, menu).is_some());
     assert!(page.cancel_dialog(slider));
+    assert!(page.open_menu(&mut game, CONFIG_SCRIPT, menu).is_some());
     assert!(page.cancel_dialog(menu));
     assert_eq!(
         page.rows()[0].kind,

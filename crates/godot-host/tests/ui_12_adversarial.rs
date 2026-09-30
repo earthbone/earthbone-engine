@@ -12,7 +12,9 @@ const SCRIPT: GlobalFormId = GlobalFormId {
 
 fn game() -> Game {
     let mut order = LoadOrder::new();
-    order.add("Ui12.esp", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Ui12.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
     Game::new(order)
 }
 
@@ -29,12 +31,15 @@ fn ui_12_accept_and_cancel_require_an_open_dialog() {
     assert!(!page.accept_menu(&mut game, SCRIPT, menu, 1));
     assert!(!page.cancel_dialog(slider));
     assert!(!page.cancel_dialog(menu));
-    assert_eq!(page.rows()[0].kind, OptionKind::Slider {
-        value: 1.0,
-        min_value: 0.0,
-        max_value: 2.0,
-        interval: 0.5,
-    });
+    assert_eq!(
+        page.rows()[0].kind,
+        OptionKind::Slider {
+            value: 1.0,
+            min_value: 0.0,
+            max_value: 2.0,
+            interval: 0.5,
+        }
+    );
     assert!(matches!(&page.rows()[1].kind, OptionKind::Menu { value, .. } if value == "A"));
 }
 
@@ -50,7 +55,9 @@ fn ui_12_cancel_closes_only_the_open_menu_dialog_once() {
     assert!(page.cancel_dialog(menu));
     assert!(!page.cancel_dialog(menu));
     assert!(!page.accept_menu(&mut game, SCRIPT, menu, 1));
-    assert!(matches!(&page.rows()[0].kind, OptionKind::Menu { value, selected_index: 0, .. } if value == "A"));
+    assert!(
+        matches!(&page.rows()[0].kind, OptionKind::Menu { value, selected_index: 0, .. } if value == "A")
+    );
 }
 
 #[test]
@@ -61,5 +68,8 @@ fn ui_12_slider_rounding_keeps_authored_minimum_and_maximum() {
 
     assert!(page.open_slider(&mut game, SCRIPT, slider).is_some());
     assert!(page.accept_slider(&mut game, SCRIPT, slider, 1.0));
-    assert!(matches!(page.rows()[0].kind, OptionKind::Slider { value: 1.0, .. }));
+    assert!(matches!(
+        page.rows()[0].kind,
+        OptionKind::Slider { value: 1.0, .. }
+    ));
 }

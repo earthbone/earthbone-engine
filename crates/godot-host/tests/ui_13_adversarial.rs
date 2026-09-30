@@ -17,7 +17,9 @@ const SCRIPT: GlobalFormId = GlobalFormId {
 
 fn game() -> Game {
     let mut order = LoadOrder::new();
-    order.add("Ui13.esp", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Ui13.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
     Game::new(order)
 }
 
@@ -35,7 +37,7 @@ fn callback_probe(game: &mut Game) -> Rc<RefCell<Vec<Vec<Value>>>> {
     let record_call = |params: &[(&str, &str)]| {
         let mut function = FunctionBuilder::new("OnOptionKeyMapChange", "None");
         for (name, kind) in params {
-            function = function.param(*name, kind);
+            function = function.param(name, kind);
         }
         function
             .ins(
@@ -105,12 +107,15 @@ fn ui_13_keymap_forwards_both_conflict_fields_and_keeps_value_until_script_write
     let id = page.add_keymap("Dodge", 42, 0).unwrap();
 
     assert!(page.remap_key(&mut game, SCRIPT, id, 44, "Jump", "Other Mod"));
-    assert_eq!(calls.borrow().as_slice(), &[vec![
-        Value::Int(id as i32),
-        Value::Int(44),
-        Value::string("Jump"),
-        Value::string("Other Mod"),
-    ]]);
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[vec![
+            Value::Int(id as i32),
+            Value::Int(44),
+            Value::string("Jump"),
+            Value::string("Other Mod"),
+        ]]
+    );
     assert_eq!(page.rows()[0].kind, OptionKind::KeyMap { key_code: 42 });
 }
 
@@ -125,15 +130,21 @@ fn ui_13_color_cancel_rejects_stale_accept_and_can_reopen() {
     assert_eq!(calls.borrow().as_slice(), &[vec![Value::Int(id as i32)]]);
     assert!(page.cancel_color_dialog(id));
     assert!(!page.accept_color(&mut game, SCRIPT, id, 0xaabb_ccdd_u32 as i32));
-    assert_eq!(page.rows()[0].kind, OptionKind::Color { value: 0x1122_3344 });
+    assert_eq!(
+        page.rows()[0].kind,
+        OptionKind::Color { value: 0x1122_3344 }
+    );
     assert_eq!(calls.borrow().len(), 1);
     assert!(page.open_color_dialog(&mut game, SCRIPT, id));
     assert!(page.accept_color(&mut game, SCRIPT, id, 0xaabb_ccdd_u32 as i32));
-    assert_eq!(calls.borrow().as_slice(), &[
-        vec![Value::Int(id as i32)],
-        vec![Value::Int(id as i32)],
-        vec![Value::Int(id as i32), Value::Int(0xaabb_ccdd_u32 as i32)],
-    ]);
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[
+            vec![Value::Int(id as i32)],
+            vec![Value::Int(id as i32)],
+            vec![Value::Int(id as i32), Value::Int(0xaabb_ccdd_u32 as i32)],
+        ]
+    );
 }
 
 #[test]

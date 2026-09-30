@@ -18,6 +18,13 @@ pub const OPTION_FLAG_DISABLED: u32 = 0x01;
 const PAGE_STRIDE: u32 = 0x100;
 const PAGE_CAPACITY: usize = 128;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveDialog {
+    Slider(u32),
+    Menu(u32),
+    Color(u32),
+}
+
 /// The option row types supported by the MCM presenter.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptionKind {
@@ -95,7 +102,7 @@ pub struct ConfigPage {
     page: u32,
     next_slot: usize,
     rows: Vec<OptionRow>,
-    active_color_dialog: Option<u32>,
+    active_dialog: Option<ActiveDialog>,
 }
 
 impl ConfigPage {
@@ -105,7 +112,7 @@ impl ConfigPage {
             page,
             next_slot: 0,
             rows: Vec::new(),
-            active_color_dialog: None,
+            active_dialog: None,
         }
     }
 
@@ -241,28 +248,26 @@ impl ConfigPage {
     /// Dispatch the selection event for an enabled option row.
     /// Slider and menu rows dispatch their option-open event.
     /// Returns false for a missing, disabled, or hidden option.
-    pub fn select(&self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
-        let Some(row) = self.rows.iter().find(|row| row.id == id) else {
+    pub fn select(&mut self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
+        let Some(row) = self.selectable_row(id) else {
             return false;
         };
-        if !row.enabled() || row.flags & 0x02 != 0 {
-            return false;
+        let kind = row.kind.clone();
+        match kind {
+            OptionKind::Slider { .. } => return self.open_slider(game, script, id).is_some(),
+            OptionKind::Menu { .. } => return self.open_menu(game, script, id).is_some(),
+            _ => {}
         }
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
-        let (event, args) = match &row.kind {
-            OptionKind::Slider { .. } => ("OnOptionSliderOpen", vec![Value::Int(option_id)]),
-            OptionKind::Menu { .. } => ("OnOptionMenuOpen", vec![Value::Int(option_id)]),
-            _ => ("OnOptionSelect", vec![Value::Int(option_id)]),
-        };
-        game.send_event(script, event, &args);
+        game.send_event(script, "OnOptionSelect", &[Value::Int(option_id)]);
         true
     }
 
     /// Dispatch the SkyUI slider-open event and return its authored parameters.
     pub fn open_slider(
-        &self,
+        &mut self,
         game: &mut Game,
         script: GlobalFormId,
         id: u32,
@@ -278,15 +283,20 @@ impl ConfigPage {
             return None;
         };
         let option_id = i32::try_from(id).ok()?;
-        game.send_event(script, "OnOptionSliderOpen", &[Value::Int(option_id)]);
-        Some(SliderDialog {
+        if self.active_dialog.is_some() {
+            return None;
+        }
+        let dialog = SliderDialog {
             option_id: id,
             start_value: *value,
             default_value: *value,
             min_value: *min_value,
             max_value: *max_value,
             interval: *interval,
-        })
+        };
+        self.active_dialog = Some(ActiveDialog::Slider(id));
+        game.send_event(script, "OnOptionSliderOpen", &[Value::Int(option_id)]);
+        Some(dialog)
     }
 
     /// Accept a slider value, clamp it to its authored range, and dispatch SkyUI's event.
@@ -297,6 +307,9 @@ impl ConfigPage {
         id: u32,
         selected_value: f32,
     ) -> bool {
+        if self.active_dialog != Some(ActiveDialog::Slider(id)) {
+            return false;
+        }
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
@@ -327,11 +340,17 @@ impl ConfigPage {
             "OnOptionSliderAccept",
             &[Value::Int(option_id), Value::Float(*value)],
         );
+        self.active_dialog = None;
         true
     }
 
     /// Dispatch the SkyUI menu-open event and return its authored choices.
-    pub fn open_menu(&self, game: &mut Game, script: GlobalFormId, id: u32) -> Option<MenuDialog> {
+    pub fn open_menu(
+        &mut self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+    ) -> Option<MenuDialog> {
         let row = self.selectable_row(id)?;
         let OptionKind::Menu {
             options,
@@ -342,13 +361,18 @@ impl ConfigPage {
             return None;
         };
         let option_id = i32::try_from(id).ok()?;
-        game.send_event(script, "OnOptionMenuOpen", &[Value::Int(option_id)]);
-        Some(MenuDialog {
+        if self.active_dialog.is_some() {
+            return None;
+        }
+        let dialog = MenuDialog {
             option_id: id,
             start_index: *selected_index,
             default_index: *selected_index,
             options: options.clone(),
-        })
+        };
+        self.active_dialog = Some(ActiveDialog::Menu(id));
+        game.send_event(script, "OnOptionMenuOpen", &[Value::Int(option_id)]);
+        Some(dialog)
     }
 
     /// Accept a menu choice by index and dispatch SkyUI's event.
@@ -359,6 +383,9 @@ impl ConfigPage {
         id: u32,
         selected_index: usize,
     ) -> bool {
+        if self.active_dialog != Some(ActiveDialog::Menu(id)) {
+            return false;
+        }
         let Some(row) = self
             .rows
             .iter_mut()
@@ -390,18 +417,21 @@ impl ConfigPage {
             "OnOptionMenuAccept",
             &[Value::Int(option_id), Value::Int(selected_index_arg)],
         );
+        self.active_dialog = None;
         true
     }
 
     /// Close an enabled slider or menu dialog without changing its value.
     #[must_use]
-    pub fn cancel_dialog(&self, id: u32) -> bool {
-        self.selectable_row(id).is_some_and(|row| {
-            matches!(
-                row.kind,
-                OptionKind::Slider { .. } | OptionKind::Menu { .. }
-            )
-        })
+    pub fn cancel_dialog(&mut self, id: u32) -> bool {
+        if !matches!(
+            self.active_dialog,
+            Some(ActiveDialog::Slider(open_id) | ActiveDialog::Menu(open_id)) if open_id == id
+        ) {
+            return false;
+        }
+        self.active_dialog = None;
+        true
     }
 
     fn selectable_row(&self, id: u32) -> Option<&OptionRow> {
@@ -441,7 +471,7 @@ impl ConfigPage {
     /// Open a color dialog and request its start and default colors from the config script.
     pub fn open_color_dialog(&mut self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
         if !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
-            || self.active_color_dialog.is_some()
+            || self.active_dialog.is_some()
         {
             return false;
         }
@@ -449,7 +479,7 @@ impl ConfigPage {
             return false;
         };
         game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
-        self.active_color_dialog = Some(id);
+        self.active_dialog = Some(ActiveDialog::Color(id));
         true
     }
 
@@ -461,7 +491,7 @@ impl ConfigPage {
         id: u32,
         color: i32,
     ) -> bool {
-        if self.active_color_dialog != Some(id)
+        if self.active_dialog != Some(ActiveDialog::Color(id))
             || !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
         {
             return false;
@@ -474,16 +504,16 @@ impl ConfigPage {
             "OnOptionColorAccept",
             &[Value::Int(option_id), Value::Int(color)],
         );
-        self.active_color_dialog = None;
+        self.active_dialog = None;
         true
     }
 
     /// Cancel the open color dialog without changing the option value or sending an accept event.
     pub fn cancel_color_dialog(&mut self, id: u32) -> bool {
-        if self.active_color_dialog != Some(id) {
+        if self.active_dialog != Some(ActiveDialog::Color(id)) {
             return false;
         }
-        self.active_color_dialog = None;
+        self.active_dialog = None;
         true
     }
 
