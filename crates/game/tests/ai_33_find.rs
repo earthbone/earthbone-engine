@@ -193,9 +193,10 @@ fn ai_33_find_rejects_an_unresolved_authored_location() {
 }
 
 #[test]
-fn ai_33_find_result_survives_save_and_old_and_future_versions_are_checked() {
+fn ai_33_find_result_survives_save_and_unknown_sections_and_future_versions_are_checked() {
     let game = make_game(Target::ObjectId(OBJECT_BASE), None);
     let bytes = game.world().save_state();
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 37);
     let restored = make_game(Target::ObjectId(OBJECT_BASE), None);
     restored.world_mut().load_state(&bytes).unwrap();
     assert_eq!(
@@ -208,14 +209,18 @@ fn ai_33_find_result_survives_save_and_old_and_future_versions_are_checked() {
         Some(id(OBJECT))
     );
 
-    let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&41u16.to_le_bytes());
+    let mut unknown_section = bytes.clone();
+    let section = unknown_section
+        .windows(5)
+        .position(|name| name == b"AI-21")
+        .unwrap();
+    unknown_section[section..section + 5].copy_from_slice(b"AI-00");
     assert!(restored
         .world_mut()
-        .load_state(&old)
+        .load_state(&unknown_section)
         .unwrap_err()
         .to_string()
-        .contains("Find procedure requires world version 42"));
+        .contains("unknown section AI-00 at actor"));
 
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());

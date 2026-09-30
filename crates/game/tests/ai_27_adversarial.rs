@@ -154,12 +154,13 @@ fn ai_27_activate_rejects_a_missing_assigned_reference() {
 }
 
 #[test]
-fn ai_27_activate_saves_attempt_state_and_rejects_old_and_future_versions() {
+fn ai_27_activate_saves_attempt_state_and_rejects_unknown_sections_and_future_versions() {
     let mut game = make_game(true);
     for _ in 0..12 {
         game.tick(0.25);
     }
     let bytes = game.world().save_state();
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 37);
     let restored = make_game(true);
     restored.world_mut().load_state(&bytes).unwrap();
     assert!(
@@ -171,14 +172,18 @@ fn ai_27_activate_saves_attempt_state_and_rejects_old_and_future_versions() {
             .activate_started
     );
 
-    let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&40u16.to_le_bytes());
+    let mut unknown_section = bytes.clone();
+    let section = unknown_section
+        .windows(5)
+        .position(|name| name == b"AI-21")
+        .unwrap();
+    unknown_section[section..section + 5].copy_from_slice(b"AI-00");
     assert!(restored
         .world_mut()
-        .load_state(&old)
+        .load_state(&unknown_section)
         .unwrap_err()
         .to_string()
-        .contains("Activate procedure requires world version 41"));
+        .contains("unknown section AI-00 at actor"));
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());
     assert!(restored

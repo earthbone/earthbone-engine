@@ -151,9 +151,10 @@ fn ai_21_hold_position_stays_active_until_its_package_condition_ends() {
 }
 
 #[test]
-fn ai_21_hold_position_save_roundtrip_checks_old_and_future_versions() {
+fn ai_21_hold_position_save_roundtrip_checks_sections_and_future_versions() {
     let game = game();
     let bytes = game.world().save_state();
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 37);
     let restored = Game::new(order());
     restored.world_mut().load_state(&bytes).unwrap();
     assert_eq!(
@@ -161,14 +162,18 @@ fn ai_21_hold_position_save_roundtrip_checks_old_and_future_versions() {
         Procedure::HoldPosition
     );
 
-    let mut previous = bytes.clone();
-    previous[4..6].copy_from_slice(&37u16.to_le_bytes());
+    let mut unknown_section = bytes.clone();
+    let section = unknown_section
+        .windows(5)
+        .position(|name| name == b"AI-21")
+        .unwrap();
+    unknown_section[section..section + 5].copy_from_slice(b"AI-00");
     assert!(restored
         .world_mut()
-        .load_state(&previous)
+        .load_state(&unknown_section)
         .unwrap_err()
         .to_string()
-        .contains("HoldPosition procedure requires world version 38"));
+        .contains("unknown section AI-00 at actor"));
 
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());

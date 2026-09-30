@@ -219,12 +219,13 @@ fn ai_35_dialogue_activate_requires_a_placed_actor_target() {
 }
 
 #[test]
-fn ai_35_dialogue_activate_saves_state_and_checks_old_and_unknown_versions() {
+fn ai_35_dialogue_activate_saves_state_and_checks_unknown_sections_and_versions() {
     let mut game = make_game(true, 80.0);
     for _ in 0..3 {
         game.tick(0.1);
     }
     let bytes = game.world().save_state();
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 37);
     let restored = make_game(true, 80.0);
     restored.world_mut().load_state(&bytes).unwrap();
     assert!(
@@ -236,14 +237,18 @@ fn ai_35_dialogue_activate_saves_state_and_checks_old_and_unknown_versions() {
             .dialogue_activate_started
     );
 
-    let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION - 1).to_le_bytes());
+    let mut unknown_section = bytes.clone();
+    let section = unknown_section
+        .windows(5)
+        .position(|name| name == b"AI-21")
+        .unwrap();
+    unknown_section[section..section + 5].copy_from_slice(b"AI-00");
     assert!(restored
         .world_mut()
-        .load_state(&old)
+        .load_state(&unknown_section)
         .unwrap_err()
         .to_string()
-        .contains("DialogueActivate procedure requires world version 43"));
+        .contains("unknown section AI-00 at actor"));
     let mut unknown = bytes;
     unknown[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());
     assert!(restored

@@ -183,10 +183,11 @@ fn ai_26_escort_waits_for_a_distant_target_before_advancing() {
 }
 
 #[test]
-fn ai_26_escort_round_trips_and_rejects_old_and_future_world_versions() {
+fn ai_26_escort_round_trips_and_rejects_unknown_sections_and_future_world_versions() {
     let mut running = game(true, true);
     running.tick(0.2);
     let bytes = running.world().save_state();
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 37);
     let restored = game(true, true);
     restored.world_mut().load_state(&bytes).unwrap();
     assert_eq!(
@@ -199,14 +200,18 @@ fn ai_26_escort_round_trips_and_rejects_old_and_future_world_versions() {
         Procedure::Escort
     );
 
-    let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&39_u16.to_le_bytes());
+    let mut unknown_section = bytes.clone();
+    let section = unknown_section
+        .windows(5)
+        .position(|name| name == b"AI-21")
+        .unwrap();
+    unknown_section[section..section + 5].copy_from_slice(b"AI-00");
     assert!(restored
         .world_mut()
-        .load_state(&old)
+        .load_state(&unknown_section)
         .unwrap_err()
         .to_string()
-        .contains("Escort procedure requires world version 40"));
+        .contains("unknown section AI-00 at actor"));
 
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());
