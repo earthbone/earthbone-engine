@@ -35,7 +35,7 @@ impl PlayerNode {
         let tracks = self
             .game
             .as_ref()
-            .and_then(|game| soe_game::ambience::tracks_for_cell(&game.world(), cell).ok());
+            .and_then(|game| soe_game::ambience::tracks_for_cell(&mut game.world_mut(), cell).ok());
         let track = tracks.and_then(|tracks| tracks.into_iter().next());
         if !self.ambience_owner.set(track.as_ref()) {
             return;

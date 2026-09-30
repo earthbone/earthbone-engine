@@ -51,8 +51,8 @@ fn id(object: u32) -> GlobalFormId {
 
 #[test]
 fn aud_09_cell_music_starts_eligible_single_track() {
-    let world = order(Some(MUSIC), 0x6ED7_E048);
-    let tracks = ambience::tracks_for_cell(&world, id(CELL)).unwrap();
+    let mut world = order(Some(MUSIC), 0x6ED7_E048);
+    let tracks = ambience::tracks_for_cell(&mut world, id(CELL)).unwrap();
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].cell, id(CELL));
     assert_eq!(tracks[0].descriptor, id(MUSIC));
@@ -61,16 +61,16 @@ fn aud_09_cell_music_starts_eligible_single_track() {
 
 #[test]
 fn aud_09_region_music_starts_when_cell_has_no_music() {
-    let world = order(None, 0x6ED7_E048);
-    let tracks = ambience::tracks_for_cell(&world, id(CELL)).unwrap();
+    let mut world = order(None, 0x6ED7_E048);
+    let tracks = ambience::tracks_for_cell(&mut world, id(CELL)).unwrap();
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].descriptor, id(MUSIC));
 }
 
 #[test]
 fn aud_09_palette_and_silent_tracks_are_not_started_as_files() {
-    let world = order(Some(MUSIC), 0x23F6_78C3);
-    assert!(ambience::tracks_for_cell(&world, id(CELL))
+    let mut world = order(Some(MUSIC), 0x23F6_78C3);
+    assert!(ambience::tracks_for_cell(&mut world, id(CELL))
         .unwrap()
         .is_empty());
 }

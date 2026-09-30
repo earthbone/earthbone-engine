@@ -1,13 +1,13 @@
 # soe-game: the runtime form table and the first natives
 
 `ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
-regional sound entry's `RDMO` when the cell has none. It returns direct `MUST`
-single-track `ANAM` paths for host playback. Region sound-entry detection uses
-`REGN.RDAT` type 7. Palette and silent `MUST` records are skipped. The local
-TES5Edit `wbDefinitionsTES5.pas` and UESP `MUSC.wikitext`, `MUST.wikitext` and
-`REGN.wikitext` define these fields. MUSC selection flags, priority and fade,
-MUST conditions, palette expansion, region priority and `RDSA` sound descriptors
-are not evaluated yet.
+regional sound entry's `RDMO` when the cell has none. It returns eligible
+single-track `ANAM` paths for host playback, following MUST conditions and
+palette `SNAM` entries. Region sound-entry detection uses `REGN.RDAT` type 7.
+Silent MUST records are skipped. The local TES5Edit `wbDefinitionsTES5.pas`
+and UESP `MUSC.wikitext`, `MUST.wikitext` and `REGN.wikitext` define these
+fields. MUSC selection flags, priority and fade, region priority and `RDSA`
+sound descriptors are not evaluated yet.
 
 The combat integration includes race-based unarmed damage, difficulty selection,
 template-backed hits,
