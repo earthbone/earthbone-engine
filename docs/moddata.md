@@ -229,10 +229,16 @@ resolved, held in `mod_data` and counted in the report, but nothing consumes
 them yet: a package needs a third source in the driver's stack and a save format
 change, and the other three are not yet connected to distribution.
 
-A distribution carrying a level or trait filter is **skipped** and counted in
-`skipped_unsupported_filter`, never applied. Those filters are not evaluated
-yet, and applying such a rule to every actor would be worse than not applying
-it. A test pins that direction.
+A distribution's actor level, skill levels, class skill weights, sex, unique,
+summonable, child, leveled and teammate filters are checked against the
+record-backed NPC base before distribution. A rule that fails one of those
+filters is ignored. A `starts-dead` filter remains skipped and counted in
+`skipped_unsupported_filter`, because it belongs to a placed actor and this
+startup path applies distributions per NPC base. MOD-01's per-actor lifecycle
+work is not present in this worktree, so different placed actors using one
+base cannot receive different filter results or deterministic chance results.
+The checks use SPID's `LookupFilters.cpp` and `LookupNPC.cpp` behavior for
+level and traits, with the record fields available to this engine.
 
 ### Measured
 
@@ -244,4 +250,4 @@ every fixture is still authored.
 | Test suite | Count | What it covers |
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
-| `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
+| `crates/game/tests/moddata_apply.rs` | 12 | Each format through the game's own query paths, level and trait filter matches and misses, the actor-only skip, chance, determinism, and the gated scan |

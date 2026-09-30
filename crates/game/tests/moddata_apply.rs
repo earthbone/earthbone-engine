@@ -90,8 +90,15 @@ fn master() -> Plugin {
         GUARD_BASE,
         "WhiterunGuard",
         "Whiterun Guard",
-        Config::default(),
-        Stats::default(),
+        Config {
+            flags: npc::flags::FEMALE | npc::flags::UNIQUE | npc::flags::SUMMONABLE,
+            level: 15,
+            ..Config::default()
+        },
+        Stats {
+            skills: [50; 18],
+            ..Stats::default()
+        },
     ));
 
     let cell = p.push_record(
@@ -354,20 +361,52 @@ fn mod_03_swap_properties_apply_to_reference_state_and_survive_save_load() {
 }
 
 #[test]
-fn a_level_filtered_rule_is_skipped_rather_than_applied_to_everyone() {
+fn mod_05_starts_dead_filter_is_skipped_without_actor_lifecycle_state() {
     let dir = Dir::new("spid-level");
     dir.write(
         "Test_DISTR.ini",
-        "Spell = MySpell|WhiterunGuard|NONE|10/20\n",
+        "Spell = MySpell|WhiterunGuard|NONE|14/16|F/U/S/-D|NONE\n",
     );
     let mut g = game();
     let report = g.apply_mod_data(&dir.roots());
     assert_eq!(report.distribution_rules, 1);
     assert_eq!(
         report.skipped_unsupported_filter, 1,
-        "a filter this module cannot evaluate must skip, never apply broadly"
+        "starts-dead depends on per-reference actor lifecycle state"
     );
     assert_eq!(report.distributions_applied, 0);
+}
+
+#[test]
+fn mod_05_matching_level_skill_and_base_traits_apply() {
+    let dir = Dir::new("spid-level-trait-match");
+    dir.write(
+        "Test_DISTR.ini",
+        "Spell = MySpell|WhiterunGuard|NONE|14/16,0(49/51)|F/U/S/-L/-T|NONE\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distributions_applied, 1);
+    assert_eq!(report.skipped_unsupported_filter, 0);
+}
+
+#[test]
+fn mod_05_nonmatching_level_skill_or_trait_does_not_apply() {
+    for (case, filters) in [
+        ("level", "20/30|F/U/S"),
+        ("skill", "14/16,0(1/20)|F/U/S"),
+        ("trait", "14/16|M/U/S"),
+    ] {
+        let dir = Dir::new(&format!("spid-filter-miss-{case}"));
+        dir.write(
+            "Test_DISTR.ini",
+            &format!("Spell = MySpell|WhiterunGuard|NONE|{filters}|NONE\n"),
+        );
+        let mut g = game();
+        let report = g.apply_mod_data(&dir.roots());
+        assert_eq!(report.distributions_applied, 0, "{case} filter must reject");
+        assert_eq!(report.skipped_unsupported_filter, 0);
+    }
 }
 
 #[test]
