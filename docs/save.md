@@ -1250,3 +1250,26 @@ FallrimTools keeps these payloads raw, and UESP documents the outer
 change-form framing rather than these record layouts. The corpus test accounts
 for every BOOK, NOTE and KEYM change in the external save set and checks exact
 payload re-encoding.
+
+## ACTI, TACT and DOOR changes
+
+`ChangeForm::activator_change` decodes all 32 change-flag bits for ACTI, TACT
+and DOOR. Bit 0 selects the optional six-byte form flags. Bits 1 and 2 mark
+the base-object value and full name, and TACT bit 23 marks its speaker. Those
+markers have no payload bytes. Other flag bits remain in `other_flags` without
+assigned behavior. The decoder rejects incomplete form flags and payload
+suffixes, and `ActivatorChange` rebuilds the same flags and bytes.
+
+The layouts follow xEdit's `wbDefinitionsTES5Saves.pas` entries for change
+types 10, 11 and 15. UESP's save format table and FallrimTools' `ChangeForm`
+enum confirm the type indices. UESP's format conventions define null fields as
+zero bytes. FallrimTools uses its raw `ChangeFormDefault` for these types, so
+it provides no typed payload layout.
+
+The SAV-31 synthetic tests exercise all combinations of named source flags,
+each unnamed bit, truncation, exact re-encoding and compressed payloads. The
+external-corpus test scans every save and accounts for each ACTI, TACT and
+DOOR change it finds. The reported 60-save corpus contains zero examples of
+all three types, so that run provides zero payload observations. A separate
+`SKYRIM_DATA`-gated test confirms that `Skyrim.esm` contains the three vanilla
+record types; it does not stand in for saved change payloads.
