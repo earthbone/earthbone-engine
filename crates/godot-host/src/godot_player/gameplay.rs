@@ -145,6 +145,13 @@ impl PlayerNode {
                 }
             }
         }
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let requests = game.world_mut().take_effect_shader_requests();
+            let world = game.world();
+            streamer
+                .bind_mut()
+                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+        }
         self.apply_host_requests();
         if self.main_menu.is_active() {
             return;
@@ -336,7 +343,14 @@ impl PlayerNode {
                 lockpick_request,
             )
         };
-        self.pending_lockpick = lockpick_request.then_some(target);
+        if lockpick_request {
+            self.pending_lockpick = Some(target);
+            if self.open_lockpicking_menu(target) {
+                self.pending_lockpick = None;
+            }
+            return false;
+        }
+        self.pending_lockpick = None;
         if show_container {
             self.open_container_menu(target);
         }

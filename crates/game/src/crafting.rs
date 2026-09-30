@@ -223,6 +223,13 @@ impl Game {
             target: Some(target),
             quest: None,
             tempering_enchanted: Some(enchanted),
+            tempering_item: Some(target),
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);
@@ -319,6 +326,13 @@ impl Game {
                     target: None,
                     quest: None,
                     tempering_enchanted: None,
+                    tempering_item: None,
+                    alchemy_making_poison: Some(false),
+                    alchemy_effect: Some(effect),
+                    magic_item: None,
+                    dual_cast: None,
+                    skill_use: None,
+                    light_level: None,
                 };
                 if !conditions::evaluate(&mut world, &self.vm, context, &entry.conditions)? {
                     eligible = false;
@@ -605,6 +619,13 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);

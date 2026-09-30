@@ -273,14 +273,15 @@ impl World {
     /// A `FACT` record: `XNAM` relations and the crime tracking flag.
     pub fn faction(&mut self, id: GlobalFormId) -> Option<&mut FactionState> {
         if !self.factions.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if rec.tag != T(b"FACT") {
                 return None;
             }
             let mut st = FactionState::default();
             for x in rec.all(T(b"XNAM")).filter(|d| d.len() >= 12) {
-                let other = self.order.resolve(rref.file, le_u32(x).unwrap_or(0));
+                let Some(other) = self.resolve_from(id, le_u32(x).unwrap_or(0)) else {
+                    continue;
+                };
                 let combat = i32::from_le_bytes([x[8], x[9], x[10], x[11]]);
                 st.reactions.insert(other, combat);
             }

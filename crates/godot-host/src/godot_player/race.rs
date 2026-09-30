@@ -27,6 +27,7 @@ impl PlayerNode {
         let base = self.base().clone();
         let choice = self.race_choice;
         let appearance = self.appearance_choice.clone().unwrap_or_default();
+        let preview_text = race_menu::preview_summary(game, &appearance, &parts);
         let _guard = self.base_mut();
         for mut child in content.get_children().iter_shared() {
             content.remove_child(&child);
@@ -38,7 +39,7 @@ impl PlayerNode {
         heading.set_text("Choose a race and sex");
         rows.add_child(&heading);
         let mut preview = Label::new_alloc();
-        preview.set_text(&race_menu::preview_summary(&appearance, &parts));
+        preview.set_text(&preview_text);
         rows.add_child(&preview);
         for entry in entries {
             let mut button = Button::new_alloc();

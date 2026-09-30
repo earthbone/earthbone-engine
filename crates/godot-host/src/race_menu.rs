@@ -21,19 +21,20 @@ pub struct HeadPartEntry {
 
 /// Render the selected records and morph values in the race menu preview line.
 pub fn preview_summary(
+    game: &Game,
     appearance: &soe_game::appearance::PlayerAppearance,
     parts: &[HeadPartEntry],
 ) -> String {
-    let selected_parts = appearance
-        .head_parts
-        .iter()
-        .filter_map(|(part_type, form)| {
-            parts
-                .iter()
-                .find(|entry| entry.form == *form)
-                .map(|entry| format!("{part_type}: {}", entry.name))
-        })
-        .collect::<Vec<_>>();
+    let world = game.world();
+    let mut selected_parts = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    for (part_type, form) in &appearance.head_parts {
+        let Some(entry) = parts.iter().find(|entry| entry.form == *form) else {
+            continue;
+        };
+        selected_parts.push(format!("{part_type}: {}", entry.name));
+        attached_head_parts(&world, *form, &mut visited, &mut selected_parts);
+    }
     let selected_morphs = ["Face", "Nose", "Jaw"]
         .iter()
         .map(|name| {
@@ -48,6 +49,51 @@ pub fn preview_summary(
         selected_parts.join(", "),
         selected_morphs.join(", ")
     )
+}
+
+fn attached_head_parts(
+    world: &soe_game::World,
+    form: GlobalFormId,
+    visited: &mut std::collections::BTreeSet<GlobalFormId>,
+    names: &mut Vec<String>,
+) {
+    if !visited.insert(form) {
+        return;
+    }
+    let Some(record) = world.order().winner(form) else {
+        return;
+    };
+    let Some(file) = world
+        .order()
+        .winner_ref(form)
+        .map(|reference| reference.file)
+    else {
+        return;
+    };
+    for raw in record
+        .all(Tag(*b"HNAM"))
+        .filter(|bytes| bytes.len() == 4)
+        .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    {
+        let attached = world.order().resolve(file, raw);
+        let Some(attached_record) = world.order().winner(attached) else {
+            continue;
+        };
+        if attached_record.tag != Tag(*b"HDPT") || attached_record.is_deleted() {
+            continue;
+        }
+        names.push(
+            world
+                .name_of(attached)
+                .unwrap_or_else(|| format!("{attached}")),
+        );
+        attached_head_parts(world, attached, visited, names);
+    }
+}
+
+/// Discard a race-menu draft without changing the persisted appearance.
+pub fn discard_draft(draft: &mut Option<soe_game::appearance::PlayerAppearance>) {
+    *draft = None;
 }
 
 /// List playable head parts that support the selected sex, in FormID order.

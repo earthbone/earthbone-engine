@@ -83,6 +83,7 @@ struct MovableEntry {
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
     movable: Vec<MovableEntry>,
+    grabbed_reference: Option<GlobalFormId>,
     pub stats: GodotCollisionStats,
 }
 
@@ -151,6 +152,70 @@ impl CellBodies {
         }
     }
 
+    /// Put one resident movable body into host-controlled motion.
+    pub fn grab_movable_reference(&mut self, reference: GlobalFormId) -> bool {
+        if self.grabbed_reference.is_some() {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(entry.body, BodyMode::KINEMATIC);
+        self.grabbed_reference = Some(reference);
+        true
+    }
+
+    /// Move the held body to a Skyrim-space position through PhysicsServer3D.
+    pub fn move_grabbed_reference(&mut self, position: [f32; 3]) -> bool {
+        let Some(reference) = self.grabbed_reference else {
+            return false;
+        };
+        if !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            self.grabbed_reference = None;
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        let Ok(mut transform) = server
+            .body_get_state(entry.body, BodyState::TRANSFORM)
+            .try_to::<Transform3D>()
+        else {
+            return false;
+        };
+        let godot = crate::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
+        transform.origin = Vector3::new(godot.x, godot.y, godot.z);
+        server.body_set_state(entry.body, BodyState::TRANSFORM, &transform.to_variant());
+        true
+    }
+
+    /// Return the held body to rigid simulation, preserving its last pose.
+    pub fn release_movable_reference(&mut self, reference: GlobalFormId) -> bool {
+        if self.grabbed_reference != Some(reference) {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            self.grabbed_reference = None;
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(entry.body, BodyMode::RIGID);
+        self.grabbed_reference = None;
+        true
+    }
+
     /// Sample live rigid-body positions for host diagnostics.
     pub fn movable_poses(&self) -> Array<VarDictionary> {
         let mut result = Array::new();
@@ -194,6 +259,7 @@ impl CellBodies {
             }
         }
         self.stats = GodotCollisionStats::default();
+        self.grabbed_reference = None;
     }
 
     /// Pushes a tracked reference's current placement and visibility to the

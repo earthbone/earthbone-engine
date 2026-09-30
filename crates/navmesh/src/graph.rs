@@ -156,6 +156,8 @@ pub struct Path {
 #[derive(Debug, Clone, Default)]
 pub struct NavGraph {
     meshes: Vec<Mesh>,
+    /// NAVM door references mapped to the triangles authored for them.
+    door_nodes: HashMap<u64, Vec<NodeId>>,
     spatial: OnceLock<SpatialIndex>,
     components: OnceLock<Vec<usize>>,
 }
@@ -286,6 +288,25 @@ impl NavGraph {
 
     pub fn set_blocked(&mut self, node: NodeId, blocked: bool) {
         self.meshes[node.mesh as usize].triangles[node.triangle as usize].blocked = blocked;
+    }
+
+    /// Associate a resolved door reference with its authored NAVM triangle.
+    /// This association does not make the triangle an edge or change its
+    /// walkability.
+    pub(crate) fn add_door_node(&mut self, door: u64, node: NodeId) {
+        let nodes = self.door_nodes.entry(door).or_default();
+        if !nodes.contains(&node) {
+            nodes.push(node);
+            nodes.sort_unstable();
+        }
+    }
+
+    /// Triangles that NAVM associates with a resolved door key.
+    ///
+    /// The key is the value returned by `vanilla::Builder`'s resolver for the
+    /// raw door FormID. The association does not control pathfinding.
+    pub fn door_nodes(&self, door: u64) -> &[NodeId] {
+        self.door_nodes.get(&door).map_or(&[], Vec::as_slice)
     }
 
     /// Set the vanilla NAVM triangle flags used by path cost selection.

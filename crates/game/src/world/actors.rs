@@ -30,17 +30,18 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
         RecordType::Faction => {
             a.factions.entry(d.what).or_insert(0);
         }
+        RecordType::Package => {
+            a.package_overrides
+                .push((d.package_index.unwrap_or(usize::MAX), d.what));
+        }
+        RecordType::Shout => {
+            a.shouts.insert(d.what);
+        }
         // Items reach the reference's inventory in `base_inventory`, not the
-        // actor state. A package would need a third source in the driver's
-        // stack and a save format change, and shouts, skins and bare forms
-        // have no actor state at all yet. Each is held in `mod_data` and
-        // counted, never silently dropped, and `docs/moddata.md` lists them.
-        RecordType::Item
-        | RecordType::Package
-        | RecordType::Shout
-        | RecordType::Skin
-        | RecordType::Keyword
-        | RecordType::Form => {}
+        // actor state. Skins and bare forms have no actor state yet. They
+        // remain held in `mod_data` and counted, and `docs/moddata.md` lists
+        // them.
+        RecordType::Item | RecordType::Skin | RecordType::Keyword | RecordType::Form => {}
     }
 }
 
@@ -406,12 +407,21 @@ impl World {
             // loads long after the distribution still receives what its base
             // was given. See `crate::moddata`.
             if let Some(base) = base {
-                for d in self.mod_data.for_base(base).to_vec() {
+                let distributions = crate::moddata::for_actor(self, id, base);
+                let actor_specific = distributions
+                    .len()
+                    .saturating_sub(self.mod_data.for_base(base).len());
+                self.mod_data.report.distributions_applied += actor_specific;
+                for d in distributions {
+                    if d.record_type == RecordType::Skin {
+                        self.set_actor_base_skin(base, Some(d.what)).ok()?;
+                    }
                     apply_distributed(&mut a, d);
                 }
             }
             a.spells = self.expand_actor_spell_lists(&a.spells, a.level).ok()?;
             self.actors.insert(id, a);
+            self.apply_actor_abilities(id);
         }
         self.actors.get_mut(&id)
     }
@@ -599,7 +609,11 @@ impl World {
     }
 }
 
-pub(crate) fn write_ui_14(actor: &super::ActorState, writer: &mut Writer) {
+pub(crate) fn write_ui_14(
+    actor: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.len(actor.head_parts.len());
     for (part_type, part) in &actor.head_parts {
         writer.u32(*part_type);
@@ -615,6 +629,7 @@ pub(crate) fn write_ui_14(actor: &super::ActorState, writer: &mut Writer) {
 pub(crate) fn read_ui_14(
     actor: &mut super::ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     let part_count = reader.len()?;
     for _ in 0..part_count {

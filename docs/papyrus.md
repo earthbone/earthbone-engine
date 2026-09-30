@@ -107,6 +107,14 @@ A native returns `Value`, `Wait(seconds)` or
 `Latent(id)`. A latent thread sleeps until the host calls `resolve_latent(id,
 value)`, and the value lands in the variable the call site named.
 
+The scheduler keeps the 4,096 most recently completed threads, including
+their return values, for `thread_state` and `thread_result`. Each `run` drops
+older completed entries while retaining all runnable, sleeping and latent
+threads. The retained history is also the completed-thread state written to
+saves and included in state hashes. `prf_01_scheduler_retention` runs 409,600
+script calls, checks the history boundary, and requires Linux process RSS growth
+to stay within 64 MiB.
+
 **Lookup order.** A method call on an object walks the attached instances in
 attach order. Inside an instance the script chain runs from the most derived
 script to the root, checking the current state and then the empty state of
@@ -370,13 +378,12 @@ instances and schedules the saved active scripts. Queued messages, suspended
 stack tables and latent native waits remain inert. Object identity mapping is
 still supplied by the host.
 
-A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
-frame sitting inside the wait, nothing about the scheduler is special-cased,
-so loading it back and advancing the clock past the wait resumes and
-finishes the thread exactly as if it had never been serialized. A test
-builds such a thread, saves and loads it into a fresh `Vm` with the same
-script loaded, and checks it stays asleep until the clock passes the
-deadline.
+The VM's own state format retains a thread's sleeping deadline and the clock
+values used by `Utility.Wait`. Loading it back preserves the remaining delay,
+including for waits that count menu time or game time. Once the deadline passes,
+the thread resumes once on its next run. `tests/sav_03_wait.rs` saves after two
+seconds of a five second wait, checks that the thread remains asleep through
+the remaining delay, and checks that its continuation fires once.
 
 `ArrayPool`, `ArrayTable`, `Writer` and `Reader` are public under
 `vm::state` so `crates/game/src/world.rs` writes its own state (references,

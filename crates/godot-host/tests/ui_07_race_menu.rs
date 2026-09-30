@@ -92,16 +92,17 @@ fn ui_14_head_part_catalog_filters_playability_and_sex_in_form_order() {
 
 #[test]
 fn ui_14_head_part_and_morph_changes_update_preview_summary() {
+    let game = Game::new(LoadOrder::new());
     let part = race_menu::HeadPartEntry {
         part_type: 3,
         form: id(0x720),
         name: "Test Hair".into(),
     };
     let mut appearance = soe_game::appearance::PlayerAppearance::default();
-    let before = race_menu::preview_summary(&appearance, std::slice::from_ref(&part));
+    let before = race_menu::preview_summary(&game, &appearance, std::slice::from_ref(&part));
     appearance.head_parts.insert(3, id(0x720));
     appearance.morphs.insert("Nose".into(), 0.4);
-    let after = race_menu::preview_summary(&appearance, &[part]);
+    let after = race_menu::preview_summary(&game, &appearance, &[part]);
     assert_ne!(before, after);
     assert!(after.contains("3: Test Hair"));
     assert!(after.contains("Nose 0.40"));

@@ -28,7 +28,7 @@ fn change(kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     }
 }
 
-fn decode(form: &ChangeForm) -> soe_save::Result<Option<soe_save::BaseObjectChange>> {
+fn decode(form: &ChangeForm) -> soe_save::Result<Option<soe_save::BaseObjectMarkerChange>> {
     match form.record_type() {
         "WOOP" => form.word_of_power_change(),
         "MGEF" => form.magic_effect_change(),
