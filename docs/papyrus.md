@@ -92,6 +92,14 @@ A native returns `Value`, `Wait(seconds)` or
 `Latent(id)`. A latent thread sleeps until the host calls `resolve_latent(id,
 value)`, and the value lands in the variable the call site named.
 
+The scheduler keeps the 4,096 most recently completed threads, including
+their return values, for `thread_state` and `thread_result`. Each `run` drops
+older completed entries while retaining all runnable, sleeping and latent
+threads. The retained history is also the completed-thread state written to
+saves and included in state hashes. `prf_01_scheduler_retention` runs 409,600
+script calls, checks the history boundary, and requires Linux process RSS growth
+to stay within 64 MiB.
+
 **Lookup order.** A method call on an object walks the attached instances in
 attach order. Inside an instance the script chain runs from the most derived
 script to the root, checking the current state and then the empty state of
