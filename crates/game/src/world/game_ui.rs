@@ -26,6 +26,7 @@ impl World {
     /// Queue the race and sex editor for the host presenter.
     pub fn show_race_menu(&mut self) {
         self.game_ui_requests.push(GameUiRequest::ShowRaceMenu);
+        self.menu_requests.push(super::MenuRequest::Race);
     }
 
     /// Queue a screen blood effect for the host presenter.

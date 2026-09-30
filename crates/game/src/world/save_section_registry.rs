@@ -16,6 +16,7 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
@@ -23,6 +24,18 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
 ];
+
+fn write_player_level(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.u32(world.player_level);
+}
+
+fn read_player_level(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    world.player_level = reader.u32()?;
+    Ok(())
+}
 
 /// Sections read and written once per actor, at the end of every actor
 /// record.

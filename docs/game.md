@@ -220,7 +220,7 @@ the supplied value, file name and playback flags. An empty Bink file name
 returns `GameUiError::EmptyVideoName` and queues nothing. Because these
 Papyrus calls return void, rejected requests are recorded in
 `World::native_errors`. The existing `AdvanceSkill` native delegates to
-`World::advance_skill`; invalid use is recorded there as a native diagnostic.
+`World::advance_skill`. Invalid use is recorded there as a native diagnostic.
 The signatures and short behavior descriptions come from the local
 `ck-wiki/Game_Script.wikitext`, since individual pages for these five
 functions are absent. Skill effects use the record-backed AVIF and GMST path
@@ -426,8 +426,10 @@ Their CK contracts are described by
   `fXPLevelUpBase + level * fXPLevelUpMult`. Each crossed threshold adds one
   available attribute choice. Choosing Health, Magicka or Stamina spends one
   choice and adds 10 to that base actor value. Current-level experience and
-  unspent choices are stored in the `PRG-07` actor section. On load, the player
-  level cache follows the restored player actor level.
+  unspent choices are stored in the `PRG-07` actor section. The world preserves
+  its player-level cache in the `PRG-01.player-level` section. Older saves use
+  the restored player actor level, or the existing cache when no player actor
+  is present.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential

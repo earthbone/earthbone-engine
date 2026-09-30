@@ -1098,11 +1098,19 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let fallback_player_level = player
+            .and_then(|id| actors.get(&id).map(|actor| actor.level))
+            .unwrap_or(self.player_level)
+            .max(1);
+        let previous_player_level =
+            std::mem::replace(&mut self.player_level, fallback_player_level);
         let section_result = if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
             Ok(())
         };
+        let player_level = self.player_level;
+        self.player_level = previous_player_level;
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         quests = std::mem::replace(&mut self.quests, previous_quests);
@@ -1210,9 +1218,7 @@ impl World {
         self.next_dynamic = next_dynamic;
         self.difficulty = difficulty;
         self.player = player;
-        self.player_level = player
-            .and_then(|id| self.actors.get(&id).map(|actor| actor.level))
-            .unwrap_or(1);
+        self.player_level = player_level;
         self.loaded_cell = loaded_cell;
         self.rng = rng;
         self.clock = GameClock {

@@ -20,7 +20,7 @@ use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
-    reaction, AnimationListener, BinkOptions, Handle, LeveledEntry, LosListener, MenuRequest, World,
+    reaction, AnimationListener, BinkOptions, Handle, LeveledEntry, LosListener, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -3332,18 +3332,8 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm, world: &Shared) -> usize {
+fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
     let mut n = 0;
-    let shared = world.clone();
-    vm.natives.register_global(
-        "Game",
-        "ShowRaceMenu",
-        Box::new(move |_| {
-            shared.borrow_mut().menu_requests.push(MenuRequest::Race);
-            none()
-        }),
-    );
-    n += 1;
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
