@@ -66,6 +66,16 @@ pub struct ActiveEffect {
     pub(crate) changes: Vec<(String, f32)>,
 }
 
+/// One concentration spell held by its caster until release or exhaustion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConcentrationCast {
+    spell: GlobalFormId,
+    source: GlobalFormId,
+    caster: GlobalFormId,
+    target: Option<GlobalFormId>,
+    cost_per_second: f64,
+}
+
 /// A spell was rejected before any of its effects were applied.
 #[derive(Debug, thiserror::Error)]
 pub enum MagicError {
@@ -81,6 +91,8 @@ pub enum MagicError {
     Target,
     #[error("invalid spell magnitude or duration")]
     Number,
+    #[error("caster does not have enough magicka")]
+    InsufficientMagicka,
     #[error("active effect identity exhausted")]
     Identity,
 }
@@ -476,13 +488,315 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        if self.spell(spell)?.data.cast_type == 2 {
+            return Err(MagicError::Unsupported(
+                "concentration requires a held cast",
+            ));
+        }
+        let prepared = self.prepare_spell_cast(spell, source, caster, target)?;
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
+    /// Charge time for a spell, using its authored value or the longest
+    /// casting time among its effects when the record auto-calculates it.
+    pub fn spell_charge_time(&self, spell: GlobalFormId) -> Result<f32, MagicError> {
         let definition = self.spell(spell)?;
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        if definition.data.flags & 1 != 0 {
+            return finite_nonnegative(definition.data.charge_time);
+        }
+        let mut charge_time: f32 = 0.0;
+        for entry in &definition.effects {
+            let effect = self
+                .resolve_from(spell, entry.base_effect)
+                .ok_or(MagicError::Missing(spell))?;
+            charge_time = charge_time.max(finite_nonnegative(
+                self.magic_effect(effect)?.data.casting_time,
+            )?);
+        }
+        Ok(charge_time)
+    }
+
+    /// Magicka expenditure for a spell and caster, including the authored
+    /// manual or auto-calculated cost and its half-cost perk.
+    pub fn spell_cost(
+        &mut self,
+        spell: GlobalFormId,
+        caster: GlobalFormId,
+    ) -> Result<f32, MagicError> {
+        let definition = self.spell(spell)?;
+        let cost = if definition.data.flags & 1 != 0 {
+            definition.data.base_cost as f32
+        } else {
+            let mut total = 0.0_f64;
+            for entry in &definition.effects {
+                let effect = self
+                    .resolve_from(spell, entry.base_effect)
+                    .ok_or(MagicError::Missing(spell))?;
+                let data = self.magic_effect(effect)?.data;
+                let magnitude = f64::from(entry.data.magnitude.max(1.0));
+                let duration = if definition.data.cast_type == 2 || entry.data.duration == 0 {
+                    10.0
+                } else {
+                    f64::from(entry.data.duration)
+                };
+                total += f64::from(finite_nonnegative(data.base_cost)?)
+                    * (magnitude * duration / 10.0).powf(1.1);
+            }
+            total as f32
+        };
+        let cost = finite_nonnegative(cost)?;
+        let half_cost_perk = if definition.data.half_cost_perk == 0 {
+            None
+        } else {
+            Some(
+                self.resolve_from(spell, definition.data.half_cost_perk)
+                    .ok_or(MagicError::Missing(spell))?,
+            )
+        };
+        let caster_state = self.actor(caster).ok_or(MagicError::Target)?;
+        Ok(
+            if half_cost_perk.is_some_and(|perk| caster_state.perks.contains(&perk)) {
+                cost * 0.5
+            } else {
+                cost
+            },
+        )
+    }
+
+    /// Execute a one-shot cast paid for by an actor's current magicka.
+    ///
+    /// Effect validation and magicka availability are checked before either
+    /// the resource value or active effects change.
+    pub fn cast_charged_spell(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if self.spell(spell)?.data.cast_type == 2 {
+            return Err(MagicError::Unsupported(
+                "concentration requires a held cast",
+            ));
+        }
+        let prepared = self.prepare_spell_cast(spell, source, Some(caster), target)?;
+        let prepared = self.prepare_effect_actions(prepared)?;
+        let cost = self.spell_cost(spell, caster)?;
+        let actor = self.actor(caster).ok_or(MagicError::Target)?;
+        if actor.values.get("magicka").current() < cost {
+            return Err(MagicError::InsufficientMagicka);
+        }
+        actor
+            .values
+            .damage("magicka", cost)
+            .map_err(|_| MagicError::Number)?;
+        let spell_value = self.form_value(Some(spell), alloc);
+        self.form_event(source, "OnSpellCast", vec![spell_value], alloc);
+        self.apply_prepared_actions(prepared, alloc)
+    }
+
+    /// Begin holding a concentration spell. Its effects and magicka cost
+    /// advance through `tick_concentration` while world time runs.
+    ///
+    /// # Errors
+    /// Returns an error if the spell is not a supported concentration cast,
+    /// its effects cannot execute, or the caster has no magicka to spend.
+    pub fn begin_concentration_cast(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        if self.spell(spell)?.data.cast_type != 2 {
+            return Err(MagicError::Unsupported("spell is not concentration"));
+        }
+        self.prepare_spell_cast(spell, source, Some(caster), target)?;
+        let cost_per_second = f64::from(self.spell_cost(spell, caster)?) / 10.0;
+        let available = self
+            .actor(caster)
+            .ok_or(MagicError::Target)?
+            .values
+            .get("magicka")
+            .current();
+        if cost_per_second > 0.0 && available <= 0.0 {
+            return Err(MagicError::InsufficientMagicka);
+        }
+        self.concentration_cast = Some(ConcentrationCast {
+            spell,
+            source,
+            caster,
+            target,
+            cost_per_second,
+        });
+        let spell_value = self.form_value(Some(spell), alloc);
+        self.form_event(source, "OnSpellCast", vec![spell_value], alloc);
+        Ok(())
+    }
+
+    /// Release the currently held concentration spell.
+    pub fn release_concentration_cast(&mut self) -> bool {
+        let released = self.concentration_cast.take().is_some();
+        if released {
+            self.telekinesis_grab = None;
+        }
+        released
+    }
+
+    /// Begin holding one enabled, non-actor reference during a Telekinesis
+    /// concentration cast. The host separately confirms that it has a
+    /// movable physics body for the reference.
+    pub fn grab_telekinesis_reference(
+        &mut self,
+        caster: GlobalFormId,
+        reference: GlobalFormId,
+    ) -> bool {
+        let is_telekinesis = self.concentration_cast.as_ref().is_some_and(|cast| {
+            cast.caster == caster
+                && self.spell(cast.spell).is_ok_and(|spell| {
+                    spell.effects.iter().any(|entry| {
+                        self.resolve_from(cast.spell, entry.base_effect)
+                            .and_then(|id| self.magic_effect(id).ok())
+                            .is_some_and(|effect| effect.data.archetype == 20)
+                    })
+                })
+        });
+        let eligible = self
+            .reference(reference)
+            .is_some_and(|state| state.enabled && !state.deleted && !state.is_actor);
+        if !is_telekinesis || !eligible || self.telekinesis_grab.is_some() {
+            return false;
+        }
+        self.telekinesis_grab = Some((caster, reference));
+        true
+    }
+
+    /// The reference currently held by the caster's Telekinesis effect.
+    #[must_use]
+    pub fn telekinesis_reference(&self, caster: GlobalFormId) -> Option<GlobalFormId> {
+        self.telekinesis_grab
+            .filter(|(owner, _)| *owner == caster)
+            .map(|(_, reference)| reference)
+    }
+
+    /// Release the held reference without changing its World placement.
+    pub fn release_telekinesis_reference(&mut self, caster: GlobalFormId) -> bool {
+        if self
+            .telekinesis_grab
+            .is_some_and(|(owner, _)| owner == caster)
+        {
+            self.telekinesis_grab = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the caster currently has a held concentration spell.
+    pub fn is_concentration_casting(&self, caster: GlobalFormId) -> bool {
+        self.concentration_cast
+            .as_ref()
+            .is_some_and(|cast| cast.caster == caster)
+    }
+
+    /// Advance the held cast in unpaused simulation seconds, applying its
+    /// effects in bounded slices and stopping when magicka is exhausted.
+    pub fn tick_concentration(&mut self, seconds: f64, alloc: Alloc<'_>) -> Vec<MagicError> {
+        let mut errors = Vec::new();
+        if !seconds.is_finite() || seconds <= 0.0 {
+            return errors;
+        }
+        let Some(cast) = self.concentration_cast.clone() else {
+            return errors;
+        };
+        let available = self
+            .actor(cast.caster)
+            .map_or(0.0, |actor| actor.values.get("magicka").current());
+        if cast.cost_per_second > 0.0 && available <= 0.0 {
+            self.concentration_cast = None;
+            self.telekinesis_grab = None;
+            return errors;
+        }
+        let duration = if cast.cost_per_second > 0.0 {
+            seconds.min(f64::from(available) / cast.cost_per_second)
+        } else {
+            seconds
+        };
+        let mut elapsed = 0.0;
+        while elapsed < duration {
+            let slice = (duration - elapsed).min(0.1);
+            let mut prepared = match self.prepare_spell_cast(
+                cast.spell,
+                cast.source,
+                Some(cast.caster),
+                cast.target,
+            ) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    errors.push(error);
+                    self.concentration_cast = None;
+                    self.telekinesis_grab = None;
+                    return errors;
+                }
+            };
+            for effect in &mut prepared {
+                effect.effect.duration = Some(0.0);
+                effect.no_recast = false;
+                for (_, amount) in &mut effect.effect.changes {
+                    *amount *= slice as f32;
+                }
+            }
+            if let Err(error) = self.apply_prepared_effects(prepared, alloc) {
+                errors.push(error);
+                self.concentration_cast = None;
+                self.telekinesis_grab = None;
+                return errors;
+            }
+            let resource_cost = (cast.cost_per_second * slice) as f32;
+            if resource_cost > 0.0 {
+                if let Some(actor) = self.actor(cast.caster) {
+                    if actor.values.damage("magicka", resource_cost).is_err() {
+                        errors.push(MagicError::Number);
+                        self.concentration_cast = None;
+                        self.telekinesis_grab = None;
+                        return errors;
+                    }
+                } else {
+                    errors.push(MagicError::Target);
+                    self.concentration_cast = None;
+                    self.telekinesis_grab = None;
+                    return errors;
+                }
+            }
+            elapsed += slice;
+        }
+        let exhausted = cast.cost_per_second > 0.0
+            && self
+                .actor(cast.caster)
+                .is_none_or(|actor| actor.values.get("magicka").current() <= 0.0);
+        if exhausted {
+            self.concentration_cast = None;
+            self.telekinesis_grab = None;
+        }
+        errors
+    }
+
+    fn prepare_spell_cast(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let definition = self.spell(spell)?;
+        if !matches!(definition.data.cast_type, 0..=2) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
             0 => source,
-            3 => target.ok_or(MagicError::Target)?,
+            2 | 3 => target.ok_or(MagicError::Target)?,
             _ => {
                 return Err(MagicError::Unsupported(
                     "projectile, contact or location delivery",
@@ -526,7 +840,7 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 5 | 6 | 10 | 18 | DEMORALIZE | FRENZY_ARCHETYPE
+                0 | 1 | 2 | 5 | 6 | 10 | 18 | 20 | DEMORALIZE | FRENZY_ARCHETYPE
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -689,7 +1003,7 @@ impl World {
                 });
             }
         }
-        self.apply_prepared_effects(prepared, alloc)
+        Ok(prepared)
     }
 
     fn apply_prepared_effects(
@@ -698,6 +1012,14 @@ impl World {
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let prepared = self.prepare_effect_actions(prepared)?;
+        self.apply_prepared_actions(prepared, alloc)
+    }
+
+    fn apply_prepared_actions(
+        &mut self,
+        prepared: Vec<PreparedEffect>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         for mut prepared in prepared {
             if let Some(base) = prepared.summon_base {
@@ -1085,6 +1407,14 @@ impl World {
             self.kill_actor(effect.target, effect.caster);
         }
         Ok(())
+    }
+}
+
+fn finite_nonnegative(value: f32) -> Result<f32, MagicError> {
+    if value.is_finite() && value >= 0.0 {
+        Ok(value)
+    } else {
+        Err(MagicError::Number)
     }
 }
 

@@ -70,6 +70,14 @@ transforms and reports their largest difference from the cached World pose.
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
 
+`CellBodies::grab_movable_reference` changes one resident movable body to
+kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
+from a finite Skyrim-space position. `release_movable_reference` returns the
+body to rigid simulation at that pose. Each `CellBodies` collection permits
+one grabbed reference at a time. The game grab state and these host operations
+are separate APIs, and PlayerNode does not yet wire a targeting or held-input
+loop between them.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.

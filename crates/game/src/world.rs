@@ -570,6 +570,10 @@ pub struct World {
     pub(crate) next_effect: u64,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
+    pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
+    /// A transient reference held by one Telekinesis concentration cast.
+    /// Physics handles are host-owned, so this state is never serialized.
+    pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -669,6 +673,8 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             brewed_potions: BTreeMap::new(),
+            concentration_cast: None,
+            telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
