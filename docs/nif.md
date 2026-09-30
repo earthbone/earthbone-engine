@@ -113,11 +113,11 @@ Open items, read against `../engine-refs/openmw`'s `components/nif`:
   our version, so this follows OpenMW's own fallback case rather than a
   documented source. Unverified against a real Skyrim SE static that actually
   uses Euler rather than quaternion keys.
-- The `godot-host` side that calls `evaluate_transform` once per frame and
-  applies the result to a scene node is not wired yet. Today the host bakes a
-  static's transform into its vertex world space at streaming time, so an
-  animated static needs its node kept separate from that bake before this
-  evaluator has anywhere to write its output.
+- `godot-host::AnimatedStaticNode` resolves a controller, builds child meshes
+  outside the cell batch, and applies `evaluate_transform` on each frame. It
+  can also create a trimesh collider under each child mesh so the collider
+  follows its animated transform. Ordinary game door activation does not yet
+  instantiate this node or start its controller.
 
 ## Tests
 
