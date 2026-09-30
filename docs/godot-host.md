@@ -170,6 +170,13 @@ material, with no scene node. The current material is a generic blue emissive
 fill. EFSH texture inputs, authored colors, blend modes, fade curves and
 attachment to skinned surfaces are not read yet.
 
+Active magic effects that place a runtime reference with an LIGH base also
+create a point light through `RenderingServer` RIDs. The host reads the
+winning LIGH record's 48-byte DATA, using its RGB color, radius and negative
+light flag. The light follows the runtime reference position and is freed
+when the effect reference expires, becomes hidden or the streamer is cleared.
+It adds no scene node. Other LIGH references are not uploaded by this path.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the
