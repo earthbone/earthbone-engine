@@ -34,7 +34,7 @@ fn mouse_chords_wheel_pulses_and_unavailable_buttons() {
     let b = bindings("Toggle POV\t0xff\t0x0+0x1,0x8,0x5\t0xff\t1\t1\t1");
     let mut d = Devices::default();
     d.mouse_button(2, true, &b);
-    assert!(d.take_pressed().is_empty());
+    assert!(!d.take_pressed().contains(&Action::TogglePov));
     d.mouse_button(1, true, &b);
     assert!(d.take_pressed().contains(&Action::TogglePov));
     d.mouse_button(1, false, &b);

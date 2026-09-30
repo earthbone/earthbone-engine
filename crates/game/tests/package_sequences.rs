@@ -348,7 +348,10 @@ fn unsupported_group_types_hold_instead_of_running_a_descendant() {
     assert_eq!(position(&mut game), 0.0);
     assert_eq!(
         game.world().actor_ref(id(ACTOR)).unwrap().ai.procedure,
-        Procedure::Unsupported("Simultaneous".into())
+        Procedure::Unsupported(
+            "Simultaneous supports only Wait children until AI-87 completion rules are available"
+                .into()
+        )
     );
 }
 

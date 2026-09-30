@@ -9,8 +9,9 @@ mod legacy;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, Schedule};
+use soe_game::package::Schedule;
 use soe_game::Game;
+use soe_game::{package, quest};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x800;
@@ -67,11 +68,16 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn template(settings: Settings, target: u32) -> Record {
+    template_target(
+        settings,
+        if settings.linked { 3 } else { 0 },
+        if settings.linked { 0 } else { target },
+    )
+}
+
+fn template_target(settings: Settings, target_kind: i32, target: u32) -> Record {
     let rec = package::close_header(package::build_template(TEMPLATE, "WalkingPatrol"), None);
-    let mut data = i32::from(settings.linked)
-        .saturating_mul(3)
-        .to_le_bytes()
-        .to_vec();
+    let mut data = target_kind.to_le_bytes().to_vec();
     data.extend_from_slice(&if settings.linked { 0 } else { target }.to_le_bytes());
     data.extend_from_slice(&0i32.to_le_bytes());
     let rec = rec
@@ -534,6 +540,75 @@ fn final_radius_approach_never_exceeds_a_small_tick_budget() {
         assert!((position(&game) - before - 0.11).abs() < 0.0001);
         assert!(!state(&game).arrived);
     }
+}
+
+#[test]
+fn ai_91_alias_route_start_keeps_winning_namespace_and_saved_target() {
+    const QUEST: u32 = 0x807;
+    const ALIAS: u32 = 7;
+    let settings = Settings::default();
+    let mut base = Plugin::new(FileHeader::default());
+    base.push_top(template_target(settings, 4, ALIAS));
+    base.push_top(
+        package::finish(package::close_header(
+            package::build_record(PACK, "Patrol", 0, Schedule::default()),
+            Some(TEMPLATE),
+        ))
+        .sub(T(b"QNAM"), QUEST.to_le_bytes()),
+    );
+    base.push_top(
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
+    );
+    base.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
+    base.push_top(quest::build_record(QUEST, "RouteQuest", 0));
+    markers(&mut base, settings, 0, 0.0);
+
+    let mut order = LoadOrder::new();
+    order
+        .add("Patrol.esm", Plugin::parse(&base.to_bytes()).unwrap())
+        .unwrap();
+    let mut route = Plugin::new(FileHeader {
+        masters: vec!["Patrol.esm".into()],
+        ..FileHeader::default()
+    });
+    route.push_top(template_target(settings, 4, ALIAS));
+    route.push_top(quest::with_alias(
+        quest::build_record(QUEST, "RouteQuest", 0),
+        ALIAS,
+        "RouteStart",
+        Some(0x0100_0804),
+    ));
+    markers(&mut route, settings, 0x0100_0000, 1000.0);
+    order
+        .add("Route.esp", Plugin::parse(&route.to_bytes()).unwrap())
+        .unwrap();
+
+    let mut game = Game::new(order);
+    assert_eq!(
+        game.world_mut().alias_ref(id(QUEST), ALIAS),
+        Some(GlobalFormId { file: 1, object: A })
+    );
+    assert!(game.world_mut().drive_actor(id(ACTOR)));
+    game.tick(20.0);
+    let selected = GlobalFormId { file: 1, object: A };
+    assert!(
+        state(&game).patrol.is_some(),
+        "alias Patrol did not start: {:?}",
+        state(&game).procedure
+    );
+    assert_eq!(state(&game).patrol.as_ref().unwrap().start, selected);
+    assert_eq!(position(&game), 1110.0);
+
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(state(&game).patrol.unwrap().start, selected);
 }
 
 #[test]
