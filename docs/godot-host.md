@@ -2207,7 +2207,7 @@ one is set, otherwise it follows the death or unconscious state. It drains queue
 its bound actor and applies them to the first ragdoll body through the Godot
 physics server. Impulses use the host's Skyrim-to-Godot axis map and metre
 scale. A command drained before a ragdoll exists is discarded. The host path
-uses Jolt; `SimpleWorld` has no ragdoll solver. The conversion is a host
+uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
 approximation because the CK pages do not state the force unit expected by
 the physics solver.
 

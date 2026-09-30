@@ -206,7 +206,7 @@ host can use that path in place of the base model.
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1`. Health and stage are
 saved in the reference-level `CMB-37` section. DEST field widths and flags
-follow `TES5Edit/Core/wbDefinitionsTES5.pas`; the UESP format corpus indexes
+follow `TES5Edit/Core/wbDefinitionsTES5.pas`. The UESP format corpus indexes
 DEST and its subrecords but does not include the linked DEST field page. The
 Creation Kit `DamageObject` and `GetCurrentDestructionStage` pages establish
 native behavior and the undamaged return value.
@@ -320,7 +320,7 @@ enable state, lock metadata, and inventory from the base object. It clears
 runtime reference fields held in `RefState`. The optional target supplies the
 destination position and cell only while the reset reference's cell is
 resident. Actor health and death state
-use the existing resurrection path; actor faction and relationship state is
+use the existing resurrection path. Actor faction and relationship state is
 stored separately and remains unchanged. All reference fields are already in
 SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
@@ -1169,11 +1169,11 @@ stored in radians, use the Papyrus degree-per-second limit, and do not finish
 before the position. A spline snaps to its authored endpoint when complete.
 At 90 percent positional progress the runtime queues
 `OnTranslationAlmostComplete`, even if rotation is still in progress.
-Completion queues `OnTranslationComplete`; stopping, blocking, replacing an
+Completion queues `OnTranslationComplete`. Stopping, blocking, replacing an
 active request, or advancing a disabled or deleted reference queues
 `OnTranslationFailed` and leaves its current placement in place. The in-flight
 action is saved in the reference section `HST-16` and included in the
-deterministic world hash. These paths update the shared world placement; the
+deterministic world hash. These paths update the shared world placement. The
 host reflects that placement through the existing `ref_placement` contract.
 
 Against the installed game after the round: 423 quests started, 81 distinct
@@ -2679,7 +2679,7 @@ existing direct effect path, after which `InterruptCast` leaves its effects
 alone. Concentration sessions can be interrupted, but sustained effect ticks
 and casting costs are not implemented. Pending cast sessions are transient and
 are not part of SOEW save state. The contract comes from the local CK
-`InterruptCast_-_ObjectReference.wikitext`; `tests/magic/mag_73.rs` covers
+`InterruptCast_-_ObjectReference.wikitext`. `tests/magic/mag_73.rs` covers
 charging interruption, concentration interruption and interruption after
 fire-and-forget release.
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
@@ -4786,8 +4786,8 @@ finite radius, then queues impulses for enabled actor references inside that
 radius. Zero vectors are discarded without changing actor state. Its linear
 attenuation is an engine approximation: the CK page gives magnitude and radius
 but does not specify a falloff formula. Nonzero impulses mark the target actor
-unconscious in the shared actor state. The host consumes queued vectors once;
-they are transient and do not enter the save.
+unconscious in the shared actor state. The host consumes queued vectors once.
+They are transient and do not enter the save.
 
 `ForceAddRagdollToWorld` and `ForceRemoveRagdollFromWorld` store an explicit
 ragdoll override in the actor state. The `CMB-38` named actor save section

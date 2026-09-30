@@ -531,7 +531,7 @@ ragdoll, converted to Godot axes and metres, through
 `PhysicsServer3D.body_apply_central_impulse`. This path uses Godot's server and
 Jolt. `SimpleWorld` remains a headless static and character-controller solver
 and does not simulate ragdolls. The CK pages do not define impulse units or
-the area effect falloff; the game's linear area attenuation is an approximation.
+the area effect falloff. The game's linear area attenuation is an approximation.
 
 `godot_host::DataSource::actor_controller_shape` is the only caller, and it
 has no caller of its own yet. CMB-28, host body installation, has not
