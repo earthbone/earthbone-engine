@@ -102,6 +102,10 @@ unsupported-hook results because the runtime has no corresponding state.
   also starts the quests flagged Start Game Enabled, `tick` advances time,
   `activate` and `send_event` do what a player or the engine would, `pump`
   drains what natives queued.
+- `world::shim`: provides MIT CommonLib views over the existing calendar,
+  loaded actor components, DOBJ records and quest alias assignments. It does
+  not store duplicate state. Activate-reference-children is explicitly
+  unsupported because the runtime has no matching child activation data.
 
 ## Design
 

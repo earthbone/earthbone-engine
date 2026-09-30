@@ -84,6 +84,12 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
         "struct CALCED_OBJECT",
         "enum class CHARACTER_FLAGS",
         "struct NamedUnsupportedHook",
+        "class Calendar",
+        "class Character",
+        "class DEFAULT_OBJECTS",
+        "class ExtraActivateRefChildren",
+        "class ExtraAliasInstanceArray",
+        "enum class UnsupportedHook",
     ] {
         assert!(
             world.contains(declaration),

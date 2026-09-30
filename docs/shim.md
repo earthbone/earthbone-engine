@@ -90,7 +90,9 @@ copy those headers' implementation details.
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
 The RE and SKSE interface declarations are source-level headers only. They do not provide engine
-bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
+bindings or a C ABI. Selected contracts are implemented by adapters in the game crate. The
+separate `SKSE/Plugin.h` entry point lets the loader validate and call adapted shared libraries,
+but does not provide engine interfaces.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
@@ -145,6 +147,17 @@ values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
 source-level API. The shim has no C ABI, so C++ declarations alone cannot call
 into the Rust engine from a compiled binary.
+
+## SHM-07 world contracts
+
+The world API includes `Calendar`, `Character`, `DEFAULT_OBJECTS`,
+`ExtraActivateRefChildren` and `ExtraAliasInstanceArray` contracts. The game
+adapts calendar values, loaded actor state, resolved DOBJ entries and attached
+quest aliases from its existing world tables. Alias results are sorted by
+quest and alias id. Default-object lookup preserves malformed-record errors.
+The runtime has no activate-children extra state, so that call returns an
+explicit unsupported-hook result. These contracts do not expose CommonLib
+memory layouts or executable hooks.
 
 ## Untested
 
