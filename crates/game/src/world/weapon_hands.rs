@@ -120,6 +120,39 @@ impl World {
         hand: Hand,
         item: GlobalFormId,
     ) -> Result<(), Error> {
+        let (left, right) = self.hand_weapon_assignment(actor, hand, item, 0)?;
+        let state = self.actor(actor).ok_or(Error::Actor(actor))?;
+        for old in [state.left_weapon, state.right_weapon]
+            .into_iter()
+            .flatten()
+        {
+            if Some(old) != left && Some(old) != right {
+                state.equipped.remove(&old);
+            }
+        }
+        state.left_weapon = left;
+        state.right_weapon = right;
+        state.equipped.insert(item);
+        Ok(())
+    }
+
+    pub(super) fn validate_hand_weapon_grant(
+        &mut self,
+        actor: GlobalFormId,
+        hand: Hand,
+        item: GlobalFormId,
+    ) -> Result<(), Error> {
+        self.hand_weapon_assignment(actor, hand, item, 1)
+            .map(|_| ())
+    }
+
+    fn hand_weapon_assignment(
+        &mut self,
+        actor: GlobalFormId,
+        hand: Hand,
+        item: GlobalFormId,
+        granted_copies: i32,
+    ) -> Result<(Option<GlobalFormId>, Option<GlobalFormId>), Error> {
         let (_, weapon) = self.combat_weapon_source(item)?;
         if !matches!(weapon.animation, 1..=6) {
             return Err(Error::Unsupported("non-melee hand weapon"));
@@ -136,7 +169,10 @@ impl World {
         if two_handed && hand == Hand::Left {
             return Err(Error::Equipment);
         }
-        let count = self.item_count(actor, item);
+        let count = self
+            .item_count(actor, item)
+            .checked_add(granted_copies)
+            .ok_or(Error::Equipment)?;
         let state = self.actor(actor).ok_or(Error::Actor(actor))?;
         let other = match hand {
             Hand::Left => state.right_weapon,
@@ -161,19 +197,7 @@ impl World {
                 left = None;
             }
         }
-        let state = self.actor(actor).ok_or(Error::Actor(actor))?;
-        for old in [state.left_weapon, state.right_weapon]
-            .into_iter()
-            .flatten()
-        {
-            if Some(old) != left && Some(old) != right {
-                state.equipped.remove(&old);
-            }
-        }
-        state.left_weapon = left;
-        state.right_weapon = right;
-        state.equipped.insert(item);
-        Ok(())
+        Ok((left, right))
     }
 
     /// Read an explicitly assigned weapon, rejecting stale inventory/equipment.

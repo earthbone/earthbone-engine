@@ -50,6 +50,21 @@ pub enum VendorError {
     Invalid(&'static str),
 }
 
+/// Errors while committing a vendor purchase.
+#[derive(Debug, thiserror::Error)]
+pub enum TradeError {
+    #[error("vendor service is unavailable")]
+    Unavailable,
+    #[error("vendor does not have enough of this item")]
+    Stock,
+    #[error("invalid trade quantity or price")]
+    Price,
+    #[error("vendor service: {0}")]
+    Vendor(#[from] VendorError),
+    #[error("inventory trade: {0}")]
+    Inventory(#[from] crate::inventory::Error),
+}
+
 /// Resolve the service exposed by `faction` to `merchant` at the current time.
 /// A non-vendor faction returns `Ok(None)`. Conditions run with the merchant
 /// as subject and the player as target, matching the barter invocation.
@@ -87,7 +102,8 @@ pub fn resolve_vendor_service(
         .ok_or(VendorError::Invalid("missing or invalid FACT.VENV"))?;
     let start_hour = read_u16(&vendor[0..2]).ok_or(VendorError::Invalid("invalid VENV start"))?;
     let end_hour = read_u16(&vendor[2..4]).ok_or(VendorError::Invalid("invalid VENV end"))?;
-    let radius = read_u32(&vendor[4..8]).ok_or(VendorError::Invalid("invalid VENV radius"))?;
+    let radius =
+        u32::from(read_u16(&vendor[4..6]).ok_or(VendorError::Invalid("invalid VENV radius"))?);
     if vendor[8] > 1 || vendor[9] > 1 {
         return Err(VendorError::Invalid("invalid VENV trade flags"));
     }

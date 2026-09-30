@@ -541,6 +541,7 @@ impl World {
             poisoned = true;
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
+        self.break_invisibility(hit.attacker, alloc);
         Ok(HitResult {
             weapon_damage,
             armor_rating,
@@ -1069,10 +1070,7 @@ impl World {
                 .record(current)
                 .filter(|record| record.tag == Tag(*b"ARMO"))
                 .ok_or(Error::Equipment)?;
-            let (template, enchantment) = Armor::template_links(record)?;
-            if enchantment.is_some() {
-                return Err(Error::Unsupported("armor enchantment"));
-            }
+            let (template, _enchantment) = Armor::template_links(record)?;
             let Some(template) = template else {
                 return Ok(Armor::from_record(record)?);
             };

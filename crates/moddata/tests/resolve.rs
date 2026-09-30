@@ -122,7 +122,13 @@ fn a_swap_resolves_both_sides_and_names_its_target() {
     let rock = FormRef::parse("Rock").resolve(&order).unwrap();
     let tree = FormRef::parse("Tree").resolve(&order).unwrap();
     assert_eq!(patches[0].target, Some(rock));
-    assert_eq!(patches[0].change, Change::SwapBase { to: tree });
+    assert_eq!(
+        patches[0].change,
+        Change::SwapBase {
+            to: tree,
+            properties: String::new(),
+        }
+    );
 }
 
 #[test]

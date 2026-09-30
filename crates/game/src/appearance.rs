@@ -36,6 +36,13 @@ pub struct ActorAppearance {
     pub parts: Vec<ArmorPart>,
 }
 
+/// Editable player head-part and morph selection stored with the player actor.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlayerAppearance {
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    pub morphs: BTreeMap<String, f32>,
+}
+
 #[derive(Default)]
 struct Traits {
     race: Option<GlobalFormId>,
