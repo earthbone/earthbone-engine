@@ -52,6 +52,23 @@ impl TickHash {
         out.push('\n');
     }
 
+    /// Add or replace the deterministic hash of host builder results.
+    ///
+    /// Host runs happen outside [`Game::tick`], so callers combine this value
+    /// with the game hash after each host tick. The named part makes a host
+    /// mismatch visible in comparisons and serialized hash logs.
+    #[must_use]
+    pub fn with_host_builder_hash(mut self, hash: u64) -> Self {
+        self.parts.retain(|(name, _)| *name != "host.builders");
+        self.parts.push(("host.builders", hash));
+        let mut hasher = StateHasher::new();
+        for (_, value) in &self.parts {
+            hasher.sub(*value);
+        }
+        self.total = hasher.finish();
+        self
+    }
+
     fn parse_line(line: &str) -> Option<TickHash> {
         let mut fields = line.split_whitespace();
         let tick = fields.next()?.parse().ok()?;
@@ -69,7 +86,7 @@ impl TickHash {
 /// Every part name in log order, the world's then the VM's. The text form
 /// only accepts these, so a part added to either hash must be added here,
 /// the unit test below checks the world half against `WorldHash::parts`.
-const PART_NAMES: [&str; 24] = [
+const PART_NAMES: [&str; 25] = [
     "world.clock",
     "world.rng",
     "world.objects",
@@ -94,6 +111,7 @@ const PART_NAMES: [&str; 24] = [
     "vm.latents",
     "vm.log",
     "vm.natives",
+    "host.builders",
 ];
 
 /// Where two hash logs first disagree.
@@ -246,7 +264,8 @@ mod tests {
         let names: Vec<&str> = world.parts().iter().map(|p| p.0).collect();
         assert_eq!(names, &PART_NAMES[..names.len()]);
         let rest = &PART_NAMES[names.len()..];
-        assert!(rest.iter().all(|n| n.starts_with("vm.")));
+        assert!(rest[..rest.len() - 1].iter().all(|n| n.starts_with("vm.")));
+        assert_eq!(rest.last(), Some(&"host.builders"));
     }
 
     #[test]
@@ -291,5 +310,27 @@ mod tests {
         assert_eq!(from_text(&text), log);
         let truncated = text.lines().next().unwrap().to_string() + "\ngarbage\n";
         assert_eq!(from_text(&truncated).len(), 1);
+    }
+
+    #[test]
+    fn tst_02_host_builder_hash_is_a_named_round_trippable_part() {
+        let before = tick(4, &[0; PART_NAMES.len() - 1]);
+        let combined = before.clone().with_host_builder_hash(0x1234);
+        assert_eq!(combined.parts.last(), Some(&("host.builders", 0x1234)));
+        assert_ne!(combined.total, before.total);
+        assert_eq!(
+            from_text(&to_text(std::slice::from_ref(&combined))),
+            vec![combined]
+        );
+        assert_eq!(
+            compare(
+                &[before.clone().with_host_builder_hash(1)],
+                &[before.with_host_builder_hash(2)]
+            ),
+            Err(Divergence::AtTick {
+                tick: 4,
+                subsystems: vec!["host.builders"],
+            })
+        );
     }
 }

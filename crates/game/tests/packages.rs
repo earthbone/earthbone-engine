@@ -58,6 +58,7 @@ const MARKER_A: u32 = 0x808;
 const NAVM_A: u32 = 0x810;
 const NAVM_B: u32 = 0x811;
 const IDLE_A: u32 = 0x822;
+const MOD_06_PACKAGE: u32 = 0x826;
 
 fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record {
     let mut data = Vec::with_capacity(24);
@@ -849,6 +850,70 @@ fn the_driver_state_survives_a_save() {
 }
 
 #[test]
+fn mod_06_distributed_package_is_selected_and_survives_save_load() {
+    let mut plugin = test_plugin();
+    let distributed = package::build_record(
+        MOD_06_PACKAGE,
+        "Mod06DistributedPackage",
+        0,
+        Schedule::default(),
+    );
+    let distributed = package::close_header(distributed, Some(SANDBOX_TEMPLATE));
+    let distributed = package::with_location_input(distributed, 0, Location::NearSelf, 0);
+    plugin.push_top(package::with_actions(package::finish(distributed)));
+
+    let mut order = LoadOrder::new();
+    order.add("Packages.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let root = std::env::temp_dir().join(format!("soe-mod-06-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("Mod06_DISTR.ini"),
+        "Package = Mod06DistributedPackage|GuardBase||||0\n",
+    )
+    .unwrap();
+    let report = game.apply_mod_data(std::slice::from_ref(&root));
+    assert_eq!(report.distributions_applied, 1);
+
+    let guard = game.form("GuardRef").unwrap();
+    let selected = ai::select(&mut game.world_mut(), guard).expect("a package is selected");
+    assert_eq!(
+        selected.package,
+        game.form("Mod06DistributedPackage").unwrap()
+    );
+
+    let bytes = game.save_state().unwrap();
+    let plugin = test_plugin_with_mod_06_package();
+    let mut order = LoadOrder::new();
+    order.add("Packages.esm", plugin).unwrap();
+    let mut restored = Game::new(order);
+    restored.load_state(&bytes).unwrap();
+    let restored_guard = restored.form("GuardRef").unwrap();
+    let selected = ai::select(&mut restored.world_mut(), restored_guard)
+        .expect("the restored actor still has a package");
+    assert_eq!(
+        selected.package,
+        restored.form("Mod06DistributedPackage").unwrap()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn test_plugin_with_mod_06_package() -> Plugin {
+    let mut plugin = test_plugin();
+    let distributed = package::build_record(
+        MOD_06_PACKAGE,
+        "Mod06DistributedPackage",
+        0,
+        Schedule::default(),
+    );
+    let distributed = package::close_header(distributed, Some(SANDBOX_TEMPLATE));
+    let distributed = package::with_location_input(distributed, 0, Location::NearSelf, 0);
+    plugin.push_top(package::with_actions(package::finish(distributed)));
+    plugin
+}
+
+#[test]
 fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping");
@@ -919,8 +984,12 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel => "Travel".to_string(),
             Procedure::Sandbox => "Sandbox".to_string(),
             Procedure::Sleep => "Sleep".to_string(),
+            Procedure::Sit => "Sit".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
+            Procedure::UseMagic => "UseMagic".to_string(),
+            Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
+            Procedure::Shout => "Shout".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
@@ -928,8 +997,12 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel
                 | Procedure::Sandbox
                 | Procedure::Sleep
+                | Procedure::Sit
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
+                | Procedure::Shout
+                | Procedure::UseMagic
+                | Procedure::UseWeapon
         ) {
             supported += 1;
         }
