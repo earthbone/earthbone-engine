@@ -79,6 +79,7 @@ fn prg_07_unspent_choice_and_current_experience_survive_save_load() {
     world.advance_character_experience(player, 17.0).unwrap();
 
     let saved = world.save_state();
+    world.player_level = 99;
     world.load_state(&saved).unwrap();
 
     assert_eq!(world.actor_ref(player).unwrap().level, 2);

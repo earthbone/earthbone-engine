@@ -1335,7 +1335,7 @@ impl World {
         self.player = player;
         self.player_level = player
             .and_then(|id| self.actors.get(&id).map(|actor| actor.level.max(1)))
-            .unwrap_or(1);
+            .unwrap_or(self.player_level);
         self.loaded_cell = loaded_cell;
         self.rng = rng;
         self.clock = GameClock {
