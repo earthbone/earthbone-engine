@@ -70,7 +70,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
 /// pending quest lifecycle tasks and unresolved records. The native game save
 /// envelope records dependency provenance. The `CMB-37` reference section
-/// retains each reference's current destruction stage.
+/// retains each reference's current destruction stage, and the `TST-01` world
+/// section retains each subsystem's independent random stream.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1098,8 +1099,23 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
-        let section_result = if version >= 37 {
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
+        let legacy_rng_tail = version >= 37 && r.remaining() == super::rng::STREAM_COUNT * 8;
+        let mut rng_streams = super::rng::derive_streams(rng);
+        let section_result = if legacy_rng_tail {
+            (|| {
+                for state in &mut rng_streams {
+                    *state = r.u64()?;
+                }
+                Ok(())
+            })()
+        } else if version >= 37 {
+            let previous_rng_streams = std::mem::replace(&mut self.rng_streams, rng_streams);
+            let result = save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
+            let loaded_rng_streams = std::mem::replace(&mut self.rng_streams, previous_rng_streams);
+            if result.is_ok() {
+                rng_streams = loaded_rng_streams;
+            }
+            result
         } else {
             Ok(())
         };
@@ -1212,6 +1228,7 @@ impl World {
         self.player = player;
         self.loaded_cell = loaded_cell;
         self.rng = rng;
+        self.rng_streams = rng_streams;
         self.clock = GameClock {
             real_seconds,
             game_days,

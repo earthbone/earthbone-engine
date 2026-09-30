@@ -893,9 +893,11 @@ impl Game {
             return Err(Error::State("no eligible INFO"));
         }
         let index = if infos.len() > 1 {
-            self.world
-                .borrow_mut()
-                .random_int(0, infos.len() as i32 - 1) as usize
+            self.world.borrow_mut().random_int_for(
+                crate::world::RngStream::Dialogue,
+                0,
+                infos.len() as i32 - 1,
+            ) as usize
         } else {
             0
         };

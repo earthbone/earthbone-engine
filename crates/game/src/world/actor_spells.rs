@@ -152,7 +152,9 @@ impl World {
                 .ok_or_else(|| Error::Invalid("excessive leveled spell rolls".into()))?;
             if entries.is_empty()
                 || list.chance_none == 100
-                || (list.chance_none != 0 && self.random_int(0, 99) < i32::from(list.chance_none))
+                || (list.chance_none != 0
+                    && self.random_int_for(super::RngStream::ActorSpells, 0, 99)
+                        < i32::from(list.chance_none))
             {
                 continue;
             }
@@ -164,7 +166,8 @@ impl World {
                 let index = if entries.len() == 1 {
                     0
                 } else {
-                    (self.random_u64() % entries.len() as u64) as usize
+                    (self.random_u64_for(super::RngStream::ActorSpells) % entries.len() as u64)
+                        as usize
                 };
                 let entry = entries[index];
                 self.select_spell_entry(entry.form, level, entry.count, path, visits, spells)?;

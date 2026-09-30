@@ -239,7 +239,11 @@ impl World {
                 } else {
                     level
                 };
-                i64::from(special.level(self.player_level, input, self.random_u64() as u32))
+                i64::from(special.level(
+                    self.player_level,
+                    input,
+                    self.random_u64_for(super::RngStream::LeveledItems) as u32,
+                ))
             } else {
                 // Only ordinary selection applies AddItem's player-level ceiling.
                 i64::from(player_level.map_or(level, |player| level.min(player.max(1))))
@@ -274,7 +278,8 @@ impl World {
                 let index = if eligible.len() == 1 {
                     0
                 } else {
-                    (self.random_u64() % eligible.len() as u64) as usize
+                    (self.random_u64_for(super::RngStream::LeveledItems) % eligible.len() as u64)
+                        as usize
                 };
                 &eligible[index..=index]
             };
@@ -335,7 +340,9 @@ impl World {
     }
 
     fn item_list_chance_none(&mut self, chance: u8) -> bool {
-        chance == 100 || (chance > 0 && self.random_u64() % 100 < u64::from(chance))
+        chance == 100
+            || (chance > 0
+                && self.random_u64_for(super::RngStream::LeveledItems) % 100 < u64::from(chance))
     }
 }
 

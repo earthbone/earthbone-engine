@@ -22,6 +22,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
+    Section { name: "TST-01", write: write_rng_streams, read: read_rng_streams },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -119,6 +120,22 @@ fn read_saved_form_flags(
             .ok_or_else(|| soe_papyrus::VmError::State("SAV-46 missing record override".into()))?;
         value.saved_form_flags = Some((flags, unknown));
         value.record.flags = flags;
+    }
+    Ok(())
+}
+
+fn write_rng_streams(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    for state in world.rng_streams {
+        writer.u64(state);
+    }
+}
+
+fn read_rng_streams(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    for state in &mut world.rng_streams {
+        *state = reader.u64()?;
     }
     Ok(())
 }

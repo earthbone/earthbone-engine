@@ -327,7 +327,7 @@ fn roll(world: &mut World, chance: f32) -> bool {
     if chance <= 0.0 {
         return false;
     }
-    world.random_float(0.0, 100.0) < chance
+    world.random_float_for(crate::world::RngStream::ModData, 0.0, 100.0) < chance
 }
 
 fn kid_exclusions(
