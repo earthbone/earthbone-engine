@@ -11,6 +11,7 @@
 pub mod cell;
 pub mod gameplay;
 pub mod gras;
+pub mod hazd;
 pub mod land;
 pub mod lctn;
 pub mod ltex;

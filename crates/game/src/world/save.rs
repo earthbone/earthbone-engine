@@ -10,6 +10,8 @@ use soe_esm::GlobalFormId;
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::{ObjectId, VmError};
 
+use super::save_section_registry::{ACTOR_SECTIONS, REF_SECTIONS, WORLD_SECTIONS};
+use super::save_sections;
 use super::{
     ActorBaseState, ActorState, AnimationListener, CellState, FactionState, Handle, LeveledEntry,
     LeveledList, LocationState, LosListener, ObjectiveState, Pending, QuestState, RefState,
@@ -58,9 +60,18 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-/// Version 35 retains each reference's current destruction stage.
-/// Version 36 retains actor swimming, running and mount state.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 36 retains BOS record flags on instantiated references and the
+/// active phase and completed action slots for each scene.
+/// Version 37 appends named sections at world, actor and reference levels,
+/// including saved reference persistence and world record flags. This is the
+/// last version this constant will reach. New state goes into a named section
+/// registered in `save_section_registry` at the level that owns it. Version 37
+/// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
+/// pending quest lifecycle tasks and unresolved records. The native game save
+/// envelope records dependency provenance. The `CMB-37` reference section
+/// retains each reference's current destruction stage.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -77,6 +88,12 @@ pub(crate) struct FormReader<'reader, 'data> {
 impl<'reader, 'data> FormReader<'reader, 'data> {
     pub(crate) fn new(reader: &'reader mut Reader<'data>, namespace: FormNamespace) -> Self {
         Self { reader, namespace }
+    }
+
+    /// The namespace a nested reader over one section's payload should
+    /// resolve `FormId`s against, matching this reader's own.
+    pub(crate) fn namespace(&self) -> FormNamespace {
+        self.namespace
     }
 }
 
@@ -418,17 +435,17 @@ impl World {
         self.write_encounter_levels(&mut body);
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
-        let destruction_stages: BTreeMap<_, _> = self
-            .refs
-            .iter()
-            .map(|(id, state)| (*id, state.destruction_stage))
-            .collect();
-        body.len(destruction_stages.len());
-        for (id, stage) in destruction_stages {
-            write_form_id(&mut body, id);
-            body.i32(stage);
+        body.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            write_form_id(&mut body, *id);
+            body.u32(run.phase);
+            body.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                body.u32(*slot);
+            }
         }
         self.write_detection(&mut body);
+        save_sections::write_sections(&mut body, self, WORLD_SECTIONS);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -483,7 +500,14 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r)?);
+            let mut state = read_ref_state(&mut r, version)?;
+            if version < 37 {
+                state.record_flags = self.order.winner(id).map_or(0, |record| record.flags);
+                state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                    self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
+                });
+            }
+            refs.insert(id, state);
         }
 
         let n = r.len()?;
@@ -546,6 +570,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -870,7 +895,14 @@ impl World {
             (1, BTreeMap::new())
         };
         for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
+            let headless_ability = effect.source == effect.target
+                && effect.caster == Some(effect.target)
+                && self.spell(effect.spell).is_ok_and(|spell| {
+                    spell.data.spell_type == 4
+                        && spell.data.cast_type == 0
+                        && spell.data.delivery == 0
+                });
+            if (!objects.contains_key(&Handle::ActiveEffect(*id)) && !headless_ability)
                 || !actors.contains_key(&effect.target)
             {
                 return Err(VmError::State(
@@ -925,7 +957,7 @@ impl World {
         if version >= 12 {
             super::item_save::read_item_stacks(&mut r, &mut refs)?;
         }
-        let record_overrides = if version >= 13 {
+        let mut record_overrides = if version >= 13 {
             self.read_record_overrides(&mut r, version)?
         } else {
             BTreeMap::new()
@@ -997,28 +1029,79 @@ impl World {
         } else {
             BTreeMap::new()
         };
-        if version >= 35 {
+        let scene_runs = if version >= 36 {
             let count = r.len()?;
-            let mut seen = BTreeSet::new();
+            let mut runs = BTreeMap::new();
             for _ in 0..count {
                 let id = read_form_id(&mut r)?;
-                let stage = r.i32()?;
-                let reference = refs.get_mut(&id).ok_or_else(|| {
-                    VmError::State("destruction stage names missing reference".into())
-                })?;
-                if !seen.insert(id) {
-                    return Err(VmError::State(
-                        "duplicate destruction stage reference".into(),
-                    ));
+                let phase = r.u32()?;
+                let action_count = r.len()?;
+                let mut completed_actions = BTreeSet::new();
+                for _ in 0..action_count {
+                    if !completed_actions.insert(r.u32()?) {
+                        return Err(VmError::State("duplicate completed scene action".into()));
+                    }
                 }
-                reference.destruction_stage = stage;
+                let scene_record = self.record(id).ok_or_else(|| {
+                    VmError::State("scene runtime state names a missing form".into())
+                })?;
+                let scene = soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(
+                    |error| VmError::State(format!("invalid scene runtime record: {error}")),
+                )?;
+                if !scenes.contains(&id)
+                    || phase as usize >= scene.phases.len()
+                    || completed_actions.iter().any(|slot| {
+                        scene
+                            .actions
+                            .get(*slot as usize)
+                            .is_none_or(|action| action.end_phase != Some(phase))
+                    })
+                    || runs
+                        .insert(
+                            id,
+                            super::SceneRunState {
+                                phase,
+                                completed_actions,
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(VmError::State("invalid scene runtime state".into()));
+                }
             }
-        }
+            if runs.len() != scenes.len() || scenes.iter().any(|id| !runs.contains_key(id)) {
+                return Err(VmError::State("scene runtime state is incomplete".into()));
+            }
+            runs
+        } else {
+            scenes
+                .iter()
+                .map(|id| (*id, super::SceneRunState::default()))
+                .collect()
+        };
         let detection = if version >= 30 {
-            super::detection::read_detection(&mut r)?
+            super::detection::read_detection(&mut r, version)?
         } else {
             crate::detection::DetectionState::default()
         };
+        // Read world sections against candidate state while keeping the live
+        // world unchanged if any section rejects its payload.
+        let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
+        let previous_quests = std::mem::replace(&mut self.quests, quests);
+        let previous_unresolved = std::mem::take(&mut self.unresolved_records);
+        let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let section_result = if version >= 37 {
+            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
+        } else {
+            Ok(())
+        };
+        let unresolved_records = std::mem::take(&mut self.unresolved_records);
+        let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        quests = std::mem::replace(&mut self.quests, previous_quests);
+        record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+        self.unresolved_records = previous_unresolved;
+        self.brewed_potions = previous_brewed;
+        section_result?;
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1033,6 +1116,22 @@ impl World {
             }
         }
         super::death::validate_pending(&actors, &pending)?;
+        for (id, effects) in &self.brewed_potions {
+            if id.file != super::DYNAMIC_FILE
+                || id.object == 0
+                || id.object > next_dynamic
+                || refs.contains_key(id)
+                || record_overrides.contains_key(id)
+                || effects.is_empty()
+                || effects.iter().any(|(effect, magnitude, _, _)| {
+                    self.tag_of(*effect) != Some(super::T(b"MGEF"))
+                        || !magnitude.is_finite()
+                        || *magnitude < 0.0
+                })
+            {
+                return Err(VmError::State("invalid brewed potion definition".into()));
+            }
+        }
 
         for (&id, value) in &record_overrides {
             let Some(actor) = value.temporary_for else {
@@ -1054,6 +1153,8 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.unresolved_records = unresolved_records;
+        self.brewed_potions = brewed_potions;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
@@ -1063,6 +1164,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1080,6 +1182,7 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
+        self.scene_runs = scene_runs;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
@@ -1268,9 +1371,10 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
         w.bool(*v);
     }
     w.f32(s.alpha);
+    save_sections::write_sections(w, s, REF_SECTIONS);
 }
 
-fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
+fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, VmError> {
     let base = read_opt_form_id(r)?;
     let cell = read_opt_form_id(r)?;
     let mut position = [0f32; 3];
@@ -1337,12 +1441,13 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         anim_bools.insert(k, r.bool()?);
     }
     let alpha = r.f32()?;
-    Ok(RefState {
+    let mut state = RefState {
         base,
         cell,
         position,
         rotation,
         scale,
+        record_flags: 0,
         enabled,
         deleted,
         activation_blocked,
@@ -1369,7 +1474,12 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         anim_ints,
         anim_bools,
         alpha,
-    })
+        persistent: false,
+    };
+    if version >= 37 {
+        save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;
+    }
+    Ok(state)
 }
 
 fn write_actor_state(w: &mut Writer, a: &ActorState) {
@@ -1459,6 +1569,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
+    save_sections::write_sections(w, a, ACTOR_SECTIONS);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1587,6 +1698,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
         a.left_spell = read_opt_form_id(r)?;
         a.right_spell = read_opt_form_id(r)?;
     }
+    if version >= 37 {
+        save_sections::read_sections(r, "actor", &mut a, ACTOR_SECTIONS)?;
+    }
     Ok(a)
 }
 
@@ -1642,3 +1756,38 @@ impl World {
 #[cfg(test)]
 #[path = "save_tests.rs"]
 mod tests;
+
+pub(super) fn write_brewed_potions(world: &World, w: &mut Writer) {
+    w.len(world.brewed_potions.len());
+    for (id, effects) in &world.brewed_potions {
+        write_form_id(w, *id);
+        w.len(effects.len());
+        for (effect, magnitude, area, duration) in effects {
+            write_form_id(w, *effect);
+            w.f32(*magnitude);
+            w.u32(*area);
+            w.u32(*duration);
+        }
+    }
+}
+
+pub(super) fn read_brewed_potions(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    let mut potions = BTreeMap::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        let effect_count = r.len()?;
+        let mut effects = Vec::with_capacity(effect_count);
+        for _ in 0..effect_count {
+            effects.push((read_form_id(r)?, r.f32()?, r.u32()?, r.u32()?));
+        }
+        if potions.insert(id, effects).is_some() {
+            return Err(VmError::State("duplicate brewed potion identity".into()));
+        }
+    }
+    world.brewed_potions = potions;
+    Ok(())
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Quest journal and runtime state, following CommonLib TESQuest.h and
-//! xEdit's QUST save layout. References use the live load order's identities.
+//! Quest journal and runtime state, following CommonLib TESQuest and xEdit's
+//! QUST save layout. References use the live load order's identities.
 
 use std::collections::BTreeMap;
 
@@ -81,6 +81,22 @@ pub struct StoryEvent {
     pub parameters: Vec<StoryParameter>,
 }
 
+/// Story Manager event context waiting for node selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoryManagerEvent {
+    /// Event family, such as `CraftItem`.
+    pub kind: StoryManagerEventKind,
+    /// Event arguments in the order defined by the CK event contract.
+    pub parameters: Vec<Option<GlobalFormId>>,
+}
+
+/// Story Manager event families emitted by gameplay systems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoryManagerEventKind {
+    /// A craft transaction created an item at a bench.
+    CraftItem,
+}
+
 /// Non-target fields of the QUST runtime section.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunData {
@@ -99,6 +115,13 @@ pub struct Runtime {
     pub script_delay: Option<f32>,
     pub already_run: u8,
     pub run_data: Option<RunData>,
+}
+
+/// A quest promotion task restored from a transitional QUST flag word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleTask {
+    Starting,
+    Stopping,
 }
 
 /// Bits represented by QuestState's existing booleans.

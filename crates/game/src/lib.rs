@@ -40,21 +40,27 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod lockpicking;
+pub mod mcm;
 pub mod moddata;
 pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod perks;
+pub mod progression;
 pub mod quest;
 pub mod race;
 pub mod save;
 pub mod save_generations;
+pub mod services;
 pub mod sound;
+pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -64,6 +70,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 
 pub use clock::GameClock;
 pub use natives::Registered;
+pub use world::StoryError;
 pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
@@ -143,9 +150,50 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    mcm_registered: Vec<GlobalFormId>,
+    mcm_active: Option<GlobalFormId>,
+    /// Actors that were in greeting range on the previous gameplay tick.
+    greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
 }
 
 impl Game {
+    /// Evaluate one objective target's QSTA conditions against the current world and VM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a target condition is unsupported or lacks runtime context.
+    pub fn objective_target_conditions_met(
+        &mut self,
+        quest: GlobalFormId,
+        objective: u16,
+        target_index: usize,
+    ) -> Result<bool, conditions::Error> {
+        let mut world = self.world.borrow_mut();
+        let Some(state) = world.quest_state(quest) else {
+            return Ok(false);
+        };
+        let Some(target) = state
+            .def
+            .objective(objective)
+            .and_then(|definition| definition.targets.get(target_index))
+        else {
+            return Ok(false);
+        };
+        let Some(alias) = u32::try_from(target.alias).ok() else {
+            return Ok(false);
+        };
+        let target_ref = state.aliases.get(&alias).copied().flatten();
+        let conditions = target.conditions.clone();
+        let context = conditions::Context {
+            owner: quest,
+            subject: world.player(),
+            target: target_ref,
+            quest: Some(quest),
+            tempering_enchanted: None,
+        };
+        conditions::evaluate(&mut world, &self.vm, context, &conditions)
+    }
+
     pub fn new(order: LoadOrder) -> Game {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -162,6 +210,9 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            mcm_registered: Vec::new(),
+            mcm_active: None,
+            greeting_range_actors: BTreeSet::new(),
         }
     }
 
@@ -269,6 +320,34 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Route an authored Story Manager event through the shared runtime.
+    ///
+    /// # Errors
+    /// Returns malformed record, condition, or reset data errors.
+    pub fn send_story_event(
+        &mut self,
+        event: &crate::quest::state::StoryEvent,
+    ) -> Result<Vec<GlobalFormId>, StoryError> {
+        let vm = &mut self.vm;
+        let mut world = self.world.borrow_mut();
+        world.send_story_event(vm, event)
+    }
+
+    /// Resolve a vendor faction's current service for an actor.
+    ///
+    /// # Errors
+    /// Returns malformed vendor data, unsupported faction conditions or
+    /// invalid merchandise errors from [`services::resolve_vendor_service`].
+    pub fn resolve_vendor_service(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+    ) -> Result<Option<services::VendorService>, services::VendorError> {
+        let vm = &self.vm;
+        let mut world = self.world.borrow_mut();
+        services::resolve_vendor_service(&mut world, vm, faction, merchant)
     }
 
     /// Return the selected damage difficulty tier.
@@ -486,6 +565,7 @@ impl Game {
             }
         }
         self.run_until_idle(64);
+        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
@@ -521,13 +601,62 @@ impl Game {
     /// # Errors
     /// See World::melee_hit for the current supported contact rules.
     pub fn melee_hit(&mut self, hit: combat::MeleeHit) -> Result<combat::HitResult, combat::Error> {
+        let (outgoing, incoming) = if hit.is_bash {
+            (Vec::new(), Vec::new())
+        } else {
+            let vm = &self.vm;
+            let mut world = self.world.borrow_mut();
+            let outgoing_context = perks::EntryPointContext {
+                tabs: vec![hit.attacker, hit.weapon, hit.target],
+                target: Some(hit.target),
+                quest: None,
+            };
+            let incoming_context = perks::EntryPointContext {
+                tabs: vec![hit.target, hit.attacker, hit.weapon],
+                target: Some(hit.attacker),
+                quest: None,
+            };
+            (
+                perks::entry_point_invocations(
+                    &mut world,
+                    vm,
+                    hit.attacker,
+                    35,
+                    &outgoing_context,
+                )?,
+                perks::entry_point_invocations(&mut world, vm, hit.target, 36, &incoming_context)?,
+            )
+        };
         let vm = &mut self.vm;
-        let result = self
-            .world
-            .borrow_mut()
-            .melee_hit(hit, &mut |name, class| vm.create_object_of(name, class))?;
+        let result =
+            self.world
+                .borrow_mut()
+                .melee_hit(hit, outgoing, incoming, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })?;
         self.run_until_idle(64);
         Ok(result)
+    }
+
+    /// Consume one equipped arrow or bolt and return the host's flight request.
+    ///
+    /// # Errors
+    /// Invalid equipment, records, launch vectors or inventory state.
+    pub fn release_projectile(
+        &mut self,
+        attacker: GlobalFormId,
+        weapon: GlobalFormId,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<combat::FlightRequest, combat::Error> {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().release_projectile(
+            attacker,
+            weapon,
+            origin,
+            direction,
+            &mut |name, class| vm.create_object_of(name, class),
+        )
     }
 
     /// Activate a reference the way a player click would, then settle.
@@ -550,6 +679,44 @@ impl Game {
         );
         self.run_until_idle(64);
         ok
+    }
+
+    /// Apply a lockpick result supplied by the host interaction UI.
+    ///
+    /// A broken pick is removed from inventory. Successful picks unlock the
+    /// reference through the shared lock state and run its lock event.
+    pub fn resolve_lockpick(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        success: bool,
+    ) -> bool {
+        let vm = &mut self.vm;
+        let unlocked = self.world.borrow_mut().resolve_lockpick(
+            target,
+            activator,
+            success,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+        unlocked
+    }
+
+    /// Complete player sleep at a furniture reference and deliver its sleep events.
+    pub fn sleep_player_at_furniture(
+        &mut self,
+        furniture: GlobalFormId,
+        elapsed_hours: f64,
+        interrupted: bool,
+    ) -> bool {
+        let slept =
+            self.world
+                .borrow_mut()
+                .sleep_at_furniture(furniture, elapsed_hours, interrupted);
+        if slept {
+            self.run_until_idle(64);
+        }
+        slept
     }
 
     /// Move an inventory item between two references through the same notified
@@ -597,6 +764,7 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let mut game_hours = 0.0;
         if !menu_mode {
+            self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
@@ -616,8 +784,25 @@ impl Game {
             if let Err(error) = self.update_dialogue_range() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
+            if let Err(error) = self.update_automatic_greetings() {
+                self.vm.log.push(self.vm.time(), error.to_string());
+            }
         }
         self.push_tick_hash();
+    }
+
+    fn resume_quest_lifecycle_tasks(&mut self) {
+        let tasks = self.world.borrow().lifecycle_tasks();
+        for (id, task) in tasks {
+            match task {
+                quest::state::LifecycleTask::Starting => {
+                    self.start_quest(id);
+                }
+                quest::state::LifecycleTask::Stopping => {
+                    self.world.borrow_mut().stop_quest(id);
+                }
+            }
+        }
     }
 
     /// Drain queued events and calls into the VM. Returns how many.

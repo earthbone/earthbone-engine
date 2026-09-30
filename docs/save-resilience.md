@@ -13,11 +13,13 @@ Several individual import passes validate before mutation. Whole-game atomic
 restoration remains unfinished. These checks prevent certain bad imports but
 do not implement missing-mod recovery.
 
-The original `Save` retains raw payloads for exact writing. An intermediate
-engine world does not retain every unparsed vanilla payload. Saving that world
-therefore does not establish that unresolved or unsupported data survives.
-See [save.md](save.md#saved-forms-and-live-globals) and
-[save.md](save.md#round-trip) for the current format and import boundaries.
+The original `Save` retains raw payloads for exact writing. SOEW version 38
+can retain caller-supplied opaque records under plugin-relative identities,
+including exact payload bytes and links. The ESS importer does not yet populate
+that table, and whole-game loading still rejects changed plugin provenance.
+Saving an imported world therefore does not establish that unresolved vanilla
+records survive. See [game.md](game.md#save-and-load) for this storage API and
+the current import boundary.
 
 ## Preserve identity and evidence
 

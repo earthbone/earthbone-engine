@@ -8,6 +8,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -33,6 +36,10 @@ const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/scroll.rs"]
+mod scroll;
+#[path = "magic/worn_enchantment.rs"]
+mod worn_enchantment;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -84,6 +91,18 @@ fn effect_with_associated_item(
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
 }
 
+fn effect_with_resistance(resistance: i32) -> Record {
+    let mut effect = effect(1 | (1 << 2), 0, 24, false);
+    effect.subrecords[1].data[16..20].copy_from_slice(&resistance.to_le_bytes());
+    effect
+}
+
+fn location_effect() -> Record {
+    let mut effect = effect(1 | (1 << 2), 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&4u32.to_le_bytes());
+    effect
+}
+
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
 }
@@ -109,6 +128,39 @@ fn spell_with_area(
         .sub(T(b"SPIT"), data)
         .sub(T(b"EFID"), EFFECT.to_le_bytes())
         .sub(T(b"EFIT"), efit)
+}
+
+fn location_spell(form: u32, range: f32, area: u32) -> Record {
+    let mut spell = spell_with_area(form, 0, false, 20.0, 0, area);
+    put(&mut spell.subrecords[0].data, 20, 4);
+    spell.subrecords[0].data[28..32].copy_from_slice(&range.to_le_bytes());
+    spell
+}
+
+fn touch_spell(form: u32, magnitude: f32, reach: f32) -> Record {
+    let mut spell = spell(form, 0, false, magnitude, 0);
+    let spit = &mut spell.subrecords[0].data;
+    spit[20..24].copy_from_slice(&1u32.to_le_bytes());
+    spit[28..32].copy_from_slice(&reach.to_le_bytes());
+    spell
+}
+
+fn touch_effect() -> Record {
+    let mut effect = effect(5, 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&1u32.to_le_bytes());
+    effect
+}
+
+fn aimed_spell(form: u32, magnitude: f32) -> Record {
+    let mut spell = spell(form, 0, false, magnitude, 0);
+    spell.subrecords[0].data[20..24].copy_from_slice(&2u32.to_le_bytes());
+    spell
+}
+
+fn aimed_effect() -> Record {
+    let mut effect = effect(5, 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&2u32.to_le_bytes());
+    effect
 }
 
 fn condition(function: u16, parameter: u32, expected: f32, run_on: u32) -> Vec<u8> {
@@ -143,6 +195,14 @@ fn ingestible_with_flags(form: u32, flags: u32, magnitude: f32, duration: u32) -
 }
 
 fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
+    plugin_with_positions(effect, spells, &[])
+}
+
+fn plugin_with_positions(
+    effect: Record,
+    spells: Vec<Record>,
+    positions: &[(u32, [f32; 3])],
+) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
     let mut summon_acbs = vec![0; 24];
@@ -153,10 +213,17 @@ fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
             .sub(T(b"ACBS"), summon_acbs),
     );
     for actor in [ACTOR, OTHER, SOURCE] {
+        let mut data = vec![0; 24];
+        if let Some((_, position)) = positions.iter().find(|(form, _)| *form == actor) {
+            for (index, value) in position.iter().enumerate() {
+                let start = index * 4;
+                data[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
         plugin.push_top(
             Record::new(T(b"ACHR"), actor)
                 .sub(T(b"NAME"), 0x500u32.to_le_bytes())
-                .sub(T(b"DATA"), vec![0; 24]),
+                .sub(T(b"DATA"), data),
         );
     }
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
@@ -345,6 +412,94 @@ fn mag_11_poison_waits_for_weapon_application_without_consuming_it() {
 }
 
 #[test]
+fn mag_12_magic_and_specific_resistance_apply_multiplicatively_in_order() {
+    let mut game = game(plugin(
+        effect_with_resistance(41),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 50.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistfire", 50.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 75.0);
+}
+
+#[test]
+fn mag_12_all_supported_specific_resistance_values_apply() {
+    for (resistance, actor_value) in [
+        (40, "poisonresist"),
+        (41, "resistfire"),
+        (42, "resistshock"),
+        (43, "resistfrost"),
+        (44, "resistmagic"),
+        (45, "resistdisease"),
+    ] {
+        let mut game = game(plugin(
+            effect_with_resistance(resistance),
+            vec![spell(SPELL, 0, false, 100.0, 0)],
+        ));
+        game.world_mut()
+            .set_actor_value(id(OTHER), actor_value, 50.0)
+            .unwrap();
+
+        cast(&mut game, SPELL, OTHER).unwrap();
+
+        assert_eq!(
+            game.world_mut().actor_value(id(OTHER), "health"),
+            50.0,
+            "MGEF resistance index {resistance} uses {actor_value}"
+        );
+    }
+}
+
+#[test]
+fn mag_12_each_resistance_caps_at_eighty_five_percent() {
+    let mut game = game(plugin(
+        effect_with_resistance(41),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 100.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistfire", 100.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert!((game.world_mut().actor_value(id(OTHER), "health") - 97.75).abs() < 0.001);
+}
+
+#[test]
+fn mag_12_resistance_reads_independent_actor_value_modifiers() {
+    let mut game = game(plugin(
+        effect_with_resistance(42),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 30.0)
+        .unwrap();
+    game.world_mut()
+        .mod_actor_value(id(OTHER), "resistmagic", 20.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistshock", 40.0)
+        .unwrap();
+    game.world_mut()
+        .mod_temporary_actor_value(id(OTHER), "resistshock", 10.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 75.0);
+}
+
+#[test]
 fn mag_11_malformed_effect_group_leaves_the_ingestible_in_inventory() {
     let potion = Record::new(T(b"ALCH"), POTION)
         .sub(T(b"ENIT"), vec![0; 20])
@@ -372,6 +527,275 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+fn projectile_contact(
+    game: &mut Game,
+    spell: u32,
+    target: u32,
+) -> Result<Vec<EffectId>, MagicError> {
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell_on_projectile_contact(
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        id(target),
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+    result
+}
+
+fn location_cast(
+    game: &mut Game,
+    spell: u32,
+    position: [f32; 3],
+    line_of_sight_clear: bool,
+) -> Result<Vec<EffectId>, MagicError> {
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell_at_location(
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        position,
+        line_of_sight_clear,
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+    result
+}
+
+#[test]
+fn mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once() {
+    let mut game = game(plugin(aimed_effect(), vec![aimed_spell(SPELL, 20.0)]));
+    let target_object = game.object_of_form(id(OTHER));
+    let caster_object = game.object_of_form(id(ACTOR));
+    let spell_object = game.object_of_form(id(SPELL));
+    game.world_mut().pending.clear();
+
+    let applied = projectile_contact(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(
+        applied.len(),
+        1,
+        "one contact applies the one authored effect"
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+    let hits: Vec<_> = game
+        .world()
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { object, name, args } if name == "OnHit" => {
+                Some((*object, args.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        hits,
+        vec![(
+            target_object,
+            vec![
+                Value::Object(caster_object),
+                Value::Object(spell_object),
+                Value::None,
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false)
+            ]
+        )],
+        "the contact emits one hostile hit for the resolved target"
+    );
+}
+
+#[test]
+fn mag_17_location_cast_uses_selected_position_and_authored_area() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 100.0, 20)],
+        &[
+            (ACTOR, [0.0, 0.0, 0.0]),
+            (OTHER, [105.0, 0.0, 0.0]),
+            (SOURCE, [0.0, 500.0, 0.0]),
+        ],
+    ));
+
+    let applied = location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true).unwrap();
+
+    assert_eq!(applied.len(), 1);
+    let world = game.world();
+    let active = world.active_effects().next().unwrap();
+    assert_eq!(active.target, id(OTHER));
+    drop(world);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_a_point_beyond_authored_range() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 50.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_an_obstructed_point() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 200.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], false),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_non_finite_positions_and_range() {
+    let mut position_game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 200.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut position_game, SPELL, [f32::NAN, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+    let mut malformed = location_spell(SPELL, 200.0, 20);
+    malformed.subrecords[0].data[28..32].copy_from_slice(&f32::NAN.to_le_bytes());
+    let mut range_game = game(plugin_with_positions(
+        location_effect(),
+        vec![malformed],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut range_game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+    assert_eq!(range_game.world().active_effects().count(), 0);
+
+    let mut negative_range_game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, -1.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut negative_range_game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+}
+
+#[test]
+fn mag_17_location_cast_rejects_a_non_location_spell() {
+    let mut game = game(plugin_with_positions(
+        effect(1, 0, 24, false),
+        vec![spell(SPELL, 0, false, 20.0, 0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Unsupported("location delivery"))
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_02_aimed_spell_requires_a_projectile_contact() {
+    let mut game = game(plugin(aimed_effect(), vec![aimed_spell(SPELL, 20.0)]));
+
+    let error = cast(&mut game, SPELL, OTHER).unwrap_err();
+
+    assert!(matches!(error, MagicError::Unsupported(_)));
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_16_touch_spell_applies_at_its_authored_reach() {
+    let game_plugin = plugin_with_positions(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, 10.0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [10.0, 0.0, 0.0])],
+    );
+    let mut game = game(game_plugin);
+
+    let applied = cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(applied.len(), 1, "the target at the reach boundary is hit");
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 85.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_a_target_beyond_its_authored_reach() {
+    let game_plugin = plugin_with_positions(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, 10.0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [10.01, 0.0, 0.0])],
+    );
+    let mut game = game(game_plugin);
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_a_non_actor_target() {
+    let mut game = game(plugin(touch_effect(), vec![touch_spell(SPELL, 15.0, 10.0)]));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, ITEM),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_16_touch_hostile_spell_rejects_a_dead_target() {
+    let mut game = game(plugin(touch_effect(), vec![touch_spell(SPELL, 15.0, 10.0)]));
+    assert!(game
+        .world_mut()
+        .kill_actor_silent(id(OTHER), Some(id(ACTOR))));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
+    let mut game = game(plugin(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, f32::NAN)],
+    ));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Number)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
 }
 
 #[test]
@@ -1112,7 +1536,12 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    old.truncate(old.len() - 66);
+    // The extra 6 bytes beyond the old 70 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. `without_exclusive_branches` already strips
+    // each actor's and reference's own mid-stream section table.
+    old.truncate(old.len() - 76);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
@@ -1166,25 +1595,18 @@ fn long_constant_effect_tick_keeps_values_and_saved_time_finite() {
 
 #[test]
 fn installed_spell_survey_reports_supported_applications_without_running_scripts() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping magic survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let spells: Vec<_> = order
         .winners_of(T(b"SPEL"))
         .filter(|(_, rec)| rec.flags & 0x20 == 0)
@@ -1194,7 +1616,7 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
         spells.len() > 1000,
         "survey must cover the five-master spell corpus"
     );
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     game.world_mut()
         .set_actor_value(player, "health", 100.0)
@@ -1263,25 +1685,18 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
 
 #[test]
 fn installed_ingestible_survey_reports_supported_applications() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping ingestible survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let items: Vec<_> = order
         .winners_of(T(b"ALCH"))
         .filter(|(_, rec)| rec.flags & 0x20 == 0)
@@ -1291,7 +1706,7 @@ fn installed_ingestible_survey_reports_supported_applications() {
         items.len() > 100,
         "survey must cover the five-master ingestible corpus"
     );
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     game.world_mut()
         .set_actor_value(player, "health", 100.0)

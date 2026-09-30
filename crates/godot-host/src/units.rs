@@ -81,6 +81,21 @@ pub fn direction_to_skyrim(v: [f32; 3]) -> [f32; 3] {
     [v[0], -v[2], v[1]]
 }
 
+/// Skyrim reference Euler angles as a row-major rotation matrix.
+/// This matches CommonLibSSE `NiMatrix3::SetEulerAnglesXYZ`, used by placed
+/// mesh and actor reference transforms.
+#[must_use]
+pub fn skyrim_euler_matrix([rx, ry, rz]: [f32; 3]) -> [[f32; 3]; 3] {
+    let (sx, cx) = rx.sin_cos();
+    let (sy, cy) = ry.sin_cos();
+    let (sz, cz) = rz.sin_cos();
+    [
+        [cy * cz, cy * sz, -sy],
+        [sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy],
+        [cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy],
+    ]
+}
+
 /// A rotation, uniform scale and origin in Godot space, laid out the way
 /// `Transform3D` wants it: `basis` is row major with the scale folded in,
 /// `origin` is the translation.

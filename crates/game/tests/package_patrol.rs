@@ -20,6 +20,8 @@ const ACTOR: u32 = 0x803;
 const A: u32 = 0x804;
 const B: u32 = 0x805;
 const C: u32 = 0x806;
+const IDLE: u32 = 0x807;
+const FURNITURE: u32 = 0x808;
 
 #[derive(Clone, Copy)]
 struct Settings {
@@ -32,6 +34,7 @@ struct Settings {
     omitted: bool,
     non_root_cycle: bool,
     action: bool,
+    furniture: bool,
     null_topic_and_image_space: bool,
     radius: f32,
     dwell: f32,
@@ -50,6 +53,7 @@ impl Default for Settings {
             omitted: false,
             non_root_cycle: false,
             action: false,
+            furniture: false,
             null_topic_and_image_space: false,
             radius: 0.0,
             dwell: 1.0,
@@ -101,14 +105,22 @@ fn markers(plugin: &mut Plugin, settings: Settings, namespace: u32, offset: f32)
         (B, 220.0, Some(if settings.non_root_cycle { B } else { C })),
         (C, 330.0, settings.cyclic.then_some(A)),
     ] {
-        let mut rec = placed(*b"REFR", namespace | object, 0, x + offset);
+        let base = if settings.furniture && object == A {
+            namespace | FURNITURE
+        } else {
+            0
+        };
+        let mut rec = placed(*b"REFR", namespace | object, base, x + offset);
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"INAM"), 0x9876u32.to_le_bytes());
         }
         let mut rec = rec
             .sub(T(b"XPRD"), settings.dwell.to_le_bytes())
             .sub(T(b"XPPA"), [])
-            .sub(T(b"INAM"), u32::from(settings.action).to_le_bytes());
+            .sub(
+                T(b"INAM"),
+                if settings.action { IDLE } else { 0 }.to_le_bytes(),
+            );
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"PDTO"), [0; 8]);
         }
@@ -136,6 +148,17 @@ fn order(settings: Settings) -> LoadOrder {
         )
         .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
+    if settings.action {
+        plugin.push_top(Record::new(T(b"IDLE"), IDLE).zsub(T(b"EDID"), "PatrolIdle"));
+    }
+    if settings.furniture {
+        plugin.push_top(
+            Record::new(T(b"FURN"), FURNITURE)
+                .zsub(T(b"EDID"), "PatrolFurniture")
+                .sub(T(b"MNAM"), 1u32.to_le_bytes())
+                .sub(T(b"FNPR"), 1u16.to_le_bytes()),
+        );
+    }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));
     markers(&mut plugin, settings, 0, 0.0);
     let mut order = LoadOrder::new();
@@ -313,10 +336,6 @@ fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position
             ..Settings::default()
         },
         Settings {
-            action: true,
-            ..Settings::default()
-        },
-        Settings {
             non_root_cycle: true,
             ..Settings::default()
         },
@@ -370,8 +389,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut game = game(Settings::default());
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 35);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -388,8 +410,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 35);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);
@@ -468,12 +493,36 @@ fn null_topics_and_image_space_fields_do_not_hide_or_create_patrol_actions() {
             ..Settings::default()
         });
         game.tick(1.0);
-        assert_eq!(
-            matches!(state(&game).procedure, Procedure::Unsupported(_)),
-            action
-        );
-        assert_eq!(position(&game), if action { 0.0 } else { 110.0 });
+        assert!(!matches!(state(&game).procedure, Procedure::Unsupported(_)));
+        assert_eq!(position(&game), 110.0);
     }
+}
+
+#[test]
+fn ai_88_patrol_plays_idle_once_and_releases_furniture_before_advancing() {
+    let mut idle = game(Settings {
+        action: true,
+        ..Settings::default()
+    });
+    idle.tick(1.0);
+    assert_eq!(
+        idle.world().animation_events,
+        vec![(id(ACTOR), "PatrolIdle".to_string())]
+    );
+    idle.tick(0.5);
+    assert_eq!(idle.world().animation_events.len(), 1);
+
+    let mut furniture = game(Settings {
+        furniture: true,
+        dwell: 1.0,
+        ..Settings::default()
+    });
+    furniture.tick(1.0);
+    assert!(furniture.world().furniture_seat(id(ACTOR)).is_some());
+    assert_eq!(state(&furniture).patrol.as_ref().unwrap().current, id(A));
+    furniture.tick(1.0);
+    assert_eq!(state(&furniture).patrol.as_ref().unwrap().current, id(B));
+    assert_eq!(furniture.world().furniture_seat(id(ACTOR)), None);
 }
 
 #[test]
