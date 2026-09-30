@@ -1098,6 +1098,7 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let section_result = if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
@@ -1105,10 +1106,12 @@ impl World {
         };
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        let cloak_effects = std::mem::take(&mut self.cloak_effects);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
+        self.cloak_effects = previous_cloaks;
         section_result?;
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
@@ -1198,6 +1201,12 @@ impl World {
         self.dialogue.repeated = dialogue_repeats;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
+        if version >= 37 {
+            self.cloak_effects = cloak_effects;
+            self.validate_cloaks()?;
+        } else {
+            self.cloak_effects.clear();
+        }
         self.image_space = image_space;
 
         self.objects = objects;

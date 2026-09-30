@@ -50,6 +50,7 @@ const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
 const LAST_SPECIFIC_RESISTANCE: i32 = 45;
 const IGNORE_RESISTANCE: u32 = 1 << 20;
 const PEAK_VALUE_MODIFIER: u32 = 34;
+const CLOAK_CADENCE: f64 = 1.0;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,6 +84,13 @@ pub struct ConcentrationCast {
     caster: GlobalFormId,
     target: Option<GlobalFormId>,
     cost_per_second: f64,
+}
+
+/// Pulse phase and applications last created by one Cloak effect.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct CloakState {
+    pub(crate) elapsed: f64,
+    pub(crate) owned: Vec<EffectId>,
 }
 
 /// A spell was rejected before any of its effects were applied.
@@ -137,6 +145,7 @@ struct PreparedEffect {
 enum CastDelivery {
     Direct,
     ProjectileContact,
+    CloakPulse,
     Location,
     Scroll,
 }
@@ -831,6 +840,27 @@ impl World {
         self.apply_prepared_effects(prepared, alloc)
     }
 
+    fn cast_spell_inner(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        _cloak_pulse: bool,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            target,
+            CastDelivery::CloakPulse,
+            None,
+            true,
+        )?;
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
     /// Charge time for a spell, using its authored value or the longest
     /// casting time among its effects when the record auto-calculates it.
     pub fn spell_charge_time(&self, spell: GlobalFormId) -> Result<f32, MagicError> {
@@ -1271,7 +1301,10 @@ impl World {
         if cast_delivery == CastDelivery::Location && definition.data.delivery != 4 {
             return Err(MagicError::Unsupported("location delivery"));
         }
-        let concentration = cast_delivery == CastDelivery::Direct && definition.data.cast_type == 2;
+        let concentration = matches!(
+            cast_delivery,
+            CastDelivery::Direct | CastDelivery::CloakPulse
+        ) && definition.data.cast_type == 2;
         if (scroll && definition.data.cast_type != 3)
             || (!scroll && !concentration && !matches!(definition.data.cast_type, 0 | 1))
         {
@@ -1323,7 +1356,11 @@ impl World {
                 }
                 source
             }
-            2 if cast_delivery == CastDelivery::ProjectileContact => {
+            2 if matches!(
+                cast_delivery,
+                CastDelivery::ProjectileContact | CastDelivery::CloakPulse
+            ) =>
+            {
                 target.ok_or(MagicError::Target)?
             }
             2 => {
@@ -1384,6 +1421,7 @@ impl World {
                     | OPEN
                     | 17
                     | 18
+                    | 35
                     | 29
                     | 31
                     | 32
@@ -1416,7 +1454,7 @@ impl World {
             if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
+            let magnitude = if data.flags & NO_MAGNITUDE != 0 && data.archetype != 35 {
                 0.0
             } else {
                 entry.data.magnitude
@@ -1475,6 +1513,20 @@ impl World {
             } else {
                 None
             };
+            if data.archetype == 35 {
+                let associated = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(associated) != Some(super::T(b"SPEL")) {
+                    return Err(MagicError::Unsupported("cloak associated spell"));
+                }
+                let cloak_spell = self.spell(associated)?;
+                if cloak_spell.data.cast_type != 2 || !matches!(cloak_spell.data.delivery, 2 | 3) {
+                    return Err(MagicError::Unsupported(
+                        "cloak spell must be concentration aimed or target",
+                    ));
+                }
+            }
             let bound_weapon = if data.archetype == 17 {
                 let weapon = self
                     .resolve_from(effect, data.associated_item)
@@ -1739,6 +1791,12 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            if self
+                .magic_effect(prepared.effect.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+            {
+                self.cloak_effects.insert(id, CloakState::default());
+            }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
@@ -2017,6 +2075,14 @@ impl World {
         {
             return false;
         }
+        if let Some(cloak) = self.cloak_effects.remove(&id) {
+            for owned in cloak.owned {
+                self.dispel_effect(owned, alloc);
+            }
+        }
+        for cloak in self.cloak_effects.values_mut() {
+            cloak.owned.retain(|owned| *owned != id);
+        }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
@@ -2088,6 +2154,21 @@ impl World {
                 self.dispel_effect(id, alloc);
                 continue;
             }
+            if self.cloak_effects.contains_key(&id) {
+                if let Err(error) = self.tick_cloak(id, seconds, alloc) {
+                    errors.push(error);
+                    continue;
+                }
+                let expired = self.active_effects.get(&id).is_some_and(|current| {
+                    current
+                        .duration
+                        .is_some_and(|duration| current.elapsed >= duration)
+                });
+                if expired {
+                    self.dispel_effect(id, alloc);
+                }
+                continue;
+            }
             let dt = effect.duration.map_or(seconds, |duration| {
                 seconds.min((duration - effect.elapsed).max(0.0))
             });
@@ -2140,6 +2221,59 @@ impl World {
             .values
             .force(name, next as f32)
             .map_err(|_| MagicError::Number)
+    }
+
+    fn tick_cloak(
+        &mut self,
+        id: EffectId,
+        seconds: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let Some(effect) = self.active_effects.get(&id).cloned() else {
+            return Ok(());
+        };
+        let base = self.magic_effect(effect.effect)?;
+        let associated = self
+            .resolve_from(effect.effect, base.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let radius = effect.magnitude;
+        let dt = effect.duration.map_or(seconds, |duration| {
+            seconds.min((duration - effect.elapsed).max(0.0))
+        });
+        let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
+        let elapsed = (state.elapsed + dt).min(f64::MAX);
+        let pulse_due = elapsed >= CLOAK_CADENCE;
+        if !pulse_due {
+            state.elapsed = elapsed;
+            if let Some(active) = self.active_effects.get_mut(&id) {
+                active.elapsed = (active.elapsed + dt).min(f64::MAX);
+            }
+            return Ok(());
+        }
+        state.elapsed = elapsed.rem_euclid(CLOAK_CADENCE);
+        let old_owned = std::mem::take(&mut state.owned);
+        for child in old_owned {
+            self.dispel_effect(child, alloc);
+        }
+        let targets = self.area_targets(effect.target, radius);
+        let mut owned = Vec::new();
+        for target in targets {
+            owned.extend(self.cast_spell_inner(
+                associated,
+                target,
+                effect.caster,
+                Some(target),
+                true,
+                alloc,
+            )?);
+        }
+        if let Some(state) = self.cloak_effects.get_mut(&id) {
+            state.owned = owned;
+        }
+        if let Some(active) = self.active_effects.get_mut(&id) {
+            active.elapsed = (active.elapsed + dt).min(f64::MAX);
+        }
+        Ok(())
     }
 
     fn apply_effect_values(

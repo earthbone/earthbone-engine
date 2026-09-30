@@ -2092,8 +2092,8 @@ dependencies and the current direct-cast rejection boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts, and
-Dispel effects, including hostile hits. Definitions
+of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts,
+Dispel and Cloak effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self, aimed actor and target-actor delivery are supported for constant
 and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
@@ -2152,7 +2152,10 @@ Each effect applies to enabled, undeleted actor references inside its authored
 EFIT area around the selected point. A zero area selects only actors at the
 exact point. xEdit's SPIT definition and the local UESP SPEL format page name
 Target Location as delivery 4 and Range as valid for this delivery. The host
-collision result is supplied by `godot-host` and is not saved.
+collision result is supplied by `godot-host` and is not saved. Cloak effects
+are the concentration exception: their associated aimed or target spell runs
+once per second while the cloak is active. Their saved pulse phase and owned
+effect identities are described under Cloak, MAG-56.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
@@ -2475,6 +2478,35 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 423 quests through 1,388 native calls with zero unresolved calls. Binding now
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
+
+### Cloak, MAG-56
+
+Archetype 35 resolves its associated item as a winning SPEL record. The
+associated spell must use concentration casting with aimed or target-actor
+delivery. A live Cloak effect uses its authored magnitude as the radius around
+the effect target and applies the associated spell to enabled actor references
+in that range once per second. Area target selection ignores cell seams.
+Each cloak tracks the effect
+applications from its latest pulse. A later pulse removes those applications
+before creating the next set, and dispelling or expiring the cloak removes its
+owned applications.
+
+The xEdit source `TES5Edit/Core/wbDefinitionsTES5.pas` maps archetype 35 to a
+SPEL associated item. Local `uesp-modfileformat/MGEF.wikitext` agrees on the
+archetype and area fields. The local CK dump has no Magic Effect page; the
+published [Creation Kit Magic Effect page](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
+specifies the associated concentration spell and says Cloak casts it on area
+targets. Its concentration section establishes one-second reapplication.
+`area_targets` reuses MAG-06's loaded actor selection. The cloak pulse phase
+and owned active-effect identities are saved in the world section `MAG-56`,
+without changing SOEW version 37.
+
+`mag_56_cloak_pulses_on_its_one_second_cadence_and_selects_nearby_actors`
+checks pulse timing, radius selection and exclusion outside the authored
+area. `mag_56_cloak_expiry_cleans_up_only_its_owned_effects_and_survives_save_load`
+checks owned cleanup at expiry after save/load. Neither check names a vanilla
+record, so no `SKYRIM_DATA` case applies. Host visuals, sound and concentration
+input are outside this row.
 
 ### Direct hostile hits, MAG-01
 

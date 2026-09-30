@@ -22,6 +22,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
+    Section { name: "MAG-56", write: World::write_cloaks, read: World::read_cloaks },
 ];
 
 /// Sections read and written once per actor, at the end of every actor

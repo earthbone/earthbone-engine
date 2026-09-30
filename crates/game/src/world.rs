@@ -600,6 +600,7 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    pub(crate) cloak_effects: BTreeMap<magic::EffectId, magic::CloakState>,
     pub(crate) next_effect: u64,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
@@ -703,6 +704,7 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            cloak_effects: BTreeMap::new(),
             next_effect: 1,
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,

@@ -802,6 +802,7 @@ impl World {
         h.bytes(&dialogue.out);
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
+        self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
