@@ -404,6 +404,8 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(skill);
         h.f32(*experience);
     }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,

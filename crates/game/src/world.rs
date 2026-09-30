@@ -227,6 +227,10 @@ pub struct ActorState {
     pub essential: bool,
     pub protected: bool,
     pub level: u32,
+    /// Character experience banked toward the next level.
+    pub character_experience: f32,
+    /// Unspent attribute choices earned from character level-ups.
+    pub level_up_choices: u32,
     pub race: Option<GlobalFormId>,
     pub unconscious: bool,
     pub doing_favor: bool,
