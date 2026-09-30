@@ -223,11 +223,13 @@ resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
-Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
-actor. Items reach the inventory. Packages, shouts, skins and bare forms are
-resolved, held in `mod_data` and counted in the report, but nothing consumes
-them yet: a package needs a third source in the driver's stack and a save format
-change, and the other three are not yet connected to distribution.
+Spells, levelled spells, perks, outfits, sleep outfits, factions and packages
+reach the actor. SPID package field 5 is a zero-based insertion position in the
+actor base's `PKID` list. The actor retains those entries and positions in
+SOEW version 37, and `ai::candidates` inserts them into the base package list
+before schedule and condition evaluation. Items reach the inventory. Shouts,
+skins and bare forms are resolved, held in `mod_data` and counted in the report,
+but are not yet connected to actor behavior.
 
 A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the

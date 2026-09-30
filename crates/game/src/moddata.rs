@@ -56,6 +56,8 @@ pub struct Distributed {
     pub what: GlobalFormId,
     /// Resolved from the rule's index or count, at least one.
     pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
     pub on_death: bool,
 }
 
@@ -115,6 +117,8 @@ pub struct ActorDistribution {
     pub distribution: spid::Distribution,
     /// Resolved item count, at least one.
     pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
 }
 
 impl ModDataState {
@@ -224,6 +228,7 @@ pub(crate) fn for_actor(
             record_type: rule.distribution.record_type,
             what: rule.what,
             count: rule.count,
+            package_index: rule.package_index,
             on_death: rule.distribution.on_death,
         });
     }
@@ -557,9 +562,9 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
-        let count = match d.index_or_count {
-            spid::IndexOrCount::Count(r) => i32::try_from(r.min.max(1)).unwrap_or(1),
-            spid::IndexOrCount::Index(_) => 1,
+        let (count, package_index) = match d.index_or_count {
+            spid::IndexOrCount::Count(r) => (i32::try_from(r.min.max(1)).unwrap_or(1), None),
+            spid::IndexOrCount::Index(index) => (1, Some(usize::try_from(index).unwrap_or(0))),
         };
         for base in &bases {
             let subject = subject_of(world, *base);
@@ -578,6 +583,7 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                     what,
                     distribution: d.clone(),
                     count,
+                    package_index,
                 });
                 continue;
             }
@@ -594,6 +600,7 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                     record_type: d.record_type,
                     what,
                     count,
+                    package_index,
                     on_death: d.on_death,
                 });
             report.distributions_applied += 1;
@@ -709,6 +716,7 @@ mod tests {
                 record_type: RecordType::Spell,
                 what: id(2),
                 count: 1,
+                package_index: None,
                 on_death: false,
             }],
         );

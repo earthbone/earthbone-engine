@@ -460,6 +460,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.swimming = false;
         actor.running = false;
         actor.riding_mount = false;
+        let package_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE300_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().package_overrides = vec![(0, package_sentinel)];
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -552,6 +557,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.swimming = false;
         actor.running = false;
         actor.riding_mount = false;
+        actor.package_overrides.clear();
     }
     for marker in markers {
         let at = bytes

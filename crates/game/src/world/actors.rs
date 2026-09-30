@@ -27,13 +27,15 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
         RecordType::Faction => {
             a.factions.entry(d.what).or_insert(0);
         }
+        RecordType::Package => {
+            a.package_overrides
+                .push((d.package_index.unwrap_or(usize::MAX), d.what));
+        }
         // Items reach the reference's inventory in `base_inventory`, not the
-        // actor state. A package would need a third source in the driver's
-        // stack and a save format change, and shouts, skins and bare forms
-        // have no actor state at all yet. Each is held in `mod_data` and
-        // counted, never silently dropped, and `docs/moddata.md` lists them.
+        // actor state. Shouts, skins and bare forms have no actor state yet.
+        // They remain held in `mod_data` and counted, and `docs/moddata.md`
+        // lists them.
         RecordType::Item
-        | RecordType::Package
         | RecordType::Shout
         | RecordType::Skin
         | RecordType::Keyword

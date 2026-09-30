@@ -777,7 +777,8 @@ different things per section, so the reader is a state machine like the
 **The stack.** `ai::candidates` lists the alias packages of every running
 quest that holds the actor in an alias, higher quest priority first, then
 the `PKID` list of the actor's base (through one level of `TPLT` when the
-template flags say so). `ai::select` walks it and the first package whose
+template flags say so), with SPID package entries inserted at their configured
+zero-based positions in that base list. `ai::select` walks it and the first package whose
 schedule and conditions hold wins. `Once Per Day` skips a package that ran
 to completion on the current game day. `ai::evaluate` switches the actor
 when the winner changed and queues `OnPackageEnd`, `OnPackageChange` and
@@ -786,6 +787,9 @@ once, `Actor.GetCurrentPackage` returns the running package, and the
 driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
+
+Built actors retain their distributed package entries and insertion positions
+in SOEW version 37, so package selection uses the same stack after load.
 
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration
