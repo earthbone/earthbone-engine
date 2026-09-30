@@ -758,8 +758,22 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "PlayAnimation",
         |world, call, me| {
             let event = text(&call.arg(0));
-            world.animation_event(me, &event, alloc!(call));
+            world.request_animation(me, &event);
             b(true)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlayAnimationAndWait",
+        |world, call, me| {
+            let animation = text(&call.arg(0));
+            let event = text(&call.arg(1));
+            let latent = call.defer();
+            world.request_animation(me, &animation);
+            world.wait_for_animation(me, &event, latent);
+            NativeReturn::Latent(latent)
         }
     );
     method!(
@@ -3346,7 +3360,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "PlayAnimationAndWait"),
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),

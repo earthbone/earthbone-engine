@@ -109,6 +109,7 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            game.deliver_animation_reports();
             self.image_space.sync(&game.world());
         }
         let requests = self.game.as_mut().map_or_else(Vec::new, |game| {

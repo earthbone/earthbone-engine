@@ -33,6 +33,7 @@ use std::sync::Arc;
 use soe_esm::records::{Text, Transform};
 use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
+use soe_papyrus::vm::LatentId;
 use soe_papyrus::{ObjectId, Value};
 
 use crate::clock::GameClock;
@@ -420,6 +421,34 @@ pub struct AnimationListener {
     pub event: String,
 }
 
+/// A named event to send to one placed reference's animation graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationRequest {
+    pub target: GlobalFormId,
+    pub animation: String,
+}
+
+/// Result waiting for the game loop to resolve in the Papyrus VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationCompletion {
+    pub latent: LatentId,
+    pub succeeded: bool,
+}
+
+/// One ordered notification from a host animation visual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnimationHostNotice {
+    Event { source: GlobalFormId, name: String },
+    Unloaded { target: GlobalFormId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnimationWait {
+    pub target: GlobalFormId,
+    pub event: String,
+    pub latent: LatentId,
+}
+
 /// A line-of-sight registration. `single` is a one-shot gain or lost
 /// registration, `gain` says which of the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -574,6 +603,13 @@ pub struct World {
     pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
+    /// Requests awaiting delivery to a host animation graph.
+    pub animation_requests: Vec<AnimationRequest>,
+    pub(crate) animation_waits: Vec<AnimationWait>,
+    /// Ordered events and unloads reported by host animation visuals.
+    pub animation_host_notices: Vec<AnimationHostNotice>,
+    /// Completed latent calls awaiting the game loop.
+    pub animation_completions: Vec<AnimationCompletion>,
     pub player_controls: bool,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
@@ -689,6 +725,10 @@ impl World {
             menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
+            animation_requests: Vec::new(),
+            animation_waits: Vec::new(),
+            animation_host_notices: Vec::new(),
+            animation_completions: Vec::new(),
             player_controls: true,
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),

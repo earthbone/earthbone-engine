@@ -425,6 +425,52 @@ impl Game {
         self.world.clone()
     }
 
+    /// Deliver one host animation event to Papyrus listeners and latent waits.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_event(source, name, &mut |object, class| {
+                vm.create_object_of(object, class)
+            });
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Fail animation waits when their host graph unloads before completion.
+    pub fn report_animation_unloaded(&mut self, target: GlobalFormId) {
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_unloaded(target);
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Drain host graph events after a host frame and deliver them in order.
+    pub fn deliver_animation_reports(&mut self) {
+        let notices = self.world.borrow_mut().take_animation_host_notices();
+        for notice in notices {
+            match notice {
+                world::AnimationHostNotice::Event { source, name } => {
+                    self.report_animation_event(source, &name);
+                }
+                world::AnimationHostNotice::Unloaded { target } => {
+                    self.report_animation_unloaded(target);
+                }
+            }
+        }
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.world.borrow().form(editor_id)
     }

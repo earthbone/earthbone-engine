@@ -674,6 +674,36 @@ impl World {
             form(&mut h, *id);
             h.str(name);
         }
+        h.len(self.animation_requests.len());
+        for request in &self.animation_requests {
+            form(&mut h, request.target);
+            h.str(&request.animation);
+        }
+        h.len(self.animation_waits.len());
+        for wait in &self.animation_waits {
+            form(&mut h, wait.target);
+            h.str(&wait.event);
+            h.u64(wait.latent.0);
+        }
+        h.len(self.animation_host_notices.len());
+        for notice in &self.animation_host_notices {
+            match notice {
+                super::AnimationHostNotice::Event { source, name } => {
+                    h.u8(0);
+                    form(&mut h, *source);
+                    h.str(name);
+                }
+                super::AnimationHostNotice::Unloaded { target } => {
+                    h.u8(1);
+                    form(&mut h, *target);
+                }
+            }
+        }
+        h.len(self.animation_completions.len());
+        for completion in &self.animation_completions {
+            h.u64(completion.latent.0);
+            h.bool(completion.succeeded);
+        }
         h.bool(self.player_controls);
         let output = h.finish();
 
