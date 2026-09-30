@@ -10,12 +10,15 @@
 //!
 //! Nothing in this module touches Godot, so the whole load runs in a plain
 //! test. [`crate::godot_actor`] turns the result into `RenderingServer` calls.
+//! Race project links use the `soe-hkx` readers, whose layouts follow the local
+//! serde-hkx `hkbProjectStringData` and `hkbCharacterStringData` class tables.
 
 use soe_bsa::Vfs;
 use soe_hkx::behavior::BehaviorGraph;
+use soe_hkx::character::{CharacterData, ProjectData};
 use soe_hkx::interp::{Clip, ClipLibrary};
 use soe_hkx::ragdoll::Ragdoll;
-use soe_hkx::skeleton::{AnimationContainer, Skeleton};
+use soe_hkx::skeleton::{AnimationContainer, Bone as HkxBone, Skeleton};
 use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
 use soe_nif::types::Transform as NifTransform;
@@ -294,15 +297,49 @@ impl ActorAssets {
                 race: race_id,
                 asset: "behavior",
             })?;
-        let root = actor_root(&behavior_path);
-        let project_path = join_project_path(&root, "", &behavior_path);
-        let skeleton_path = skeleton_model_path.clone();
+        let project_path = behavior_path;
+        let bytes = read(vfs, &project_path)?;
+        let project_packfile = packfile(&bytes, &project_path)?;
+        let project =
+            ProjectData::from_packfile(&project_packfile).map_err(|error| ActorError::Project {
+                path: project_path.clone(),
+                reason: error.to_string(),
+            })?;
+        let root = actor_root(&project_path);
+        let character_name =
+            project
+                .character_filenames
+                .first()
+                .ok_or_else(|| ActorError::Project {
+                    path: project_path.clone(),
+                    reason: "project names no character data".into(),
+                })?;
+        let character_path = join_project_path(&root, &project.character_path, character_name);
+        let bytes = read(vfs, &character_path)?;
+        let character_packfile = packfile(&bytes, &character_path)?;
+        let character = CharacterData::from_packfile(&character_packfile).map_err(|error| {
+            ActorError::Project {
+                path: character_path.clone(),
+                reason: error.to_string(),
+            }
+        })?;
+        let skeleton_name = nonempty(&character.rig_name).ok_or_else(|| ActorError::Project {
+            path: character_path.clone(),
+            reason: "character data names no skeleton rig".into(),
+        })?;
+        let behavior_name =
+            nonempty(&character.behavior_filename).ok_or_else(|| ActorError::Project {
+                path: character_path.clone(),
+                reason: "character data names no behavior graph".into(),
+            })?;
+        let skeleton_path = join_project_path(&root, &project.character_path, skeleton_name);
+        let behavior_path = join_project_path(&root, &project.behavior_path, behavior_name);
         let (skeleton, ragdoll) = Self::load_skeleton_at(vfs, &skeleton_path)?;
-        let (mut graph, unresolved_references) = Self::load_graph(vfs, &project_path)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::appearance_surfaces(vfs, appearance, &skeleton)?;
-        Ok(ActorAssets {
+        let mut assets = ActorAssets {
             skeleton,
             ragdoll,
             graph,
@@ -310,13 +347,47 @@ impl ActorAssets {
             surfaces,
             skeleton_path,
             skeleton_model_path,
-            behavior_path: project_path.clone(),
+            behavior_path,
             project_path: Some(project_path),
             actor_race: Some(race_id),
             actor_female: Some(female),
             missing_clips,
             unresolved_references,
-        })
+        };
+        Self::extend_race_bones(vfs, &mut assets)?;
+        let bones: std::collections::BTreeSet<_> = assets
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter().cloned())
+            .collect();
+        if !bones.is_empty() {
+            return Err(ActorError::RigMismatch {
+                bones: bones.into_iter().collect(),
+            });
+        }
+        Ok(assets)
+    }
+
+    fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
+        let missing: std::collections::BTreeSet<_> = assets
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter().cloned())
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let bytes = read(vfs, &assets.skeleton_model_path)?;
+        let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
+            path: assets.skeleton_model_path.clone(),
+            source,
+        })?;
+        extend_skeleton(&mut assets.skeleton, &file, &missing)
+            .map_err(|bones| ActorError::RigMismatch { bones })?;
+        for surface in &mut assets.surfaces {
+            surface.map = BoneMap::build(&surface.skin.bones, &assets.skeleton);
+        }
+        Ok(())
     }
 
     fn load_skeleton(vfs: &Vfs) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
@@ -515,6 +586,146 @@ impl ActorAssets {
         let total = self.surfaces.iter().map(|s| s.map.len()).sum();
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
+    }
+}
+
+#[derive(Clone)]
+struct NifRigNode {
+    parent: Option<String>,
+    transform: NifTransform,
+}
+
+fn extend_skeleton(
+    skeleton: &mut Skeleton,
+    file: &soe_nif::NifFile,
+    required: &std::collections::BTreeSet<String>,
+) -> Result<(), Vec<String>> {
+    let mut nodes = std::collections::BTreeMap::new();
+    let mut visited = std::collections::BTreeSet::new();
+    for root in &file.roots {
+        collect_rig_nodes(file, *root, None, &mut visited, &mut nodes);
+    }
+    let mut missing = Vec::new();
+    for name in required {
+        if ensure_rig_node(skeleton, &nodes, name).is_err() {
+            missing.push(name.clone());
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+fn collect_rig_nodes(
+    file: &soe_nif::NifFile,
+    reference: soe_nif::BlockRef,
+    parent: Option<String>,
+    visited: &mut std::collections::BTreeSet<usize>,
+    nodes: &mut std::collections::BTreeMap<String, NifRigNode>,
+) {
+    use soe_nif::blocks::Block;
+    let Some(index) = reference.get() else {
+        return;
+    };
+    if !visited.insert(index) {
+        return;
+    }
+    let Some(Block::Node(node)) = file.blocks.get(index) else {
+        return;
+    };
+    let name = node.av.name().to_string();
+    if !name.is_empty() {
+        nodes.entry(name.clone()).or_insert_with(|| NifRigNode {
+            parent: parent.clone(),
+            transform: node.av.transform,
+        });
+    }
+    let parent = (!name.is_empty()).then_some(name).or(parent);
+    for child in &node.children {
+        collect_rig_nodes(file, *child, parent.clone(), visited, nodes);
+    }
+}
+
+fn ensure_rig_node(
+    skeleton: &mut Skeleton,
+    nodes: &std::collections::BTreeMap<String, NifRigNode>,
+    name: &str,
+) -> Result<usize, ()> {
+    if let Some(index) = skeleton
+        .bones
+        .iter()
+        .position(|bone| bone.name.eq_ignore_ascii_case(name))
+    {
+        return Ok(index);
+    }
+    let node = nodes
+        .iter()
+        .find_map(|(node_name, node)| node_name.eq_ignore_ascii_case(name).then_some(node))
+        .ok_or(())?;
+    let parent = if let Some(parent) = &node.parent {
+        Some(i16::try_from(ensure_rig_node(skeleton, nodes, parent)?).map_err(|_| ())?)
+    } else {
+        None
+    };
+    let index = skeleton.bones.len();
+    skeleton.bones.push(HkxBone {
+        name: name.to_string(),
+        lock_translation: false,
+    });
+    skeleton.parent_indices.push(parent.unwrap_or(-1));
+    skeleton
+        .reference_pose
+        .push(nif_transform_to_hkx(&node.transform));
+    Ok(index)
+}
+
+fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
+    let m = transform.rotation.rows;
+    let trace = m[0][0] + m[1][1] + m[2][2];
+    let (x, y, z, w) = if trace > 0.0 {
+        let s = (trace + 1.0).sqrt() * 2.0;
+        (
+            (m[2][1] - m[1][2]) / s,
+            (m[0][2] - m[2][0]) / s,
+            (m[1][0] - m[0][1]) / s,
+            0.25 * s,
+        )
+    } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
+        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
+        (
+            0.25 * s,
+            (m[0][1] + m[1][0]) / s,
+            (m[0][2] + m[2][0]) / s,
+            (m[2][1] - m[1][2]) / s,
+        )
+    } else if m[1][1] > m[2][2] {
+        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
+        (
+            (m[0][1] + m[1][0]) / s,
+            0.25 * s,
+            (m[1][2] + m[2][1]) / s,
+            (m[0][2] - m[2][0]) / s,
+        )
+    } else {
+        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
+        (
+            (m[0][2] + m[2][0]) / s,
+            (m[1][2] + m[2][1]) / s,
+            0.25 * s,
+            (m[1][0] - m[0][1]) / s,
+        )
+    };
+    soe_hkx::QsTransform {
+        translation: [
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            0.0,
+        ],
+        rotation: [x, y, z, w],
+        scale: [transform.scale, transform.scale, transform.scale, 0.0],
     }
 }
 

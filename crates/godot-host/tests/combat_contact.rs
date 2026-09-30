@@ -459,13 +459,7 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     // Detection's empty pool count precedes the world-level section table.
     suffix.extend_from_slice(&0_u32.to_le_bytes());
-    suffix.extend_from_slice(&2_u16.to_le_bytes());
-    for (name, payload) in [(b"CRF-03".as_slice(), 4_u32), (b"DLG-09".as_slice(), 4_u32)] {
-        suffix.push(name.len() as u8);
-        suffix.extend_from_slice(name);
-        suffix.extend_from_slice(&payload.to_le_bytes());
-        suffix.extend_from_slice(&0_u32.to_le_bytes());
-    }
+    suffix.extend_from_slice(&0_u16.to_le_bytes());
     assert!(bytes.ends_with(&suffix));
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),

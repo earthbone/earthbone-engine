@@ -335,7 +335,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     // The extra 6 bytes are detection's now-unconditional empty pool count
     // (4 bytes) and the world-level save-section table version 37 added
     // (2 bytes), both always present regardless of the simulated version.
-    bytes.truncate(bytes.len() - 74);
+    bytes.truncate(bytes.len() - 44);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
     assert!(game.world_mut().load_state(&bytes).is_err());
@@ -346,7 +346,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
-    bytes.truncate(bytes.len() - 74);
+    bytes.truncate(bytes.len() - 44);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));

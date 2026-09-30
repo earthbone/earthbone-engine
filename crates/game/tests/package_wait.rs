@@ -245,7 +245,7 @@ fn worlds_saved_before_wait_tags_remain_readable() {
     let mut legacy = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 21 predates the image-space, loose-item and zone blocks, the
     // detection pool tail and the world-level version 37 section table.
-    legacy.truncate(legacy.len() - 61);
+    legacy.truncate(legacy.len() - 31);
     legacy[4..6].copy_from_slice(&21u16.to_le_bytes());
     game.world_mut().load_state(&legacy).unwrap();
     assert_eq!(game.world().save_state(), original);

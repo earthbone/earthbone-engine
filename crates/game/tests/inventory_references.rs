@@ -274,13 +274,9 @@ fn version_fifteen_migrates_authored_loose_items_and_rejects_truncated_new_exten
     let mut bytes = legacy::without_ref_sections(&mut w, &[id(LOOSE)]);
     // CONTEXT: One entry: table count, FormID, stack count and three typed extras.
     let extension = 4 + 6 + 4 + 4 + (1 + 4 + 1 + 1 + 6) + 2 * (1 + 4 + 1 + 4);
-    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. LOOSE's own empty save-section table is
-    // stripped above, since it sits mid stream in the refs list rather than
-    // at this tail.
-    bytes.truncate(bytes.len() - extension - 48);
+    // CONTEXT: Zone levels, zone visits, repeat history and detection each
+    // add an empty count. The normalized world section table adds two bytes.
+    bytes.truncate(bytes.len() - extension - 18);
     let mut loaded = world(3);
     assert!(loaded.load_state(&bytes).is_err());
     bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
@@ -451,11 +447,9 @@ fn legacy_contained_identity_does_not_recreate_its_authored_loose_item() {
             &[id(FIRST)]
         };
         let mut bytes = legacy::without_ref_sections(&mut w, refs);
-        // The extra 6 bytes beyond the old 20 are detection's now-
-        // unconditional empty pool count (4 bytes) and the world-level
-        // save-section table version 37 added (2 bytes), both always
-        // present at the tail regardless of the simulated version.
-        bytes.truncate(bytes.len() - 52);
+        // CONTEXT: Empty loose items, zone levels, zone visits, repeat history
+        // and detection precede the normalized two-byte world section table.
+        bytes.truncate(bytes.len() - 22);
         bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
         let mut loaded = world(1);
         loaded.load_state(&bytes).unwrap();

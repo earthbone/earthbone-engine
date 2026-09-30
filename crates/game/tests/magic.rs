@@ -1934,10 +1934,10 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    // The world-level section table adds 32 bytes to the old tail.
+    // The normalized world-level section table adds two bytes to the old tail.
     // `without_exclusive_branches` already strips each actor's and
     // reference's own mid-stream section table.
-    old.truncate(old.len() - 102);
+    old.truncate(old.len() - 72);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();

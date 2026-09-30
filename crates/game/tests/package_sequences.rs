@@ -400,9 +400,9 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     );
     let mut game = game(tree, 0);
     let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Drop the zone, loose-item and image-space blocks, the empty world
-    // section table, and the cursor count. What remains is the cursor count.
-    bytes.truncate(bytes.len() - 61);
+    // Drop the zone, loose-item, image-space, repeat and detection blocks and
+    // the empty world section table. What remains is the cursor count.
+    bytes.truncate(bytes.len() - 31);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.

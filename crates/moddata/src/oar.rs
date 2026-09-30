@@ -471,7 +471,8 @@ mod tests {
             r#"{"priority":2147483648}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("invalid override");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("invalid override");
 
         assert!(err.to_string().contains("no valid priority"));
     }
@@ -490,7 +491,8 @@ mod tests {
             r#"{"conditions":[]}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("missing override priority");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("missing override priority");
 
         assert!(err.to_string().contains("no valid priority"));
     }
@@ -509,7 +511,8 @@ mod tests {
             r#"{"priority":8}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("missing author name");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("missing author name");
 
         assert!(err.to_string().contains("no name"));
     }
