@@ -90,8 +90,12 @@ impl WorldState for CommonLibWorld<'_> {
             Procedure::Travel => "Travel".to_owned(),
             Procedure::Sandbox => "Sandbox".to_owned(),
             Procedure::Sleep => "Sleep".to_owned(),
+            Procedure::Sit => "Sit".to_owned(),
             Procedure::Patrol => "Patrol".to_owned(),
+            Procedure::UseMagic => "UseMagic".to_owned(),
+            Procedure::UseWeapon => "UseWeapon".to_owned(),
             Procedure::Wait { .. } => "Wait".to_owned(),
+            Procedure::Shout => "Shout".to_owned(),
             Procedure::Unsupported(name) => format!("Unsupported:{name}"),
         };
         Ok(AIProcess {

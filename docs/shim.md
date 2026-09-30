@@ -110,6 +110,33 @@ adapter binds those calls to live `World` state. Engine-internal `AIProcess`
 hooks that require character controllers or scene nodes return an explicit
 unsupported-hook error.
 
+## SHM-05 world contracts
+
+## SHM-05 world contracts
+
+`RE/World.h` exposes `ActorValueList` reads and writes through an `ActorValueWorldState`
+provider. Its name and index lookups use the game's vanilla actor-value name
+table. Actor reads and writes map FormIDs to the existing component store.
+`BGSDefaultObjectManager::get` reads winning DOBJ data through the
+footstep record view and returns its resolved FormID. These calls delegate to
+the provider on each call, so they do not keep a second copy of actor or
+record state.
+
+The API scope follows `CommonLibSSE-NG-alandtse/include/RE/A/ActorValues.h`,
+`ActorValueList.h`, `ArrowProjectile.h`,
+`CommonLibSSE-NG-alandtse/include/RE/B/BGSDefaultObjectManager.h`, and
+`BGSLoadFormBuffer.h`. The game-side DOBJ adapter accepts the record key used
+by the engine's DOBJ data rather than exposing CommonLib's numeric default
+object enum.
+
+ArrowProjectile save, load and impact hooks return
+`UnsupportedHook::ArrowProjectile`. `BGSLoadFormBuffer` version and form reads
+return `UnsupportedHook::LoadFormBuffer`. The projectile requires runtime
+behavior and vtable callbacks that are not implemented. Skyrim's binary save
+buffer is not the engine's `FormReader` and is not exposed as a shim buffer.
+The C++ fixture compiles and executes the supported provider dispatch and
+checks the unsupported hook identifiers.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++

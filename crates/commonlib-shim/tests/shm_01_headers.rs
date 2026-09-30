@@ -38,7 +38,6 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
     for declaration in [
         "struct ObjectRefHandle",
         "struct ActorHandle",
-        "struct ActorValue",
         "class ObjectRef",
         "class Actor",
         "add_spell",
@@ -48,6 +47,20 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
         assert!(
             references.contains(declaration),
             "missing Rust reference API {declaration}"
+        );
+    }
+    let world = fs::read_to_string(include.join("RE/World.h")).unwrap();
+    for declaration in [
+        "struct ActorValue",
+        "class ActorValueList",
+        "class BGSDefaultObjectManager",
+        "struct ArrowProjectile",
+        "struct BGSLoadFormBuffer",
+        "enum class UnsupportedHook",
+    ] {
+        assert!(
+            world.contains(declaration),
+            "missing Rust world API {declaration}"
         );
     }
     let math = fs::read_to_string(include.join("RE/Math.h")).unwrap();
