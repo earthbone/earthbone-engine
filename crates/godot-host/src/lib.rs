@@ -31,6 +31,7 @@ pub mod image_space;
 pub mod input;
 pub mod interior_prefetch;
 pub mod inventory_menu;
+pub mod lod_rebuild;
 pub mod magic_menu;
 pub mod mcm_menu;
 pub mod mesh;
