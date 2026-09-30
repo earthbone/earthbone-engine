@@ -2058,7 +2058,7 @@ the caster owns that perk. `World::cast_charged_spell` validates the cast and
 available magicka before debiting the cost once and applying effects. This
 one-shot API does not model charge progress or concentration ticks. These rules
 follow local `uesp-modfileformat/SPEL.wikitext` and
-`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+`TES5Edit/Core/wbDefinitionsTES5.pas`. `tests/magic/mag_09_cast_cost.rs`
 checks authored and calculated timing and costs, perk adjustment, and rejection
 without state changes when magicka is insufficient.
 The one-shot charged gameplay path sends `OnSpellCast` once after validation and payment.
