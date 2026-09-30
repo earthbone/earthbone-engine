@@ -2019,12 +2019,23 @@ The contact query now reads two owner maps: bodies registered through
 attacker in either map is excluded. `intersect_ray` returns the nearest hit
 along the segment, so the first actor or unmapped obstruction wins.
 
-`aimed_spell_projectile_contact(spell_file, spell_object, contact_body)` maps
-the contacted actor body RID through that same owner table and applies the
-aimed spell through `World::cast_spell_on_projectile_contact`. Unknown bodies
-and rejected casts return false. The caller discards the projectile after a
-successful contact. This callback allocates no projectile node and stores no
-projectile or save state.
+`aimed_spell_projectile_contact(spell_file, spell_object,
+projectile_instance_id, contact_body)` maps the contacted actor body RID
+through that same owner table and applies the aimed spell through
+`World::cast_spell_on_projectile_contact`. The first contact consumes the
+projectile's instance ID before applying effects, so duplicate Godot contact
+signals cannot repeat the hit. Unknown bodies and rejected casts return
+false. The projectile owner calls `aimed_spell_projectile_finished` when it
+frees the projectile, which releases the one-shot guard. This callback does
+not create or advance projectile flight.
+
+xEdit's `wbDefinitionsTES5.pas` defines SPIT delivery value 2 as Aimed. The
+CK `OnHit_-_ObjectReference.wikitext` describes spell projectiles as contact
+hits and notes that each associated magic effect can produce its own hit
+event. The world contact API applies the spell effect list once for the
+reported actor contact. `mag_02_projectile_contact.rs` checks that repeated
+contact signal delivery for one projectile dispatches only once and that
+freeing it releases the guard. Flight creation and movement are not covered.
 
 `cast_location_spell(spell_file, spell_object, x, y, z)` sends the selected
 Skyrim world position to `World::cast_spell_at_location`. The player's static
