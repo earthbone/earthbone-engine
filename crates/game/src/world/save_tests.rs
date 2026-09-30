@@ -9,7 +9,9 @@ use crate::world::magic::{ActiveEffect, EffectId};
 use crate::world::record_overrides::{raw_words, RecordOverride};
 use crate::world::templates::TemplateChoice;
 use crate::world::DYNAMIC_FILE;
+use crate::world::{UnresolvedRecord, UnresolvedRecordId};
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Slot, Tag};
+use soe_papyrus::vm::state::Reader;
 
 fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
@@ -74,6 +76,109 @@ fn sav_07_full_load_order_and_created_references_round_trip_without_aliases() {
             id(DYNAMIC_FILE, 0x802)
         );
         assert!(loaded.exists(id(255, 0x802)));
+    }
+}
+
+#[test]
+fn sav_58_unresolved_regular_and_light_records_keep_payload_links_and_unrelated_state() {
+    let mut source_order = LoadOrder::new();
+    source_order
+        .add("MissingRegular.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
+    source_order
+        .add(
+            "MissingLight.esl",
+            Plugin::new(FileHeader {
+                flags: flags::LIGHT_MASTER,
+                ..FileHeader::default()
+            }),
+        )
+        .unwrap();
+    let mut live = Plugin::new(FileHeader::default());
+    live.push_top(Record::new(Tag(*b"STAT"), 0x800));
+    source_order.add("Live.esp", live.clone()).unwrap();
+
+    let regular_id = UnresolvedRecordId {
+        plugin: "missingregular.esp".into(),
+        light: false,
+        object: 0x800,
+    };
+    let light_id = UnresolvedRecordId {
+        plugin: "missinglight.esl".into(),
+        light: true,
+        object: 0x800,
+    };
+    let regular = UnresolvedRecord {
+        id: regular_id.clone(),
+        payload: vec![0x10, 0x00, 0xFE, 0xFF, 0x3A],
+        links: vec![light_id.clone()],
+    };
+    let light = UnresolvedRecord {
+        id: light_id.clone(),
+        payload: vec![0xFE, 0x00, 0x10, 0xFF],
+        links: vec![regular_id],
+    };
+    let mut source = World::new(source_order);
+    source.notifications.push("unrelated state".into());
+    source.retain_unresolved_record(regular.clone()).unwrap();
+    source.retain_unresolved_record(light.clone()).unwrap();
+    assert!(source.retain_unresolved_record(regular.clone()).is_err());
+    let first = source.save_state();
+
+    let mut without_plugins = LoadOrder::new();
+    without_plugins.add("Live.esp", live).unwrap();
+    let mut loaded = World::new(without_plugins);
+    loaded.load_state(&first).unwrap();
+    assert_eq!(loaded.unresolved_records().get(&regular.id), Some(&regular));
+    assert_eq!(loaded.unresolved_records().get(&light.id), Some(&light));
+    assert_eq!(loaded.notifications, ["unrelated state"]);
+    assert_eq!(
+        loaded
+            .record(GlobalFormId {
+                file: 0,
+                object: 0x800
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+
+    let second = loaded.save_state();
+    let mut loaded_again = World::new({
+        let mut order = LoadOrder::new();
+        let mut current = Plugin::new(FileHeader::default());
+        current.push_top(Record::new(Tag(*b"STAT"), 0x800));
+        order.add("Live.esp", current).unwrap();
+        order
+    });
+    loaded_again.load_state(&second).unwrap();
+    assert_eq!(
+        loaded_again.unresolved_records().get(&regular.id),
+        Some(&regular)
+    );
+    assert_eq!(
+        loaded_again.unresolved_records().get(&light.id),
+        Some(&light)
+    );
+    assert_eq!(loaded_again.notifications, ["unrelated state"]);
+    assert_eq!(loaded_again.save_state(), second);
+}
+
+#[test]
+fn sav_58_unresolved_record_identity_rejects_invalid_numbers() {
+    let mut world = World::new(LoadOrder::new());
+    for (light, object) in [(false, 0x1000000), (true, 0x1000), (false, 0)] {
+        let record = UnresolvedRecord {
+            id: UnresolvedRecordId {
+                plugin: "missing.esp".into(),
+                light,
+                object,
+            },
+            payload: vec![1],
+            links: vec![],
+        };
+        assert!(world.retain_unresolved_record(record).is_err());
+        assert!(world.unresolved_records().is_empty());
     }
 }
 
@@ -341,6 +446,13 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
         right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
         markers.push(right_spell_marker);
+        let furniture_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE300_0000 + index as u32,
+        };
+        let furniture_marker = 0xA000_u16 + index as u16;
+        world.actors.get_mut(id).unwrap().furniture_seat =
+            Some((furniture_sentinel, furniture_marker));
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -352,35 +464,38 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
-    // Actor records end with an empty save-section table (a `u16` count
-    // of 0). Reference records end with the SAV-15 persistence section,
-    // whose table occupies 14 bytes. Neither table was present before
-    // version 37. Locate each record's own tail by re-serializing it
-    // exactly as `save_state` just did, form id then state, while the
-    // sentinels set above are still in place, then drop its table.
-    // `rich_world`'s two references carry identical `RefState` content, so
-    // the form id prefix is what tells their tails apart.
+    // Version 36 predates named section tables. Locate each actor and
+    // reference record, then remove its section table while retaining the
+    // versioned fields before it. `rich_world`'s two references carry
+    // identical `RefState` content, so the form id prefix distinguishes them.
+
     for id in &ids {
         let actor = world.actors.get(id).unwrap();
         let mut probe = Writer::new();
         write_form_id(&mut probe, *id);
         write_actor_state(&mut probe, actor);
+        let mut section_table = Writer::new();
+        save_sections::write_sections(&mut section_table, actor, ACTOR_SECTIONS);
         let at = bytes
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("actor record is serialized");
-        bytes.drain(at + probe.out.len() - 2..at + probe.out.len());
+        let table_start = at + probe.out.len() - section_table.out.len();
+        bytes.drain(table_start..at + probe.out.len());
     }
     for id in world.refs.keys().copied().collect::<Vec<_>>() {
         let reference = world.refs.get(&id).unwrap();
         let mut probe = Writer::new();
         write_form_id(&mut probe, id);
         write_ref_state(&mut probe, reference);
+        let mut section_table = Writer::new();
+        save_sections::write_sections(&mut section_table, reference, REF_SECTIONS);
         let at = bytes
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("reference record is serialized");
-        bytes.drain(at + probe.out.len() - 14..at + probe.out.len());
+        let table_start = at + probe.out.len() - section_table.out.len();
+        bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
     for id in &ids {
@@ -406,6 +521,10 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .expect("record override is serialized");
     // CONTEXT: This fixture has one override with no list fields in version 23.
     bytes.remove(at + 39);
+    // Drop the world section table for the legacy fixture.
+    let mut world_sections = Writer::new();
+    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
+    bytes.truncate(bytes.len() - world_sections.out.len());
     bytes
 }
 
@@ -416,7 +535,8 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         // Drop empty post-version-19 blocks, including zone visit and scene
         // history, the version 30 detection block's now-unconditional empty
         // pool count, and the 17-byte empty SAV-46 world section table.
-        legacy.truncate(legacy.len() - 58);
+        legacy.truncate(legacy.len() - 41);
+
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -481,7 +601,8 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 58);
+    legacy.truncate(legacy.len() - 41);
+
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -565,7 +686,8 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 58);
+    legacy.truncate(legacy.len() - 41);
+
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
@@ -773,8 +895,9 @@ fn an_actor_saved_at_version_36_loads_without_its_absent_section_table() {
     });
     let mut writer = Writer::new();
     write_actor_state(&mut writer, &actor);
-    assert_eq!(&writer.out[writer.out.len() - 2..], &[0, 0]);
-    writer.out.truncate(writer.out.len() - 2);
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
+    writer.out.truncate(writer.out.len() - sections.out.len());
 
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);

@@ -2,9 +2,6 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
-#[path = "../common/legacy.rs"]
-mod legacy;
-
 use super::*;
 use soe_game::Handle;
 use soe_save::{
@@ -14,28 +11,21 @@ use soe_save::{
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping lock schema survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
@@ -366,36 +356,63 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // The extra 21 bytes beyond the old 37 are detection's now-unconditional
     // empty pool count and the world-level save-section table, both always
     // present at the tail regardless of the simulated version.
-    legacy.truncate(legacy.len() - 58);
+    legacy.truncate(legacy.len() - 43);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
-    let body_end = before.len() - 21;
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&0_u16.to_le_bytes());
+    marker.extend_from_slice(&0x100_u32.to_le_bytes());
+    let starts: Vec<_> = before
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(at, bytes)| (bytes == marker).then_some(at))
+        .collect();
+    assert_eq!(starts.len(), 1, "reference extras entry is unique");
+    let start = starts[0];
+    let mut cursor = start + 10;
+    if before[cursor] != 0 {
+        cursor += 1 + 4;
+    } else {
+        cursor += 1;
+    }
+    if before[cursor] != 0 {
+        cursor += 1 + 6;
+    } else {
+        cursor += 1;
+    }
+    assert_ne!(before[cursor], 0, "reference lock extra is present");
+    cursor += 1;
+    let key_offset = if before[cursor] != 0 {
+        let offset = cursor + 1;
+        cursor += 1 + 6;
+        Some(offset)
+    } else {
+        cursor += 1;
+        None
+    };
+    let flags_offset = cursor;
+    cursor += 1 + 8;
+    let entry_end = cursor;
+    let entry = &before[start + 4..entry_end];
+
     let mut bad_flags = before.clone();
-    let at = body_end - 42;
-    bad_flags[at] |= 1;
-    // Restore both reference section tables' byte lengths to reach the same
-    // offset in `before`, where the reference extras block begins.
-    let start = legacy.len() + 28;
-    // The extras block is followed by the package cursor block, so repeat the
-    // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..body_end - 33];
+    bad_flags[flags_offset] |= 1;
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[body_end - 33..]);
-    duplicate.extend_from_slice(&before[body_end..]);
+    duplicate.extend_from_slice(&before[entry_end..]);
     let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
     assert!(
         duplicate_error.contains("duplicate reference extras"),
         "{duplicate_error}"
     );
     let mut bad_key = before.clone();
-    let at = body_end - 21;
-    bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
+    let key_offset = key_offset.expect("reference key is saved");
+    bad_key[key_offset + 2..key_offset + 6].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
         cases.push(before[..before.len() - cut].to_vec());
@@ -415,7 +432,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
 
 #[test]
 fn installed_all_ownership_and_lock_extras_restore_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
@@ -424,21 +441,14 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
         );
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

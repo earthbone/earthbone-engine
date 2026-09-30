@@ -242,16 +242,10 @@ fn sav_52_invalid_warm_cache_rejects_before_record_override() {
 
 #[test]
 fn sav_52_installed_vanilla_list_records_accept_saved_additions() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+    let Some(_data) = installed::data_dir() else {
         return;
     };
-    let mut order = LoadOrder::new();
-    order
-        .add(
-            "Skyrim.esm",
-            Plugin::parse(&std::fs::read(Path::new(&data).join("Skyrim.esm")).unwrap()).unwrap(),
-        )
-        .unwrap();
+    let order = installed::load_order(&["Skyrim.esm"]).unwrap();
     let tags = [*b"FLST", *b"LVLN", *b"LVLI", *b"LVSP"];
     let selected: Vec<_> = tags
         .into_iter()
@@ -289,7 +283,7 @@ fn sav_52_installed_vanilla_list_records_accept_saved_additions() {
         .enumerate()
         .map(|(index, (id, _))| change(id.object, 43 + index as u8, 0, 0))
         .collect();
-    let mut world = World::new(order);
+    let mut world = World::from_shared_order(order);
     assert_eq!(world.restore_vanilla_lists(&saved).unwrap(), 4);
     for (index, (id, before)) in selected.iter().enumerate() {
         let tag = if index == 0 {

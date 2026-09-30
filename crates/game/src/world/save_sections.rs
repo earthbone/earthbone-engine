@@ -33,19 +33,25 @@ pub(crate) struct Section<T> {
     pub(crate) read: fn(&mut T, &mut FormReader<'_, '_>) -> Result<(), VmError>,
 }
 
-/// Write every registered section for `value`, in registry order.
+/// Write every registered section with a nonempty payload, in registry order.
 pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T>]) {
+    let payloads: Vec<_> = sections
+        .iter()
+        .filter_map(|section| {
+            let mut payload = Writer::new();
+            (section.write)(value, &mut payload);
+            (!payload.out.is_empty()).then_some((section, payload.out))
+        })
+        .collect();
     // Registries are hand-written entries (a handful today, never near
     // 65536) and names are short `&'static str` literals (never near 256
     // bytes), so these casts cannot lose data in practice. See the
     // workspace `cast_possible_truncation` allow in the root `Cargo.toml`.
-    w.u16(sections.len() as u16);
-    for section in sections {
+    w.u16(payloads.len() as u16);
+    for (section, payload) in payloads {
         w.u8(section.name.len() as u8);
         w.out.extend_from_slice(section.name.as_bytes());
-        let mut payload = Writer::new();
-        (section.write)(value, &mut payload);
-        w.bytes(&payload.out);
+        w.bytes(&payload);
     }
 }
 
@@ -67,13 +73,16 @@ pub(crate) fn read_sections<T>(
         let name = std::str::from_utf8(r.take(name_len)?)
             .map_err(|_| VmError::State(format!("non UTF-8 section name at {level}")))?
             .to_string();
-        let payload = r.bytes()?;
+        let payload = r
+            .bytes()
+            .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         let Some(section) = sections.iter().find(|s| s.name == name) else {
             return Err(VmError::State(format!("unknown section {name} at {level}")));
         };
         let mut sub_reader = Reader::new(payload);
         let mut sub = FormReader::new(&mut sub_reader, r.namespace());
-        (section.read)(value, &mut sub)?;
+        (section.read)(value, &mut sub)
+            .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         sub.expect_end()
             .map_err(|_| VmError::State(format!("section {name} at {level} left unread bytes")))?;
     }

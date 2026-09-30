@@ -8,7 +8,8 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Record, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, DialogueRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+    normalize_unresolved_id, raw_words, DialogueRecordExtra, ListRecordExtra, NavmeshRecordExtra,
+    NpcRecordExtra, PackRecordExtra, RecordOverride, UnresolvedRecord, UnresolvedRecordId,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -17,7 +18,72 @@ fn bad(reason: &str) -> VmError {
     VmError::State(format!("record override: {reason}"))
 }
 
+fn write_extra_flags(w: &mut Writer, flags: Option<(u32, u16)>) {
+    w.bool(flags.is_some());
+    if let Some((mask, value)) = flags {
+        w.u32(mask);
+        w.u16(value);
+    }
+}
+
+fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, VmError> {
+    if r.bool()? {
+        Ok(Some((r.u32()?, r.u16()?)))
+    } else {
+        Ok(None)
+    }
+}
+
 impl World {
+    pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+        if world.unresolved_records.is_empty() {
+            return;
+        }
+        w.len(world.unresolved_records.len());
+        for (id, value) in &world.unresolved_records {
+            write_unresolved_id(w, id);
+            w.bytes(&value.payload);
+            w.len(value.links.len());
+            for link in &value.links {
+                write_unresolved_id(w, link);
+            }
+        }
+    }
+
+    pub(super) fn read_unresolved_records(
+        world: &mut World,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let mut records = BTreeMap::new();
+        let count = r.len()?;
+        if count > r.remaining() / 13 {
+            return Err(bad("unresolved record count exceeds remaining bytes"));
+        }
+        for _ in 0..count {
+            let mut id = read_unresolved_id(r)?;
+            normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
+            let payload = r.bytes()?.to_vec();
+            let link_count = r.len()?;
+            if link_count > r.remaining() / 13 {
+                return Err(bad("unresolved link count exceeds remaining bytes"));
+            }
+            let mut links = Vec::with_capacity(link_count);
+            for _ in 0..link_count {
+                let mut link = read_unresolved_id(r)?;
+                normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
+                links.push(link);
+            }
+            if records
+                .insert(id.clone(), UnresolvedRecord { id, payload, links })
+                .is_some()
+            {
+                return Err(bad("duplicate unresolved record identity"));
+            }
+        }
+        world.unresolved_records = records;
+        Ok(())
+    }
+
     fn saved_record_identity(&self, id: GlobalFormId) -> Result<(), VmError> {
         let limit = if id.file == super::DYNAMIC_FILE {
             0xFFFFFF
@@ -148,6 +214,8 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"PACK"
+                                | b"NAVM"
                         )
                     }))
             {
@@ -173,6 +241,8 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"PACK"
+                                | b"NAVM"
                         ) && !rec.is_deleted()
                     })
                     .ok_or_else(|| bad("missing record origin"))?
@@ -257,6 +327,7 @@ impl World {
                 } else {
                     None
                 };
+            let (pack, navmesh) = (None, None);
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -337,6 +408,8 @@ impl World {
                     | b"CLAS"
                     | b"FACT"
                     | b"RELA"
+                    | b"PACK"
+                    | b"NAVM"
             ) {
                 return Err(bad("missing saved dialogue record state"));
             }
@@ -346,13 +419,13 @@ impl World {
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
             if record.tag == T(b"NPC_") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("race has list metadata"));
                 }
                 // Race overrides currently expose only WNAM. Reject other
@@ -402,6 +475,27 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || unchanged_record(&record) != unchanged_record(original)
+                    || record.editor_id() != original.editor_id()
+                {
+                    return Err(bad("invalid saved PACK or NAVM override"));
+                }
+                if record.tag == T(b"PACK") {
+                    crate::package::Package::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                } else {
+                    soe_esm::records::navm::NavMesh::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                }
             } else if matches!(record.tag.as_bytes(), b"CLAS" | b"FACT" | b"RELA") {
                 let unchanged = |source: &soe_esm::Record| {
                     source
@@ -431,6 +525,7 @@ impl World {
                             && record.find(T(b"DATA")).is_some_and(|data| data.len() == 16)
                     }
                 };
+
                 if temporary_for.is_some()
                     || text_origin != id
                     || plain_full
@@ -510,6 +605,8 @@ impl World {
                 list,
                 saved_form_flags: None,
                 dialogue,
+                pack,
+                navmesh,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate record override"));
@@ -517,4 +614,112 @@ impl World {
         }
         Ok(values)
     }
+}
+
+pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+    World::write_unresolved_records(world, w);
+}
+
+pub(super) fn read_unresolved_records(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    World::read_unresolved_records(world, r)
+}
+
+pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter(|(_, value)| value.pack.is_some() || value.navmesh.is_some())
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, value) in entries {
+        write_form_id(w, *id);
+        w.bool(value.pack.is_some());
+        if let Some(pack) = value.pack {
+            write_extra_flags(w, pack.form_flags);
+            w.bool(pack.waiting);
+            w.bool(pack.never_run);
+        }
+        w.bool(value.navmesh.is_some());
+        if let Some(navmesh) = value.navmesh {
+            write_extra_flags(w, navmesh.form_flags);
+            w.bool(navmesh.value_changed);
+            w.bool(navmesh.full_name_changed);
+        }
+    }
+}
+
+pub(super) fn read_pack_navmesh_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate PACK or NAVM section record"));
+        }
+        let pack = if r.bool()? {
+            Some(PackRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                waiting: r.bool()?,
+                never_run: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let navmesh = if r.bool()? {
+            Some(NavmeshRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("PACK or NAVM section names a missing override"))?;
+        match value.record.tag {
+            tag if tag == T(b"PACK") && pack.is_some() && navmesh.is_none() => {
+                value.pack = pack;
+            }
+            tag if tag == T(b"NAVM") && navmesh.is_some() && pack.is_none() => {
+                value.navmesh = navmesh;
+            }
+            _ => return Err(bad("PACK or NAVM section has mismatched record metadata")),
+        }
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (value.record.tag == T(b"PACK") && value.pack.is_none())
+            || (value.record.tag == T(b"NAVM") && value.navmesh.is_none())
+            || (!seen.contains(id) && (value.pack.is_some() || value.navmesh.is_some()))
+    }) {
+        return Err(bad("PACK or NAVM section is incomplete"));
+    }
+    Ok(())
+}
+
+fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
+    record.subrecords.clone()
+}
+
+fn write_unresolved_id(w: &mut Writer, id: &UnresolvedRecordId) {
+    w.str(&id.plugin);
+    w.bool(id.light);
+    w.u32(id.object);
+}
+
+fn read_unresolved_id(r: &mut FormReader<'_, '_>) -> Result<UnresolvedRecordId, VmError> {
+    Ok(UnresolvedRecordId {
+        plugin: r.str()?,
+        light: r.bool()?,
+        object: r.u32()?,
+    })
 }

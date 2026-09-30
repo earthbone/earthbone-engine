@@ -63,12 +63,12 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 appends named sections at world, actor and reference levels,
-/// including the SAV-15 reference section for persistent flags and the SAV-46
-/// world section for restored record form flags and their unknown words. It is
-/// the last version this constant will ever reach: new saved state goes into a
-/// section registered in `save_section_registry`, at the level that owns it.
-/// The native game save envelope also records dependency provenance.
-/// It also retains saved INFO, SMQN and SCEN record runtime fields.
+/// including saved reference persistence and world record flags. This is the
+/// last version this constant will reach. New state goes into a named section
+/// registered in `save_section_registry` at the level that owns it. Version 37
+/// also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values,
+/// pending quest lifecycle tasks and unresolved records. The native game save
+/// envelope records dependency provenance.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -567,6 +567,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -1073,18 +1074,24 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
-        // The SAV-46 reader needs the candidate overrides to validate its
-        // entries. Temporarily expose that candidate, then restore the live
-        // map before continuing validation so a failed load stays atomic.
-        if version >= 37 {
-            let previous_overrides =
-                std::mem::replace(&mut self.record_overrides, record_overrides.clone());
-            let section_result =
-                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
-            record_overrides.clone_from(&self.record_overrides);
-            self.record_overrides = previous_overrides;
-            section_result?;
-        }
+        // Read world sections against candidate state while keeping the live
+        // world unchanged if any section rejects its payload.
+        let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
+        let previous_quests = std::mem::replace(&mut self.quests, quests);
+        let previous_unresolved = std::mem::take(&mut self.unresolved_records);
+        let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let section_result = if version >= 37 {
+            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
+        } else {
+            Ok(())
+        };
+        let unresolved_records = std::mem::take(&mut self.unresolved_records);
+        let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        quests = std::mem::replace(&mut self.quests, previous_quests);
+        record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+        self.unresolved_records = previous_unresolved;
+        self.brewed_potions = previous_brewed;
+        section_result?;
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1099,6 +1106,22 @@ impl World {
             }
         }
         super::death::validate_pending(&actors, &pending)?;
+        for (id, effects) in &self.brewed_potions {
+            if id.file != super::DYNAMIC_FILE
+                || id.object == 0
+                || id.object > next_dynamic
+                || refs.contains_key(id)
+                || record_overrides.contains_key(id)
+                || effects.is_empty()
+                || effects.iter().any(|(effect, magnitude, _, _)| {
+                    self.tag_of(*effect) != Some(super::T(b"MGEF"))
+                        || !magnitude.is_finite()
+                        || *magnitude < 0.0
+                })
+            {
+                return Err(VmError::State("invalid brewed potion definition".into()));
+            }
+        }
 
         for (&id, value) in &record_overrides {
             let Some(actor) = value.temporary_for else {
@@ -1120,6 +1143,8 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.unresolved_records = unresolved_records;
+        self.brewed_potions = brewed_potions;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
@@ -1129,6 +1154,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1710,3 +1736,38 @@ impl World {
 #[cfg(test)]
 #[path = "save_tests.rs"]
 mod tests;
+
+pub(super) fn write_brewed_potions(world: &World, w: &mut Writer) {
+    w.len(world.brewed_potions.len());
+    for (id, effects) in &world.brewed_potions {
+        write_form_id(w, *id);
+        w.len(effects.len());
+        for (effect, magnitude, area, duration) in effects {
+            write_form_id(w, *effect);
+            w.f32(*magnitude);
+            w.u32(*area);
+            w.u32(*duration);
+        }
+    }
+}
+
+pub(super) fn read_brewed_potions(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    let mut potions = BTreeMap::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        let effect_count = r.len()?;
+        let mut effects = Vec::with_capacity(effect_count);
+        for _ in 0..effect_count {
+            effects.push((read_form_id(r)?, r.f32()?, r.u32()?, r.u32()?));
+        }
+        if potions.insert(id, effects).is_some() {
+            return Err(VmError::State("duplicate brewed potion identity".into()));
+        }
+    }
+    world.brewed_potions = potions;
+    Ok(())
+}

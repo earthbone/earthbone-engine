@@ -280,6 +280,8 @@ fn restored_npc_fields_reach_records_actors_and_native_queries() {
 fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them() {
     let mut world = World::new(fixture_order());
     let empty = world.save_state();
+    let mut without_sections = empty.clone();
+    let extra_sections = legacy::strip_world_sections(&mut without_sections) - 2;
     let saved = fixture();
     world.restore_vanilla_npcs(&saved).unwrap();
     assert!(world.loaded_actors().is_empty());
@@ -290,15 +292,14 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     // `before` past record overrides (detection's now-unconditional empty
     // pool count and the world-level save-section table version 37 added),
     // so the offset grows by 6 to still land on record overrides' start.
-    let origin_fields = empty.len() - 42;
+    let origin_fields = empty.len() - 42 - extra_sections;
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 has no list metadata byte in record overrides.
     v13.remove(origin_fields + 15);
     v13.remove(origin_fields + 14);
-    // The extra 6 bytes beyond the old 42 are the same detection and
-    // world-level save-section growth, always present at the tail
-    // regardless of the simulated version.
-    v13.truncate(v13.len() - 48);
+    // The extra 6 bytes beyond the old 42 are unconditional tail growth from
+    // detection and the version 37 world-level section table.
+    v13.truncate(v13.len() - 48 - extra_sections);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -317,7 +318,7 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     }
     let mut v12 = empty;
     // Same 6-byte tail growth as v13 above, past the old 46.
-    v12.truncate(v12.len() - 52);
+    v12.truncate(v12.len() - 52 - extra_sections);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());
@@ -387,27 +388,20 @@ fn unresolved_links_and_unapplied_form_masks_are_retained_and_reported() {
 
 #[test]
 fn installed_npc_changes_restore_into_shared_records_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

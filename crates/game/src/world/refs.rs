@@ -225,8 +225,35 @@ impl World {
             position: state.position,
             rotation: state.rotation,
             scale: state.scale,
-            visible: state.enabled,
+            visible: state.enabled && !state.deleted,
         })
+    }
+
+    /// Records a simulated rigid body's pose in the shared reference state.
+    /// A disabled or deleted reference cannot be revived by a late physics tick.
+    /// The existing position and rotation fields are already part of world saves.
+    pub fn set_host_ref_pose(
+        &mut self,
+        id: GlobalFormId,
+        position: [f32; 3],
+        rotation: [f32; 3],
+    ) -> bool {
+        if !position
+            .iter()
+            .chain(rotation.iter())
+            .all(|v| v.is_finite())
+        {
+            return false;
+        }
+        let Some(state) = self.reference(id) else {
+            return false;
+        };
+        if !state.enabled || state.deleted || state.is_actor {
+            return false;
+        }
+        state.position = position;
+        state.rotation = rotation;
+        true
     }
 
     pub fn base_of(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
@@ -480,6 +507,9 @@ impl World {
                     if let Some(r) = self.reference(target) {
                         r.opened = true;
                     }
+                }
+                Some([b'F', b'U', b'R', b'N']) => {
+                    self.activate_furniture(target, activator);
                 }
                 _ => {}
             }

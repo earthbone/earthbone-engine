@@ -21,7 +21,7 @@ pub mod value;
 pub mod vm;
 
 pub use pex::{Function, Instruction, Object, Opcode, Property, Script, State, Variable};
-pub use value::{ArrayRef, ObjectId, Value};
+pub use value::{ArrayRef, ObjectId, StructRef, Value};
 pub use vm::{
     Log, NativeCall, NativeFn, NativeRegistry, NativeReturn, ThreadId, ThreadState, Vm, VmError,
     MAX_ARRAY_LEN, MAX_STRING_LEN,
