@@ -214,14 +214,13 @@ pub(super) fn validate_pending(
     let mut held = HashSet::new();
     for event in pending {
         match event {
-            Pending::DeferredDeath { actor, .. } => {
+            Pending::DeferredDeath { actor, .. }
                 if actors
                     .get(actor)
                     .is_none_or(|state| state.dead || !state.deferred_kill)
-                    || !held.insert(*actor)
-                {
-                    return Err(bad());
-                }
+                    || !held.insert(*actor) =>
+            {
+                return Err(bad())
             }
             Pending::ActorDeath {
                 actor, recipients, ..

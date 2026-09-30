@@ -6,6 +6,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest, Game, Handle, Pending};
 use soe_papyrus::{
@@ -329,7 +332,10 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
-    bytes.truncate(bytes.len() - 38);
+    // The extra 6 bytes are detection's now-unconditional empty pool count
+    // (4 bytes) and the world-level save-section table version 37 added
+    // (2 bytes), both always present regardless of the simulated version.
+    bytes.truncate(bytes.len() - 48);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
     assert!(game.world_mut().load_state(&bytes).is_err());
@@ -340,7 +346,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
-    bytes.truncate(bytes.len() - 38);
+    bytes.truncate(bytes.len() - 48);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));
@@ -366,32 +372,25 @@ fn duplicate_held_requests_are_rejected_atomically() {
 
 #[test]
 fn installed_npc_deaths_respect_essential_flags_and_persist() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping death lifecycle survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let bases: Vec<_> = order
         .winners_of(Tag(*b"NPC_"))
         .filter(|(_, record)| !record.is_deleted())
         .map(|(id, _)| id)
         .collect();
     assert!(bases.len() > 6000, "expected all five masters");
-    let mut world = soe_game::World::new(order);
+    let mut world = soe_game::World::from_shared_order(order);
     let player = world.player();
     let mut initialized = 0;
     let mut killed = 0;

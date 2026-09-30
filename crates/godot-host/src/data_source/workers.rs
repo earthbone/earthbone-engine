@@ -93,29 +93,20 @@ mod tests {
 
     #[test]
     fn parallel_archive_construction_preserves_last_archive_wins() {
-        use soe_bsa::{Archive, Vfs};
+        use soe_bsa::{write_bsa, Archive, BsaFile, BsaVersion, Vfs};
         use std::path::Path;
 
         // Reduced from bsa::archive::testdata::sse_bsa, which is test-private
         // to that crate. One folder, one uncompressed file, two payload bytes.
         fn archive_bytes(payload: [u8; 2]) -> Vec<u8> {
-            let mut bytes = b"BSA\0".to_vec();
-            for value in [105u32, 36, 3, 1, 1, 7, 9, 0] {
-                bytes.extend_from_slice(&value.to_le_bytes());
-            }
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            bytes.extend_from_slice(&0u32.to_le_bytes());
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.push(7);
-            bytes.extend_from_slice(b"meshes\0");
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.extend_from_slice(&2u32.to_le_bytes());
-            bytes.extend_from_slice(&93u32.to_le_bytes());
-            bytes.extend_from_slice(b"same.nif\0");
-            assert_eq!(bytes.len(), 93);
-            bytes.extend_from_slice(&payload);
-            bytes
+            write_bsa(
+                &[BsaFile {
+                    path: r"meshes\same.nif",
+                    bytes: &payload,
+                }],
+                BsaVersion::SkyrimSe,
+            )
+            .unwrap()
         }
         for workers in [1, 2, 8] {
             let archives = ordered_map(&[0u8, 1, 2, 3], workers, |i| {
@@ -129,5 +120,88 @@ mod tests {
             }
             assert_eq!(vfs.read("Meshes\\Same.NIF").unwrap(), [3, 42]);
         }
+    }
+
+    #[test]
+    fn tst_02_host_runs_hash_threaded_builder_results_per_tick() {
+        use crate::mesh::{build_surface, MaterialDesc, MeshData, MeshOptions};
+        use soe_esm::LoadOrder;
+        use soe_game::determinism::{compare, Divergence, TickHash};
+        use soe_game::Game;
+
+        fn run(seed: u64) -> Vec<TickHash> {
+            let mut game = Game::new(LoadOrder::new());
+            game.record_hashes();
+            let mut random = seed;
+            let mut log = Vec::new();
+            for _ in 0..8 {
+                game.tick(1.0 / 60.0);
+                let inputs: Vec<u64> = (0..31)
+                    .map(|_| {
+                        random ^= random << 13;
+                        random ^= random >> 7;
+                        random ^= random << 17;
+                        random
+                    })
+                    .collect();
+                let built = ordered_map(&inputs, 4, |value| {
+                    std::thread::yield_now();
+                    let x = (value % 10_000) as f32;
+                    let mesh = MeshData {
+                        positions: vec![[x, 0.0, 0.0], [x + 100.0, 0.0, 0.0], [x, 0.0, 100.0]],
+                        indices: vec![0, 1, 2],
+                        material: MaterialDesc::default(),
+                        ..MeshData::default()
+                    };
+                    build_surface(&mesh, MeshOptions::default()).unwrap()
+                })
+                .unwrap();
+                let mut host_hash = 0xcbf2_9ce4_8422_2325u64;
+                for surface in built {
+                    for value in surface
+                        .positions
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits())
+                        .chain(
+                            surface
+                                .normals
+                                .iter()
+                                .flatten()
+                                .map(|value| value.to_bits()),
+                        )
+                        .chain(surface.indices.iter().map(|value| *value as u32))
+                    {
+                        for byte in value.to_le_bytes() {
+                            host_hash ^= u64::from(byte);
+                            host_hash = host_hash.wrapping_mul(0x0000_0100_0000_01b3);
+                        }
+                    }
+                }
+                let game_hash = game.hash_log().last().unwrap().clone();
+                log.push(game_hash.with_host_builder_hash(host_hash));
+            }
+            log
+        }
+
+        let first = run(0x5eed);
+        let second = run(0x5eed);
+        assert_eq!(compare(&first, &second), Ok(()));
+        assert!(first.iter().all(|hash| {
+            hash.parts
+                .last()
+                .is_some_and(|(name, _)| *name == "host.builders")
+        }));
+
+        let mut changed = second;
+        let host_hash = changed[3].parts.last().unwrap().1;
+        changed[3] = changed[3].clone().with_host_builder_hash(host_hash ^ 1);
+        assert_eq!(
+            compare(&first, &changed),
+            Err(Divergence::AtTick {
+                tick: 3,
+                subsystems: vec!["host.builders"],
+            })
+        );
     }
 }

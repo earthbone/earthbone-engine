@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response};
+use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response, TopicSubtype};
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{Value, VmError};
 
@@ -36,6 +36,9 @@ pub struct Session {
 pub(crate) struct State {
     pub session: Option<Session>,
     pub said: BTreeMap<GlobalFormId, f64>,
+    /// The speaker currently being evaluated for an automatic ForceGreet.
+    /// This is an evaluation context and is not serialized.
+    pub greeting_actor: Option<GlobalFormId>,
     /// INFO records selected in the current do-all cycle, keyed by DIAL.
     pub repeated: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
 }
@@ -43,7 +46,9 @@ pub(crate) struct State {
 const GOODBYE: u16 = 1;
 const RANDOM: u16 = 1 << 1;
 const SAY_ONCE: u16 = 1 << 2;
+const INFO_REFUSAL: u16 = 1 << 4;
 const RANDOM_END: u16 = 1 << 5;
+const INVISIBLE_CONTINUE: u16 = 1 << 6;
 const SPENDS_FAVOR: u16 = 1 << 14;
 const TOP_LEVEL: u32 = 1;
 const BLOCKING: u32 = 2;
@@ -220,7 +225,10 @@ impl World {
     }
 
     /// Resolve shared response data without transferring conditions or fragments.
-    fn response_data(&self, info: GlobalFormId) -> Result<(GlobalFormId, DialogueInfo), Error> {
+    pub(crate) fn response_data(
+        &self,
+        info: GlobalFormId,
+    ) -> Result<(GlobalFormId, DialogueInfo), Error> {
         let mut current = info;
         let mut visited = std::collections::BTreeSet::new();
         loop {
@@ -279,6 +287,186 @@ impl World {
 }
 
 impl Game {
+    /// Start an eligible ForceGreet topic when a driven actor enters dialogue
+    /// range. The per-Game edge latch prevents repeated selection on later ticks.
+    ///
+    /// # Errors
+    ///
+    /// Invalid range settings, positions, dialogue records or conditions are
+    /// reported to the tick logger without changing the greeting latch.
+    pub(crate) fn update_automatic_greetings(&mut self) -> Result<(), Error> {
+        let (player, range, actors) = {
+            let mut world = self.world.borrow_mut();
+            let player = world.player();
+            let Some(Value::Float(range)) =
+                world.game_setting("fAIInDialogueModeWithPlayerDistance")
+            else {
+                return Err(Error::State("missing or invalid dialogue distance setting"));
+            };
+            if !range.is_finite() || range < 0.0 {
+                return Err(Error::State("invalid dialogue distance setting"));
+            }
+            (player, range, world.loaded_actors())
+        };
+
+        let (player_position, player_cell) = {
+            let mut world = self.world.borrow_mut();
+            let player_ref = world.reference(player).ok_or(Error::Record(player))?;
+            (player_ref.position, player_ref.cell)
+        };
+        if player_position.iter().any(|value| !value.is_finite()) {
+            return Err(Error::State("invalid dialogue participant position"));
+        }
+
+        let mut nearby = BTreeSet::new();
+        let mut entering = Vec::new();
+        {
+            let mut world = self.world.borrow_mut();
+            for actor in actors {
+                if actor == player {
+                    continue;
+                }
+                let Some(state) = world.actor_ref(actor) else {
+                    continue;
+                };
+                if state.dead || state.in_combat || state.unconscious || !state.allow_pc_dialogue {
+                    continue;
+                }
+                let ghost = state.ghost;
+                let Some(reference) = world.reference(actor) else {
+                    continue;
+                };
+                let (position, cell, enabled, alpha) = (
+                    reference.position,
+                    reference.cell,
+                    reference.enabled,
+                    reference.alpha,
+                );
+                if !enabled || position.iter().any(|value| !value.is_finite()) {
+                    continue;
+                }
+                if alpha < 1.0 && !ghost {
+                    continue;
+                }
+                let same_space = if player_cell == cell {
+                    true
+                } else {
+                    let worldspace = |cell: Option<GlobalFormId>, world: &World| {
+                        let cell = cell?;
+                        if world.cell_is_interior(cell) {
+                            return None;
+                        }
+                        let raw = world.record(cell)?.placement.world?;
+                        world.resolve_from(cell, raw)
+                    };
+                    worldspace(player_cell, &world).is_some()
+                        && worldspace(player_cell, &world) == worldspace(cell, &world)
+                };
+                if !same_space {
+                    continue;
+                }
+                let distance_squared: f64 = position
+                    .iter()
+                    .zip(player_position)
+                    .map(|(a, b)| (f64::from(*a) - f64::from(b)).powi(2))
+                    .sum();
+                if distance_squared <= f64::from(range).powi(2) {
+                    nearby.insert(actor);
+                    if !self.greeting_range_actors.contains(&actor) {
+                        entering.push(actor);
+                    }
+                }
+            }
+        }
+        let mut selected = None;
+        for actor in entering {
+            if let Some((topic, priority)) = self.eligible_force_greet(actor, player)? {
+                if selected.is_none_or(|(_, _, highest)| priority > highest) {
+                    selected = Some((actor, topic, priority));
+                }
+            }
+        }
+        if let Some((actor, topic, priority)) = selected {
+            let prior = self.world.borrow().dialogue.session.clone();
+            let prior_priority = if let Some(prior) = &prior {
+                let mut world = self.world.borrow_mut();
+                prior
+                    .topic
+                    .and_then(|topic| world.owning_quest(topic))
+                    .and_then(|quest| world.quest_state(quest))
+                    .map_or(0, |state| state.def.priority)
+            } else {
+                0
+            };
+            if prior.is_none() || priority > prior_priority {
+                if prior
+                    .as_ref()
+                    .is_some_and(|session| session.current_info.is_some())
+                {
+                    self.finish_dialogue_info()?;
+                }
+                if prior.is_some() {
+                    self.close_dialogue();
+                }
+                self.begin_dialogue(actor, player)?;
+                self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
+                match self.choose_dialogue(topic) {
+                    Ok(Some(_)) => self.world.borrow_mut().dialogue.greeting_actor = None,
+                    Ok(None) => self.close_dialogue(),
+                    Err(error) => {
+                        self.close_dialogue();
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        self.greeting_range_actors = nearby;
+        Ok(())
+    }
+
+    fn eligible_force_greet(
+        &mut self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+    ) -> Result<Option<(GlobalFormId, u8)>, Error> {
+        let prior = self.world.borrow().dialogue.session.clone();
+        {
+            let mut world = self.world.borrow_mut();
+            world.dialogue.session = Some(Session {
+                speaker,
+                listener,
+                topic: None,
+                current_info: None,
+                last_info: None,
+                response_index: 0,
+            });
+            world.dialogue.greeting_actor = Some(speaker);
+        }
+        let result = self.dialogue_choices();
+        {
+            let mut world = self.world.borrow_mut();
+            world.dialogue.session = prior;
+            world.dialogue.greeting_actor = None;
+        }
+        let choices = result?;
+        Ok(choices.available.into_iter().find_map(|choice| {
+            self.world
+                .borrow()
+                .dialogue_topic(choice.topic)
+                .ok()
+                .filter(Self::is_force_greet)
+                .map(|_| (choice.topic, choice.quest_priority))
+        }))
+    }
+
+    fn is_force_greet(topic: &DialogueTopic) -> bool {
+        topic.category == Some(0)
+            && matches!(
+                topic.subtype,
+                Some(TopicSubtype::Numeric(1) | TopicSubtype::Signature([b'P', b'F', b'G', b'T']),)
+            )
+    }
+
     /// Open a conversation without inventing an eligible topic.
     /// The host queries choices and acknowledges actual response completion.
     ///
@@ -303,6 +491,7 @@ impl Game {
         {
             return Err(Error::State("speaker or listener unavailable"));
         }
+        world.dialogue.greeting_actor = None;
         world.dialogue.session = Some(Session {
             speaker,
             listener,
@@ -314,9 +503,12 @@ impl Game {
         Ok(())
     }
 
-    /// Close a conversation. Interrupted lines do not run their end fragments.
+    /// Close a conversation without dispatching the active INFO end fragment.
+    /// An interruption that completes the line calls `finish_dialogue_info` first.
     pub fn close_dialogue(&mut self) {
-        self.world.borrow_mut().dialogue.session = None;
+        let mut world = self.world.borrow_mut();
+        world.dialogue.session = None;
+        world.dialogue.greeting_actor = None;
     }
 
     /// End an out-of-range conversation and dispatch its active INFO end fragment.
@@ -417,6 +609,9 @@ impl Game {
         };
         let (candidates, rejected) = match linked_topics {
             Some(topics) => (topics, Vec::new()),
+            None if session.last_info.is_none() && session.topic.is_some() => {
+                (session.topic.into_iter().collect(), Vec::new())
+            }
             None => self.root_dialogue_topics(&session),
         };
         let mut out = Choices {
@@ -580,6 +775,13 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &quest_conditions)? {
             return Ok(Candidates {
@@ -589,6 +791,7 @@ impl Game {
             });
         }
         let mut candidates = Vec::new();
+        let mut refusals = Vec::new();
         let mut random_group = false;
         for id in world.dialogue_infos(topic)? {
             if world.record(id).is_none_or(|record| record.is_deleted()) {
@@ -596,10 +799,15 @@ impl Game {
             }
             let info = world.dialogue_info(id)?;
             let flags = info.data.as_ref().map_or(0, |data| data.flags());
-            if random_group && flags & RANDOM == 0 {
+            let refusal = flags & INFO_REFUSAL != 0;
+            if random_group && flags & RANDOM == 0 && !refusal {
                 break;
             }
             if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest)? {
+                if refusal {
+                    refusals.push((id, info));
+                    continue;
+                }
                 if flags & RANDOM == 0 {
                     candidates.push((id, info));
                     break;
@@ -607,9 +815,12 @@ impl Game {
                 random_group = true;
                 candidates.push((id, info));
             }
-            if flags & RANDOM_END != 0 && random_group {
+            if flags & RANDOM_END != 0 && random_group && !refusal {
                 break;
             }
+        }
+        if candidates.is_empty() {
+            candidates = refusals;
         }
         if topic_data.do_all_before_repeating.unwrap_or(0) != 0 {
             let said = world.dialogue.repeated.get(&topic);
@@ -658,12 +869,16 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);
-        }
-        if flags & ((1 << 4) | (1 << 6)) != 0 {
-            return Err(Error::Unsupported("refusal or invisible continuation"));
         }
         if flags & SPENDS_FAVOR != 0 {
             let level = info.favor_level.unwrap_or(0);
@@ -861,8 +1076,47 @@ impl Game {
             }
             self.dialogue_line()
         } else {
+            let invisible_continue = {
+                let world = self.world.borrow();
+                let info = world
+                    .dialogue
+                    .session
+                    .as_ref()
+                    .and_then(|session| session.current_info)
+                    .ok_or(Error::State("no response playing"))?;
+                world
+                    .dialogue_info(info)?
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| data.flags() & INVISIBLE_CONTINUE != 0)
+            };
             self.finish_dialogue_info()?;
-            Ok(None)
+            if invisible_continue {
+                self.advance_invisible_continue()
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    fn advance_invisible_continue(&mut self) -> Result<Option<Line>, Error> {
+        let has_links = {
+            let world = self.world.borrow();
+            let Some(session) = &world.dialogue.session else {
+                return Ok(None);
+            };
+            let Some(last_info) = session.last_info else {
+                return Ok(None);
+            };
+            !world.dialogue_info(last_info)?.topic_links.is_empty()
+        };
+        if !has_links {
+            return Ok(None);
+        }
+        let choice = self.dialogue_choices()?.available.first().cloned();
+        match choice {
+            Some(choice) => self.choose_dialogue(choice.topic),
+            None => Ok(None),
         }
     }
 
@@ -897,6 +1151,7 @@ impl Game {
             .is_some_and(|data| data.flags() & GOODBYE != 0)
         {
             world.dialogue.session = None;
+            world.dialogue.greeting_actor = None;
         } else if let Some(session) = &mut world.dialogue.session {
             session.current_info = None;
             session.last_info = Some(info_id);

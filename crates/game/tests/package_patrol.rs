@@ -9,8 +9,9 @@ mod legacy;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, Schedule};
+use soe_game::package::Schedule;
 use soe_game::Game;
+use soe_game::{package, quest};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x800;
@@ -20,6 +21,8 @@ const ACTOR: u32 = 0x803;
 const A: u32 = 0x804;
 const B: u32 = 0x805;
 const C: u32 = 0x806;
+const IDLE: u32 = 0x807;
+const FURNITURE: u32 = 0x808;
 
 #[derive(Clone, Copy)]
 struct Settings {
@@ -32,6 +35,7 @@ struct Settings {
     omitted: bool,
     non_root_cycle: bool,
     action: bool,
+    furniture: bool,
     null_topic_and_image_space: bool,
     radius: f32,
     dwell: f32,
@@ -50,6 +54,7 @@ impl Default for Settings {
             omitted: false,
             non_root_cycle: false,
             action: false,
+            furniture: false,
             null_topic_and_image_space: false,
             radius: 0.0,
             dwell: 1.0,
@@ -63,11 +68,16 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn template(settings: Settings, target: u32) -> Record {
+    template_target(
+        settings,
+        if settings.linked { 3 } else { 0 },
+        if settings.linked { 0 } else { target },
+    )
+}
+
+fn template_target(settings: Settings, target_kind: i32, target: u32) -> Record {
     let rec = package::close_header(package::build_template(TEMPLATE, "WalkingPatrol"), None);
-    let mut data = i32::from(settings.linked)
-        .saturating_mul(3)
-        .to_le_bytes()
-        .to_vec();
+    let mut data = target_kind.to_le_bytes().to_vec();
     data.extend_from_slice(&if settings.linked { 0 } else { target }.to_le_bytes());
     data.extend_from_slice(&0i32.to_le_bytes());
     let rec = rec
@@ -101,14 +111,22 @@ fn markers(plugin: &mut Plugin, settings: Settings, namespace: u32, offset: f32)
         (B, 220.0, Some(if settings.non_root_cycle { B } else { C })),
         (C, 330.0, settings.cyclic.then_some(A)),
     ] {
-        let mut rec = placed(*b"REFR", namespace | object, 0, x + offset);
+        let base = if settings.furniture && object == A {
+            namespace | FURNITURE
+        } else {
+            0
+        };
+        let mut rec = placed(*b"REFR", namespace | object, base, x + offset);
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"INAM"), 0x9876u32.to_le_bytes());
         }
         let mut rec = rec
             .sub(T(b"XPRD"), settings.dwell.to_le_bytes())
             .sub(T(b"XPPA"), [])
-            .sub(T(b"INAM"), u32::from(settings.action).to_le_bytes());
+            .sub(
+                T(b"INAM"),
+                if settings.action { IDLE } else { 0 }.to_le_bytes(),
+            );
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"PDTO"), [0; 8]);
         }
@@ -136,6 +154,17 @@ fn order(settings: Settings) -> LoadOrder {
         )
         .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
+    if settings.action {
+        plugin.push_top(Record::new(T(b"IDLE"), IDLE).zsub(T(b"EDID"), "PatrolIdle"));
+    }
+    if settings.furniture {
+        plugin.push_top(
+            Record::new(T(b"FURN"), FURNITURE)
+                .zsub(T(b"EDID"), "PatrolFurniture")
+                .sub(T(b"MNAM"), 1u32.to_le_bytes())
+                .sub(T(b"FNPR"), 1u16.to_le_bytes()),
+        );
+    }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));
     markers(&mut plugin, settings, 0, 0.0);
     let mut order = LoadOrder::new();
@@ -313,10 +342,6 @@ fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position
             ..Settings::default()
         },
         Settings {
-            action: true,
-            ..Settings::default()
-        },
-        Settings {
             non_root_cycle: true,
             ..Settings::default()
         },
@@ -370,8 +395,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut game = game(Settings::default());
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 35);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -388,8 +416,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 35);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);
@@ -413,6 +444,75 @@ fn final_radius_approach_never_exceeds_a_small_tick_budget() {
         assert!((position(&game) - before - 0.11).abs() < 0.0001);
         assert!(!state(&game).arrived);
     }
+}
+
+#[test]
+fn ai_91_alias_route_start_keeps_winning_namespace_and_saved_target() {
+    const QUEST: u32 = 0x807;
+    const ALIAS: u32 = 7;
+    let settings = Settings::default();
+    let mut base = Plugin::new(FileHeader::default());
+    base.push_top(template_target(settings, 4, ALIAS));
+    base.push_top(
+        package::finish(package::close_header(
+            package::build_record(PACK, "Patrol", 0, Schedule::default()),
+            Some(TEMPLATE),
+        ))
+        .sub(T(b"QNAM"), QUEST.to_le_bytes()),
+    );
+    base.push_top(
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
+    );
+    base.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
+    base.push_top(quest::build_record(QUEST, "RouteQuest", 0));
+    markers(&mut base, settings, 0, 0.0);
+
+    let mut order = LoadOrder::new();
+    order
+        .add("Patrol.esm", Plugin::parse(&base.to_bytes()).unwrap())
+        .unwrap();
+    let mut route = Plugin::new(FileHeader {
+        masters: vec!["Patrol.esm".into()],
+        ..FileHeader::default()
+    });
+    route.push_top(template_target(settings, 4, ALIAS));
+    route.push_top(quest::with_alias(
+        quest::build_record(QUEST, "RouteQuest", 0),
+        ALIAS,
+        "RouteStart",
+        Some(0x0100_0804),
+    ));
+    markers(&mut route, settings, 0x0100_0000, 1000.0);
+    order
+        .add("Route.esp", Plugin::parse(&route.to_bytes()).unwrap())
+        .unwrap();
+
+    let mut game = Game::new(order);
+    assert_eq!(
+        game.world_mut().alias_ref(id(QUEST), ALIAS),
+        Some(GlobalFormId { file: 1, object: A })
+    );
+    assert!(game.world_mut().drive_actor(id(ACTOR)));
+    game.tick(20.0);
+    let selected = GlobalFormId { file: 1, object: A };
+    assert!(
+        state(&game).patrol.is_some(),
+        "alias Patrol did not start: {:?}",
+        state(&game).procedure
+    );
+    assert_eq!(state(&game).patrol.as_ref().unwrap().start, selected);
+    assert_eq!(position(&game), 1110.0);
+
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(state(&game).patrol.unwrap().start, selected);
 }
 
 #[test]
@@ -468,12 +568,36 @@ fn null_topics_and_image_space_fields_do_not_hide_or_create_patrol_actions() {
             ..Settings::default()
         });
         game.tick(1.0);
-        assert_eq!(
-            matches!(state(&game).procedure, Procedure::Unsupported(_)),
-            action
-        );
-        assert_eq!(position(&game), if action { 0.0 } else { 110.0 });
+        assert!(!matches!(state(&game).procedure, Procedure::Unsupported(_)));
+        assert_eq!(position(&game), 110.0);
     }
+}
+
+#[test]
+fn ai_88_patrol_plays_idle_once_and_releases_furniture_before_advancing() {
+    let mut idle = game(Settings {
+        action: true,
+        ..Settings::default()
+    });
+    idle.tick(1.0);
+    assert_eq!(
+        idle.world().animation_events,
+        vec![(id(ACTOR), "PatrolIdle".to_string())]
+    );
+    idle.tick(0.5);
+    assert_eq!(idle.world().animation_events.len(), 1);
+
+    let mut furniture = game(Settings {
+        furniture: true,
+        dwell: 1.0,
+        ..Settings::default()
+    });
+    furniture.tick(1.0);
+    assert!(furniture.world().furniture_seat(id(ACTOR)).is_some());
+    assert_eq!(state(&furniture).patrol.as_ref().unwrap().current, id(A));
+    furniture.tick(1.0);
+    assert_eq!(state(&furniture).patrol.as_ref().unwrap().current, id(B));
+    assert_eq!(furniture.world().furniture_seat(id(ACTOR)), None);
 }
 
 #[test]

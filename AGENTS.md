@@ -140,6 +140,12 @@ one, never copy one into this repository.
 
 One plan item, one git worktree, one branch, one report.
 
+Saved state: `SAVE_VERSION` is frozen at 37. A row that adds saved state
+registers a named section instead, following the Save sections paragraph in
+`docs/game.md`: one line appended to `WORLD_SECTIONS`, `ACTOR_SECTIONS` or
+`REF_SECTIONS` in `crates/game/src/world/save_section_registry.rs`, named after
+the row. This holds even when a task prompt asks for a version bump.
+
 For GPT agents, explain each action before taking it, including edits,
 checks and commits (user instruction, 2026-09-19).
 

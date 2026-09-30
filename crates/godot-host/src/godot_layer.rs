@@ -24,7 +24,7 @@ use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
-    Shader, ShaderMaterial, StandardMaterial3D,
+    Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -39,7 +39,10 @@ use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
 use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
-use crate::units::{direction_to_godot, direction_to_skyrim, GodotPos, GodotTransform, SkyrimPos};
+use crate::units::{
+    direction_to_godot, direction_to_skyrim, placement_to_godot, GodotPos, GodotTransform,
+    SkyrimPos,
+};
 use soe_physics::{Iso, Vec3};
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
@@ -86,6 +89,8 @@ pub struct CellStreamerNode {
     instances: Vec<Instance>,
     /// The occlusion mesh and instance RIDs owned by each streamed cell.
     occluders: Vec<CellOccluder>,
+    /// Temporary shader visuals keyed by their authored shader and target.
+    effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -106,6 +111,7 @@ pub struct CellStreamerNode {
     /// `sync_reference_changes` can push moves and hides on the tick after,
     /// without re-resolving `get_world_3d` itself.
     collision_space: Option<Rid>,
+    collision_cell: Option<GlobalFormId>,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -189,6 +195,16 @@ enum InstanceMesh {
     Multi(Gd<MultiMesh>),
 }
 
+/// One transient RenderingServer visual and the resources it references.
+#[allow(dead_code)]
+struct EffectShaderInstance {
+    rid: Rid,
+    mesh: Gd<SphereMesh>,
+    material: Gd<StandardMaterial3D>,
+    remaining: Option<f32>,
+    cell: Option<GlobalFormId>,
+}
+
 impl Drop for CellStreamerNode {
     fn drop(&mut self) {
         // The worker executes extension code. Join before the node and library
@@ -219,9 +235,7 @@ struct BatchTableMember {
 /// the reference list for a picking path that would resolve a placement
 /// index some other way (a per-instance collider, most likely), which is why
 /// `#[allow(dead_code)]` sits on it rather than dropping data `reference_at`
-/// cannot use yet. `sync_reference_changes` likewise only patches
-/// `Triangles`, a `MultiMesh` instance's placement sync is future work, see
-/// `docs/godot-host.md`.
+/// cannot use yet. `sync_reference_changes` updates both table variants.
 #[allow(dead_code)]
 enum BatchTable {
     Triangles(Vec<BatchTableMember>),
@@ -320,6 +334,7 @@ impl INode3D for CellStreamerNode {
             data_load: None,
             instances: Vec::new(),
             occluders: Vec::new(),
+            effect_shaders: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -327,6 +342,7 @@ impl INode3D for CellStreamerNode {
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
             collision_space: None,
+            collision_cell: None,
             ref_cache: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
@@ -340,9 +356,11 @@ impl INode3D for CellStreamerNode {
     fn exit_tree(&mut self) {
         self.free_instances();
         self.free_occluders();
+        self.free_effect_shaders();
         self.clear_terrain_lod();
         self.collision.free();
         self.collision_space = None;
+        self.collision_cell = None;
         self.ref_cache.clear();
     }
 
@@ -366,6 +384,110 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    /// Apply queued game requests and advance finite shader durations.
+    pub(crate) fn sync_effect_shaders(
+        &mut self,
+        world: &soe_game::World,
+        requests: Vec<soe_game::world::EffectShaderRequest>,
+        delta: f32,
+    ) {
+        let mut server = RenderingServer::singleton();
+        for request in requests {
+            let key = (request.shader, request.target);
+            if !request.playing {
+                if let Some(effect) = self.effect_shaders.remove(&key) {
+                    server.free_rid(effect.rid);
+                }
+                continue;
+            }
+            let Some(placement) = world.ref_placement(request.target) else {
+                continue;
+            };
+            let Some(scenario) = self.scenario() else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(effect) = self.effect_shaders.get_mut(&key) {
+                effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.cell = world
+                    .reference_ref(request.target)
+                    .and_then(|reference| reference.cell);
+                server.instance_set_transform(effect.rid, transform);
+                continue;
+            }
+            let mut mesh = SphereMesh::new_gd();
+            mesh.set_radius(0.75);
+            mesh.set_height(1.5);
+            let mut material = StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_transparency(Transparency::ALPHA);
+            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            material.set_feature(Feature::EMISSION, true);
+            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            server.instance_set_transform(rid, transform);
+            server.instance_geometry_set_material_override(rid, material.get_rid());
+            self.effect_shaders.insert(
+                key,
+                EffectShaderInstance {
+                    rid,
+                    mesh,
+                    material,
+                    remaining: (request.duration >= 0.0).then_some(request.duration),
+                    cell: world
+                        .reference_ref(request.target)
+                        .and_then(|reference| reference.cell),
+                },
+            );
+        }
+        self.effect_shaders.retain(|(_, target), effect| {
+            let Some(placement) = world.ref_placement(*target).filter(|p| p.visible) else {
+                server.free_rid(effect.rid);
+                return false;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            server.instance_set_transform(effect.rid, transform);
+            effect.cell = world
+                .reference_ref(*target)
+                .and_then(|reference| reference.cell);
+            let Some(remaining) = effect.remaining.as_mut() else {
+                return true;
+            };
+            *remaining -= delta.max(0.0);
+            if *remaining <= 0.0 {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_effect_shaders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, effect) in self.effect_shaders.drain() {
+            server.free_rid(effect.rid);
+        }
+    }
+
     pub(crate) fn shared_source(&self) -> Option<Arc<DataSource>> {
         self.data_source.clone()
     }
@@ -386,6 +508,14 @@ impl CellStreamerNode {
             self.add_cell(cell.id, &cell.loaded, scenario, &mut totals);
         }
         let mut server = RenderingServer::singleton();
+        self.effect_shaders.retain(|_, effect| {
+            if effect.cell.is_some_and(|cell| departed.contains(&cell)) {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
         self.instances.retain(|instance| {
             if departed.contains(&instance.cell) {
                 server.free_rid(instance.rid);
@@ -423,18 +553,11 @@ impl CellStreamerNode {
         true
     }
 
-    /// Pushes every tracked reference's current enabled state and placement
-    /// into rendering and collision, so a `Game`-side change (activation, a
-    /// script `MoveTo`, an editor drag) shows up at the next host tick.
-    /// `Game`/`World` stay the source of truth throughout, this only reads
-    /// `world` and presents what it says, per `docs/godot-host.md`.
+    /// Applies game-side changes to collision, copies simulated rigid-body
+    /// poses into World, then updates rendering from that shared state.
     ///
-    /// Collision is pushed unconditionally through
-    /// `CellBodies::sync_placements`, see that method for why. Rendering
-    /// instead diffs each member against `ref_cache` and only rebakes a
-    /// batch's `ArrayMesh` when something in it actually changed, since a
-    /// batch can hold hundreds of members and reuploading one every tick
-    /// would cost more than the streaming it replaced.
+    /// Rendering diffs each reference against `ref_cache` before visiting
+    /// batches, so every surface of a changed reference updates this tick.
     ///
     /// A disabled reference is collapsed to a degenerate, zero-area patch
     /// rather than dropped from the batch: the batch is one shared
@@ -443,15 +566,62 @@ impl CellStreamerNode {
     /// fresh vertex range computed from `Instance::arrays`, the pristine
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
-    pub(crate) fn sync_reference_changes(&mut self, world: &soe_game::World) {
+    pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
         if let Some(space) = self.collision_space {
+            self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
+            self.collision.poll_movable(world);
+        }
+        let mut changed = std::collections::HashSet::new();
+        let mut track = |reference: GlobalFormId| {
+            let Some(placement) = world.ref_placement(reference) else {
+                return;
+            };
+            let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
+            let key = (placement.visible, iso);
+            if self.ref_cache.insert(reference, key) != Some(key) {
+                changed.insert(reference);
+            }
+        };
+        for instance in &self.instances {
+            match &instance.table {
+                BatchTable::Triangles(members) => {
+                    for member in members {
+                        track(member.reference);
+                    }
+                }
+                BatchTable::Instances(members) => {
+                    for reference in members {
+                        track(*reference);
+                    }
+                }
+            }
         }
         let mut server = RenderingServer::singleton();
         for instance in &mut self.instances {
             let BatchTable::Triangles(members) = &instance.table else {
-                // MultiMesh instances are not patched here yet, see the
-                // BatchTable doc comment.
+                if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
+                    (&instance.table, &mut instance.mesh)
+                {
+                    for (index, reference) in members.iter().enumerate() {
+                        let Some(placement) = world.ref_placement(*reference) else {
+                            continue;
+                        };
+                        let target =
+                            Iso::placement(placement.position, placement.rotation, placement.scale);
+                        if !changed.contains(reference) {
+                            continue;
+                        }
+                        let scale = if placement.visible {
+                            placement.scale
+                        } else {
+                            0.0
+                        };
+                        let transform =
+                            placement_to_godot(target.rotation.rows, placement.position, scale);
+                        multi.set_instance_transform(index as i32, transform3d_from(transform));
+                    }
+                }
                 continue;
             };
             let mut touched = false;
@@ -462,9 +632,7 @@ impl CellStreamerNode {
                 };
                 let target_iso =
                     Iso::placement(placement.position, placement.rotation, placement.scale);
-                let key = (placement.visible, target_iso);
-                if self.ref_cache.get(&member.reference) != Some(&key) {
-                    self.ref_cache.insert(member.reference, key);
+                if changed.contains(&member.reference) {
                     touched = true;
                 }
                 targets.push((index, placement.visible, target_iso));
@@ -839,6 +1007,11 @@ impl CellStreamerNode {
         let Some(owner) = self.exterior_cells.remove(&coord) else {
             return 0;
         };
+        if self.collision_cell == Some(owner) {
+            self.collision.free();
+            self.collision_cell = None;
+            self.collision_space = None;
+        }
         let (released, kept): (Vec<Instance>, Vec<Instance>) = std::mem::take(&mut self.instances)
             .into_iter()
             .partition(|i| i.cell == owner);
@@ -907,6 +1080,7 @@ impl CellStreamerNode {
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
+        self.collision_cell = Some(cell_id);
         let built = &self.collision.stats;
         self.last_collision_stats = {
             let mut d = VarDictionary::new();
@@ -926,7 +1100,105 @@ impl CellStreamerNode {
     /// The counts from the last `stream_cell_collision` call.
     #[func]
     pub fn collision_stats(&self) -> VarDictionary {
-        self.last_collision_stats.clone()
+        let mut stats = self.last_collision_stats.clone();
+        stats.set("bodies", self.collision.stats.bodies as i64);
+        stats.set("shapes", self.collision.stats.shapes as i64);
+        stats.set("movable", self.collision.movable_count() as i64);
+        stats
+    }
+
+    /// Current host body poses for movable references in Skyrim units.
+    #[func]
+    pub fn movable_reference_poses(&self) -> Array<VarDictionary> {
+        self.collision.movable_poses()
+    }
+
+    /// Last placement applied to a drawn reference, in Skyrim units.
+    #[func]
+    pub fn rendered_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
+        let mut row = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return row;
+        };
+        let Some((visible, pose)) = self.ref_cache.get(&GlobalFormId { file, object }) else {
+            return row;
+        };
+        row.set(
+            "position",
+            Vector3::new(pose.translation.x, pose.translation.y, pose.translation.z),
+        );
+        row.set("visible", *visible);
+        row
+    }
+
+    /// Largest difference between a reference's uploaded geometry and its
+    /// cached World placement, in Godot metres. Returns -1 if it is not drawn.
+    #[func]
+    pub fn render_alignment_error(&self, file: i32, object: i64) -> f32 {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return -1.0;
+        };
+        let reference = GlobalFormId { file, object };
+        let Some((visible, target)) = self.ref_cache.get(&reference) else {
+            return -1.0;
+        };
+        let mut largest: f32 = 0.0;
+        let mut found = false;
+        for instance in &self.instances {
+            match (&instance.table, &instance.mesh) {
+                (BatchTable::Triangles(members), InstanceMesh::Array(mesh)) => {
+                    let actual = mesh.surface_get_arrays(0);
+                    let Some(vertices) = actual
+                        .get(ArrayType::VERTEX.ord() as usize)
+                        .and_then(|value| value.try_to::<PackedVector3Array>().ok())
+                    else {
+                        continue;
+                    };
+                    for member in members.iter().filter(|m| m.reference == reference) {
+                        found = true;
+                        let mut expected = instance.arrays.clone();
+                        apply_member_patch(&mut expected, member, *visible, target);
+                        for index in member.member.first_vertex
+                            ..member.member.first_vertex + member.member.vertex_count
+                        {
+                            let (Some(point), Some(want)) =
+                                (vertices.get(index), expected.positions.get(index))
+                            else {
+                                continue;
+                            };
+                            largest = largest
+                                .max((point - Vector3::new(want[0], want[1], want[2])).length());
+                        }
+                    }
+                }
+                (BatchTable::Instances(members), InstanceMesh::Multi(multi)) => {
+                    let position = [
+                        target.translation.x,
+                        target.translation.y,
+                        target.translation.z,
+                    ];
+                    let scale = if *visible { target.scale } else { 0.0 };
+                    let expected =
+                        transform3d_from(placement_to_godot(target.rotation.rows, position, scale));
+                    for (index, member) in members.iter().enumerate() {
+                        if *member != reference {
+                            continue;
+                        }
+                        found = true;
+                        let actual = multi.get_instance_transform(index as i32);
+                        for axis in [Vector3::RIGHT, Vector3::UP, Vector3::BACK, Vector3::ZERO] {
+                            largest = largest.max((actual * axis - expected * axis).length());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if found {
+            largest
+        } else {
+            -1.0
+        }
     }
 
     /// Starts distant-terrain LOD for the worldspace named
@@ -1207,8 +1479,10 @@ impl CellStreamerNode {
     pub fn clear(&mut self) {
         self.collision.free();
         self.collision_space = None;
+        self.collision_cell = None;
         self.free_instances();
         self.free_occluders();
+        self.free_effect_shaders();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();

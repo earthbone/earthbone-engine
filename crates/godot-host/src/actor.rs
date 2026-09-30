@@ -14,6 +14,7 @@
 use soe_bsa::Vfs;
 use soe_hkx::behavior::BehaviorGraph;
 use soe_hkx::interp::{Clip, ClipLibrary};
+use soe_hkx::ragdoll::Ragdoll;
 use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
@@ -32,6 +33,12 @@ pub const HUMAN_SKELETON: &str = "character assets/skeleton.hkx";
 /// The locomotion graph, relative to [`CHARACTER_ROOT`]. It is the graph the
 /// `behavior-2` work proved out, and it names the idle and walk clips.
 pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
+
+/// The human behavior graph that connects locomotion, stagger and combat.
+pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
+
+/// Vanilla one-handed melee behavior, with authored attack markers.
+pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
@@ -97,6 +104,7 @@ pub struct ActorSurface {
 /// A character's skeleton, graph, clips and skinned shapes.
 pub struct ActorAssets {
     pub skeleton: Skeleton,
+    pub ragdoll: Option<Ragdoll>,
     pub graph: BehaviorGraph,
     pub clips: ClipLibrary,
     pub surfaces: Vec<ActorSurface>,
@@ -184,13 +192,26 @@ impl ActorAssets {
     /// [`ActorError`] when a required file is missing or will not parse, or
     /// when the mesh carries no skinned shape.
     pub fn load(vfs: &Vfs, mesh_path: &str) -> Result<ActorAssets, ActorError> {
-        let skeleton = Self::load_skeleton(vfs)?;
-        let (mut graph, unresolved_references) = Self::load_graph(vfs)?;
+        Self::load_with_behavior(vfs, mesh_path, LOCOMOTION_BEHAVIOR)
+    }
+
+    /// Load the same character rig and mesh with a selected behavior graph.
+    ///
+    /// # Errors
+    /// A required rig, graph, animation or mesh cannot be read or decoded.
+    pub fn load_with_behavior(
+        vfs: &Vfs,
+        mesh_path: &str,
+        behavior: &str,
+    ) -> Result<ActorAssets, ActorError> {
+        let (skeleton, ragdoll) = Self::load_skeleton(vfs)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
         Ok(ActorAssets {
             skeleton,
+            ragdoll,
             graph,
             clips,
             surfaces,
@@ -199,7 +220,7 @@ impl ActorAssets {
         })
     }
 
-    fn load_skeleton(vfs: &Vfs) -> Result<Skeleton, ActorError> {
+    fn load_skeleton(vfs: &Vfs) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
         let path = format!("{CHARACTER_ROOT}{HUMAN_SKELETON}");
         let bytes = read(vfs, &path)?;
         let pf = packfile(&bytes, &path)?;
@@ -208,15 +229,26 @@ impl ActorAssets {
                 path: path.clone(),
                 source,
             })?;
-        container
+        let ragdoll = match Ragdoll::from_packfile(&pf) {
+            Ok(ragdoll) => Some(ragdoll),
+            Err(soe_hkx::Error::NullPointer("hkaRagdollInstance")) => None,
+            Err(source) => {
+                return Err(ActorError::Havok {
+                    path: path.clone(),
+                    source,
+                })
+            }
+        };
+        let skeleton = container
             .skeletons
             .into_iter()
             .next()
-            .ok_or(ActorError::NoSkeleton { path })
+            .ok_or(ActorError::NoSkeleton { path })?;
+        Ok((skeleton, ragdoll))
     }
 
-    fn load_graph(vfs: &Vfs) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
-        let path = format!("{CHARACTER_ROOT}{LOCOMOTION_BEHAVIOR}");
+    fn load_graph(vfs: &Vfs, behavior: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
+        let path = format!("{CHARACTER_ROOT}{behavior}");
         let bytes = read(vfs, &path)?;
         let pf = packfile(&bytes, &path)?;
         let mut graph = BehaviorGraph::from_packfile(&pf).map_err(|source| ActorError::Havok {

@@ -1,10 +1,8 @@
 # Combat AI source work
 
-CMB-31 is in progress on `task-cmb-31`. Its prerequisite increment decodes
-NPC AI data and initializes its actor values. It does not yet acquire a combat target, drive
-combat movement, or disengage when that target dies. Those remain the original
-CMB-17 acceptance check. The prerequisite rows in BACKLOG.csv separate shared
-detection, CMB-31, from live host observations, CMB-32.
+CMB-31 supplies shared detection state and CMB-32 supplies host observations.
+CMB-17 connects Combat-level awareness to the AI driver, follows a selected
+target over a vanilla navmesh, and clears combat when that target is dead.
 
 ## NPC AI data
 
@@ -106,9 +104,11 @@ world's detection state with the saved one, and a save without the block
 loads as an empty state.
 
 Not done here: the sleep bonus and ambush modifiers, `fSneakSkillMult`,
-per-size detection multipliers, detection events and the alert list, target
-list timeouts, `fSneakLightExteriorMult`, and theft witnessing. No live-host
-observation feeds this yet, CMB-32 owns that.
+per-size detection multipliers, the alert list, target list timeouts,
+`fSneakLightExteriorMult`, and theft witnessing. The host now feeds resident
+actor sight, record-derived interior light and detection sounds into this
+path. See [godot-host.md](godot-host.md#live-detection-observations-cmb-32) for
+the current light and sound limits.
 
 ## Source boundary
 
@@ -171,28 +171,51 @@ movement sound, preserving modifiers through save/load.
 
 ## Target selection
 
-Local `TiltedEvolution/Code/client/Services/Debug/Views/CombatView.cpp`,
-`CalculateTargetScore`, is the concrete target-scoring reference. It combines
-recent detection, the current attacker, ranged-weapon agreement, distance,
-other attackers, movement reachability, death and fleeing. Several helpers
-still call addresses in Skyrim's executable. Their contracts need confirmation
-before this code can be used as a complete selector.
+The driver acquires a target for an actor with Aggression 1 (Aggressive), 2
+(Very Aggressive) or 3 (Frenzied) when that actor's awareness of a live actor
+reaches Combat.
+Among eligible detected actors it selects the nearest by 3D reference position,
+breaking ties by FormID. It keeps an existing live target. A current package
+with the PACK `Ignore Combat` flag leaves package movement in control.
 
-The present package driver stores paths in `AiState`, while combat identity
-already belongs to `ActorState`. Integration must use that shared actor state
-and the existing vanilla navmesh. `loaded_actors` means initialized actor state,
-not live host residency, and the package planner can fall back to a straight
-line. Neither behavior alone establishes combat visibility or a reachable
-combat route.
+MAG-31 lets an active MGEF Frenzy application include teammates in that same
+Combat-awareness candidate set. When the last Frenzy application on an actor
+ends, the driver clears that actor's current engagement and reevaluates normal
+eligibility on its next tick. The effect remains authoritative in the shared
+magic application table. Local xEdit `wbDefinitionsTES5.pas` names archetype 8
+Frenzy, and UESP `MGEF.wikitext` assigns its primary actor value to Aggression.
+
+Combat movement uses `NavGraph::find_path_between` and only advances when the
+vanilla graph returns a route. It stops within four game units. It does not use
+the package planner's straight-line fallback for combat. When the selected
+target is missing or dead, the driver clears `in_combat`, `combat_target` and
+the saved path, then makes the package eligible for reevaluation. These fields
+already belong to `ActorState` and `AiState`, so this change adds no save data.
+
+CK `StartCombat`, `GetCombatTarget` and `StopCombat` define the target identity
+and state exposed to scripts. xEdit's `wbAggressionEnum` supplies the AIDT
+values, and `wbPackageFlags` plus UESP `PACK.wikitext` supply `Ignore Combat`.
+The local TiltedEvolution `CombatView.cpp` scores recent detection, the current
+target, distance, reachability, death and fleeing, but several scoring helpers
+call executable addresses, so their formulas are not copied. SkyMP's
+`movementGet.ts` reads `GetCombatTarget` to orient an actor toward that target.
+Its player combat service handles attack timing and does not select targets.
 
 ## Validation
 
-The focused `combat_ai` tests cover malformed AIDT, template-group selection,
-winning overrides across a two-link template chain, independent child stats,
-and modifier persistence through engine save/load. The installed five-master
+The `cmb_17_combat_engagement` tests cover detection-driven target acquisition,
+unaggressive rejection, the PACK `Ignore Combat` flag, movement over a
+synthetic NAVM graph, and disengagement after the target dies.
+The `combat_ai` tests cover malformed AIDT, template-group selection, winning
+overrides across a two-link template chain, independent child stats, and
+modifier persistence through engine save/load. The installed five-master
 survey decodes all 6,361 winning NPCs and all 6,361 authored AIDT blocks.
-These are parser and initialization checks. They do not execute detection or
-the CMB-17 engagement check.
+
+Target scoring remains simpler than the retail selector: it does not compare
+ranged loadouts, the number of attackers, fleeing state, encounter zones or the
+retail recent-detection score. It requires the existing host detection path
+to produce awareness at Combat. Combat attacks and player target
+selection are outside this driver change.
 
 The AIDT milestone passed the full gate on the CMB-31 branch from integrated
 master `617687c`, with 1,195 Rust test results and 11 Python tests. All optional
@@ -201,5 +224,5 @@ tools ran. The gate excludes external game data and save-corpus runs.
 Before transfer from `combat-ai`, the installed restoration survey checked
 13,362 NPC records across 60 saves, including authored AIDT bytes and record
 persistence. The synthetic save tests separately check the six live AI actor
-values. CMB-31 remains in progress because its scoring and shared-pool
-acceptance check has not been implemented.
+values. CMB-31's broader original acceptance check for pool scoring and
+aggregation remains in progress.

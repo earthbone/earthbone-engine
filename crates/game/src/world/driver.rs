@@ -51,6 +51,24 @@ impl World {
             .is_some_and(|f| f & 1 != 0)
     }
 
+    /// Whether the exterior cell belongs to a worldspace with max-height data.
+    pub fn cell_has_worldspace_max_height_data(&self, cell: GlobalFormId) -> bool {
+        let Some(cell_ref) = self.order.winner_ref(cell) else {
+            return false;
+        };
+        let cell_record = self.order.record(cell_ref);
+        if cell_record.tag != T(b"CELL") {
+            return false;
+        }
+        let Some(raw_world) = cell_record.placement.world else {
+            return false;
+        };
+        let worldspace = self.order.resolve(cell_ref.file, raw_world);
+        self.record(worldspace)
+            .filter(|record| record.tag == T(b"WRLD"))
+            .is_some_and(|record| record.find(T(b"MHDT")).is_some())
+    }
+
     /// Build the run-time state of an actor so the driver ticks it.
     pub fn drive_actor(&mut self, id: GlobalFormId) -> bool {
         self.actor(id).is_some()

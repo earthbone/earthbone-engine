@@ -91,6 +91,13 @@ fn sav_08_restores_calendar_before_execution_and_preserves_it_in_engine_saves() 
         target: None,
         quest: None,
         tempering_enchanted: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
+        skill_use: None,
+        light_level: None,
     };
     assert!(soe_game::conditions::evaluate_one(
         &mut game.world_mut(),
@@ -239,28 +246,21 @@ fn saved_zero_timescale_freezes_calendar_and_native_global_changes_drive_clock()
 
 #[test]
 fn installed_sav_08_calendar_values_match_all_saved_globals_before_execution() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES not set, skipping calendar survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
