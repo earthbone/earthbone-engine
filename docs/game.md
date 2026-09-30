@@ -122,17 +122,23 @@ reservations as in-use, so an occupied marker cannot be selected by another
 actor. The host currently completes an eight-hour sleep on bed activation.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
-including regular and light slots. `World::restore_vanilla_globals` atomically
-applies the global table to winning GLOB forms. `Game::restore_vanilla_papyrus`
-resolves saved script-instance RefIDs to live form objects and imports their
-saved variables into the VM. `Game::restore_vanilla_papyrus_execution` also
-converts and schedules validated active script frames, rolling back VM state
-if the import fails. Saved reference-only objects are created using their
-saved runtime type. Instances whose signed
+including regular and light slots. `Game::restore_vanilla_world_and_vm` runs
+the supported restore passes in dependency order and restores the prior SOEG
+snapshot if any pass fails. The passes cover globals, NPC changes, reference
+placement, actor templates, inventories, reference extras, quests, lists and
+Papyrus execution. The individual world passes validate before applying their
+own changes. Saved reference-only objects are created using their saved
+runtime type. Instances whose signed
 `unknown` field is `-1` ignore their saved RefID and receive standalone VM
 objects. Values reach the existing Papyrus native path and engine save state.
-Queued messages and suspended stacks remain inert. This is not a full ESS load
-or resumed game. See
+`Game::resume_vanilla_quest_story_events` delivers saved `SCPT` contexts as
+`OnStoryScript` after its handler is loaded. It passes the six mapped arguments
+in order and clears the saved context only when the VM accepts the event.
+Contexts without a loaded handler or with unresolved mapped references remain
+saved for a later call.
+Queued messages and suspended stacks remain inert. Unsupported change-form
+types and the remaining world and VM state are not imported by this transaction.
+This is not a full ESS load or resumed game. See
 [save.md](save.md) for mapping rules, failure behavior and the remaining work.
 
 Reference placement reserves created identities found in saved change forms,
@@ -2348,8 +2354,10 @@ and transforms to a fresh reference table, reserves dynamic IDs and restores
 the player location without queuing events. It validates the entire pass
 before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
-separate requirements. See [save.md](save.md#reference-placements) for sources,
-validation and the limits of this intermediate reconstruction pass.
+separate requirements. PCON and PARW saved placements use the same reference
+table and record-backed base queries. Their runtime state uses the existing
+SOEW reference encoding. See [save.md](save.md#reference-placements) for
+sources, validation and the limits of this intermediate reconstruction pass.
 
 For reference headers with the generic form-flags bit, the pass applies the
 `Mask Invert Flags` word to authored `INITIALLY_DISABLED` and `PERSISTENT`
@@ -2578,6 +2586,16 @@ import does not execute queued messages, fire timers or resume quests.
 `restore_vanilla_papyrus_execution` separately restores instances and schedules
 validated active Papyrus frames. Full ESS loading and host resumption remain
 separate backlog items.
+
+The native game save stores the world clock and the VM clock state together.
+Papyrus waits retain their real-time, menu-time or accumulated game-hour
+deadline, so a reload does not reinterpret one clock domain as another.
+`tests/sav_18_wait_deadlines.rs` exercises each wait through a game save and
+load, including a timescale change and one-shot wake behavior. The CK
+`Utility_Script.wikitext` documents `WaitGameTime` in game hours, while UESP
+`Global_Variables.wikitext` defines saved globals as form IDs and floats. The
+runtime scheduler uses elapsed game hours from the saved game clock, not the
+calendar's `GameHour` field.
 
 The installed survey passes all 60 saves and all 360 calendar values, with
 exact engine-save bytes and world hashes after reloading. Synthetic checks
