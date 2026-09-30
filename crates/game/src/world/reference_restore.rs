@@ -6,12 +6,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Record};
 use soe_save::{
     reference::{Initial, ReferenceHeader},
     Save,
 };
 
+use super::record_overrides::RecordOverride;
 use super::{RefState, World, DYNAMIC_FILE, PLAYER_OBJECT, T};
 use crate::vanilla_save::{RestoreError, SavedFormMap};
 
@@ -50,6 +51,77 @@ fn invalid(id: GlobalFormId, reason: impl Into<String>) -> RestoreError {
         id,
         reason: reason.into(),
     }
+}
+
+fn created_base_records(
+    world: &World,
+    save: &Save,
+    mapping: &SavedFormMap<'_>,
+) -> Result<BTreeMap<GlobalFormId, RecordOverride>, RestoreError> {
+    let Some(objects) = save.created_objects()? else {
+        return Ok(BTreeMap::new());
+    };
+    let mut records = BTreeMap::new();
+    for (entries, tag) in [
+        (&objects.weapon_enchantments, T(b"ENCH")),
+        (&objects.armor_enchantments, T(b"ENCH")),
+        (&objects.potions, T(b"ALCH")),
+        (&objects.poisons, T(b"ALCH")),
+    ] {
+        for object in entries {
+            let Some(id) = mapping.reference(object.form)? else {
+                return Err(invalid(
+                    GlobalFormId {
+                        file: DYNAMIC_FILE,
+                        object: 0,
+                    },
+                    "created base has a null identity",
+                ));
+            };
+            if id.file != DYNAMIC_FILE {
+                continue;
+            }
+            if world.record(id).is_some() || records.contains_key(&id) {
+                return Err(invalid(id, "created base identity is already defined"));
+            }
+            let mut record = Record::new(tag, 0xFF00_0000 | id.object);
+            if tag == T(b"ENCH") {
+                // ENIT is the shared enchantment header. Fields not present in
+                // the ESS table remain zero and are not inferred.
+                record = record.sub(T(b"ENIT"), vec![0; 36]);
+            } else {
+                // The ESS table does not retain ALCH flags or value fields.
+                record = record.sub(T(b"ENIT"), vec![0; 20]);
+            }
+            let mut value = RecordOverride::new(id, record);
+            let mut used = BTreeSet::new();
+            for effect in &object.effects {
+                let target = mapping
+                    .reference(effect.effect)?
+                    .ok_or_else(|| invalid(id, "created effect has a null identity"))?;
+                let raw = value
+                    .link(&mut used, Some(target))
+                    .map_err(|reason| invalid(id, reason))?;
+                value
+                    .record
+                    .subrecords
+                    .push(soe_esm::plugin::Subrecord::new(
+                        T(b"EFID"),
+                        raw.to_le_bytes().to_vec(),
+                    ));
+                let mut data = Vec::with_capacity(12);
+                data.extend_from_slice(&effect.magnitude.to_le_bytes());
+                data.extend_from_slice(&effect.area.to_le_bytes());
+                data.extend_from_slice(&effect.duration.to_le_bytes());
+                value
+                    .record
+                    .subrecords
+                    .push(soe_esm::plugin::Subrecord::new(T(b"EFIT"), data));
+            }
+            records.insert(id, value);
+        }
+    }
+    Ok(records)
 }
 
 fn cell(
@@ -191,6 +263,7 @@ impl World {
             ));
         }
         let mapping = SavedFormMap::new(save, &self.order)?;
+        let created_records = created_base_records(self, save, &mapping)?;
         let location = save
             .player_location()?
             .ok_or_else(|| invalid(player, "missing player location"))?;
@@ -317,11 +390,109 @@ impl World {
         if player_cell.is_some() {
             report.unplaced.remove(&player);
         }
+        report
+            .missing_bases
+            .retain(|base| !created_records.contains_key(base));
         report.references = references.len();
+        self.created_base_records.extend(created_records);
         self.refs.extend(references);
         self.player = Some(player);
         self.loaded_cell = player_cell;
         self.next_dynamic = next_dynamic;
         Ok(report)
     }
+}
+
+pub(super) fn write_created_base_section(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+) {
+    writer.len(world.created_base_records.len());
+    for (id, value) in &world.created_base_records {
+        super::save::write_form_id(writer, *id);
+        writer.out.extend_from_slice(value.record.tag.as_bytes());
+        writer.u32(value.record.flags);
+        writer.len(value.record.subrecords.len());
+        for subrecord in &value.record.subrecords {
+            writer.out.extend_from_slice(subrecord.tag.as_bytes());
+            writer.bytes(&subrecord.data);
+        }
+        writer.len(value.links.len());
+        for (raw, link) in &value.links {
+            writer.u32(*raw);
+            super::save::write_form_id(writer, *link);
+        }
+    }
+}
+
+pub(super) fn read_created_base_section(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    use soe_papyrus::VmError;
+    let count = reader.len()?;
+    if count > reader.remaining() / 14 {
+        return Err(VmError::State(
+            "created base count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut records = BTreeMap::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        if id.file != DYNAMIC_FILE
+            || id.object == 0
+            || world.order.contains(id)
+            || world.record_overrides.contains_key(&id)
+        {
+            return Err(VmError::State("invalid created base identity".into()));
+        }
+        let tag = T(&[reader.u8()?, reader.u8()?, reader.u8()?, reader.u8()?]);
+        if !matches!(tag.as_bytes(), b"ALCH" | b"ENCH") {
+            return Err(VmError::State("invalid created base record type".into()));
+        }
+        let flags = reader.u32()?;
+        let subrecord_count = reader.len()?;
+        if subrecord_count > reader.remaining() / 8 {
+            return Err(VmError::State(
+                "created base subrecord count exceeds remaining bytes".into(),
+            ));
+        }
+        let mut record = Record::new(tag, 0xFF00_0000 | id.object).with_flags(flags);
+        for _ in 0..subrecord_count {
+            let subtag = T(&[reader.u8()?, reader.u8()?, reader.u8()?, reader.u8()?]);
+            record.subrecords.push(soe_esm::plugin::Subrecord::new(
+                subtag,
+                reader.bytes()?.to_vec(),
+            ));
+        }
+        let link_count = reader.len()?;
+        if link_count > reader.remaining() / 10 {
+            return Err(VmError::State(
+                "created base link count exceeds remaining bytes".into(),
+            ));
+        }
+        let mut value = RecordOverride::new(id, record);
+        let used = super::record_overrides::raw_words(&value.record);
+        for _ in 0..link_count {
+            let raw = reader.u32()?;
+            let link = super::save::read_form_id(reader)?;
+            if value.links.insert(raw, link).is_some() {
+                return Err(VmError::State("duplicate created base link".into()));
+            }
+        }
+        if value.links.keys().any(|raw| !used.contains(raw)) || records.insert(id, value).is_some()
+        {
+            return Err(VmError::State("invalid created base record links".into()));
+        }
+    }
+    if records
+        .keys()
+        .any(|id| world.created_base_records.contains_key(id))
+    {
+        return Err(VmError::State(
+            "duplicate created base section identity".into(),
+        ));
+    }
+    world.created_base_records.extend(records);
+    Ok(())
 }

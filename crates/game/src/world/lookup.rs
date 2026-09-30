@@ -19,6 +19,11 @@ impl World {
         self.record_overrides
             .get(&id)
             .map(|value| &value.record)
+            .or_else(|| {
+                self.created_base_records
+                    .get(&id)
+                    .map(|value| &value.record)
+            })
             .or_else(|| self.order.winner(id))
     }
 
@@ -26,6 +31,7 @@ impl World {
         self.refs.contains_key(&id)
             || self.brewed_potions.contains_key(&id)
             || self.record_overrides.contains_key(&id)
+            || self.created_base_records.contains_key(&id)
             || self.order.contains(id)
     }
 
@@ -149,6 +155,13 @@ impl World {
         }
         if let Some(id) = self
             .record_overrides
+            .get(&owner)
+            .and_then(|value| value.links.get(&raw))
+        {
+            return Some(*id);
+        }
+        if let Some(id) = self
+            .created_base_records
             .get(&owner)
             .and_then(|value| value.links.get(&raw))
         {

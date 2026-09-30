@@ -19,6 +19,7 @@ use soe_papyrus::VmError;
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-17", write: write_created_bases, read: read_created_bases },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
     Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
@@ -32,6 +33,18 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
     super::magic::SAVE_SECTION,
 ];
+
+fn write_created_bases(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::reference_restore::write_created_base_section(world, writer);
+}
+
+fn read_created_bases(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::reference_restore::read_created_base_section(world, reader)
+}
 
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     World::write_base_object_section(world, writer);

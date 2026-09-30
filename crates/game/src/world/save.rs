@@ -1138,6 +1138,7 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_created_bases = std::mem::take(&mut self.created_base_records);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let section_result = if version >= 37 {
             save_sections::read_sections_with_table(&mut r, "world", self, WORLD_SECTIONS, &table)
@@ -1148,10 +1149,12 @@ impl World {
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        let created_base_records = std::mem::take(&mut self.created_base_records);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
+        self.created_base_records = previous_created_bases;
         section_result?;
         r.expect_end()?;
         for (id, effect) in &active_effects {
@@ -1286,6 +1289,7 @@ impl World {
         self.record_overrides = record_overrides;
         self.unresolved_records = unresolved_records;
         self.brewed_potions = brewed_potions;
+        self.created_base_records = created_base_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
