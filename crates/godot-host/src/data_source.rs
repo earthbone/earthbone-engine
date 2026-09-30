@@ -464,6 +464,9 @@ impl DataSource {
     /// sequential path. Defaults to the machine's parallelism.
     pub fn set_threads(&mut self, threads: usize) {
         self.threads = threads.max(1);
+        if self.threads == 1 {
+            self.workers.clear();
+        }
     }
 
     /// Drop prepared texture entries so the next stream measures cold cache work.

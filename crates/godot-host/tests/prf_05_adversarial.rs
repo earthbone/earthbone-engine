@@ -12,7 +12,9 @@ fn median(mut samples: Vec<Duration>) -> Duration {
 }
 
 fn process_thread_count() -> std::io::Result<usize> {
-    Ok(std::fs::read_dir("/proc/self/task")?.filter_map(Result::ok).count())
+    Ok(std::fs::read_dir("/proc/self/task")?
+        .filter_map(Result::ok)
+        .count())
 }
 
 #[test]
@@ -32,14 +34,20 @@ fn prf_05_single_and_persistent_workers_stream_same_cell_and_report_timings(
     let pooled_open = open_start.elapsed();
     assert!(matches!(
         source.stream_cell("PRF05MissingCell"),
-        Err(soe_godot_host::data_source::DataSourceError::CellNotFound(_))
+        Err(soe_godot_host::data_source::DataSourceError::CellNotFound(
+            _
+        ))
     ));
     let cell = source
         .resolve_cell("WhiterunBanneredMare")
         .ok_or_else(|| std::io::Error::other("Bannered Mare cell is absent"))?;
 
     source.set_threads(0);
-    assert_eq!(source.threads(), 1, "zero workers selects the sequential path");
+    assert_eq!(
+        source.threads(),
+        1,
+        "zero workers selects the sequential path"
+    );
     let sequential = source.stream_cell_id(cell)?;
     let signature = (
         sequential.stats.references,
@@ -48,7 +56,10 @@ fn prf_05_single_and_persistent_workers_stream_same_cell_and_report_timings(
         sequential.stats.meshes_failed,
     );
     assert!(signature.0 > 0, "the cell must contain references");
-    assert_eq!(signature.3, 0, "the surveyed cell must parse without failures");
+    assert_eq!(
+        signature.3, 0,
+        "the surveyed cell must parse without failures"
+    );
 
     let mut sequential_samples = Vec::with_capacity(5);
     for _ in 0..5 {

@@ -18,6 +18,14 @@ pub(super) struct WorkerPools {
 }
 
 impl WorkerPools {
+    pub(super) fn clear(&self) {
+        let mut current = self
+            .pool
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *current = None;
+    }
+
     pub(super) fn ordered_map<T: Sync, U: Send>(
         &self,
         items: &[T],
