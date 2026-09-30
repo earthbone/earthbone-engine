@@ -1020,7 +1020,14 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        if self.spell(spell)?.data.cast_type == 2 {
+        let definition = self.spell(spell)?;
+        if definition.data.cast_type == 2
+            && !definition.effects.iter().all(|entry| {
+                self.resolve_from(spell, entry.base_effect)
+                    .and_then(|effect| self.magic_effect(effect).ok())
+                    .is_some_and(|effect| effect.data.archetype == DETECT_LIFE_ARCHETYPE)
+            })
+        {
             return Err(MagicError::Unsupported(
                 "concentration requires a held cast",
             ));
@@ -1621,19 +1628,23 @@ impl World {
                 skill_use: None,
                 light_level: None,
             };
-            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+            if data.archetype != DETECT_LIFE_ARCHETYPE
+                && !conditions::evaluate_without_vm(self, context, &entry.conditions)?
+            {
                 continue;
             }
             let context = Context {
                 owner: effect,
                 ..context
             };
-            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+            if data.archetype != DETECT_LIFE_ARCHETYPE
+                && !conditions::evaluate_without_vm(self, context, &base.conditions)?
+            {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
-                if actor.dead || actor.ghost {
+                if (actor.dead && data.archetype != REANIMATE_ARCHETYPE) || actor.ghost {
                     return Err(MagicError::Target);
                 }
             }
@@ -1708,11 +1719,12 @@ impl World {
             if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
-                0.0
-            } else {
-                entry.data.magnitude
-            };
+            let magnitude =
+                if data.flags & NO_MAGNITUDE != 0 && data.archetype != REANIMATE_ARCHETYPE {
+                    0.0
+                } else {
+                    entry.data.magnitude
+                };
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
             }
@@ -1766,7 +1778,9 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
-            let duration = if definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD {
+            let duration = if (definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD)
+                || (concentration && data.archetype == DETECT_LIFE_ARCHETYPE)
+            {
                 None
             } else {
                 Some(
@@ -2551,6 +2565,10 @@ impl World {
             .get(effect.effect_index as usize)
             .ok_or(MagicError::Unsupported("active effect entry"))?;
         let base = self.magic_effect(effect.effect)?;
+        if base.data.archetype == DETECT_LIFE_ARCHETYPE {
+            // CONTEXT: Detection conditions select candidates, not the origin actor.
+            return Ok(true);
+        }
         let context = |owner| Context {
             owner,
             subject: effect.target,

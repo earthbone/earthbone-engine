@@ -169,6 +169,7 @@ effect renderer can identify the authored shader and remove it when the effect
 ends. This adapter returns requests only. It does not decode EFSH records or
 draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
 `mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
+
 ## EffectShader playback, MAG-14
 
 `CellStreamerNode` consumes transient EffectShader requests from the shared
@@ -1664,6 +1665,7 @@ continues to step for gravity. Once the effect expires, the next controller
 step applies movement input again. Tests
 `mag_42_paralysis_blocks_player_locomotion_and_jump` and
 `mag_42_player_locomotion_returns_when_not_paralyzed` cover both states.
+
 ### Furniture seating, HST-09
 
 Player activation of a FURN reference reserves an active Sit marker in the

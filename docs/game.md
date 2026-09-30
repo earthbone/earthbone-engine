@@ -2740,6 +2740,7 @@ not movement handling. `mag_42_paralysis_stops_npc_travel_until_effect_expires`
 exercises NPC movement, the forced actor value and expiry with synthetic
 records. Player locomotion is covered by the host's `mag_42_*` tests. The check
 names no vanilla records, so it has no `SKYRIM_DATA`-gated case.
+
 ### Demoralize, MAG-30
 
 Direct Demoralize effects use the active-effect lifecycle to lower the target's

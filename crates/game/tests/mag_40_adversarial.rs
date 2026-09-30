@@ -133,6 +133,7 @@ fn mag_40_detect_life_has_no_presentation_after_its_active_effect_ends() {
 fn mag_40_detect_life_concentration_stays_active_until_dispelled() {
     let mut game = fixture(2);
     cast_detection(&mut game).unwrap();
+    game.tick(6.0);
     assert_eq!(game.world().active_effects().count(), 1);
     assert_eq!(game.world_mut().detect_life_targets().unwrap().len(), 1);
 }
