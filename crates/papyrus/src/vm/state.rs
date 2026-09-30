@@ -946,7 +946,7 @@ impl Vm {
             scripts: self.scripts.clone(),
             ..Self::new()
         };
-        scratch.load_state(bytes)
+        scratch.load_state_inner(bytes)
     }
 }
 
