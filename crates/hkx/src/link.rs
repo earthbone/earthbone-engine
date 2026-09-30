@@ -395,6 +395,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         NodeKind::BlendingTransition(_)
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::DirectAt { .. }
+        | NodeKind::InterpValue { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::LookAtModifier { .. }

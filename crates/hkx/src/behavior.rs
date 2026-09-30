@@ -697,6 +697,15 @@ pub enum NodeKind {
         enable: bool,
         time_step: f32,
     },
+    /// `BSInterpValueModifier`: moves the bound source toward target at gain
+    /// units per second and publishes the result.
+    InterpValue {
+        enable: bool,
+        source: f32,
+        target: f32,
+        result: f32,
+        gain: f32,
+    },
     /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
     /// variable to and an invert bit. Skyrim uses it to turn parts of a
     /// graph on from script, and its bindings are the bulk of what an
@@ -862,6 +871,7 @@ impl Node {
             | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::EveryNEventsModifier { .. }
@@ -1295,6 +1305,13 @@ impl<'a> Loader<'a> {
                 current_heading_offset: o.f32(o.layout_offset(120, 152))?,
                 current_pitch_offset: o.f32(o.layout_offset(124, 156))?,
             },
+            "BSInterpValueModifier" => NodeKind::InterpValue {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                source: o.f32(o.layout_offset(44, 80))?,
+                target: o.f32(o.layout_offset(48, 84))?,
+                result: o.f32(o.layout_offset(52, 88))?,
+                gain: o.f32(o.layout_offset(56, 92))?,
+            },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
                 let mut is_active = [false; IS_ACTIVE_SLOTS];
@@ -1645,6 +1662,79 @@ mod tests {
         assert_eq!(
             (current_heading_offset, current_pitch_offset),
             (11.0, -12.0)
+        );
+    }
+
+    #[test]
+    fn anm_30_decodes_authored_interpolation_values_and_bindings() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let infos = b.array_structs(data, 32, 6, 2);
+        b.set_i8(infos, 4, 4);
+        b.set_i8(infos + 6, 4, 4);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.array_strings(strings, 48, &["Value", "Target"]);
+
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let modifier = b.object("BSInterpValueModifier", 104);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, modifier);
+        b.string(modifier, 56, "Interpolate");
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, 1.25);
+        b.set_f32(modifier, 84, 5.5);
+        b.set_f32(modifier, 88, 2.0);
+        b.set_f32(modifier, 92, 3.0);
+        b.set_f32(modifier, 96, 42.0);
+        let binding_set = b.object("hkbVariableBindingSet", 40);
+        b.ptr(modifier, 16, binding_set);
+        let bindings = b.array_structs(binding_set, 16, 40, 3);
+        for (index, (path, variable)) in [("source", 0), ("target", 1), ("result", 0)]
+            .into_iter()
+            .enumerate()
+        {
+            let binding = bindings + u32::try_from(index).unwrap() * 40;
+            b.string(binding, 0, path);
+            b.set_i32(binding, 28, variable);
+        }
+        b.set_i32(binding_set, 32, -1);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let NodeKind::InterpValue {
+            enable,
+            source,
+            target,
+            result,
+            gain,
+        } = &graph.node(NodeId(1)).kind
+        else {
+            panic!(
+                "expected interpolation modifier, got {:?}",
+                graph.node(NodeId(1)).kind
+            );
+        };
+        assert!(enable);
+        assert_eq!((*source, *target, *result, *gain), (1.25, 5.5, 2.0, 3.0));
+        assert_eq!(
+            graph
+                .node(NodeId(1))
+                .bindings
+                .as_ref()
+                .unwrap()
+                .bindings
+                .iter()
+                .map(|binding| binding.member_path.as_str())
+                .collect::<Vec<_>>(),
+            ["source", "target", "result"]
         );
     }
 
