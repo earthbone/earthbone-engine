@@ -40,6 +40,7 @@ PATH="$HOME/.cargo/bin:$PATH" "$HOME/.cargo/bin/cargo" +nightly fuzz run \
 | `fuzz-esm` | `soe-esm` | `Plugin::parse` |
 | `fuzz-bsa` | `soe-bsa` | `index_archive_in` |
 | `fuzz-nif` | `soe-nif` | `parse` |
+| `fuzz-nif-grammar` | `soe-nif` | Generated stream-100 block graph and mesh decode |
 | `fuzz-hkx` | `soe-hkx` | `Packfile::parse` |
 | `fuzz-dds` | `soe-dds` | `Dds::parse` |
 | `fuzz-pex` | `soe-papyrus` | `pex::parse` |
@@ -77,6 +78,16 @@ The checker exits with failure for rejected binary seeds. The two permissive
 text parsers cannot reject input, so their seeds are checked as nonempty UTF-8.
 Grammar targets generate their own structure. The save target uses the external
 save corpus, which must never be copied into this repository.
+
+`fuzz-nif-grammar` builds a complete Skyrim SE NIF with a root `NiNode` and a
+packed `BSTriShape`, then parses it and extracts the triangle mesh. Run
+`cargo fuzz run fuzz-nif-grammar -- -max_total_time=300` to record instrumented
+libFuzzer coverage, or `cargo fuzz coverage fuzz-nif-grammar` to write an HTML
+coverage report under `fuzz/coverage/`. The grammar tests named `tst_07` check
+that the node and shape decoders and the mesh extraction path are reached.
+On 2026-09-29, a 15 second run completed 497,357 executions and reported
+`cov: 1045`, `ft: 1063` from 17,307 instrumented counters. This is target
+coverage evidence, not a survey of every NIF block family.
 
 `fuzz/.gitignore` excludes `corpus`, `artifacts`, `target` and `coverage`, so
 none of that is committed. A libFuzzer session can grow its corpus into
