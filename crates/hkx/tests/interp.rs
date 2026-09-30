@@ -525,6 +525,46 @@ fn anm_04_masked_blend_changes_only_authored_bones() {
 }
 
 #[test]
+fn anm_53_bound_pointer_variable_changes_blender_bone_mask_live() {
+    let bytes = common::graph_with_bound_mask(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [Some(&[1.0, 0.0]), Some(&[0.0, 1.0])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let blender = graph.node(graph.root.unwrap()).clone();
+    let NodeKind::Blender(blender) = blender.kind else {
+        panic!("fixture root must be a blender");
+    };
+    let first_mask = blender.children[0].bone_weights_pointer.unwrap();
+    let second_mask = blender.children[1].bone_weights_pointer.unwrap();
+
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    assert_eq!(vm.bound_count(), 2, "{:?}", vm.unsupported().unbound);
+    assert_eq!(vm.variables.pointer(0), Some(Some(first_mask)));
+    let first = vm.update(DT).clone();
+    assert!(close(
+        first.pose[1].translation[0],
+        sampled_x(&lib, "mt_walkforward", DT)
+    ));
+    assert_eq!(first.bone_weights, [0.25, 0.75]);
+
+    assert!(vm.variables.set_pointer(0, Some(second_mask)));
+    assert!(!vm.variables.set_pointer(1, Some(second_mask)));
+    let changed = vm.update(DT).clone();
+    assert_eq!(changed.pose[0], reference_pose()[0]);
+    assert!(close(
+        changed.pose[1].translation[0],
+        0.25 * sampled_x(&lib, "mt_idle", 2.0 * DT)
+            + 0.75 * sampled_x(&lib, "mt_walkforward", 2.0 * DT)
+    ));
+    assert_eq!(changed.bone_weights, [0.0, 1.0]);
+}
+
+#[test]
 fn masked_out_and_unspecified_bones_keep_reference_pose() {
     let bytes = common::graph_with_masks(
         &Root::Blender { parametric: false },

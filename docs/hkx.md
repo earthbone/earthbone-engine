@@ -441,9 +441,14 @@ What each node does:
 
 Bindings resolve at construction to typed setters: `playbackSpeed`,
 `userControlledTimeFraction`, `blendParameter`, `weight` on a blender
-child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
-other member path is reported in `Unsupported::unbound`. Reals live in the
-word table as their bit pattern, which is how the file stores them.
+child (also `children:N/weight`), `boneWeights` on a blender child,
+`selectedGeneratorIndex`, `enable`. A `boneWeights` binding requires a Pointer
+variable. Pointer values come from the variant table in
+`hkbVariableValueSet`, and changing one selects another parsed bone-weight
+array on the next update without reloading the graph. A null pointer means no
+mask, so every bone has weight one. Unknown pointer targets contribute zero.
+Other unsupported member paths are reported in `Unsupported::unbound`. Reals
+live in the word table as their bit pattern, which is how the file stores them.
 
 ### Checked against the sampler (2026-09-18)
 
@@ -1159,6 +1164,22 @@ choice. The class tables declare an array but do not specify its out-of-range
 semantics. The editor rejects out-of-range editing indices. No original-runtime
 capture was available to settle short-mask sampling. Full-length authored
 masks and their packed values are covered by the installed corpus survey.
+
+## Bound bone-mask references, ANM-53
+
+`hkbVariableValueSet.variantVariableValues` retains the object offset for each
+pointer variable. Blender child bindings to `boneWeights` require a variable
+whose declared type is Pointer. The interpreter resolves that variable's
+current offset to a parsed `hkbBoneWeightArray` each update, so replacing the
+pointer changes the bones that child contributes without rebuilding the graph.
+A null pointer removes the mask. A pointer target that is not among the
+graph's parsed pointer-variable or blender-child masks contributes zero.
+
+The layout follows serde-hkx's `hkbVariableValueSet.json` and
+`hkbBlenderGeneratorChild.json`. The change reuses the existing bone-mask
+decoder and per-bone blending path. `tests/interp.rs` verifies the initial
+reference, a live pointer change, per-bone output and rejection of a
+non-pointer setter.
 
 ## Extracted-motion decoding, ANM-05
 
