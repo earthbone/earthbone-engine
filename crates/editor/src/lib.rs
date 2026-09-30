@@ -550,20 +550,33 @@ impl EditorDocument {
             }
         }
         let insertion = insertion.unwrap_or_else(|| {
-            retained
+            let retained_aliases = retained
+                .iter()
+                .enumerate()
+                .filter_map(|(index, subrecord)| (subrecord.tag == Tag(*b"ALST")).then_some(index))
+                .collect::<Vec<_>>();
+            let Some(&alias_start) = retained_aliases.get(alias_occurrence) else {
+                return retained.len();
+            };
+            let alias_end = retained[alias_start + 1..]
+                .iter()
+                .position(|subrecord| subrecord.tag == Tag(*b"ALED"))
+                .map_or(retained.len(), |offset| alias_start + 1 + offset);
+            let alias_body = &retained[alias_start + 1..alias_end];
+            alias_body
                 .iter()
                 .rposition(|subrecord| is_alias_fill_subrecord(subrecord.tag))
                 .or_else(|| {
-                    retained
+                    alias_body
                         .iter()
                         .rposition(|subrecord| subrecord.tag == Tag(*b"FNAM"))
                 })
                 .or_else(|| {
-                    retained
+                    alias_body
                         .iter()
                         .rposition(|subrecord| subrecord.tag == Tag(*b"ALID"))
                 })
-                .map_or(retained.len(), |index| index + 1)
+                .map_or(alias_end, |offset| alias_start + 2 + offset)
         });
         retained.splice(insertion..insertion, conditions.iter().cloned());
         record.subrecords = retained;

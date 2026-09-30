@@ -52,6 +52,7 @@ fn head_part() -> Mesh {
         normals: vec![[0.0, 0.0, 1.0]; 3],
         tangents: vec![[1.0, 0.0, 0.0, 1.0]; 3],
         uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        uv_sets: vec![vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]],
         colors: Vec::new(),
         indices: vec![0, 1, 2],
         bone_weights: Vec::new(),

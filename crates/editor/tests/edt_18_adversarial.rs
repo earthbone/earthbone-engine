@@ -68,7 +68,11 @@ fn edt_18_new_conditions_stay_inside_the_selected_alias() {
     document.save(&patch).unwrap();
 
     let saved = Plugin::parse(&fs::read(&patch).unwrap()).unwrap();
-    let quest = saved.records.iter().find(|record| record.tag == QUST).unwrap();
+    let quest = saved
+        .records
+        .iter()
+        .find(|record| record.tag == QUST)
+        .unwrap();
     let aliases = quest
         .subrecords
         .iter()
@@ -76,8 +80,16 @@ fn edt_18_new_conditions_stay_inside_the_selected_alias() {
         .filter_map(|(index, subrecord)| (subrecord.tag == ALST).then_some(index))
         .collect::<Vec<_>>();
     assert_eq!(aliases.len(), 2);
-    let first_end = quest.subrecords.iter().position(|subrecord| subrecord.tag == ALED).unwrap();
-    let second_end = quest.subrecords.iter().rposition(|subrecord| subrecord.tag == ALED).unwrap();
+    let first_end = quest
+        .subrecords
+        .iter()
+        .position(|subrecord| subrecord.tag == ALED)
+        .unwrap();
+    let second_end = quest
+        .subrecords
+        .iter()
+        .rposition(|subrecord| subrecord.tag == ALED)
+        .unwrap();
     assert!(quest.subrecords[aliases[0]..=first_end]
         .iter()
         .any(|subrecord| subrecord.tag == CTDA));

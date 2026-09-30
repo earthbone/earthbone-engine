@@ -159,7 +159,10 @@ pub enum FaceTintError {
 pub fn face_tint_path(plugin_name: &str, local_form_id: u32) -> Result<PathBuf, FaceTintError> {
     let plugin_path = PathBuf::from(plugin_name);
     let mut components = plugin_path.components();
-    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+    if plugin_name.contains('\\')
+        || !matches!(components.next(), Some(Component::Normal(_)))
+        || components.next().is_some()
+    {
         return Err(FaceTintError::InvalidPluginName);
     }
     if plugin_name.is_empty() {
