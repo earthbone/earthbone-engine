@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin,
-    Record, Tag,
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
 use soe_game::{conditions, Game};
 
@@ -30,8 +30,14 @@ fn ai_65_non_sprinting_actor_evaluates_is_sprinting_false() {
             &mut game.world_mut(),
             &game.vm,
             conditions::Context {
-                owner: GlobalFormId { file: 0, object: 0x800 },
-                subject: GlobalFormId { file: 0, object: 0x900 },
+                owner: GlobalFormId {
+                    file: 0,
+                    object: 0x800
+                },
+                subject: GlobalFormId {
+                    file: 0,
+                    object: 0x900
+                },
                 target: None,
                 quest: None,
                 tempering_enchanted: None,

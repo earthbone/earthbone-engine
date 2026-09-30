@@ -186,6 +186,7 @@ pub fn supports_function(function: u16) -> bool {
             | 721
             | 724
             | 447
+            | 568
     )
 }
 
@@ -570,6 +571,11 @@ fn function_value(
                 .copied()
                 .ok_or_else(|| Error::Variable(name.into()))?
         }
+        568 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.sprinting)
+        }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             boolean(world.has_keyword(subject, keyword))
@@ -743,6 +749,7 @@ fn function_value(
             let hand = match raw {
                 0 => crate::combat::Hand::Left,
                 1 => crate::combat::Hand::Right,
+                2 => return Ok(0.0),
                 value => return Err(Error::Parameter(c.function, value)),
             };
             boolean(
@@ -840,7 +847,7 @@ fn item_health_percent(world: &mut World, subject: GlobalFormId) -> Result<f32, 
     };
     let quality = f32::from_bits(*bits);
     if quality.is_finite() {
-        Ok(quality.max(1.0))
+        Ok(quality)
     } else {
         Err(Error::ItemHealth)
     }

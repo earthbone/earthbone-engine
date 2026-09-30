@@ -380,6 +380,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.alerted,
         a.sneaking,
         a.weapon_drawn,
+        a.sprinting,
         a.restrained,
         a.arrested,
         a.attack_on_sight,

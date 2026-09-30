@@ -91,3 +91,20 @@ fn ai_65_graph_float_reports_missing_name_and_nonactor_context() {
         Err(conditions::Error::Form(id(0xfff)))
     );
 }
+
+#[test]
+fn ai_65_sprinting_reads_transient_actor_state() {
+    let game = fixture();
+    assert!(conditions::supports_function(568));
+    let mut sprinting = condition(None, 0.0);
+    sprinting.function = 568;
+    assert_eq!(evaluate(&game, id(0x900), &sprinting), Ok(true));
+    sprinting.comparison = Comparison::Number(1.0);
+    assert_eq!(evaluate(&game, id(0x900), &sprinting), Ok(false));
+    game.world_mut().actor(id(0x900)).unwrap().sprinting = true;
+    assert_eq!(evaluate(&game, id(0x900), &sprinting), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0xfff), &sprinting),
+        Err(conditions::Error::Form(id(0xfff)))
+    );
+}

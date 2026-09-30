@@ -251,6 +251,8 @@ pub struct ActorState {
     pub alerted: bool,
     pub sneaking: bool,
     pub weapon_drawn: bool,
+    /// The host movement driver's current sprint state, re-signaled after load.
+    pub sprinting: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
     /// re-signals it from the live graph after load, through

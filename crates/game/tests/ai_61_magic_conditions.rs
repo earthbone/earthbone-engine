@@ -306,7 +306,11 @@ fn ai_61_bound_weapon_uses_casting_source_hand_and_bound_flag() {
     );
     assert_eq!(
         evaluate(&game, ACTOR, &condition(706, 2, 1.0), None, None),
-        Err(conditions::Error::Parameter(706, 2))
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, ACTOR, &condition(706, 3, 1.0), None, None),
+        Err(conditions::Error::Parameter(706, 3))
     );
     assert_eq!(
         evaluate(&game, POISON_REF, &condition(706, 1, 1.0), None, None),

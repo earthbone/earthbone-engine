@@ -285,7 +285,7 @@ checks the explicit tempering item supplied by the condition caller. Perk
 entry-point condition contexts carry that item through
 `EntryPointContext::tempering_item`. CTDA 723 reads the kind-37 ExtraHealth
 value from a loose item reference, defaults to 1.0 when the subject has no item
-extra, and clamps values below 1.0 to 1.0, following
+extra, and preserves damaged values below 1.0, following
 `ck-wiki/GetItemHealthPercent_-_ObjectReference.wikitext`. CTDA 664 retains
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
@@ -1579,12 +1579,14 @@ compiler confirms conditional auto-property flags on the backing variable.
 
 AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's saved
 behavior-graph float map. The condition's `CIS1` name is matched without case
-sensitivity. Missing names and non-actor subjects return explicit errors. The
+sensitivity. Missing names and non-actor subjects return explicit errors. CTDA
+568 reads the transient sprint state slot for a live movement driver. This
+worktree does not yet connect host movement input to that slot. The
 other AI-65 functions remain unsupported because their transition or animation
 state is not available in this worktree. Local xEdit identifies their
 parameters, while the CK corpus only documents `IsSprinting` and `IsFlying`
 as live state queries. The AI-31 draft prerequisites are absent here, so no
-cell-crossing, last-idle, sprint, flight, movement, relative-angle or furniture
+cell-crossing, last-idle, flight, movement, relative-angle or furniture
 animation state is inferred from unrelated saved flags.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
@@ -2968,6 +2970,8 @@ These three functions require the active spell context supplied while SPEL
 effect and MGEF conditions run. HasMagicEffectKeyword (699) checks live active
 effects on the subject. HasBoundWeaponEquipped (706) uses Casting Source 0 for
 the left hand and 1 for the right, then checks the equipped WEAP bound flag.
+Voice source 2 is valid and returns false because it has no bound hand weapon;
+other casting-source values return a parameter error.
 IsPoison (721) reads the subject reference's ALCH base and its poison flag.
 EffectWasDualCast (724) reads optional caller-supplied cast context. Without
 that value it returns a typed magic-context error. The direct scripted cast

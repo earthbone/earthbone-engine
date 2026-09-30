@@ -278,7 +278,7 @@ fn ai_51_item_health_percent_reads_item_extra_and_follows_ck_defaults() {
 }
 
 #[test]
-fn ai_51_item_health_percent_clamps_below_one_and_rejects_bad_extras() {
+fn ai_51_item_health_percent_preserves_damaged_values_and_rejects_bad_extras() {
     let game = game();
     game.world_mut().reference(id(ITEM_REF)).unwrap().item = Some(
         Stack::new(
@@ -291,8 +291,12 @@ fn ai_51_item_health_percent_clamps_below_one_and_rejects_bad_extras() {
         .unwrap(),
     );
     assert_eq!(
-        evaluate(&game, id(ITEM_REF), None, &condition(723, 0, 1.0)),
+        evaluate(&game, id(ITEM_REF), None, &condition(723, 0, 0.75)),
         Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(ITEM_REF), None, &condition(723, 0, 1.0)),
+        Ok(false)
     );
     game.world_mut().reference(id(ITEM_REF)).unwrap().item = Some(
         Stack::new(
