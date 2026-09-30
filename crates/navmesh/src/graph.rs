@@ -12,7 +12,7 @@
 //! and waypoint ownership. Non-geometric graph links remain explicit segments.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 mod funnel;
@@ -158,6 +158,10 @@ pub struct NavGraph {
     meshes: Vec<Mesh>,
     /// NAVM door references mapped to the triangles authored for them.
     door_nodes: HashMap<u64, Vec<NodeId>>,
+    /// Door nodes whose placed reference footprint overlaps their triangle.
+    door_bindings: HashMap<u64, Vec<NodeId>>,
+    /// A closed door blocks its bound NAVM triangle during path searches.
+    closed_doors: HashSet<u64>,
     spatial: OnceLock<SpatialIndex>,
     components: OnceLock<Vec<usize>>,
 }
@@ -307,6 +311,75 @@ impl NavGraph {
     /// raw door FormID. The association does not control pathfinding.
     pub fn door_nodes(&self, door: u64) -> &[NodeId] {
         self.door_nodes.get(&door).map_or(&[], Vec::as_slice)
+    }
+
+    /// Resolved door reference keys retained by NAVM door links.
+    pub fn door_keys(&self) -> impl Iterator<Item = u64> + '_ {
+        self.door_nodes.keys().copied()
+    }
+
+    /// Resolve NAVM door associations against the placed door's XY position.
+    /// The authored link supplies candidate triangles, and the reference
+    /// position must fall within the triangle footprint to bind it.
+    pub fn bind_door_footprint(&mut self, door: u64, position: [f32; 3]) -> bool {
+        let candidates = self.door_nodes(door).to_vec();
+        let nodes: Vec<_> = candidates
+            .into_iter()
+            .filter(|node| self.contains_xy(*node, position))
+            .collect();
+        let binding = if nodes.is_empty() { None } else { Some(nodes) };
+        let changed = self.door_bindings.get(&door) != binding.as_ref();
+        if let Some(nodes) = binding {
+            self.door_bindings.insert(door, nodes);
+        } else {
+            self.door_bindings.remove(&door);
+        }
+        changed
+    }
+
+    /// Set whether a bound door is open. Closed links block only their
+    /// authored door triangle. Returns whether the effective state changed.
+    pub fn set_door_open(&mut self, door: u64, open: bool) -> bool {
+        if !self.door_bindings.contains_key(&door) {
+            return false;
+        }
+        if open {
+            self.closed_doors.remove(&door)
+        } else {
+            self.closed_doors.insert(door)
+        }
+    }
+
+    fn node_blocked(&self, node: NodeId) -> bool {
+        self.triangle(node).blocked
+            || self.closed_doors.iter().any(|door| {
+                self.door_bindings
+                    .get(door)
+                    .is_some_and(|nodes| nodes.contains(&node))
+            })
+    }
+
+    fn contains_xy(&self, node: NodeId, point: [f32; 3]) -> bool {
+        let Some(mesh) = self.meshes.get(node.mesh as usize) else {
+            return false;
+        };
+        let Some(triangle) = mesh.triangles.get(node.triangle as usize) else {
+            return false;
+        };
+        let [a, b, c] = triangle.vertices.map(|index| mesh.vertices[index as usize]);
+        let cross = |p: [f32; 3], q: [f32; 3], r: [f32; 3]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        let area = cross(a, b, c);
+        if !area.is_finite() || area.abs() < 1e-6 || !point[0].is_finite() || !point[1].is_finite()
+        {
+            return false;
+        }
+        let eps = area.abs() * 1e-5;
+        let ab = cross(a, b, point);
+        let bc = cross(b, c, point);
+        let ca = cross(c, a, point);
+        (ab >= -eps && bc >= -eps && ca >= -eps) || (ab <= eps && bc <= eps && ca <= eps)
     }
 
     /// Set the vanilla NAVM triangle flags used by path cost selection.
@@ -471,17 +544,15 @@ impl NavGraph {
         if !costs.is_valid() {
             return None;
         }
-        let start = self
-            .meshes
+        self.meshes
             .get(from.mesh as usize)?
             .triangles
             .get(from.triangle as usize)?;
-        let end = self
-            .meshes
+        self.meshes
             .get(to.mesh as usize)?
             .triangles
             .get(to.triangle as usize)?;
-        if start.blocked || end.blocked {
+        if self.node_blocked(from) || self.node_blocked(to) {
             return None;
         }
         if from.mesh != to.mesh
@@ -520,7 +591,7 @@ impl NavGraph {
                 let Some(nt) = m.triangles.get(next.triangle as usize) else {
                     continue;
                 };
-                if nt.blocked {
+                if self.node_blocked(next) {
                     continue;
                 }
                 let tentative =
@@ -601,6 +672,35 @@ impl NavGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_09_physical_door_binding_blocks_its_navm_triangle_until_opened() {
+        let mut graph = NavGraph::new();
+        let mesh = graph.add_mesh_with_adjacency(
+            vec![
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        let door = 0x0001_0000_0000_0001;
+        let linked = NodeId::new(mesh, 0);
+        let other = NodeId::new(mesh, 1);
+        graph.add_door_node(door, linked);
+
+        assert!(graph.bind_door_footprint(door, [7.0, 2.0, 0.0]));
+        assert!(graph.bind_door_footprint(door, [20.0, 20.0, 0.0]));
+        assert!(graph.find_path(linked, other).is_some());
+        assert!(graph.bind_door_footprint(door, [7.0, 2.0, 0.0]));
+        assert!(graph.set_door_open(door, false));
+        assert!(graph.find_path(linked, other).is_none());
+        assert!(graph.find_path(other, other).is_some());
+        assert!(!graph.set_door_open(door, false));
+        assert!(graph.set_door_open(door, true));
+        assert!(graph.find_path(linked, other).is_some());
+    }
 
     /// A 1 by 4 strip of squares, two triangles each, 100 units per square.
     fn strip() -> NavGraph {
