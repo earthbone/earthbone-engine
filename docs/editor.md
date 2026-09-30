@@ -321,3 +321,15 @@ edited plugin, whose LAND data can be parsed after reload. The operation uses th
 position-based builder contract in local Terrain3D's `project/addons/terrain_3d/src/operation_builder.gd`.
 It is a Rust document operation, not a Terrain3D brush UI, and it does not create an override
 for a LAND owned by another plugin.
+
+`EditorDocument::set_reference_transform` updates the 24-byte `DATA` transform on a `REFR`
+already owned by the active plugin, then rebuilds the winning form table. Its edit log keeps
+the prior plugin so undo restores the record pose used by the renderer and by plugin save.
+The operation rejects missing or malformed transform data and repeated `DATA` fields. It
+does not create overrides for references owned by another plugin. The Godot cell editor does
+not yet connect a transform gizmo to this operation.
+
+The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values; their
+Godot callback is not wired to this Rust operation yet.
