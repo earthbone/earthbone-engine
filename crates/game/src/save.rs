@@ -504,7 +504,15 @@ impl Game {
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
         let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
-        self.validate_saved_state(bytes)?;
+        match self.validate_saved_state(bytes) {
+            Ok(())
+            | Err(
+                VmError::UnknownScript(_)
+                | VmError::UnknownFunction { .. }
+                | VmError::IncompatibleScript(_),
+            ) => {}
+            Err(error) => return Err(error),
+        }
         let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
         check_provenance(&saved, &current_provenance(self))?;
         self.world.borrow_mut().load_state(world_bytes)?;
