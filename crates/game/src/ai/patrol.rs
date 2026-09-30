@@ -45,7 +45,11 @@ impl Parameters {
         }
         if !matches!(
             target.target,
-            Target::Reference(_) | Target::LinkedReference(0) | Target::Alias(_)
+            Target::Reference(_)
+                | Target::ObjectId(_)
+                | Target::ObjectType(_)
+                | Target::LinkedReference(0)
+                | Target::Alias(_)
         ) {
             return Err("Patrol target mode, AI-91");
         }
@@ -227,6 +231,10 @@ fn start(
     let start = match params.target {
         Target::Reference(raw) if raw != 0 => world.resolve_from(params.owner, raw),
         Target::LinkedReference(0) => next_link(world, actor)?,
+        Target::ObjectId(raw) if raw != 0 => world
+            .resolve_from(params.owner, raw)
+            .and_then(|base| object_id_start(world, base, &mut std::collections::BTreeSet::new())),
+        Target::ObjectType(kind) => object_type_start(world, kind),
         Target::Alias(alias) => ai
             .package
             .and_then(|package| world.owning_quest(package))
@@ -269,6 +277,44 @@ fn start(
     });
     ai.arrived = used_terminal;
     Ok(())
+}
+
+fn object_id_start(
+    world: &mut World,
+    object: GlobalFormId,
+    visiting: &mut std::collections::BTreeSet<GlobalFormId>,
+) -> Option<GlobalFormId> {
+    if world.is_reference(object) {
+        return Some(object);
+    }
+    if world.tag_of(object) == Some(T(b"FLST")) {
+        if !visiting.insert(object) {
+            return None;
+        }
+        let items = world.form_list(object)?.clone();
+        let found = items
+            .into_iter()
+            .find_map(|item| object_id_start(world, item, visiting));
+        visiting.remove(&object);
+        return found;
+    }
+    world.references_of_base(object, 1).into_iter().next()
+}
+
+fn object_type_start(world: &World, kind: u32) -> Option<GlobalFormId> {
+    // wbObjectTypeEnum in TES5Edit assigns 8 to Miscellaneous. The other
+    // categories need their own record and subtype filters before selection.
+    if kind != 8 {
+        return None;
+    }
+    let bases: Vec<GlobalFormId> = world
+        .order()
+        .winners_of(T(b"MISC"))
+        .map(|(base, _)| base)
+        .collect();
+    bases
+        .into_iter()
+        .find_map(|base| world.references_of_base(base, 1).into_iter().next())
 }
 
 pub(super) fn tick(world: &mut World, ai: &mut AiState) {

@@ -57,6 +57,9 @@ fn route_game(target_kind: i32, target: u32) -> Game {
             .sub(T(b"DATA"), [0; 24]),
     );
     plugin.push_top(Record::new(T(b"MISC"), marker_base).zsub(T(b"EDID"), "RouteMarkerBase"));
+    if target == 0x806 {
+        plugin.push_top(Record::new(T(b"FLST"), target).sub(T(b"LNAM"), marker_base.to_le_bytes()));
+    }
     let mut data = vec![0; 24];
     data[..4].copy_from_slice(&10.0f32.to_le_bytes());
     plugin.push_top(
@@ -74,12 +77,59 @@ fn route_game(target_kind: i32, target: u32) -> Game {
 }
 
 #[test]
+fn ai_91_object_id_form_list_selects_and_saves_its_route_reference() {
+    let mut game = route_game(1, 0x806);
+    game.tick(0.1);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(0x803))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .map(|p| p.start),
+        Some(id(0x805))
+    );
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(
+        game.world()
+            .actor_ref(id(0x803))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .map(|p| p.start),
+        Some(id(0x805))
+    );
+}
+
+#[test]
 fn ai_91_object_id_path_start_selects_route_reference_by_base_record() {
     let mut game = route_game(1, 0x804);
     game.tick(0.1);
-    let world = game.world();
-    let ai = &world.actor_ref(id(0x803)).unwrap().ai;
-    assert_eq!(ai.patrol.as_ref().map(|p| p.start), Some(id(0x805)));
+    assert_eq!(
+        game.world()
+            .actor_ref(id(0x803))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .map(|p| p.start),
+        Some(id(0x805))
+    );
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(
+        game.world()
+            .actor_ref(id(0x803))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .map(|p| p.start),
+        Some(id(0x805))
+    );
 }
 
 #[test]
@@ -89,4 +139,17 @@ fn ai_91_object_type_search_start_uses_the_authored_target_namespace() {
     let world = game.world();
     let ai = &world.actor_ref(id(0x803)).unwrap().ai;
     assert_eq!(ai.patrol.as_ref().map(|p| p.start), Some(id(0x805)));
+    let saved = world.save_state();
+    drop(world);
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(
+        game.world()
+            .actor_ref(id(0x803))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .map(|p| p.start),
+        Some(id(0x805))
+    );
 }
