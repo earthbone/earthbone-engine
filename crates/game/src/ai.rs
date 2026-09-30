@@ -302,14 +302,38 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
     }
     alias_packages.sort_by_key(|a| std::cmp::Reverse(a.0));
     out.extend(alias_packages.into_iter().map(|(_, c)| c));
+    let package_overrides = world
+        .actor(actor)
+        .map(|state| state.package_overrides.clone())
+        .unwrap_or_default();
     if let Ok((source, npc)) = world.actor_npc_part(actor, crate::npc::template::AI_PACKAGES) {
-        for raw in &npc.packages {
-            if let Some(package) = world.resolve_from(source, *raw) {
-                out.push(Candidate {
-                    package,
-                    alias: None,
-                });
+        let mut packages: Vec<GlobalFormId> = npc
+            .packages
+            .iter()
+            .filter_map(|raw| world.resolve_from(source, *raw))
+            .collect();
+        let mut overrides = package_overrides;
+        overrides.sort_by_key(|(index, _)| *index);
+        for (index, package) in overrides {
+            let distributed = if world.tag_of(package) == Some(T(b"FLST")) {
+                world.form_list(package).cloned().unwrap_or_default()
+            } else {
+                vec![package]
+            };
+            let mut at = index.min(packages.len());
+            for package in distributed {
+                if packages.contains(&package) {
+                    continue;
+                }
+                packages.insert(at, package);
+                at += 1;
             }
+        }
+        for package in packages {
+            out.push(Candidate {
+                package,
+                alias: None,
+            });
         }
     }
     out
