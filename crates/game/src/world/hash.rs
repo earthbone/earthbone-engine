@@ -795,6 +795,10 @@ impl World {
             h.bool(*result);
         }
         h.bool(self.player_controls);
+        for enabled in self.player_control_flags {
+            h.bool(enabled);
+        }
+        h.i32(self.player_control_pov_type);
         let output = h.finish();
 
         let mut h = StateHasher::new();
@@ -906,6 +910,9 @@ impl World {
             self.fast_travel,
             self.player_ai_driven,
             self.in_chargen,
+            self.chargen_disable_saving,
+            self.chargen_disable_waiting,
+            self.chargen_show_controls_disabled_message,
             self.beast_form,
         ] {
             h.bool(flag);
@@ -1363,6 +1370,15 @@ mod tests {
         moves("fast_travel", flags, |w| w.fast_travel = false);
         moves("player_ai_driven", flags, |w| w.player_ai_driven = true);
         moves("in_chargen", flags, |w| w.in_chargen = true);
+        moves("chargen_disable_saving", flags, |w| {
+            w.chargen_disable_saving = true;
+        });
+        moves("chargen_disable_waiting", flags, |w| {
+            w.chargen_disable_waiting = true;
+        });
+        moves("chargen_show_controls_disabled_message", flags, |w| {
+            w.chargen_show_controls_disabled_message = true;
+        });
         moves("beast_form", flags, |w| w.beast_form = true);
         moves("words_taught", flags, |w| {
             w.words_taught.insert(id(9));

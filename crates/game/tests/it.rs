@@ -905,6 +905,26 @@ mod scr_57_adversarial;
 mod scr_57_native_contract_audit;
 #[path = "scr_58_adversarial.rs"]
 mod scr_58_adversarial;
+#[path = "scr_59_adversarial.rs"]
+mod scr_59_adversarial;
+#[path = "scr_60_adversarial.rs"]
+mod scr_60_adversarial;
+#[path = "scr_61_adversarial.rs"]
+mod scr_61_adversarial;
+#[path = "scr_61_native_contracts.rs"]
+mod scr_61_native_contracts;
+#[path = "scr_62_adversarial.rs"]
+mod scr_62_adversarial;
+#[path = "scr_63_adversarial.rs"]
+mod scr_63_adversarial;
+#[path = "scr_63_contracts.rs"]
+mod scr_63_contracts;
+#[path = "scr_64_adversarial.rs"]
+mod scr_64_adversarial;
+#[path = "scr_65_adversarial.rs"]
+mod scr_65_adversarial;
+#[path = "scr_66_adversarial.rs"]
+mod scr_66_adversarial;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 #[path = "shm_12_live_world.rs"]

@@ -721,6 +721,11 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Enabled states for movement, fighting, camera, looking, sneaking, menu,
+    /// activation and journal controls, in that order.
+    pub player_control_flags: [bool; 8],
+    /// POV system that last changed the player's camera-switch control.
+    pub player_control_pov_type: i32,
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
@@ -749,6 +754,11 @@ pub struct World {
     pub fast_travel: bool,
     pub player_ai_driven: bool,
     pub in_chargen: bool,
+    /// Whether chargen disables saving.
+    pub chargen_disable_saving: bool,
+    /// Whether chargen should block waiting and show a controls-disabled HUD message.
+    pub chargen_disable_waiting: bool,
+    pub chargen_show_controls_disabled_message: bool,
     /// `Game.SetHudCartMode` state for the host HUD presenter.
     pub hud_cart_mode: bool,
     /// Transient presentation requests raised by global Game natives.
@@ -925,6 +935,8 @@ impl World {
             screenshot_requests: Vec::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            player_control_flags: [true; 8],
+            player_control_pov_type: 0,
             player_controls: true,
             camera_controls: CameraControls::default(),
             ini: HashMap::new(),
@@ -944,6 +956,9 @@ impl World {
             fast_travel: true,
             player_ai_driven: false,
             in_chargen: false,
+            chargen_disable_saving: false,
+            chargen_disable_waiting: false,
+            chargen_show_controls_disabled_message: false,
             hud_cart_mode: false,
             game_ui_requests: Vec::new(),
             beast_form: false,

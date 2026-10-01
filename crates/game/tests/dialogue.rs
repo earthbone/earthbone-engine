@@ -361,7 +361,7 @@ fn counter_on(game: &mut Game, form: u32, variable: &str) -> i32 {
 }
 
 #[test]
-fn fragments_run_on_the_named_script_and_the_group_owning_quest() {
+fn scr_62_topic_info_gets_owning_quest_from_its_dialogue_group() {
     let mut plugin = plugin(vec![
         info(INFO, 0, &["First", "Second"], true).sub(T(b"TPIC"), LINKED_TOPIC.to_le_bytes())
     ]);

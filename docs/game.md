@@ -587,6 +587,21 @@ extra, and preserves damaged values below 1.0, following
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
 
+**LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
+checks the registered methods for `LeveledItem`, `LeveledActor`,
+`LeveledSpell` and `Location` against the local scripts. The vanilla SKSE
+`LeveledSpell.psc` defines `AddForm(Form, int)` and `Revert()`. Its modified
+script adds `GetChanceNone`, `SetChanceNone`, `GetNumForms`, `GetNthForm`,
+`GetNthLevel` and `SetNthLevel`. Spell lists do not expose `GetNthCount`.
+`SetNthLevel` updates only an existing entry and clamps levels above 65535.
+`Location.psc` defines the seven implemented Location methods. Its
+`IsSameLocation` wrapper accepts identical locations, a shared ancestor with
+the requested keyword, and a keyworded parent/child pair in either direction.
+`IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount`
+remain quiet stubs owned by SCR-35. The corresponding Creation Kit named
+pages are not present in the local corpus, so the shipped scripts are the
+contract source for these bindings.
+
 ## CommonLib world views, SHM-16
 
 `World::commonlib_data_handler` returns the MIT `TESDataHandler` view over winning records and
@@ -624,6 +639,15 @@ recently supplied to `tick_menu_mode`. A quiet stub returns the idle value the
 game gives when nothing is going on, so vanilla scripts can continue when their
 owning system has no behavior yet.
 
+The SCR-61 registry audit found four `GetID` and `GetName` method bindings.
+`Form.GetName` returns the form's name-column text, `Quest.GetID` returns its
+EditorID, and `Alias.GetID` and `Alias.GetName` return the alias's numeric ID
+and unique name. These match the CK pages `GetName - Form`, `Quest Script`,
+and `Alias Script`. Form.GetName returns an empty string for actor and
+object-reference instances, as the CK page specifies. Regression coverage is
+in `tests/scr_61_native_contracts.rs`. The Form page identifies `GetName` as
+an SKSE member.
+
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
@@ -631,6 +655,10 @@ owning system has no behavior yet.
 | Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetSkin, SetSkin, GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
+| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
+| LeveledItem | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount, GetChanceNone, SetChanceNone | |
+| LeveledActor | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount, GetChanceNone, SetChanceNone | |
+| LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetChanceNone, SetChanceNone | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, plus Form identity, keyword and event-listener methods | |
 | ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
@@ -643,7 +671,7 @@ owning system has no behavior yet.
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
-| Message | Show, ShowAsHelpMessage | ResetHelpMessage |
+| Message | Show, ShowAsHelpMessage | ResetHelpMessage (global) |
 | Scene | Start, ForceStart, Stop, IsPlaying, IsActionComplete | |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast, Preload and Unload record validation | |
@@ -669,6 +697,52 @@ when it remains engaged without a target and is searching. Ignore-friendly-hits
 reads the reference flag used by its Papyrus native. The condition functions 63,
 66, 118, 288 and 361 remain unsupported with explicit function diagnostics
 because the local CK corpus does not provide usable condition semantics for them.
+
+## ForceRefTo and Form contract audit
+
+The SCR-59 inventory checks the registered `Form` methods against the local
+Creation Kit pages. `Form_Script.wikitext` lists the base methods, while
+`GetName` and `GetType` appear in its SKSE member section. `GetKeywords` has no
+CK or SKSE declaration there. It is an engine extension that returns the form's
+keyword array. The inventory test checks that all 21 methods remain registered.
+
+| Binding | CK contract source |
+|---|---|
+| `Form.GetFormID()` | `GetFormID_-_Form.wikitext`, integer runtime form ID |
+| `Form.GetName()` | `GetName_-_Form.wikitext`, string name, SKSE |
+| `Form.GetType()` | `Form_Script.wikitext`, integer type code, SKSE |
+| `Form.HasKeyword(Keyword)` | `HasKeyword_-_Form.wikitext`, boolean, false on unsupported forms |
+| `Form.GetKeywords()` | No CK declaration, engine extension returning keyword forms |
+| `Form.RegisterForSingleUpdate(Float)` | `RegisterForSingleUpdate_-_Form.wikitext`, one update after a real-time interval |
+| `Form.RegisterForUpdate(Float)` | `RegisterForUpdate_-_Form.wikitext`, repeating real-time interval |
+| `Form.RegisterForSingleUpdateGameTime(Float)` | `RegisterForSingleUpdateGameTime_-_Form.wikitext`, one update after a game-time interval |
+| `Form.RegisterForUpdateGameTime(Float)` | `RegisterForUpdateGameTime_-_Form.wikitext`, repeating game-time interval |
+| `Form.UnregisterForUpdate()` | `UnregisterForUpdate_-_Form.wikitext`, remove real-time updates |
+| `Form.UnregisterForUpdateGameTime()` | `UnregisterForUpdateGameTime_-_Form.wikitext`, remove game-time updates |
+| `Form.RegisterForSleep()` | `RegisterForSleep_-_Form.wikitext`, receive sleep events |
+| `Form.UnregisterForSleep()` | `UnregisterForSleep_-_Form.wikitext`, stop receiving sleep events |
+| `Form.RegisterForTrackedStatsEvent()` | `RegisterForTrackedStatsEvent_-_Form.wikitext`, receive tracked-stat events |
+| `Form.UnregisterForTrackedStatsEvent()` | `UnregisterForTrackedStatsEvent_-_Form.wikitext`, stop receiving tracked-stat events |
+| `Form.RegisterForAnimationEvent(ObjectReference, String)` | `RegisterForAnimationEvent_-_Form.wikitext`, subscribe to the sender's named event |
+| `Form.UnregisterForAnimationEvent(ObjectReference, String)` | `UnregisterForAnimationEvent_-_Form.wikitext`, remove that subscription |
+| `Form.RegisterForLOS(Actor, ObjectReference)` | `RegisterForLOS_-_Form.wikitext`, receive gain and lost events |
+| `Form.RegisterForSingleLOSGain(Actor, ObjectReference)` | `RegisterForSingleLOSGain_-_Form.wikitext`, receive one gain event |
+| `Form.RegisterForSingleLOSLost(Actor, ObjectReference)` | `RegisterForSingleLOSLost_-_Form.wikitext`, receive one lost event |
+| `Form.UnregisterForLOS(Actor, ObjectReference)` | `UnregisterForLOS_-_Form.wikitext`, remove matching LOS subscriptions |
+| `ReferenceAlias.ForceRefTo(ObjectReference)` | `ReferenceAlias_Script.wikitext`, force the alias to use the specified reference |
+
+The comparison found that `ForceRefTo` accepted any form even though the CK
+parameter is an `ObjectReference`. The binding now accepts `REFR` and `ACHR`
+records and ignores other forms, retaining the existing alias target. The
+SCR-59 tests cover both reference record kinds and check each `Form` method
+against the VM registry. CK also specifies that a single LOS registration
+can deliver immediately when current visibility already matches. The runtime
+only dispatches on a later visibility transition. Initial LOS query and
+delivery are assigned to SCR-10, which owns the actor LOS query behavior.
+
+`LeveledItem.GetChanceGlobal` and `SetChanceGlobal` are SKSE methods and are
+not registered. Their record and save-state support belongs to the leveled-item
+selection work tracked by PRG-05.
 
 ## Faction and alias native contract audit
 
@@ -872,6 +946,9 @@ Creation Engine frame capture or memory budgets.
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
   plugins included. `GetFormFromFile` takes the low 24 bits and a file name.
+- `FormList.AddForm` ignores `None`, suppresses duplicate members and places
+  temporary forms before authored entries. Regular forms added by scripts
+  follow the authored entries. The four query methods read this ordered list.
 - A leveled list is its `LVLO` entries in record order plus what `AddForm`
   appended. `Revert` truncates back to the record's entries and chance.
   Actor templates roll LVLN during initialization. The PRG-05 follow-up rolls
@@ -909,8 +986,18 @@ Creation Engine frame capture or memory budgets.
   matching graph event fires, then returns true. Graph unload or disabling the
   reference completes the wait with false. Waiting latent IDs and completed
   results are stored in the world `ANM-58` save section.
-- `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. A scene starts at
+- The CK `Message.Show` contract formats its nine optional numeric arguments
+  and returns after a message-box button is selected. The current game layer
+  queues the `DNAM` record text according to the `MESG` message-box flag in
+  `message_boxes` or `notifications`. It does not format numeric placeholders
+  or wait for a selected button. It returns button 0 for queued message boxes
+  and -1 for notifications, following the CK contract for non-message-boxes.
+  `Message.ShowAsHelpMessage` currently queues
+  a notification and does not track event, interval, duration or occurrence
+  state. `Message.ResetHelpMessage` is registered as a global stub. The CK
+  contract comparison and owning backlog rows are in
+  [reference-audit.md](reference-audit.md#scr-66-locationalias-and-message-contracts).
+  A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. `Scene.IsActionComplete(actionID)` resolves the SCEN
@@ -948,6 +1035,113 @@ Creation Engine frame capture or memory budgets.
   action scheduling behavior. Dialogue dispatch happens when called. Automatic
   action scheduling and CTDA evaluation are not implemented.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
+
+## FormList and Game native audit, SCR-60
+
+The FormList ordering and Game control/chargen contract corrections are
+assigned to SCR-60.
+
+The registry inventory test
+`scr_60_registry_inventory_matches_formlist_and_game_contracts` checks each
+registered binding in the audited classes, including quiet Game stubs. The CK
+class inventories are `FormList_Script.wikitext` and `Game_Script.wikitext`.
+FormList methods were compared with their named function pages where available.
+The Game class page provides the signatures and short contracts used below.
+
+| Binding | CK contract comparison |
+|---|---|
+| `FormList.GetSize` | Returns the number of entries. |
+| `FormList.GetAt` | Returns the zero-based entry, or None outside the list. |
+| `FormList.HasForm` | Tests membership. None returns false. |
+| `FormList.Find` | Returns the matching index, or -1 when absent. |
+| `FormList.AddForm` | Ignores None, forbids duplicates, places temporary forms first and appends regular additions after authored entries. `scr_60_formlist_additions_follow_creation_order_and_skip_duplicates` checks ordering and duplicates. |
+| `Game.GetPlayer` | Returns the player actor. |
+| `Game.GetForm` | Resolves a runtime FormID under the active load order. |
+| `Game.GetFormEx` | Compatibility alias for `GetForm`. CK's Game class page has no separate entry. |
+| `Game.GetFormFromFile` | Resolves the low 24-bit object id in the named plugin. |
+| `Game.EnablePlayerControls` | CK takes eight enable flags and a POV mode. True flags enable only those controls. |
+| `Game.DisablePlayerControls` | CK takes eight disable flags and a POV mode. True flags disable only those controls. |
+| `Game.GetGameSettingFloat` | Returns a float game setting. |
+| `Game.GetGameSettingInt` | Returns an integer game setting. |
+| `Game.GetGameSettingString` | Returns a string game setting. |
+| `Game.SetGameSettingFloat` | Stores a float setting. |
+| `Game.SetGameSettingInt` | Stores an integer setting. |
+| `Game.SetGameSettingBool` | Stores a boolean setting. |
+| `Game.SetGameSettingString` | Stores a string setting. |
+| `Game.GetRealHoursPassed` | Returns elapsed real time in hours. |
+| `Game.IncrementStat` | Adds the requested amount, defaulting to one. |
+| `Game.QueryStat` | Returns the named statistic, defaulting to zero. |
+| `Game.IsFastTravelEnabled` | Returns the fast travel setting. |
+| `Game.EnableFastTravel` | Sets fast travel, defaulting to enabled when omitted. |
+| `Game.SetPlayerAIDriven` | Sets the player's AI-driven flag. |
+| `Game.SetInChargen` | Stores CK's three flags for disabling saves, disabling waiting and showing the disabled-controls HUD notice. It does not set the separate `in_chargen` state. |
+| `Game.SetBeastForm` | Sets the player's beast-form flag. |
+| `Game.TeachWord` | Marks the word as taught. |
+| `Game.UnlockWord` | Marks the word as taught and unlocked. |
+| `Game.IsWordUnlocked` | Returns whether the word is unlocked. |
+| `Game.AddAchievement` | Records the requested achievement id. |
+| `Game.GetPlayersLastRiddenHorse` | Returns the remembered horse, or None. |
+| `Game.AddPerkPoints` | Adds points and clamps the total to 255. |
+| `Game.GetDialogueTarget` | Returns the current player conversation's speaker, or None. This engine extension is not in the CK Game class page. |
+| `Game.IsPlayerSungazing` | Quiet false stub for the CK observation query. |
+| `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
+| `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
+| `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
+| `Game.ShakeCamera` | Quiet stub. CK takes a source reference and strength. |
+| `Game.SendWereWolfTransformation` | Quiet stub for the CK crime-reporting operation. |
+| `Game.ServeTime` | Quiet stub for the CK jail-time operation. |
+| `Game.ClearPrison` | Quiet stub for clearing player prison state. |
+| `Game.SetSunGazeImageSpaceModifier` | Quiet stub for setting the sun-gaze image modifier. |
+| `Game.ShakeController` | Quiet stub. CK takes two strengths and a duration. |
+| `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
+| `Game.RequestSave` | Quiet stub for a normal save request. |
+| `Game.RequestAutoSave` | Quiet stub for an autosave request. |
+| `Game.ForceFirstPerson` | Quiet stub for forcing first-person camera mode. |
+| `Game.ForceThirdPerson` | Quiet stub for forcing third-person camera mode. |
+| `Game.SetHudCartMode` | Quiet stub for setting cart HUD mode. |
+| `Game.ShowRaceMenu` | Quiet stub for opening the race menu. |
+| `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
+| `Game.PlayBink` | Quiet stub. CK takes a filename and four playback flags. |
+| `Game.AdvanceSkill` | Quiet stub. CK takes a skill name and usage magnitude. |
+| `Game.PrecacheCharGen` | Quiet stub for preloading character-generation assets. |
+| `Game.PrecacheCharGenClear` | Quiet stub for clearing the character-generation cache. |
+| `Game.ShowTrainingMenu` | Quiet stub. CK takes the trainer actor. |
+| `Game.ShowFirstPersonGeometry` | Quiet stub. CK takes a visibility flag. |
+| `Game.SetCameraTarget` | Quiet stub. CK takes the target actor. |
+| `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
+| `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
+| `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |
+| `Game.GetCurrentCrosshairRef` | Quiet stub. The CK Game class page has no entry. |
+| `Game.GetPlayerGrabbedRef` | Quiet stub for the currently grabbed reference. |
+| `Game.FindClosestActor` | Quiet stub. CK takes a position and radius. |
+| `Game.FindRandomActor` | Quiet stub. CK takes a position and radius. |
+| `Game.FindClosestReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
+| `Game.FindRandomReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
+| `Game.GetFormEx2` | Quiet stub. The CK Game class page has no entry. |
+
+`scr_60_game_control_and_chargen_flags_follow_ck_and_save` checks selective
+control changes, POV type, all three chargen flags and save/load through the
+SCR-60 world section. `SetInChargen` maps its three arguments to those flags,
+and leaves the separate `in_chargen` state unchanged. `player_controls` remains the aggregate all-enabled
+state used by existing condition evaluation. Host input does not yet consume
+each individual control flag. The `GetFormEx` alias and three Game bindings
+absent from the CK class page are also recorded here as engine or extension
+surface, not CK contracts. The quiet stub fixes belong to these existing native rows:
+
+- SCR-26: `IsPlayerSungazing`, `GetSunPositionX`, `GetSunPositionY`,
+  `GetSunPositionZ`, `ShakeCamera`.
+- SCR-27: `SendWereWolfTransformation`, `ServeTime`, `ClearPrison`,
+  `SetSunGazeImageSpaceModifier`, `ShakeController`.
+- SCR-28: `FadeOutGame`, `RequestSave`, `RequestAutoSave`, `ForceFirstPerson`,
+  `ForceThirdPerson`.
+- SCR-29: `SetHudCartMode`, `ShowRaceMenu`, `TriggerScreenBlood`, `PlayBink`,
+  `AdvanceSkill`.
+- SCR-30: `PrecacheCharGen`, `PrecacheCharGenClear`, `ShowTrainingMenu`,
+  `ShowFirstPersonGeometry`, `SetCameraTarget`.
+- SCR-31: `QuitToMainMenu`, `SetSittingRotation`, `StartTitleSequence`,
+  `GetCurrentCrosshairRef`, `GetPlayerGrabbedRef`.
+- SCR-32: `FindClosestActor`, `FindRandomActor`,
+  `FindClosestReferenceOfType`, `FindRandomReferenceOfType`, `GetFormEx2`.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
@@ -1933,14 +2127,32 @@ property that is empty at start.
 A third pass took the two biggest remaining groups. `GetOwningQuest` on
 `Scene` and `Package` reads the record: a scene names its parent quest in
 `PNAM`, a package its owner quest in `QNAM`, which is what 1,815 DLC call
-sites were asking for. `TopicInfo.GetOwningQuest` answers None, because an
-info takes its quest from the `DIAL` above it and the record view cannot
-reach a parent group yet. The `ActiveMagicEffect` registration set went in
-next: an active effect is not a `Form`, so the registrations the registry
-holds on `Form` were out of its reach, and since they key off the calling
-object rather than a form the same behaviour registers cleanly on the effect
-class. The later active-effect implementation below supplies its getters and
-`Dispel` using a separate object for each effect application.
+sites were asking for. `TopicInfo.GetOwningQuest` follows the INFO's dialogue
+group to its DIAL and reads that topic's owning quest. The
+`ActiveMagicEffect` registration set went in next: an active effect is not a
+`Form`, so the registrations the registry holds on `Form` were out of its
+reach, and since they key off the calling object rather than a form the same
+behaviour registers cleanly on the effect class. The later active-effect
+implementation below supplies its getters and `Dispel` using a separate
+object for each effect application.
+
+### SCR-62 native contract audit
+
+The native registry contains `GetOwningQuest` methods for `Alias`, `Scene`,
+`Package` and `TopicInfo`. `Alias` returns the quest that owns the alias.
+`Scene` resolves `PNAM`, `Package` resolves `QNAM`, and `TopicInfo` follows
+its dialogue group to the owning `DIAL` quest. CK's Alias page documents the
+alias contract. The fragment class method pages are absent from the local
+CK corpus, so their record relationships are checked against the records
+read by `World::owning_quest` and synthetic tests.
+
+The five `GlobalVariable` methods are `GetValue`, `GetValueInt`, `SetValue`,
+`SetValueInt` and `Mod`. They read and write the shared world global value.
+The CK class page lists their signatures and behavior, and its `GetValue`
+page documents the float getter. The shipped `GlobalVariable.psc` supplies
+the integer casts and describes `Mod` as the thread-safe update path. The
+registry and native tests cover all nine bindings and the getter, setter,
+cast and modification behavior.
 
 172 declared natives are still unregistered, 56 of them called from a DLC
 script, the largest single group being the rest of `ActiveMagicEffect` and
@@ -5259,6 +5471,32 @@ snapshot test checks order, fade weights and clearing on world replacement.
 MAG-71 separately owns authored color, blur, depth and HDR curve evaluation
 and rendering. MAG-25 adds no visible post-processing and claims no rendered
 parity with Skyrim.
+
+## ImageSpaceModifier and Keyword native audit, SCR-63
+
+The registry binds seven methods and one global across these classes. The test
+`scr_63_binding_inventory_matches_the_ck_contracts` derives that inventory
+from the live native registry and checks each method/global classification.
+`scr_63_image_space_and_keyword_calls_follow_documented_contracts` invokes
+each binding and checks its return value or World effect.
+
+| Binding | Local contract and implementation |
+|---|---|
+| `ImageSpaceModifier.Apply(float afStrength = 1.0)` method | Shipped `skse64/scripts/vanilla/ImageSpaceModifier.psc` says the strength is not clamped. The native applies the modifier at the requested strength, defaulting to 1.0. |
+| `ImageSpaceModifier.ApplyCrossFade(float afFadeDuration = 1.0)` method | The shipped PSC adds the modifier to the crossfade chain and removes the prior crossfade modifier. It remains separate from ordinary applications. |
+| `ImageSpaceModifier.PopTo(ImageSpaceModifier akNewModifier, float afStrength = 1.0)` method | The shipped PSC says this replaces the source with the destination without interrupting an unrelated crossfade. The CK [PopTo contract](https://ck.uesp.net/wiki/PopTo_-_ImageSpaceModifier) confirms that behavior and unclamped strength. |
+| `ImageSpaceModifier.Remove()` method | The shipped PSC says to remove this modifier. The native removes its ordinary application. |
+| `ImageSpaceModifier.RemoveCrossFade(float afFadeDuration = 1.0)` global | The shipped PSC declares this global and says to fade out the current crossfade modifier. |
+| `Keyword.GetString()` method | CK `Keyword_Script.wikitext` records the SKSE member contract as returning the string associated with the keyword. The binding returns the keyword record's editor ID. |
+| `Keyword.SendStoryEvent(Location akLoc = None, ObjectReference akRef1 = None, ObjectReference akRef2 = None, int aiValue1 = 0, int aiValue2 = 0)` method | CK `Keyword_Script.wikitext` and the shipped `Keyword.psc` say this sends the keyword and optional context to the Story Manager. It is a quiet no-op until authored Story Manager execution lands in `PRG-14`. |
+| `Keyword.SendStoryEventAndWait(Location akLoc = None, ObjectReference akRef1 = None, ObjectReference akRef2 = None, int aiValue1 = 0, int aiValue2 = 0)` method | CK and the shipped PSC say it waits for Story Manager processing and returns whether a quest started. Its quiet false result is the no-quest-start case. The missing dispatch and wait path is owned by `PRG-14`. |
+
+The class page provides the Keyword contract, while individual ImageSpaceModifier
+function pages are absent from the local CK dump except for `PopTo`. For the
+other ImageSpaceModifier signatures and descriptions, the shipped vanilla PSC
+is the local contract source. `docs/reference-audit.md` identifies PRG-14 as
+the Story Manager execution work. `SAV-20` covers persistence of a pending
+event context after such dispatch exists.
 
 ## Image-space rendering prerequisite audit, MAG-71
 
