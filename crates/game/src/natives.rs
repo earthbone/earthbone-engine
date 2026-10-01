@@ -3696,6 +3696,14 @@ fn dlc(vm: &mut Vm, w: &Shared) {
 /// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
 /// are what the DLC scripts reach for most after the base classes.
 fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Topic", "Add", |world, call, me| {
+        if let Err(error) = world.add_dialogue_topic(me) {
+            call.log
+                .push(call.time, format!("error: Topic.Add: {error}"));
+        }
+        none()
+    });
+
     // CONTEXT: INFO ownership follows its DIAL group, not previous-topic links.
     for class in ["Scene", "Package", "TopicInfo"] {
         method!(vm, w, class, "GetOwningQuest", |world, call, me| {
@@ -3915,7 +3923,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("VisualEffect", "Stop"),
         ("MusicType", "Add"),
         ("MusicType", "Remove"),
-        ("Topic", "Add"),
         ("Weather", "SetActive"),
         ("Weapon", "Fire"),
         ("Actor", "DoCombatSpellApply"),

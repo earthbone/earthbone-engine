@@ -624,6 +624,7 @@ pub enum HostRequest {
 pub struct World {
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
+    pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
@@ -933,6 +934,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
+            known_dialogue_topics: BTreeSet::new(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             cloak_effects: BTreeMap::new(),

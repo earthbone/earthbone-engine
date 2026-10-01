@@ -558,7 +558,8 @@ owning system has no behavior yet.
 | VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | Apply, Remove | |
-| MusicType, Topic | | Add, Remove |
+| MusicType | | Add, Remove |
+| Topic | Add | Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
 Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
@@ -2630,6 +2631,15 @@ stays deterministic. Quest priority and topic priority sort non-blocking choices
 Inactive quests and failed quest/INFO conditions suppress them.
 Selection checks conditions again, so a stale menu cannot start its fragment.
 Unknown conditions return diagnostics instead of becoming true.
+
+`Topic.Add()` records a valid DIAL in the world-level known-topic set. The
+contract follows `engine-refs/skse64/scripts/vanilla/Topic.psc`, since the local
+CK corpus has no `Topic.Add` function page. During a conversation, known topics
+are considered alongside authored top-level branch topics and pass through the
+same owning-quest, INFO and condition checks. `World::add_dialogue_topic`
+reports missing, deleted, malformed or unowned topics as typed errors. The
+void Papyrus native returns `None` and logs a typed API error for an invalid
+self form. The known-topic set is saved in the `SCR-48` world section.
 
 INFO ownership comes from the winning TopicChildren group, then the owning
 DIAL's QNAM. TPIC is a previous-topic link. PNAM determines INFO ordering,
