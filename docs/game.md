@@ -521,7 +521,7 @@ host bodies or pivots.
 registered but remain quiet stubs. Their movement state, completion and failure
 events belong to HST-16's world translation behavior, which is not present in
 this worktree. The CK pages describe absolute destinations, movement speed,
-optional maximum rotation speed and spline tangent magnitude; this runtime does
+optional maximum rotation speed and spline tangent magnitude. This runtime does
 not yet apply those arguments.
 
 **Facial expression override, ANM-59.** `Actor.SetExpressionOverride` stores a
@@ -870,7 +870,7 @@ Creation Engine frame capture or memory budgets.
   records overlapping action numbers in two vanilla scenes. xEdit's
   `wbRecord(SCEN)` defines the action alias, DIAL, and phase interval. The local
   CK `GetCurrentScene` page documents participant lookup only, so it supplies no
-  action scheduling behavior. Dialogue dispatch happens when called; automatic
+  action scheduling behavior. Dialogue dispatch happens when called. Automatic
   action scheduling and CTDA evaluation are not implemented.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a

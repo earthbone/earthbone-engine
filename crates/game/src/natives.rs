@@ -4011,7 +4011,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        ("ObjectReference", "TetherToHorse"),
         // Music and visual effect systems remain host work.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
@@ -4079,7 +4078,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Debug", "ShowRefPosition"),
         ("Debug", "PlayerMoveToAndWait"),
         ("Debug", "MoveToCell"),
-        ("Utility", "GetCurrentMemory"),
     ];
     for (class, name) in globals_none {
         vm.natives
