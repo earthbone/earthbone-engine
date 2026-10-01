@@ -10,8 +10,14 @@ use soe_game::{quest::entry_flags, world::World};
 use soe_papyrus::ObjectId;
 
 const QUEST: u32 = 0x800;
-const MISSING: soe_esm::GlobalFormId = soe_esm::GlobalFormId { file: 0, object: 0x999 };
-const QUEST_ID: soe_esm::GlobalFormId = soe_esm::GlobalFormId { file: 0, object: QUEST };
+const MISSING: soe_esm::GlobalFormId = soe_esm::GlobalFormId {
+    file: 0,
+    object: 0x999,
+};
+const QUEST_ID: soe_esm::GlobalFormId = soe_esm::GlobalFormId {
+    file: 0,
+    object: QUEST,
+};
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 struct Capture(Rc<RefCell<Vec<QuestStartStopEvent>>>);
@@ -58,8 +64,16 @@ fn missing_and_repeated_transitions_emit_only_successful_state_changes() {
     assert_eq!(
         *seen.borrow(),
         [
-            QuestStartStopEvent { form_id: soe_commonlib_shim::form::FormId(QUEST), started: true, failed: false },
-            QuestStartStopEvent { form_id: soe_commonlib_shim::form::FormId(QUEST), started: false, failed: false },
+            QuestStartStopEvent {
+                form_id: soe_commonlib_shim::form::FormId(QUEST),
+                started: true,
+                failed: false
+            },
+            QuestStartStopEvent {
+                form_id: soe_commonlib_shim::form::FormId(QUEST),
+                started: false,
+                failed: false
+            },
         ]
     );
 }
@@ -78,8 +92,16 @@ fn completed_stage_emits_stop_with_resulting_failed_flag_clear() {
     assert_eq!(
         *seen.borrow(),
         [
-            QuestStartStopEvent { form_id: soe_commonlib_shim::form::FormId(QUEST), started: true, failed: false },
-            QuestStartStopEvent { form_id: soe_commonlib_shim::form::FormId(QUEST), started: false, failed: false },
+            QuestStartStopEvent {
+                form_id: soe_commonlib_shim::form::FormId(QUEST),
+                started: true,
+                failed: false
+            },
+            QuestStartStopEvent {
+                form_id: soe_commonlib_shim::form::FormId(QUEST),
+                started: false,
+                failed: false
+            },
         ]
     );
 }
