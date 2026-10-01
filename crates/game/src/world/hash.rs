@@ -282,8 +282,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
-        Procedure::Flee => h.u8(7),
-        Procedure::Sit => h.u8(9),
+        Procedure::Flee => h.u8(19),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());
@@ -297,8 +296,8 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
-        Procedure::Guard => h.u8(8),
-        Procedure::UseWeapon => h.u8(10),
+        Procedure::Guard => h.u8(20),
+        Procedure::UseWeapon => h.u8(22),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
@@ -307,8 +306,34 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 h.f64(until);
             }
         }
-        Procedure::Shout => {
+        Procedure::Hover => {
             h.u8(7);
+            h.f32(a.hover_height);
+        }
+        Procedure::Follow => h.u8(21),
+        Procedure::ForceGreet => h.u8(23),
+        Procedure::DialogueActivate => h.u8(16),
+        Procedure::HoldPosition => h.u8(11),
+        Procedure::Orbit { height } => {
+            h.u8(12);
+            h.f32(*height);
+        }
+        Procedure::Escort => h.u8(13),
+        Procedure::Activate => h.u8(14),
+        Procedure::Find => h.u8(15),
+        Procedure::Sit => h.u8(18),
+        Procedure::UseIdleMarker { marker } => {
+            h.u8(9);
+            if let Some(marker) = marker {
+                h.u8(1);
+                h.u16(marker.file);
+                h.u32(marker.object);
+            } else {
+                h.u8(0);
+            }
+        }
+        Procedure::Shout => {
+            h.u8(17);
             h.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
                 h.f64(until);
@@ -329,6 +354,10 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         opt_form(h, *c);
     }
     h.bool(a.arrived);
+    h.bool(a.force_greet_started);
+    h.bool(a.activate_started);
+    opt_form(h, a.found_reference);
+    h.bool(a.dialogue_activate_started);
     h.bool(a.sleeping);
     opt_form(h, a.bed);
     opt_point(h, a.center);
@@ -425,6 +454,8 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(skill);
         h.f32(*experience);
     }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -452,6 +483,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.u32(a.days_in_jail);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
