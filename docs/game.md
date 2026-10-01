@@ -2474,17 +2474,23 @@ were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
 compiler confirms conditional auto-property flags on the backing variable.
 
-AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's saved
+AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's
 behavior-graph float map. The condition's `CIS1` name is matched without case
-sensitivity. Missing names and non-actor subjects return explicit errors. CTDA
-568 reads the transient sprint state slot for a live movement driver. This
-worktree does not yet connect host movement input to that slot. The
-other AI-65 functions remain unsupported because their transition or animation
-state is not available in this worktree. Local xEdit identifies their
-parameters, while the CK corpus only documents `IsSprinting` and `IsFlying`
-as live state queries. The AI-31 draft prerequisites are absent here, so no
-cell-crossing, last-idle, flight, movement, relative-angle or furniture
-animation state is inferred from unrelated saved flags.
+sensitivity. Missing names, non-actor subjects and an unexpected second
+parameter return explicit errors. CTDA 568 reads the transient sprint state
+set by the host movement driver when sprint input and movement are active and
+the player is not sneaking. CTDA 594, `GetIsFlying`, reads a transient actor
+flight state supplied by runtime movement. It does not use `allow_flying`,
+which records permission to fly rather than current flight.
+
+CTDA 358, `IsPlayerMovingIntoNewSpace`, 450, `IsLastIdlePlayed`, 584,
+`GetRelativeAngle`, 589, `GetMovementDirection`, and 613,
+`IsFurnitureAnimType`, return `UnavailableContract`. Local xEdit
+`wbDefinitionsTES5.pas` supplies their identities and parameter types. The
+local CK function corpus has usable state-query descriptions for sprinting and
+flying, but no usable behavior contract for the other five functions. Tests
+exercise graph float, sprint and flight comparisons, malformed parameters,
+missing graph variables, invalid actor subjects and explicit diagnostics.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,

@@ -312,6 +312,9 @@ pub struct ActorState {
     pub weapon_drawn: bool,
     /// The host movement driver's current sprint state, re-signaled after load.
     pub sprinting: bool,
+    /// Whether the live movement driver currently has the actor in flight.
+    /// This is transient and must be signaled from runtime movement.
+    pub flying: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
     /// re-signals it from the live graph after load, through
