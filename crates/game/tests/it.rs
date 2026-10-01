@@ -489,6 +489,8 @@ mod fmt_17_breaker_adversarial;
 mod fmt_17_perk_vmad;
 #[path = "fmt_18_scene_vmad.rs"]
 mod fmt_18_scene_vmad;
+#[path = "fmt_30_installed_cache.rs"]
+mod fmt_30_installed_cache;
 #[path = "footstep_actors.rs"]
 mod footstep_actors;
 #[path = "footsteps.rs"]
