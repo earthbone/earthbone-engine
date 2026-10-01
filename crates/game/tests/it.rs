@@ -901,26 +901,6 @@ mod scr_57_adversarial;
 mod scr_57_native_contract_audit;
 #[path = "scr_58_adversarial.rs"]
 mod scr_58_adversarial;
-#[path = "scr_67_adversarial.rs"]
-mod scr_67_adversarial;
-#[path = "scr_67_native_registry.rs"]
-mod scr_67_native_registry;
-#[path = "scr_68_adversarial.rs"]
-mod scr_68_adversarial;
-#[path = "scr_68_native_contracts.rs"]
-mod scr_68_native_contracts;
-#[path = "scr_69_adversarial.rs"]
-mod scr_69_adversarial;
-#[path = "scr_70_adversarial.rs"]
-mod scr_70_adversarial;
-#[path = "scr_71_adversarial.rs"]
-mod scr_71_adversarial;
-#[path = "scr_72_adversarial.rs"]
-mod scr_72_adversarial;
-#[path = "scr_73_adversarial.rs"]
-mod scr_73_adversarial;
-#[path = "scr_73_native_contract_audit.rs"]
-mod scr_73_native_contract_audit;
 #[path = "scr_59_adversarial.rs"]
 mod scr_59_adversarial;
 #[path = "scr_60_adversarial.rs"]
@@ -941,6 +921,26 @@ mod scr_64_adversarial;
 mod scr_65_adversarial;
 #[path = "scr_66_adversarial.rs"]
 mod scr_66_adversarial;
+#[path = "scr_67_adversarial.rs"]
+mod scr_67_adversarial;
+#[path = "scr_67_native_registry.rs"]
+mod scr_67_native_registry;
+#[path = "scr_68_adversarial.rs"]
+mod scr_68_adversarial;
+#[path = "scr_68_native_contracts.rs"]
+mod scr_68_native_contracts;
+#[path = "scr_69_adversarial.rs"]
+mod scr_69_adversarial;
+#[path = "scr_70_adversarial.rs"]
+mod scr_70_adversarial;
+#[path = "scr_71_adversarial.rs"]
+mod scr_71_adversarial;
+#[path = "scr_72_adversarial.rs"]
+mod scr_72_adversarial;
+#[path = "scr_73_adversarial.rs"]
+mod scr_73_adversarial;
+#[path = "scr_73_native_contract_audit.rs"]
+mod scr_73_native_contract_audit;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 #[path = "shm_12_live_world.rs"]
