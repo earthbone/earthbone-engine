@@ -155,6 +155,13 @@ impl World {
         }
     }
 
+    /// Whether any actor has witnessed a crime committed by `actor`.
+    pub fn is_actor_victim(&self, actor: GlobalFormId) -> bool {
+        self.actors
+            .values()
+            .any(|witness| witness.witnessed_crimes.contains(&actor))
+    }
+
     /// Records a crime `perpetrator` commits, seen by `witness`. Prices it
     /// from `perpetrator`'s own crime faction's `CRVA` table
     /// (`Actor.GetCrimeFaction`) and adds the result to that faction's
@@ -190,6 +197,19 @@ impl World {
             .ok_or(Error::Actor(perpetrator))?
             .crime_faction
             .ok_or(Error::NoCrimeFaction(perpetrator))?;
+        self.record_witnessed_crime_in_faction(perpetrator, witness, crime, faction_id)
+    }
+
+    /// Price a witnessed crime for the faction the witness reports to.
+    pub(super) fn record_witnessed_crime_in_faction(
+        &mut self,
+        perpetrator: GlobalFormId,
+        witness: GlobalFormId,
+        crime: CrimeType,
+        faction_id: GlobalFormId,
+    ) -> Result<i32, Error> {
+        self.actor(witness).ok_or(Error::Actor(witness))?;
+        self.actor(perpetrator).ok_or(Error::Actor(perpetrator))?;
         let values = self.crime_values(faction_id);
         let fs = self
             .faction(faction_id)
@@ -223,7 +243,11 @@ fn sentence_days(bounty: i32) -> u32 {
 }
 
 /// Save the player's jail-day count in the PRG-13 actor section.
-pub(crate) fn write_days_in_jail(actor: &super::ActorState, writer: &mut Writer) {
+pub(crate) fn write_days_in_jail(
+    actor: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.u32(actor.days_in_jail);
 }
 
@@ -231,6 +255,7 @@ pub(crate) fn write_days_in_jail(actor: &super::ActorState, writer: &mut Writer)
 pub(crate) fn read_days_in_jail(
     actor: &mut super::ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     actor.days_in_jail = reader.u32()?;
     Ok(())

@@ -393,7 +393,8 @@ impl SimpleWorld {
             let target = pos - Vec3::Z * drop;
             let (landed, _, ground) = self.resolve(target, -Vec3::Z, s, height);
             if ground {
-                return (landed.z <= from.z + 1e-3).then_some(landed);
+                let descent = from.z - landed.z;
+                return (descent <= distance + 1e-3 && landed.z <= from.z + 1e-3).then_some(landed);
             }
             // Allow sliding down a rounded edge, but not an upward correction
             // off an underside while looking for ground below this position.

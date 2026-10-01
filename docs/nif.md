@@ -1,8 +1,8 @@
 # soe-nif: Skyrim SE mesh reader
 
 Crate `crates/nif`, library name `soe_nif`. Reads Gamebryo 20.2.0.7 files as
-Bethesda writes them and hands a renderer a flat list of meshes. No
-dependencies.
+Bethesda writes them and hands a renderer a flat list of meshes. The `gltf`
+dependency handles authoring glTF buffers and accessors for static mesh import.
 
 ## What it reads
 
@@ -89,6 +89,32 @@ Conventions are the file's: right-handed, Z up, game units, DirectX UV
 origin. Converting to a host's axes is the host's job and is documented at
 the top of `mesh.rs`.
 
+## Static glTF import and Skyrim SE export
+
+`static_mesh::import_gltf` reads the default scene, or the first scene when no
+default is declared. It imports unskinned, non-morph triangle primitives with
+only `POSITION`, `NORMAL` and `TEXCOORD_0` attributes, bakes node transforms
+into positions and normals, and makes area weighted normals when the source
+has none. External buffer and image URIs become file paths. Diffuse, normal,
+emissive and metallic-roughness textures map to Skyrim slots 0, 1, 2 and 7.
+Embedded buffer URIs are rejected. Embedded image data is rejected when a
+material references it because it has no external path to preserve.
+
+`static_mesh::export_nif` writes Skyrim SE stream 100 files with a root
+`NiNode`, one `BSTriShape` per mesh, `BSLightingShaderProperty` and
+`BSShaderTextureSet` links. It preserves vertex positions, normals, UV0,
+triangle indices and material texture paths. It rejects skinning, malformed
+attributes, non-finite values, empty geometry, and geometry that exceeds the
+16-bit vertex or index limits. It does not export collision or animation.
+
+The writer follows the static-shape and shader block layouts in
+`nifly/include/Geometry.hpp`, `nifly/include/Shaders.hpp` and the local
+independent test writer in `tests/common/mod.rs`. PyNifly was not cloned into
+the local reference corpus. Its upstream import/export options and project
+overview describe a wider Blender workflow with game-specific settings,
+skinning and collision, so this writer implements only the editor row's static
+geometry and texture links.
+
 ## Skinning
 
 Two layouts exist and both are normalised to the per-vertex form above.
@@ -121,7 +147,7 @@ array behavior follows the vanilla skeleton files covered by
 `tri::parse_head_tri` reads FaceGen `FRTRI003` files. It retains the base
 positions and named morph deltas. Each morph stores three signed 16-bit values
 per vertex, multiplied by its file scale. The reader consumes topology, UVs
-and modifier lists to reach the morph data, while retaining only positions and
+and modifier lists to reach the morph data, while retaining positions and
 morphs. The layout follows `TriHeadFile::Read` in the local
 `BodySlide-and-Outfit-Studio/src/files/TriFile.cpp` reference. A PyNifly source
 was not present in the local corpus. nif.xml's `NiMorphData` describes a
@@ -129,10 +155,15 @@ separate NIF animation format, not this FaceGen TRI file. Race `PHTN` and
 `PHWT` are FaceFX phoneme name and weight records, not geometry morphs, as
 shown by Mutagen's Skyrim `Race.xml` and xEdit's `wbPHWT` definition.
 
-`HeadTri::apply_morph` adds a selected morph to caller supplied base positions.
-It checks that the mesh and TRI vertex counts match, returns an exact copy at
-zero weight, and does not mutate the caller's positions. Callers can evaluate
-each frame from the same base to avoid accumulating deltas.
+`HeadTri::apply_morph` adds one selected morph to caller supplied base
+positions. `apply_morphs` adds several named morphs in file vertex order.
+Both check that the mesh and TRI vertex counts match, preserve exact positions
+at zero weight, and leave the input unchanged. `apply_to_mesh` uses those
+operations on a resolved head-part mesh, checks its base positions against the
+TRI within 0.0001 game units, and clears its stale normals and tangents when
+any morph changes geometry. The NIF topology, UVs, material and transform
+remain attached to the output mesh. Resolving NPC `PNAM` links and mapping its
+`NAM9` values to named TRI morphs remains caller work.
 
 ## Transform controllers (2026-09-24, in progress)
 
@@ -248,6 +279,11 @@ ships packed in the two mesh archives, so that test prints its skip message here
 The archived mesh test is the one that exercises real content on a plain install.
 
 ## Residency estimate
+
+`static_mesh::export_nif` writes shader type 18 for a mesh whose material
+kind is `LodLandscapeNoise`, and type 9 for `LodLandscape`. Other supported
+static meshes retain type 0. This lets `godot-host` write terrain LOD BTR
+geometry that the existing NIF reader can parse.
 
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,

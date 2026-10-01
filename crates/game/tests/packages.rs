@@ -11,7 +11,10 @@
 mod installed;
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
+};
 use soe_game::ai::{self, AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, condition, CompValue, Condition, Location, LocationData, Schedule};
@@ -19,6 +22,7 @@ use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_navmesh::vanilla::flags as nav_flags;
+use soe_navmesh::ObstacleShape;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 
@@ -68,6 +72,10 @@ const THREAT_REF: u32 = 0x824;
 const IDLE_TOO_FAR: u32 = 0x825;
 const FLEE_PACKAGE: u32 = 0x827;
 const MOD_06_PACKAGE: u32 = 0x826;
+
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record {
     let mut data = Vec::with_capacity(24);
@@ -538,6 +546,39 @@ fn game_at_hour_with_race(hour: f64, race: Record) -> Game {
     game
 }
 
+fn paralysis_game() -> Game {
+    const PARALYSIS_EFFECT: u32 = 0x790;
+    const PARALYSIS_SPELL: u32 = 0x791;
+    let mut plugin = test_plugin();
+    let mut effect_data = vec![0; 152];
+    effect_data[64..68].copy_from_slice(&21u32.to_le_bytes());
+    effect_data[80..84].copy_from_slice(&1u32.to_le_bytes());
+    effect_data[84..88].copy_from_slice(&3u32.to_le_bytes());
+    plugin.push_top(Record::new(T(b"MGEF"), PARALYSIS_EFFECT).sub(T(b"DATA"), effect_data));
+    let mut spell_data = vec![0; 36];
+    spell_data[16..20].copy_from_slice(&1u32.to_le_bytes());
+    spell_data[20..24].copy_from_slice(&3u32.to_le_bytes());
+    let mut efit = 1.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&1u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(T(b"SPEL"), PARALYSIS_SPELL)
+            .sub(T(b"SPIT"), spell_data)
+            .sub(T(b"EFID"), PARALYSIS_EFFECT.to_le_bytes())
+            .sub(T(b"EFIT"), efit),
+    );
+    let mut order = LoadOrder::new();
+    order
+        .add("Packages.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
+    let mut game = Game::new(order);
+    game.load_script(&guard_script()).unwrap();
+    game.world_mut().clock.game_days = 12.0 / 24.0;
+    let guard = game.form("GuardRef").unwrap();
+    assert!(game.world_mut().drive_actor(guard));
+    game
+}
+
 pub fn tick(game: &mut Game, seconds: f64) {
     let steps = (seconds / 0.1).round() as usize;
     for _ in 0..steps {
@@ -562,6 +603,7 @@ fn ai_32_flee_routes_away_from_its_live_threat_and_resumes_after_save() {
         let state = world.actor(actor).unwrap();
         state.in_combat = true;
         state.combat_target = Some(threat);
+        state.values.set_base("aggression", 2.0).unwrap();
         (
             world.reference(actor).unwrap().position,
             world.reference(threat).unwrap().position,
@@ -705,6 +747,54 @@ fn a_travel_package_walks_the_navmesh_into_the_next_cell() {
     let a = w.actor(guard).unwrap();
     assert!(a.ai.arrived);
     assert!(a.ai.completed.contains_key(&travel));
+}
+
+#[test]
+fn ai_17_runtime_obstacles_invalidate_loaded_actor_routes() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("GuardQuest").unwrap();
+    game.set_stage(quest, 10);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "the travel package has a planned route"
+    );
+
+    let obstacle = {
+        let mut world = game.world_mut();
+        let id = ai::add_nav_obstacle(
+            &mut world,
+            ObstacleShape::Box {
+                min: [60.0, 25.0, -1.0],
+                max: [75.0, 40.0, 1.0],
+            },
+        )
+        .unwrap();
+        assert!(
+            world.actor_ref(guard).unwrap().ai.path.is_empty(),
+            "adding an obstacle invalidates the cached route"
+        );
+        id
+    };
+    tick(&mut game, 0.1);
+    assert!(
+        game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "a disconnected on-mesh route does not fall back through the obstacle"
+    );
+
+    let mut world = game.world_mut();
+    assert!(ai::remove_nav_obstacle(&mut world, obstacle));
+    assert!(
+        world.actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing an obstacle invalidates the route for replanning"
+    );
+    drop(world);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing the obstacle restores a route"
+    );
 }
 
 #[test]
@@ -1084,6 +1174,46 @@ fn the_driver_state_survives_a_save() {
 }
 
 #[test]
+fn mag_42_paralysis_stops_npc_travel_until_effect_expires() {
+    const PARALYSIS_SPELL: u32 = 0x791;
+    let mut game = paralysis_game();
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("GuardQuest").unwrap();
+    game.set_stage(quest, 10);
+    tick(&mut game, 0.5);
+    let before = game.world_mut().reference(guard).unwrap().position;
+    let player = game.player();
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(PARALYSIS_SPELL),
+            player,
+            Some(player),
+            Some(guard),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(
+        game.world().magic_effect(id(0x790)).unwrap().data.archetype,
+        21
+    );
+    assert_eq!(game.world().active_effects().count(), 1);
+    assert!(game.world().actor_is_paralyzed(guard));
+    assert!(!game.world().actor_is_paralyzed(player));
+    assert_eq!(game.world_mut().actor_value(guard, "paralysis"), 1.0);
+
+    tick(&mut game, 0.5);
+    assert_eq!(game.world_mut().reference(guard).unwrap().position, before);
+    assert!(game.world().actor_is_paralyzed(guard));
+
+    tick(&mut game, 0.6);
+    assert!(!game.world().actor_is_paralyzed(guard));
+    assert_eq!(game.world_mut().actor_value(guard, "paralysis"), 0.0);
+    assert_ne!(game.world_mut().reference(guard).unwrap().position, before);
+}
+
+#[test]
 fn mod_06_distributed_package_is_selected_and_survives_save_load() {
     let mut plugin = test_plugin();
     let distributed = package::build_record(
@@ -1222,6 +1352,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Patrol => "Patrol".to_string(),
             Procedure::Guard => "Guard".to_string(),
             Procedure::Sit => "Sit".to_string(),
+            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::UseMagic => "UseMagic".to_string(),
             Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
@@ -1229,7 +1360,6 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Follow => "Follow".to_string(),
             Procedure::Escort => "Escort".to_string(),
             Procedure::Orbit { .. } => "Orbit".to_string(),
-            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::DialogueActivate => "DialogueActivate".to_string(),
             Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
             Procedure::HoldPosition => "HoldPosition".to_string(),
@@ -1247,11 +1377,11 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
                 | Procedure::Guard
+                | Procedure::ForceGreet
                 | Procedure::Hover
                 | Procedure::Follow
                 | Procedure::Escort
                 | Procedure::Orbit { .. }
-                | Procedure::ForceGreet
                 | Procedure::DialogueActivate
                 | Procedure::UseIdleMarker { .. }
                 | Procedure::HoldPosition
@@ -1327,6 +1457,62 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     assert_eq!(stacks[0], 0, "the Prisoner base has no PKID list");
     assert!(stacks[1] > 0, "Hulda has packages");
     eprintln!("total {:.2}s", started.elapsed().as_secs_f32());
+}
+
+#[test]
+fn ai_87_installed_simultaneous_packages_show_both_completion_policies() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    let game = Game::new(order);
+    let world = game.world();
+
+    let mut completing_records = Vec::new();
+    let mut non_completing_records = Vec::new();
+    let ids: Vec<_> = world
+        .order()
+        .winners_of(T(b"PACK"))
+        .map(|(id, _)| id)
+        .collect();
+    for id in ids {
+        let record = world.record(id).unwrap();
+        let parsed = package::Package::from_record(record)
+            .unwrap_or_else(|error| panic!("PACK {id:?}: {error}"));
+        for (index, branch) in parsed.tree.iter().enumerate() {
+            if branch.kind != "Simultaneous" {
+                continue;
+            }
+            let end = (index + 1 + branch.child_count as usize).min(parsed.tree.len());
+            for child in &parsed.tree[index + 1..end] {
+                if child.procedure.is_none() {
+                    continue;
+                }
+                let id_list = if child.success_completes_package {
+                    &mut completing_records
+                } else {
+                    &mut non_completing_records
+                };
+                if !id_list.contains(&id) {
+                    id_list.push(id);
+                }
+            }
+        }
+    }
+
+    assert!(
+        !completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 set"
+    );
+    assert!(
+        !non_completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 clear"
+    );
 }
 
 /// FMT-03: PACK VMAD begin, end and change fragment entries must decode

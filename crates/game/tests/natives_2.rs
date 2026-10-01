@@ -1114,6 +1114,37 @@ fn a_location_alias_holds_a_location() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn alias_getters_preserve_reference_and_actor_return_types() {
+    let mut g = game();
+    g.start();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    for (name, reference, actor) in [
+        ("GuardRef", true, true),
+        ("MarkerRef", true, false),
+        ("InnLoc", false, false),
+    ] {
+        let target = g.form(name).unwrap();
+        assert!(g.world_mut().force_alias(quest, 1, Some(target)));
+        let object = obj(&mut g, name);
+        for (getter, allowed) in [
+            ("GetReference", reference),
+            ("GetRef", reference),
+            ("GetActorReference", actor),
+            ("GetActorRef", actor),
+        ] {
+            let expected = if allowed { object.clone() } else { Value::None };
+            assert_eq!(
+                call(&mut g, &alias, getter, &[]),
+                expected,
+                "{getter}: {name}"
+            );
+        }
+    }
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 // ----- factions -----
 
 /// GetReaction reads the record's XNAM (2 is ally), SetEnemy "sets the
@@ -2008,6 +2039,31 @@ fn tracked_stats_fire_events() {
     );
     assert_eq!(g.traces().iter().filter(|t| *t == "Barters").count(), 1);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn ui_17_chargen_requests_precache_before_menu_and_clear_afterward() {
+    let mut g = game();
+    assert_eq!(
+        call_global(&mut g, "Game", "PrecacheCharGen", &[]),
+        Value::None
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "ShowRaceMenu", &[]),
+        Value::None
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "PrecacheCharGenClear", &[]),
+        Value::None
+    );
+    assert_eq!(
+        g.world_mut().menu_requests,
+        [
+            soe_game::world::MenuRequest::PrecacheCharGen,
+            soe_game::world::MenuRequest::Race,
+            soe_game::world::MenuRequest::PrecacheCharGenClear,
+        ]
+    );
 }
 
 /// RegisterForSleep delivers OnSleepStart and OnSleepStop when the player

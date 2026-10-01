@@ -452,15 +452,12 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.push(0);
-    // Empty loose items, zone levels, zone visits, repeat history and scene runs.
+    // Empty loose items, zone levels, zone visits and repeat history.
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
-    suffix.extend_from_slice(&0_u32.to_le_bytes());
-    // Detection's now-unconditional empty pool count, then the empty
-    // world-level save-section table version 37 added, the last bytes of
-    // every save regardless of version.
+    // Detection's empty pool count precedes the world-level section table.
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u16.to_le_bytes());
     assert!(bytes.ends_with(&suffix));

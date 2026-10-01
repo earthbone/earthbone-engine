@@ -3,7 +3,7 @@
 //! FaceGen head TRI morph data, following BodySlide's TriHeadFile reader and
 //! the published NIF morph definitions in nif.xml.
 
-use crate::{error::Error, stream::Stream, Result};
+use crate::{error::Error, mesh::Mesh, stream::Stream, Result};
 
 /// One named FaceGen head morph with one decoded delta per TRI vertex.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,34 +60,98 @@ impl HeadTri {
         morph_name: &str,
         weight: f32,
     ) -> Result<Vec<[f32; 3]>> {
-        if !weight.is_finite() {
-            return Err(Error::InvalidHeadTri("morph weight is not finite".into()));
-        }
+        self.apply_morphs(base_positions, &[(morph_name, weight)])
+    }
+
+    /// Apply several named morphs to the same base positions.
+    ///
+    /// Morph deltas are additive and are evaluated in file vertex order. The
+    /// input is not changed, so each generated face starts from its declared
+    /// head-part mesh rather than a previously morphed result.
+    ///
+    /// # Errors
+    /// Returns an error for a missing morph, a non-finite weight, a vertex
+    /// count mismatch, or a non-finite resulting position.
+    pub fn apply_morphs(
+        &self,
+        base_positions: &[[f32; 3]],
+        morph_weights: &[(&str, f32)],
+    ) -> Result<Vec<[f32; 3]>> {
         if base_positions.len() != self.vertices.len() {
             return Err(Error::HeadMorphVertexCount {
                 expected: self.vertices.len(),
                 actual: base_positions.len(),
             });
         }
-        let morph = self
-            .morphs
-            .iter()
-            .find(|morph| morph.name == morph_name)
-            .ok_or_else(|| Error::HeadMorphNotFound(morph_name.to_owned()))?;
-        if weight == 0.0 {
+        let mut selected = Vec::with_capacity(morph_weights.len());
+        for (name, weight) in morph_weights {
+            if !weight.is_finite() {
+                return Err(Error::InvalidHeadTri("morph weight is not finite".into()));
+            }
+            let morph = self
+                .morphs
+                .iter()
+                .find(|morph| morph.name == *name)
+                .ok_or_else(|| Error::HeadMorphNotFound((*name).to_owned()))?;
+            selected.push((morph, *weight));
+        }
+        if selected.iter().all(|(_, weight)| *weight == 0.0) {
             return Ok(base_positions.to_vec());
         }
-        Ok(base_positions
+        let positions: Vec<_> = base_positions
             .iter()
-            .zip(&morph.deltas)
-            .map(|(base, delta)| {
-                [
-                    base[0] + delta[0] * weight,
-                    base[1] + delta[1] * weight,
-                    base[2] + delta[2] * weight,
-                ]
+            .enumerate()
+            .map(|(index, base)| {
+                let mut position = *base;
+                for (morph, weight) in &selected {
+                    let delta = morph.deltas[index];
+                    for axis in 0..3 {
+                        position[axis] += delta[axis] * weight;
+                    }
+                }
+                position
             })
-            .collect())
+            .collect();
+        if positions
+            .iter()
+            .flatten()
+            .any(|component| !component.is_finite())
+        {
+            return Err(Error::InvalidHeadTri(
+                "morphed position is not finite".into(),
+            ));
+        }
+        Ok(positions)
+    }
+
+    /// Generate a renderable mesh from a declared head-part mesh and TRI
+    /// morph weights.
+    ///
+    /// The TRI vertex order must match the selected head-part mesh. NIF
+    /// topology, UVs, material and transform stay attached to the mesh. Normals
+    /// and tangents are cleared because they describe the unmorphed geometry;
+    /// the renderer can generate normals from the resulting positions.
+    ///
+    /// # Errors
+    /// Returns an error when the vertex count or any morph input is invalid.
+    pub fn apply_to_mesh(&self, mesh: &Mesh, morph_weights: &[(&str, f32)]) -> Result<Mesh> {
+        for (index, (mesh_position, tri_position)) in
+            mesh.positions.iter().zip(&self.vertices).enumerate()
+        {
+            if (0..3).any(|axis| {
+                let difference = (mesh_position[axis] - tri_position[axis]).abs();
+                !difference.is_finite() || difference > 1.0e-4
+            }) {
+                return Err(Error::HeadMorphBaseMismatch { vertex: index });
+            }
+        }
+        let mut result = mesh.clone();
+        result.positions = self.apply_morphs(&mesh.positions, morph_weights)?;
+        if !morph_weights.is_empty() && morph_weights.iter().any(|(_, weight)| *weight != 0.0) {
+            result.normals.clear();
+            result.tangents.clear();
+        }
+        Ok(result)
     }
 }
 

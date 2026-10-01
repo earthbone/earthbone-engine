@@ -374,9 +374,9 @@ impl PlayerNode {
         if !space.is_valid() {
             return None;
         }
-        Some(crate::godot_physics::add_statics(
+        Some(crate::godot_physics::add_placed_query_statics(
             space,
-            &collision.colliders,
+            &collision.placed,
         ))
     }
 }
