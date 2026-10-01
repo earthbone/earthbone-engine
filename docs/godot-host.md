@@ -2586,6 +2586,16 @@ snapshot each process frame and rebuilds the presenter when shared quest
 state changes. The menu does not maintain quest or objective state of its
 own.
 
+`crates/godot-host/tests/ui_04_quest_journal.rs` checks the presenter against
+synthetic quest records, including a stage change that replaces the displayed
+objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
+shared Game in Bannered Mare and checks that the native menu panel and quest
+text controls are populated. Run it after building the extension and importing
+the Godot project with
+`SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
+This verifies the Godot control tree and its text, without asserting a rendered
+image.
+
 The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK `Quest_Script.wikitext`
 lists the objective display, completion and failure operations. The presenter
