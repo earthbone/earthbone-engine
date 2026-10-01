@@ -13,8 +13,7 @@ fn tst_12_breaker2_assets_resolve_across_mod_directories_case_insensitively() {
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
-        Record::new(Tag::new(b"STAT"), 0x800)
-            .zsub(Tag::new(b"MODL"), "meshes/custom/shared.nif"),
+        Record::new(Tag::new(b"STAT"), 0x800).zsub(Tag::new(b"MODL"), "meshes/custom/shared.nif"),
     );
     std::fs::write(referring.join("Referring.esp"), plugin.to_bytes()).unwrap();
     std::fs::write(providing.join("Meshes/Custom/Shared.NIF"), b"present").unwrap();

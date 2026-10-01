@@ -21,6 +21,9 @@ struct ModReport {
 const ASSET_EXTENSIONS: &[&str] = &[
     "nif", "dds", "hkx", "pex", "fuz", "lip", "wav", "xwm", "ogg",
 ];
+const ASSET_PATH_FIELDS: &[&[u8; 4]] = &[
+    b"MODL", b"DMDL", b"ICON", b"MICO", b"ICO2", b"MIC2", b"XMRK", b"ANAM",
+];
 
 fn files_under(root: &Path) -> Vec<PathBuf> {
     let mut pending = vec![root.to_path_buf()];
@@ -52,11 +55,7 @@ fn mod_roots(root: &Path) -> Vec<PathBuf> {
         .filter(|path| path.is_dir())
         .collect();
     children.sort();
-    if children.is_empty() {
-        vec![root.to_path_buf()]
-    } else {
-        children
-    }
+    children
 }
 
 fn relative_key(root: &Path, path: &Path) -> String {
@@ -160,6 +159,11 @@ fn asset_references(plugin: &Plugin) -> Vec<String> {
     let mut references = BTreeSet::new();
     for record in &plugin.records {
         for subrecord in &record.subrecords {
+            // xEdit defines EDID and FULL as editor and display strings. Only
+            // inspect subrecords known to carry asset filenames.
+            if !ASSET_PATH_FIELDS.iter().any(|tag| subrecord.tag.0 == **tag) {
+                continue;
+            }
             for value in subrecord.data.split(|byte| *byte == 0) {
                 let Ok(value) = std::str::from_utf8(value) else {
                     continue;

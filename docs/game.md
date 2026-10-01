@@ -101,9 +101,14 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   `SOE_MOD_CORPUS` set to a directory containing one mod directory per child,
   it reports parser failures, unresolved Papyrus native declarations and
   plugin asset paths absent from that corpus and optional `SKYRIM_DATA`.
+  Asset lookup reads known model, icon and marker filename fields, not editor
+  IDs or localized display strings. An empty corpus directory has no mod roots.
+  Field selection follows xEdit's `TES5Edit/Core/wbDefinitionsTES5.pas`,
+  which defines `EDID` as Editor ID, `FULL` as Name and model fields as
+  filenames. Wabbajack's local `README.md` says modlists do not bundle assets,
+  so the sweep reads installed files in place.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
-  WAV containers. Wabbajack's local README describes modlists as reproduced
-  without bundling assets, so the sweep reads the installed files in place.
+  WAV containers.
   Synthetic tests check each finding category and verify findings stay scoped
   to their owning mod. The external sweep skips when `SOE_MOD_CORPUS` is unset.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
