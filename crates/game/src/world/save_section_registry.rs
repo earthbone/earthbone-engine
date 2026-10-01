@@ -198,6 +198,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
+    Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
 ];
 
 fn write_stagger_metadata(
@@ -306,6 +307,7 @@ fn read_werewolf_transform(
 }
 
 fn write_trespassing(
+fn write_known_magic_effects(
     state: &ActorState,
     writer: &mut soe_papyrus::vm::state::Writer,
     _pool: &mut soe_papyrus::vm::state::ArrayPool,
@@ -314,11 +316,27 @@ fn write_trespassing(
 }
 
 fn read_trespassing(
+    writer.len(state.known_forms.len());
+    for form in &state.known_forms {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_known_magic_effects(
     state: &mut ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
     _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     state.trespassing = reader.bool()?;
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(soe_papyrus::VmError::State(
+            "AI-76 known form count exceeds remaining bytes".into(),
+        ));
+    }
+    for _ in 0..count {
+        state.known_forms.insert(super::save::read_form_id(reader)?);
+    }
     Ok(())
 }
 

@@ -4655,10 +4655,13 @@ dependency or save format was added.
 
 The gameplay CTDA evaluator implements IsProtected (476) from the subject's
 NPC base state and PlayerKnows (493) for spells held in the player's spell
-set. IsProtected rejects parameters and non-actor subjects. PlayerKnows
-rejects malformed forms and extra parameters, compares known spells with the
-player's current spell set, and returns false for an MGEF with no represented
-known state. It returns a state contract diagnostic for other form types.
+set and the player's known-form set for Magic Effects, Words of Power and
+Enchantments. IsProtected rejects
+parameters and non-actor subjects. PlayerKnows rejects malformed forms and
+extra parameters, compares known forms with the matching player state, and
+returns a state contract diagnostic for other form types. The `AI-76` actor
+save section retains known forms across save and load. For an Enchantment, the
+caller must query the base Enchantment that the player knows.
 
 The local xEdit `wbConditionFunctions` table declares these function indices
 and parameter types. CK's `ActorBase_Script.wikitext` documents the protected
@@ -4674,7 +4677,8 @@ cast state. No parallel state or save data is added.
 
 `ai_76_reference_conditions` checks positive and negative results for the
 available contracts, invalid form and parameter cases, missing run-on context,
-and explicit diagnostics for the uncontracted functions.
+and explicit diagnostics for the uncontracted functions. The adversarial MGEF
+case checks a known effect and its saved state.
 
 ## Motion condition batch AI-62
 

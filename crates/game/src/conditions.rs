@@ -1230,8 +1230,18 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             let form = resolve(world, context.owner, raw, None)?;
-            if world.tag_of(form) == Some(Tag(*b"MGEF")) {
-                boolean(false)
+            if matches!(
+                world.tag_of(form),
+                Some(Tag(tag)) if [*b"MGEF", *b"ENCH", *b"SHOU"].contains(&tag)
+            ) {
+                let player = world.player();
+                boolean(
+                    world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .known_forms
+                        .contains(&form),
+                )
             } else if world.tag_of(form) != Some(Tag(*b"SPEL")) {
                 return Err(Error::StateContract(c.function));
             } else {
