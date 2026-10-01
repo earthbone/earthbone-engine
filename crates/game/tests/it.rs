@@ -847,8 +847,32 @@ mod scr_10_adversarial;
 mod scr_29_adversarial;
 #[path = "scr_29_game_native_contracts.rs"]
 mod scr_29_game_native_contracts;
+#[path = "scr_33_adversarial.rs"]
+mod scr_33_adversarial;
+#[path = "scr_34_adversarial.rs"]
+mod scr_34_adversarial;
+#[path = "scr_34_keyword_story_events.rs"]
+mod scr_34_keyword_story_events;
+#[path = "scr_35_adversarial.rs"]
+mod scr_35_adversarial;
+#[path = "scr_36_adversarial.rs"]
+mod scr_36_adversarial;
+#[path = "scr_37_adversarial.rs"]
+mod scr_37_adversarial;
+#[path = "scr_37_music_type.rs"]
+mod scr_37_music_type;
+#[path = "scr_38_adversarial.rs"]
+mod scr_38_adversarial;
+#[path = "scr_38_object_reference.rs"]
+mod scr_38_object_reference;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_40_adversarial.rs"]
+mod scr_40_adversarial;
+#[path = "scr_40_object_reference.rs"]
+mod scr_40_object_reference;
+#[path = "scr_41_adversarial.rs"]
+mod scr_41_adversarial;
 #[path = "scr_43_adversarial.rs"]
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
