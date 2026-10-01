@@ -1,4 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use soe_esm::LoadOrder;use soe_game::Game;use soe_papyrus::{asm::{ident,s,FunctionBuilder,ScriptBuilder},Opcode::{CallStatic,Return},Value};
-#[test]fn scr_50_negative_budget_index_is_diagnosed_without_panicking(){let mut g=Game::new(LoadOrder::new());let b=ScriptBuilder::new("Scr50Negative","Form").function(FunctionBuilder::new("Run","Var").global().param("index","Int").local("r","Var").ins(CallStatic,vec![s("Utility"),s("GetBudgetName"),ident("r"),ident("index")]).ins(Return,vec![ident("r")]).build()).bytes();g.load_script(&b).unwrap();let t=g.vm.call_global("Scr50Negative","Run",&[Value::Int(-1)]).unwrap();assert!(g.run_until_idle(32));assert_eq!(g.vm.thread_result(t),Some(Value::None));assert!(g.traces().iter().any(|x|x.contains("GetBudgetName: memory tracking is unavailable")));}
+use soe_esm::LoadOrder;
+use soe_game::Game;
+use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
+    Opcode::{CallStatic, Return},
+    Value,
+};
+#[test]
+fn scr_50_negative_budget_index_is_diagnosed_without_panicking() {
+    let mut g = Game::new(LoadOrder::new());
+    let b = ScriptBuilder::new("Scr50Negative", "Form")
+        .function(
+            FunctionBuilder::new("Run", "Var")
+                .global()
+                .param("index", "Int")
+                .local("r", "Var")
+                .ins(
+                    CallStatic,
+                    vec![s("Utility"), s("GetBudgetName"), ident("r"), ident("index")],
+                )
+                .ins(Return, vec![ident("r")])
+                .build(),
+        )
+        .bytes();
+    g.load_script(&b).unwrap();
+    let t =
+        g.vm.call_global("Scr50Negative", "Run", &[Value::Int(-1)])
+            .unwrap();
+    assert!(g.run_until_idle(32));
+    assert_eq!(g.vm.thread_result(t), Some(Value::None));
+    assert!(g
+        .traces()
+        .iter()
+        .any(|x| x.contains("GetBudgetName: memory tracking is unavailable")));
+}

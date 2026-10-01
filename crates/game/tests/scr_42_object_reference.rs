@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_papyrus::{
     asm::{ident, s, FunctionBuilder, ScriptBuilder},
@@ -31,7 +32,15 @@ fn fixture() -> LoadOrder {
     plugin.push_top(Record::new(Tag(*b"NPC_"), OWNER_BASE));
     let mut source = Record::new(Tag(*b"REFR"), SOURCE)
         .sub(b"NAME", BASE.to_le_bytes())
-        .sub(b"DATA", transform([10.0, 20.0, 30.0]));
+        .sub(b"DATA", transform([10.0, 20.0, 30.0]))
+        .sub(
+            b"VMAD",
+            Vmad {
+                scripts: vec![ScriptEntry::new("TranslationListener")],
+                ..Vmad::default()
+            }
+            .write(Tag(*b"REFR")),
+        );
     source.placement.cell = Some(CELL);
     plugin.push_top(source);
     let mut target = Record::new(Tag(*b"REFR"), TARGET)
@@ -163,31 +172,46 @@ fn scr_42_reset_native_honors_optional_target() {
 }
 
 #[test]
-fn scr_42_translation_stubs_leave_reference_unchanged_without_hst_16() {
+fn scr_42_translation_natives_move_and_stop_with_failure_event() {
     let mut game = Game::new(fixture());
-    let before = game.world_mut().reference(id(SOURCE)).unwrap().clone();
+    let listener = ScriptBuilder::new("TranslationListener", "ObjectReference")
+        .function(
+            FunctionBuilder::new("OnTranslationFailed", "None")
+                .ins(
+                    soe_papyrus::Opcode::CallStatic,
+                    vec![
+                        s("Debug"),
+                        s("Trace"),
+                        ident("::nonevar"),
+                        s("translation failed"),
+                    ],
+                )
+                .build(),
+        )
+        .bytes();
+    game.load_script(&listener).unwrap();
+    game.start();
     let linear = [
-        Value::Float(500.0),
-        Value::Float(600.0),
-        Value::Float(700.0),
-        Value::Float(10.0),
+        Value::Float(110.0),
         Value::Float(20.0),
         Value::Float(30.0),
-        Value::Float(100.0),
+        Value::Float(0.0),
+        Value::Float(0.0),
+        Value::Float(0.0),
+        Value::Float(10.0),
     ];
     call(&mut game, SOURCE, "TranslateTo", &linear);
-    let spline = [
-        Value::Float(500.0),
-        Value::Float(600.0),
-        Value::Float(700.0),
-        Value::Float(10.0),
-        Value::Float(20.0),
-        Value::Float(30.0),
-        Value::Float(25.0),
-        Value::Float(100.0),
-    ];
-    call(&mut game, SOURCE, "SplineTranslateTo", &spline);
+    game.world_mut()
+        .tick_translations(2.0, &mut |_, _| soe_papyrus::ObjectId(1));
+    assert_eq!(
+        game.world().reference_ref(id(SOURCE)).unwrap().position,
+        [30.0, 20.0, 30.0]
+    );
     call(&mut game, SOURCE, "StopTranslation", &[]);
 
-    assert_eq!(game.world().reference_ref(id(SOURCE)), Some(&before));
+    assert_eq!(
+        game.world().reference_ref(id(SOURCE)).unwrap().position,
+        [30.0, 20.0, 30.0]
+    );
+    assert!(game.traces().contains(&"translation failed".to_string()));
 }
