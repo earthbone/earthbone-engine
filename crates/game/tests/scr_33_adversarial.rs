@@ -30,52 +30,6 @@ fn game() -> Game {
     Game::new(order)
 }
 
-fn keyed_record(object: u32) -> Record {
-    let mut header = vec![0; 244];
-    header[..4].copy_from_slice(&1u32.to_le_bytes());
-    header[4..8].copy_from_slice(&2.0f32.to_le_bytes());
-    for offset in [176, 180, 212] {
-        header[offset..offset + 4].copy_from_slice(&2u32.to_le_bytes());
-    }
-    let mult_count = 8 + 19 * 8;
-    let add_count = mult_count + 4;
-    header[mult_count..mult_count + 4].copy_from_slice(&2u32.to_le_bytes());
-    header[add_count..add_count + 4].copy_from_slice(&2u32.to_le_bytes());
-    let curve = |values: &[(f32, &[f32])]| {
-        let mut data = Vec::new();
-        for (time, components) in values {
-            data.extend_from_slice(&time.to_le_bytes());
-            for component in *components {
-                data.extend_from_slice(&component.to_le_bytes());
-            }
-        }
-        data
-    };
-    let mut record = Record::new(Tag::new(b"IMAD"), object).sub(Tag::new(b"DNAM"), header);
-    for (tag, values) in [
-        (
-            *b"TNAM",
-            vec![
-                (0.0, vec![0.0, 0.0, 0.0, 0.0]),
-                (1.0, vec![1.0, 0.5, 0.25, 1.0]),
-            ],
-        ),
-        (*b"BNAM", vec![(0.0, vec![0.2]), (1.0, vec![0.8])]),
-        (*b"WNAM", vec![(0.0, vec![0.1]), (1.0, vec![0.9])]),
-        (*b"\x13IAD", vec![(0.0, vec![1.0]), (1.0, vec![3.0])]),
-        (*b"\x53IAD", vec![(0.0, vec![0.0]), (1.0, vec![4.0])]),
-    ] {
-        let data = curve(
-            &values
-                .iter()
-                .map(|(time, components)| (*time, components.as_slice()))
-                .collect::<Vec<_>>(),
-        );
-        record = record.sub(Tag::new(&tag), data);
-    }
-    record
-}
-
 fn call(game: &mut Game, target: Option<u32>, name: &str, args: &[Value]) {
     let script_name = format!("ImageCall{}", game.vm.time().to_bits());
     let mut function = FunctionBuilder::new("Run", "None")
