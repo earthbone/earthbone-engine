@@ -613,12 +613,23 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 /// One-shot request for a host-owned screen or presentation action.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostRequest {
     /// Tear down gameplay and return to the main menu.
     QuitToMainMenu,
     /// Start the named title sequence on the main menu.
     StartTitleSequence(String),
+    FadeOutGame {
+        fading_out: bool,
+        black: bool,
+        seconds_before_fade: f32,
+        fade_duration: f32,
+    },
+    Save {
+        automatic: bool,
+    },
+    CameraFirstPerson,
+    CameraThirdPerson,
 }
 
 pub struct World {
@@ -976,6 +987,17 @@ impl World {
     /// Take pending host screenshot paths in request order.
     pub fn take_screenshot_requests(&mut self) -> Vec<String> {
         std::mem::take(&mut self.screenshot_requests)
+    }
+
+    /// Drain operations that must be carried out by the active host.
+    ///
+    /// # Errors
+    /// This method does not fail.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
+        std::mem::take(&mut self.host_requests)
     }
 }
 

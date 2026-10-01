@@ -206,7 +206,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 373;
+pub const NATIVE_COUNT: usize = 378;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2164,6 +2164,48 @@ fn game(vm: &mut Vm, w: &Shared) {
         if let Some(actor) = world.actor(player) {
             actor.arrested = false;
         }
+        none()
+    });
+    global!(vm, w, "Game", "FadeOutGame", |world, call| {
+        let seconds_before_fade = call.arg(2).as_float();
+        let fade_duration = call.arg(3).as_float();
+        if !seconds_before_fade.is_finite()
+            || !fade_duration.is_finite()
+            || seconds_before_fade < 0.0
+            || fade_duration < 0.0
+        {
+            call.log.push(
+                call.time,
+                "Game.FadeOutGame: fade timings must be finite and non-negative".to_string(),
+            );
+            return none();
+        }
+        world.host_requests.push(HostRequest::FadeOutGame {
+            fading_out: call.arg(0).as_bool(),
+            black: call.arg(1).as_bool(),
+            seconds_before_fade,
+            fade_duration,
+        });
+        none()
+    });
+    global!(vm, w, "Game", "RequestSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: false });
+        none()
+    });
+    global!(vm, w, "Game", "RequestAutoSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: true });
+        none()
+    });
+    global!(vm, w, "Game", "ForceFirstPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraFirstPerson);
+        none()
+    });
+    global!(vm, w, "Game", "ForceThirdPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraThirdPerson);
         none()
     });
     for name in ["GetForm", "GetFormEx"] {

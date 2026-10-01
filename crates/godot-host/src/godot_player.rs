@@ -35,7 +35,7 @@ use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraHostState, CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
-use crate::door_fade::DoorFade;
+use crate::door_fade::{DoorFade, GameFade};
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
@@ -127,6 +127,7 @@ pub struct PlayerNode {
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
+    game_fade: GameFade,
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
     exterior: Option<exterior::ExteriorRuntime>,
@@ -206,6 +207,7 @@ impl INode3D for PlayerNode {
             game_streamer: None,
             loaded_cell: None,
             door_fade: DoorFade::default(),
+            game_fade: GameFade::default(),
             door_fade_view: None,
             exterior: None,
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
@@ -663,6 +665,7 @@ impl PlayerNode {
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
         self.door_fade = DoorFade::default();
+        self.game_fade = GameFade::default();
         self.refresh_door_fade();
         self.interior_prefetch.invalidate();
         self.melee_contact.cancel();
@@ -1418,15 +1421,23 @@ impl PlayerNode {
     fn advance_door_fade(&mut self, delta: f64) {
         if delta.is_finite() && delta > 0.0 {
             self.door_fade.advance(Duration::from_secs_f64(delta));
+            self.game_fade.advance(delta as f32);
             self.refresh_door_fade();
         }
     }
 
     fn refresh_door_fade(&mut self) {
-        let opacity = self.door_fade.opacity();
+        let door_opacity = self.door_fade.opacity();
+        let game_opacity = self.game_fade.opacity();
+        let (opacity, black) = if game_opacity > door_opacity {
+            (game_opacity, self.game_fade.is_black())
+        } else {
+            (door_opacity, true)
+        };
         if let Some(view) = &mut self.door_fade_view {
+            let channel = if black { 0.0 } else { 1.0 };
             view.overlay
-                .set_color(Color::from_rgba(0.0, 0.0, 0.0, opacity));
+                .set_color(Color::from_rgba(channel, channel, channel, opacity));
             view.overlay.set_visible(opacity > 0.0);
         }
     }

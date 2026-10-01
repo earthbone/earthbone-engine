@@ -73,7 +73,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 pub use clock::GameClock;
 pub use natives::Registered;
 pub use world::StoryError;
-pub use world::{Handle, Pending, RefPlacement, World};
+pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
 

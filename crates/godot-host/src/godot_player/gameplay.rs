@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
-    PlayerNode, Vec3,
+    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
+    PhysicsWorld, PlayerNode, Vec3,
 };
 use godot::obj::WithBaseField;
 use godot::prelude::{GString, Variant};
@@ -268,9 +268,10 @@ impl PlayerNode {
     }
 
     fn apply_host_requests(&mut self) {
-        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
-            std::mem::take(&mut game.world_mut().host_requests)
-        });
+        let requests = self
+            .game
+            .as_mut()
+            .map_or_else(Vec::new, |game| game.world_mut().take_host_requests());
         for request in requests {
             match request {
                 soe_game::world::HostRequest::QuitToMainMenu => {
@@ -283,6 +284,33 @@ impl PlayerNode {
                         "title_sequence_started",
                         &[godot::builtin::Variant::from(GString::from(name.as_str()))],
                     );
+                }
+                soe_game::HostRequest::CameraFirstPerson => {
+                    self.rig.mode = CameraMode::First;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::CameraThirdPerson => {
+                    self.rig.mode = CameraMode::Third;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::FadeOutGame {
+                    fading_out,
+                    black,
+                    seconds_before_fade,
+                    fade_duration,
+                } => {
+                    if !self.game_fade.request(
+                        fading_out,
+                        black,
+                        seconds_before_fade,
+                        fade_duration,
+                    ) {
+                        godot_error!("PlayerNode: rejected invalid Game.FadeOutGame timing");
+                    }
+                    self.refresh_door_fade();
+                }
+                soe_game::HostRequest::Save { automatic } => {
+                    self.write_requested_save(automatic);
                 }
             }
         }
@@ -313,7 +341,6 @@ impl PlayerNode {
         self.main_menu.enter();
         self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
-
     fn prefetch_nearby_interior(&mut self, delta: f64) {
         use crate::interior_prefetch::{APPROACH_RADIUS, SELECTION_INTERVAL};
         self.interior_prefetch.poll();

@@ -2408,6 +2408,16 @@ The methods compile in the full feature gate. Synthetic Rust tests execute
 the shared Game file APIs, corruption recovery and interrupted rotation.
 Interactive Godot resource installation after recovery remains untested.
 
+Papyrus `Game.RequestSave` and `Game.RequestAutoSave` write verified native
+generations below `user://saves/manual` and `user://saves/automatic`, retaining
+up to three per directory. The host creates the selected directory when the
+request runs and reports write failures to Godot's error log. `Game.ForceFirstPerson`
+and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
+`Game.FadeOutGame` uses the existing screen overlay, applies the requested
+delay and duration, and chooses black or white from its black-fade flag.
+Negative or non-finite timing values are rejected by the Game native and
+logged. These operations run after the VM tick that enqueued them.
+
 ## Native menu framework
 
 The HUD uses one CanvasLayer with three ProgressBars and a compass Label.

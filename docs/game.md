@@ -539,7 +539,7 @@ given faction, defaulting an absent reaction to neutral and saturating at the
 
 ## Conformance table
 
-`natives::register` has 373 stateful registrations and 177 quiet stubs,
+`natives::register` has 378 stateful registrations and 172 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
 `Actor.IsBleedingOut` and the SCR-26 `Actor.IsFlying` stub. `IsAlarmed` reads
 the actor's alert flag. `IsBleedingOut` requires an actor to be unconscious,
@@ -558,7 +558,7 @@ scripts can continue when their owning system has no behavior yet.
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -766,6 +766,11 @@ Their CK contracts are described by
   `IsStarting` and `IsStopping` report the task direction, and `IsRunning` stays
   false until the task completes. SOEW version 37 retains those tasks in the
   `SAV-10` world section.
+- `Game.FadeOutGame` validates finite, non-negative delay and duration values,
+  then queues the flags and timings for the host overlay. `RequestSave` and
+  `RequestAutoSave` queue distinct host save requests. `ForceFirstPerson` and
+  `ForceThirdPerson` queue explicit player camera modes. The host drains these
+  transient requests after a gameplay tick. They are not saved with `SOEW`.
 
 ## Tests
 
