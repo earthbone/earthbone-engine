@@ -41,6 +41,14 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
     Section { name: "DLG-19", write: write_scene_action_progress, read: read_scene_action_progress },
+    Section {
+        name: "SCR-19",
+        write: World::write_pending_cell_resets,
+        read: World::read_pending_cell_resets,
+    },
+    Section { name: "SCR-48", write: crate::dialogue::write_known_topics, read: crate::dialogue::read_known_topics },
+    Section { name: "SCR-24", write: |world, writer, _pool| world.write_effect_shader_section(writer), read: |world, reader, _table| world.read_effect_shader_section(reader) },
+    Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -54,6 +62,32 @@ fn read_pending_script_calls(
 
 fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::training::write_training_sessions(world, writer);
+}
+
+fn write_scr_60_game_flags(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    for enabled in world.player_control_flags {
+        writer.bool(enabled);
+    }
+    writer.i32(world.player_control_pov_type);
+    writer.bool(world.chargen_disable_saving);
+    writer.bool(world.chargen_disable_waiting);
+    writer.bool(world.chargen_show_controls_disabled_message);
+}
+
+fn read_scr_60_game_flags(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    for enabled in &mut world.player_control_flags {
+        *enabled = reader.bool()?;
+    }
+    world.player_control_pov_type = reader.i32()?;
+    world.chargen_disable_saving = reader.bool()?;
+    world.chargen_disable_waiting = reader.bool()?;
+    world.chargen_show_controls_disabled_message = reader.bool()?;
+    world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
+    Ok(())
 }
 
 fn read_training_sessions(
@@ -99,18 +133,6 @@ fn read_player_level(
 ) -> Result<(), soe_papyrus::VmError> {
     world.player_level = reader.u32()?;
     Ok(())
-}
-
-fn write_days_in_jail(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
-    super::crime::write_days_in_jail(state, writer, _pool);
-}
-
-fn read_days_in_jail(
-    state: &mut ActorState,
-    reader: &mut FormReader<'_, '_>,
-    _table: &ArrayTable,
-) -> Result<(), VmError> {
-    super::crime::read_days_in_jail(state, reader, _table)
 }
 
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -194,6 +216,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "PRG-13", write: super::crime::write_days_in_jail, read: super::crime::read_days_in_jail },
     Section { name: "AI-43", write: write_trespassing, read: read_trespassing },
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
@@ -247,6 +270,7 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "HST-16", write: write_reference_translation, read: read_reference_translation },
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
+    super::scr_40::SECTION,
 ];
 
 fn write_vampire_lord_state(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {

@@ -3,8 +3,7 @@
 
 //! Walking Patrol fixtures follow xEdit PKC2, PTDA, XLKR and XPRD layouts.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
@@ -162,7 +161,7 @@ fn order(settings: Settings) -> LoadOrder {
             Record::new(T(b"FURN"), FURNITURE)
                 .zsub(T(b"EDID"), "PatrolFurniture")
                 .sub(T(b"MNAM"), 1u32.to_le_bytes())
-                .sub(T(b"FNPR"), 1u16.to_le_bytes()),
+                .sub(T(b"FNPR"), [1_u8, 0, 0, 0]),
         );
     }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));

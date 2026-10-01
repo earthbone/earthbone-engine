@@ -88,15 +88,15 @@ with 4 to 1024 finite positions becomes a static `bhkRigidBodyT` carrying a
 Source positions are Skyrim game units, and the shape encoder divides them by
 `UNITS_PER_METER`. `shape::collect` converts them back when reading the block
 graph. The generated block graph is a standalone `NifFile` model with local
-references. A complete NIF byte writer is not part of this API.
+references. `NifFile::to_bytes` writes this Skyrim SE graph, and the bytes can
+be parsed again before `shape::collect` loads the collision into physics.
 
 The block layout follows nifly's `bhkConvexVerticesShape::Sync` and
 `bhkRigidBody::Sync` in `engine-refs/nifly/src/bhk.cpp`, with field offsets
-cross-checked against `bhk::decode` and `tests/synthetic.rs`. The repository's
-PyNifly source named by EDT-17 was not present in `engine-refs`. The EDT-04
-drafts that would supply the imported-mesh writer are also absent from this
-worktree. This implementation accepts the imported positions directly and
-returns a block graph for that later writer to merge and rebase.
+cross-checked against `bhk::decode` and `tests/synthetic.rs`. The NIF byte
+writer supports the generated node and opaque Havok blocks. It does not merge
+the graph into an existing mesh NIF. The repository's PyNifly source named by
+EDT-17 was not present in `engine-refs`.
 
 ## What the shipped files taught the crate
 
@@ -218,9 +218,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. Downward snapping accepts only the
-current probe step, so a larger drop continues as a fall across ticks instead
-of moving the character to the lower floor at once. The fall per step is
+`on_ground` and cancel downward velocity. Walking snaps descend at most a
+quarter capsule radius per tick, so a larger drop continues as a fall across
+ticks instead of moving the character to the lower floor at once. Settling
+after a step-up trial can use the full step height. The fall per step is
 capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,
@@ -468,9 +469,13 @@ back down no further than it was lifted. It only runs from the ground, so it
 cannot be used to climb in mid air, and it is refused when the lift itself does
 not fit or when nothing standable is underneath the new spot.
 
-**A downward snap of the same size.** Walking off a riser used to launch the
-capsule into a short fall. It now follows the floor down by at most one step
-height, so a 30 unit drop reads as a step rather than as a fall.
+**A bounded downward snap.** Following OpenMW's `mwphysics/stepper.cpp`,
+the solver probes down to the first supporting contact. OpenMW uses a Bullet
+sweep, while this endpoint solver probes in radius-bounded increments.
+Walking off a riser searches for support within one step height. Walking
+accepts a snap only within a quarter capsule radius of the prior position, so
+larger drops continue under gravity across ticks. The thin-floor correction
+below uses the same descent bound.
 
 **Crouch.** `set_crouch` swaps the capsule to `crouch_height` (72 units against
 128 standing), and standing up is refused while the taller capsule would not
@@ -502,7 +507,7 @@ answer. Two copies of a rotation convention drift, so there is now one, and
 | A 24 unit stair riser, under the step height | Climbs eight steps, z 0 to 168, x -200 to 288, on ground throughout, never above the tread ahead of it |
 | A 72 unit riser, over the step height | Stops at x 33.0, the riser at 0 plus the 32 unit radius, and never rises a step |
 | A 12 unit door threshold | Crosses it and stays on the ground |
-| Walking off a 30 unit slab | Follows the floor down, at most two frames of real descent, lands at z 0 |
+| Walking off a 30 unit slab | Descends at most eight units per tick and lands at z 0 |
 | A ceiling at 110 units | Crouched fits, standing up is refused, and it is allowed again once clear of the ceiling |
 | A standing jump | Peak 74.6 units against the 76 configured, lands back on the floor, a second jump in mid air is refused |
 | One second at jog speed | 180.1 units, and a 45 degree direction moves equally in x and y |
@@ -538,6 +543,12 @@ than a quarter of the capsule radius, stopping at the first standable contact.
 Step-up settling uses the same search. The 256-iteration work limit also limits
 search distance for unusually small capsules. This is not a full swept-capsule
 solver, and horizontal collision is unchanged.
+
+Ordinary floor following accepts at most a quarter-radius descent from the
+previous feet position. Deeper contacts leave the capsule falling over
+successive ticks, while a lifted step-up move can settle its full lift.
+`losing_support_above_a_deeper_floor_starts_a_fall` checks that removing a
+support above a lower floor starts a fall and still lands on that floor.
 
 The regression places oppositely wound thin floors 24 units apart and checks
 standing and crouching capsules at six starting heights. Existing stair,

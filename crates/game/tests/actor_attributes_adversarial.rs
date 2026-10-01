@@ -19,8 +19,7 @@
 //! health, magicka and stamina from records instead of cached hand-supplied
 //! values".
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 

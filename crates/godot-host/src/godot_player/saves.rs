@@ -2,7 +2,7 @@
 
 //! Native generation entry points on the host's shared Game.
 
-use super::PlayerNode;
+use super::{godot_error, PlayerNode};
 use godot::classes::ProjectSettings;
 use godot::prelude::*;
 use soe_game::save_generations::{Error, GenerationStore, RejectedGeneration, RejectionReason};
@@ -55,6 +55,31 @@ fn failed_save(error: &Error) -> VarDictionary {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    pub(super) fn write_requested_save(&mut self, automatic: bool) {
+        let kind = if automatic { "automatic" } else { "manual" };
+        let directory_path = format!("user://saves/{kind}");
+        let directory = GString::from(directory_path.as_str());
+        let path = ProjectSettings::singleton()
+            .globalize_path(&directory)
+            .to_string();
+        if let Err(error) = std::fs::create_dir_all(&path) {
+            godot_error!("PlayerNode: could not create {kind} save directory: {error}");
+            return;
+        }
+        let result = self.save_game_generation(directory, 3);
+        if !result
+            .get("ok")
+            .and_then(|value| value.try_to::<bool>().ok())
+            .unwrap_or(false)
+        {
+            let error = result
+                .get("error")
+                .and_then(|value| value.try_to::<GString>().ok())
+                .unwrap_or_else(|| "unknown save error".into());
+            godot_error!("PlayerNode: {kind} save request failed: {error}");
+        }
+    }
+
     /// Save the shared runtime in an existing dedicated directory, including the
     /// current controller pose. Returns diagnostics and the committed generation.
     #[func]
