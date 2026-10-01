@@ -4219,6 +4219,7 @@ For reference headers with the generic form-flags bit, the pass applies the
 record bits with XOR. It accepts only ESS header version 12, form version 78
 and change-form version 78 when that mask is present. The second 16-bit word
 is retained in the report and does not affect these two runtime properties.
+Deleted winning records remain disabled regardless of this mask.
 The effective persistence value feeds cell-unload retention and
 encounter-zone reset decisions. SOEW version 37 stores it with each reference.
 Older SOEW states derive persistence from the current winning record.
