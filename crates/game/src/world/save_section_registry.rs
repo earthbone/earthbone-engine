@@ -22,6 +22,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
     Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
+    Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
@@ -128,6 +129,7 @@ fn read_woop_mgef_section(
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
+    Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-21", write: super::save::write_driver_state_section, read: super::save::read_driver_state_section },
@@ -164,6 +166,18 @@ fn read_training_sessions(
     super::training::read_training_sessions(world, reader)
 }
 
+fn write_vampire_lord_state(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::magic::write_vampire_lord_state(world, writer);
+}
+
+fn read_vampire_lord_state(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::magic::read_vampire_lord_state(world, reader)
+}
+
 fn write_animation_waits(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::events::write_animation_waits(world, writer);
 }
@@ -198,6 +212,18 @@ fn read_reference_translation(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     super::reference_translation::read_section(state, reader)
+}
+
+fn write_werewolf_transform(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::magic::write_werewolf_transform(state, writer);
+}
+
+fn read_werewolf_transform(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::magic::read_werewolf_transform(state, reader)
 }
 
 fn write_package_overrides(

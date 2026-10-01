@@ -8,10 +8,11 @@ use soe_game::world::World;
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added, as well as the post-version-33 AI section.
-/// It also strips the named save-section table
-/// version 37 appends to the actor's own record and, since `World::actor`
+/// version 29 added, the witnessed crime set version 31 added, the hand spell
+/// fields version 32 added and the MAG-57 actor section, so fixtures built
+/// against an older header see none of those fields' bytes. Also strips the
+/// actor's named section table and the reference's empty save-section table
+/// version 37 appends to those records and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too. It also reduces world-level section payloads
 /// to an empty table before measuring the legacy tail.
@@ -222,7 +223,6 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             "right spell sentinel is not unique"
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
-
         // Remove this actor's complete section table, including any named
         // sections added after the legacy version being simulated.
         let actor_sections = right_spell_offsets[0] + right_spell_marker.len();

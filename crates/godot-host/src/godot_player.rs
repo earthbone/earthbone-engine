@@ -669,11 +669,16 @@ impl PlayerNode {
         let intent = self.driver.update(&input, &camera);
         let before = self.feet();
         let was_grounded = self.character().is_some_and(|c| c.on_ground);
+        let paralyzed = self.game.as_mut().is_some_and(|game| {
+            let player = game.player();
+            game.world().actor_is_paralyzed(player)
+        });
 
         if let (Some(world), Some(id)) = (self.world.as_mut(), self.character) {
             world.set_crouch(id, intent.crouch);
-            world.walk(id, intent.direction, intent.speed);
-            if intent.jump {
+            let (direction, speed, jump) = player_locomotion(intent, paralyzed);
+            world.walk(id, direction, speed);
+            if jump {
                 world.try_jump(id);
             }
             world.step(delta as f32);
@@ -1005,6 +1010,14 @@ impl PlayerNode {
     }
 }
 
+fn player_locomotion(intent: crate::input::Intent, paralyzed: bool) -> (Vec3, f32, bool) {
+    if paralyzed {
+        (Vec3::ZERO, 0.0, false)
+    } else {
+        (intent.direction, intent.speed, intent.jump)
+    }
+}
+
 impl PlayerNode {
     fn look_stick(&mut self, delta: f64) {
         let (x, y) = self.devices.look(&self.bindings);
@@ -1299,4 +1312,38 @@ fn godot_transform(eye: &Eye) -> Transform3D {
         Basis::from_cols(col(x), col(y), col(z)),
         Vector3::new(origin.x, origin.y, origin.z),
     )
+}
+
+#[cfg(test)]
+mod mag_42_tests {
+    use super::player_locomotion;
+    use crate::input::Intent;
+    use soe_physics::Vec3;
+
+    #[test]
+    fn mag_42_paralysis_blocks_player_locomotion_and_jump() {
+        let intent = Intent {
+            direction: Vec3::new(1.0, 0.0, 0.0),
+            speed: 120.0,
+            jump: true,
+            crouch: false,
+            activate: false,
+        };
+        assert_eq!(player_locomotion(intent, true), (Vec3::ZERO, 0.0, false));
+    }
+
+    #[test]
+    fn mag_42_player_locomotion_returns_when_not_paralyzed() {
+        let intent = Intent {
+            direction: Vec3::new(1.0, 0.0, 0.0),
+            speed: 120.0,
+            jump: true,
+            crouch: false,
+            activate: false,
+        };
+        assert_eq!(
+            player_locomotion(intent, false),
+            (intent.direction, intent.speed, intent.jump)
+        );
+    }
 }

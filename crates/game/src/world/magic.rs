@@ -2,7 +2,11 @@
 
 //! Active spell applications, following CK Magic Effect, DispelSpell and
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
-//! enums. Invisibility follows xEdit's MGEF archetype table and UESP's MGEF
+//! enums. Definitions stay in the winning records. Per-cast magnitudes,
+//! elapsed time and reversible actor-value deltas belong to the world.
+//! Unsupported delivery and archetypes return errors before applying effects.
+//! Vampire Lord transformations use their associated race and own its ability changes.
+//! Invisibility follows xEdit's MGEF archetype table and UESP's MGEF
 //! layout. Lock effects update eligible door and container references through
 //! the shared lock state. Definitions stay in the winning records. Per-cast
 //! magnitudes, elapsed time and reversible actor-value deltas belong to the world.
@@ -12,6 +16,8 @@
 //! the SPIT field in xEdit and applies only through an actor target supplied
 //! by a projectile contact. Target-location delivery uses the selected point
 //! as the center for authored area effects.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::{GlobalFormId, Record, Tag};
@@ -23,11 +29,12 @@ use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
 
+use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{Alloc, Handle, Pending, World, T};
 
 mod state;
-pub(super) use state::read_magic;
 pub(crate) use state::SECTION as SAVE_SECTION;
+pub(super) use state::{read_magic, read_werewolf_transform, write_werewolf_transform};
 
 const HOSTILE: u32 = 1;
 const RECOVER: u32 = 1 << 1;
@@ -41,6 +48,8 @@ const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const PARALYSIS_ARCHETYPE: u32 = 21;
+const CURE_PARALYSIS_ARCHETYPE: u32 = 27;
 const DEMORALIZE: u32 = 7;
 const FRENZY_ARCHETYPE: u32 = 8;
 const TURN_UNDEAD: u32 = 24;
@@ -101,6 +110,16 @@ pub struct ActiveEffect {
     pub(crate) changes: Vec<(String, f32)>,
 }
 
+/// State owned by one live Vampire Lord transformation effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VampireLordForm {
+    pub actor: GlobalFormId,
+    pub previous_race: Option<GlobalFormId>,
+    pub vampire_race: GlobalFormId,
+    pub added_spells: std::collections::BTreeSet<GlobalFormId>,
+    pub ability_effects: Vec<EffectId>,
+}
+
 /// One concentration spell held by its caster until release or exhaustion.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConcentrationCast {
@@ -139,11 +158,13 @@ enum DispelRule {
     Timed,
     Disease,
     Keywords(Vec<GlobalFormId>),
+    Paralysis,
 }
 
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    werewolf_race: Option<(GlobalFormId, BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>)>,
     command_owner: Option<GlobalFormId>,
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
@@ -154,6 +175,7 @@ struct PreparedEffect {
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
     dispel: Vec<EffectId>,
+    vampire_form: Option<(GlobalFormId, std::collections::BTreeSet<GlobalFormId>)>,
 }
 
 pub(super) struct PreparedWeaponEnchantment(Vec<PreparedEffect>);
@@ -228,6 +250,16 @@ impl World {
     /// Read the pending cast phase for a reference.
     pub fn pending_spell_cast(&self, caster: GlobalFormId) -> Option<SpellCast> {
         self.spell_casts_in_progress.get(&caster).copied()
+    }
+
+    /// Whether a live Paralysis archetype currently suppresses actor motion.
+    pub fn actor_is_paralyzed(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|active| {
+            active.target == actor
+                && self
+                    .magic_effect(active.effect)
+                    .is_ok_and(|effect| effect.data.archetype == PARALYSIS_ARCHETYPE)
+        })
     }
 
     pub(crate) fn create_brewed_potion(
@@ -966,13 +998,20 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
+            if data.archetype == 40 {
+                return Err(MagicError::Unsupported(
+                    "spawn hazard requires hazard ownership and expiry",
+                ));
+            }
             if !matches!(
                 data.archetype,
                 0 | 1
                     | 2
+                    | 5
+                    | PARALYSIS_ARCHETYPE
+                    | CURE_PARALYSIS_ARCHETYPE
                     | 3
                     | 4
-                    | 5
                     | 6
                     | 9
                     | 10
@@ -993,9 +1032,10 @@ impl World {
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("area or taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
                 0.0
             } else {
@@ -1011,7 +1051,9 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if data.archetype == PARALYSIS_ARCHETYPE {
+                changes.push(("paralysis".to_string(), signed));
+            } else if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -1034,6 +1076,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == CURE_PARALYSIS_ARCHETYPE {
+                dispel_rules.push(DispelRule::Paralysis);
             }
             if data.archetype == 3 {
                 dispel_rules.push(DispelRule::Disease);
@@ -1065,11 +1110,13 @@ impl World {
                     elapsed: 0.0,
                     summoned: None,
                     restore_owner: None,
-                    recover: data.flags & RECOVER != 0 || matches!(data.archetype, DEMORALIZE | 38),
+                    recover: data.flags & RECOVER != 0
+                        || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                werewolf_race: None,
                 command_owner: None,
                 light_base: None,
                 bound_weapon: None,
@@ -1079,6 +1126,7 @@ impl World {
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
+                vampire_form: None,
             });
         }
         Ok(prepared)
@@ -1626,9 +1674,7 @@ impl World {
             return;
         };
         let spells = state.spells.clone();
-        for spell in spells {
-            self.apply_actor_ability(actor, spell);
-        }
+        self.apply_abilities(actor, spells);
     }
 
     /// Add a known spell and activate it when it is a constant-effect ability.
@@ -1639,53 +1685,214 @@ impl World {
         if !state.spells.insert(spell) {
             return false;
         }
-        self.apply_actor_ability(actor, spell);
+        self.apply_abilities(actor, [spell].into_iter().collect());
         true
     }
 
-    fn apply_actor_ability(&mut self, actor: GlobalFormId, spell: GlobalFormId) {
-        if self
-            .active_effects
-            .values()
-            .any(|effect| effect.target == actor && effect.source == actor && effect.spell == spell)
-        {
-            return;
-        }
-        let Ok(definition) = self.spell(spell) else {
-            return;
-        };
-        if definition.data.spell_type != 4
-            || definition.data.cast_type != 0
-            || definition.data.delivery != 0
-        {
-            return;
-        }
-        let Ok(prepared) = self.prepare_spell(
-            spell,
-            actor,
-            Some(actor),
-            Some(actor),
-            CastDelivery::Direct,
-            None,
-            true,
-        ) else {
-            return;
-        };
-        let Ok(prepared) = self.prepare_effect_actions(prepared) else {
-            return;
-        };
-        for prepared in prepared {
-            let id = prepared.effect.id;
-            self.next_effect = id.0 + 1;
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
-                    if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
-                        continue;
+    fn apply_abilities(
+        &mut self,
+        actor: GlobalFormId,
+        spells: BTreeSet<GlobalFormId>,
+    ) -> BTreeSet<EffectId> {
+        self.apply_abilities_with_alloc(actor, spells, None)
+    }
+
+    fn apply_abilities_with_alloc(
+        &mut self,
+        actor: GlobalFormId,
+        spells: BTreeSet<GlobalFormId>,
+        mut alloc: Option<Alloc<'_>>,
+    ) -> BTreeSet<EffectId> {
+        let mut owned = BTreeSet::new();
+        for spell in spells {
+            let Ok(definition) = self.spell(spell) else {
+                continue;
+            };
+            if definition.data.spell_type != 4
+                || definition.data.cast_type != 0
+                || definition.data.delivery != 0
+            {
+                continue;
+            }
+            let Ok(prepared) = self.prepare_spell(
+                spell,
+                actor,
+                Some(actor),
+                Some(actor),
+                CastDelivery::Direct,
+                None,
+                true,
+            ) else {
+                continue;
+            };
+            let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+                continue;
+            };
+            for prepared in prepared {
+                let id = prepared.effect.id;
+                owned.insert(id);
+                self.next_effect = id.0 + 1;
+                if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                    if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                        if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                            continue;
+                        }
                     }
                 }
+                self.active_effects.insert(id, prepared.effect.clone());
+                if let Some(alloc) = alloc.as_deref_mut() {
+                    let object = self.object_of(Handle::ActiveEffect(id), alloc);
+                    self.pending.push(Pending::BindEffect {
+                        object,
+                        effect: prepared.effect.effect,
+                    });
+                    let target = self.form_value(Some(actor), alloc);
+                    let caster = self.form_value(Some(actor), alloc);
+                    self.pending.push(Pending::Event {
+                        object,
+                        name: "OnEffectStart".into(),
+                        args: vec![target, caster.clone()],
+                    });
+                    let effect = self.form_value(Some(prepared.effect.effect), alloc);
+                    self.form_event(actor, "OnMagicEffectApply", vec![caster, effect], alloc);
+                }
             }
-            self.active_effects.insert(id, prepared.effect.clone());
         }
+        owned
+    }
+
+    fn race_effects(
+        &self,
+        race: GlobalFormId,
+    ) -> Result<(BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>), MagicError> {
+        let record = self.record(race).ok_or(MagicError::Missing(race))?;
+        let mut spells = BTreeSet::new();
+        let mut shouts = BTreeSet::new();
+        for raw in record.all(super::T(b"SPLO")) {
+            if raw.len() != 4 {
+                return Err(MagicError::Unsupported("werewolf race effect layout"));
+            }
+            let raw = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            let spell = self
+                .resolve_from(race, raw)
+                .ok_or(MagicError::Missing(race))?;
+            match self.tag_of(spell) {
+                Some(tag) if tag == super::T(b"SPEL") => {
+                    self.spell(spell)?;
+                    spells.insert(spell);
+                }
+                Some(tag) if tag == super::T(b"SHOU") => {
+                    shouts.insert(spell);
+                }
+                _ => return Err(MagicError::Unsupported("werewolf race effect")),
+            }
+        }
+        Ok((spells, shouts))
+    }
+
+    fn start_werewolf_transform(
+        &mut self,
+        actor: GlobalFormId,
+        effect: EffectId,
+        race: GlobalFormId,
+        race_spells: BTreeSet<GlobalFormId>,
+        race_shouts: BTreeSet<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let state = self.actor(actor).ok_or(MagicError::Target)?;
+        if state.werewolf_transform.is_some() {
+            return Err(MagicError::Unsupported("actor already transformed"));
+        }
+        let prior_race = state.race;
+        let added_spells = race_spells
+            .difference(&state.spells)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let added_shouts = race_shouts
+            .difference(&state.shouts)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        state.race = Some(race);
+        state.spells.extend(race_spells);
+        state.shouts.extend(race_shouts);
+        let added_effects =
+            self.apply_abilities_with_alloc(actor, added_spells.clone(), Some(alloc));
+        let state = self.actors.get_mut(&actor).ok_or(MagicError::Target)?;
+        state.werewolf_transform = Some(super::WerewolfTransformState {
+            effect,
+            prior_race,
+            transformed_race: race,
+            added_spells: added_spells.clone(),
+            added_shouts,
+            added_effects,
+        });
+        Ok(())
+    }
+
+    fn finish_werewolf_transform(
+        &mut self,
+        actor: GlobalFormId,
+        effect: EffectId,
+        alloc: Alloc<'_>,
+    ) {
+        let Some(state) = self.actors.get(&actor) else {
+            return;
+        };
+        let Some(transform) = state.werewolf_transform.clone() else {
+            return;
+        };
+        if transform.effect != effect {
+            return;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            if state.race == Some(transform.transformed_race) {
+                state.race = transform.prior_race;
+            }
+            for spell in &transform.added_spells {
+                state.spells.remove(spell);
+            }
+            for shout in &transform.added_shouts {
+                state.shouts.remove(shout);
+            }
+            state.werewolf_transform = None;
+        }
+        for id in transform.added_effects {
+            self.dispel_effect(id, alloc);
+        }
+    }
+    fn vampire_lord_race(
+        &self,
+        effect: GlobalFormId,
+        raw_race: u32,
+    ) -> Result<(GlobalFormId, std::collections::BTreeSet<GlobalFormId>), MagicError> {
+        let race = self
+            .resolve_from(effect, raw_race)
+            .filter(|race| self.tag_of(*race) == Some(super::T(b"RACE")))
+            .ok_or(MagicError::Missing(effect))?;
+        let record_ref = self
+            .order
+            .winner_ref(race)
+            .ok_or(MagicError::Missing(race))?;
+        let record = self.order.record(record_ref);
+        if record.is_deleted() {
+            return Err(MagicError::Missing(race));
+        }
+        let mut spells = std::collections::BTreeSet::new();
+        for raw in record.all(super::T(b"SPLO")) {
+            if raw.len() != 4 {
+                return Err(MagicError::Unsupported("race ability layout"));
+            }
+            let form = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            let Some(spell) = self.resolve_from(race, form) else {
+                return Err(MagicError::Missing(race));
+            };
+            if self.tag_of(spell) == Some(super::T(b"SPEL"))
+                && self.spell(spell)?.data.spell_type == 4
+            {
+                spells.insert(spell);
+            }
+        }
+        Ok((race, spells))
     }
 
     fn prepare_spell(
@@ -1818,18 +2025,22 @@ impl World {
                 data.archetype,
                 0 | 1
                     | 2
+                    | 5
+                    | 18
+                    | PARALYSIS_ARCHETYPE
+                    | CURE_PARALYSIS_ARCHETYPE
+                    | 36
+                    | 46
                     | 3
                     | 4
-                    | 5
+                    | 6
                     | 9
                     | 11
                     | 12
                     | LOCK
                     | OPEN
                     | 17
-                    | 18
                     | 45
-                    | 6
                     | 10
                     | 20
                     | 38
@@ -1859,9 +2070,10 @@ impl World {
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             let cast_type_matches = if scroll {
                 data.cast_type == 1
             } else {
@@ -1892,6 +2104,25 @@ impl World {
                     return Err(MagicError::Unsupported("summon actor not summonable"));
                 }
                 Some(base)
+            } else {
+                None
+            };
+            let werewolf_race = if data.archetype == 36 {
+                let race = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(race) != Some(super::T(b"RACE"))
+                    || self.record(race).is_none_or(|record| record.is_deleted())
+                {
+                    return Err(MagicError::Unsupported("werewolf race"));
+                }
+                let (spells, shouts) = self.race_effects(race)?;
+                Some((race, spells, shouts))
+            } else {
+                None
+            };
+            let vampire_form = if data.archetype == 46 {
+                Some(self.vampire_lord_race(effect, data.associated_item)?)
             } else {
                 None
             };
@@ -1941,6 +2172,9 @@ impl World {
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
             }
+            if data.archetype == CURE_PARALYSIS_ARCHETYPE {
+                dispel_rules.push(DispelRule::Paralysis);
+            }
             if data.archetype == 3 {
                 dispel_rules.push(DispelRule::Disease);
             }
@@ -1958,7 +2192,10 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = if matches!(data.archetype, LOCK | OPEN) {
+            let mut recipients = if werewolf_race.is_some()
+                || vampire_form.is_some()
+                || matches!(data.archetype, LOCK | OPEN)
+            {
                 vec![target]
             } else if definition.data.delivery == 4 {
                 self.area_targets_at_position(location.ok_or(MagicError::Target)?, radius)
@@ -2031,6 +2268,8 @@ impl World {
                         }
                         recipient_changes.push((name.to_string(), amount));
                     }
+                } else if data.archetype == PARALYSIS_ARCHETYPE {
+                    recipient_changes.push(("paralysis".into(), signed));
                 } else if data.archetype == 6 {
                     recipient_changes.push(("aggression".into(), -magnitude));
                 } else if data.archetype == DEMORALIZE {
@@ -2054,11 +2293,12 @@ impl World {
                         summoned: None,
                         restore_owner,
                         recover: data.flags & RECOVER != 0
-                            || matches!(data.archetype, DEMORALIZE | 38),
+                            || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
                         changes: recipient_changes,
                     },
-                    no_recast: data.flags & NO_RECAST != 0,
+                    no_recast: data.flags & NO_RECAST != 0 || data.archetype == 46,
                     summon_base,
+                    werewolf_race: werewolf_race.clone(),
                     command_owner,
                     light_base,
                     bound_weapon,
@@ -2068,6 +2308,7 @@ impl World {
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
+                    vampire_form: vampire_form.clone(),
                 });
             }
         }
@@ -2122,6 +2363,8 @@ impl World {
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         for mut prepared in prepared {
+            let id = prepared.effect.id;
+            self.next_effect = id.0 + 1;
             if let Some(weapon) = prepared.bound_weapon {
                 let inventory = &mut self
                     .reference(prepared.effect.target)
@@ -2149,6 +2392,16 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let Some((race, spells, shouts)) = prepared.werewolf_race {
+                self.start_werewolf_transform(
+                    prepared.effect.target,
+                    prepared.effect.id,
+                    race,
+                    spells,
+                    shouts,
+                    alloc,
+                )?;
             }
             if let Some(previous_owner) = prepared.effect.restore_owner {
                 if let Some(reference) = self.reference(prepared.effect.target) {
@@ -2183,8 +2436,6 @@ impl World {
                     });
                 }
             }
-            let id = prepared.effect.id;
-            self.next_effect += 1;
             let object = self.object_of(Handle::ActiveEffect(id), alloc);
             self.pending.push(Pending::BindEffect {
                 object,
@@ -2207,6 +2458,60 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            if let Some((vampire_race, race_spells)) = prepared.vampire_form.clone() {
+                let actor_id = prepared.effect.target;
+                let previous_race = self.actor(actor_id).and_then(|actor| actor.race);
+                let added_spells: std::collections::BTreeSet<_> = {
+                    let actor = self.actor(actor_id).ok_or(MagicError::Target)?;
+                    actor.race = Some(vampire_race);
+                    race_spells
+                        .into_iter()
+                        .filter(|spell| actor.spells.insert(*spell))
+                        .collect()
+                };
+                let ability_effects = self
+                    .apply_abilities(actor_id, added_spells.clone())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                for ability_effect in &ability_effects {
+                    let Some(effect_form) = self
+                        .active_effects
+                        .get(ability_effect)
+                        .map(|active| active.effect)
+                    else {
+                        continue;
+                    };
+                    let object = self.object_of(Handle::ActiveEffect(*ability_effect), alloc);
+                    self.pending.push(Pending::BindEffect {
+                        object,
+                        effect: effect_form,
+                    });
+                    let target_value = self.form_value(Some(actor_id), alloc);
+                    self.pending.push(Pending::Event {
+                        object,
+                        name: "OnEffectStart".into(),
+                        args: vec![target_value.clone(), target_value],
+                    });
+                    let caster_value = self.form_value(Some(actor_id), alloc);
+                    let effect_value = self.form_value(Some(effect_form), alloc);
+                    self.form_event(
+                        actor_id,
+                        "OnMagicEffectApply",
+                        vec![caster_value, effect_value],
+                        alloc,
+                    );
+                }
+                self.vampire_lord_forms.insert(
+                    id,
+                    VampireLordForm {
+                        actor: actor_id,
+                        previous_race,
+                        vampire_race,
+                        added_spells,
+                        ability_effects,
+                    },
+                );
+            }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
@@ -2378,6 +2683,15 @@ impl World {
                             }
                         }
                     }
+                    DispelRule::Paralysis => {
+                        for effect in live.iter() {
+                            if self.magic_effect(effect.effect)?.data.archetype
+                                == PARALYSIS_ARCHETYPE
+                            {
+                                selected.insert(effect.id);
+                            }
+                        }
+                    }
                 }
             }
             for effect in live.iter() {
@@ -2401,6 +2715,45 @@ impl World {
         self.active_effects
             .values()
             .any(|e| e.target == target && e.effect == effect)
+    }
+
+    /// Check an actor's known spells and active MGEF equip-ability grants.
+    pub fn has_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        if self
+            .actor(actor)
+            .is_some_and(|state| state.spells.contains(&spell))
+        {
+            return true;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == actor)
+            .map(|effect| effect.effect)
+            .collect();
+        effects.into_iter().any(|effect| {
+            self.magic_effect(effect).is_ok_and(|definition| {
+                self.resolve_from(effect, definition.data.equip_ability) == Some(spell)
+            })
+        })
+    }
+
+    fn validate_equip_ability(&self, effect: GlobalFormId, raw: u32) -> Result<(), MagicError> {
+        if raw == 0 {
+            return Ok(());
+        }
+        let ability = self
+            .resolve_from(effect, raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let rref = self
+            .order
+            .winner_ref(ability)
+            .ok_or(MagicError::Missing(ability))?;
+        if self.order.record(rref).is_deleted() || self.tag_of(ability) != Some(super::T(b"SPEL")) {
+            return Err(MagicError::Missing(ability));
+        }
+        self.spell(ability)?;
+        Ok(())
     }
 
     /// Match keywords on each active effect's winning definition.
@@ -2481,6 +2834,20 @@ impl World {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
                 reference.enabled = false;
+            }
+        }
+        self.finish_werewolf_transform(effect.target, effect.id, alloc);
+        if let Some(form) = self.vampire_lord_forms.remove(&id) {
+            if let Some(actor) = self.actor(form.actor) {
+                if actor.race == Some(form.vampire_race) {
+                    actor.race = form.previous_race;
+                }
+                for spell in &form.added_spells {
+                    actor.spells.remove(spell);
+                }
+            }
+            for ability_effect in form.ability_effects {
+                self.dispel_effect(ability_effect, alloc);
             }
         }
         if let Some(previous_owner) = effect.restore_owner {
@@ -2782,6 +3149,98 @@ fn finite_nonnegative(value: f32) -> Result<f32, MagicError> {
     } else {
         Err(MagicError::Number)
     }
+}
+
+pub(super) fn write_vampire_lord_state(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.len(world.vampire_lord_forms.len());
+    for (effect, form) in &world.vampire_lord_forms {
+        writer.u64(effect.0);
+        write_form_id(writer, form.actor);
+        write_opt_form_id(writer, form.previous_race);
+        write_form_id(writer, form.vampire_race);
+        writer.len(form.added_spells.len());
+        for spell in &form.added_spells {
+            write_form_id(writer, *spell);
+        }
+        writer.len(form.ability_effects.len());
+        for ability in &form.ability_effects {
+            writer.u64(ability.0);
+        }
+    }
+}
+
+pub(super) fn read_vampire_lord_state(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    let mut forms = BTreeMap::new();
+    for _ in 0..count {
+        let id = EffectId(reader.u64()?);
+        let actor = read_form_id(reader)?;
+        let previous_race = read_opt_form_id(reader)?;
+        let vampire_race = read_form_id(reader)?;
+        let spell_count = reader.len()?;
+        let mut added_spells = std::collections::BTreeSet::new();
+        for _ in 0..spell_count {
+            if !added_spells.insert(read_form_id(reader)?) {
+                return Err(soe_papyrus::VmError::State(
+                    "duplicate Vampire Lord ability".into(),
+                ));
+            }
+        }
+        let ability_count = reader.len()?;
+        let mut ability_effects = Vec::with_capacity(ability_count);
+        for _ in 0..ability_count {
+            ability_effects.push(EffectId(reader.u64()?));
+        }
+        if id.0 == 0 {
+            return Err(soe_papyrus::VmError::State(
+                "invalid Vampire Lord transformation state".into(),
+            ));
+        }
+        if forms
+            .insert(
+                id,
+                VampireLordForm {
+                    actor,
+                    previous_race,
+                    vampire_race,
+                    added_spells,
+                    ability_effects,
+                },
+            )
+            .is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "duplicate Vampire Lord transformation".into(),
+            ));
+        }
+    }
+    world.vampire_lord_forms = forms;
+    Ok(())
+}
+
+pub(super) fn validate_vampire_lord_state(
+    world: &World,
+    actors: &std::collections::HashMap<GlobalFormId, super::ActorState>,
+    effects: &BTreeMap<EffectId, ActiveEffect>,
+) -> Result<(), soe_papyrus::VmError> {
+    for (id, form) in &world.vampire_lord_forms {
+        if effects.get(id).is_none_or(|effect| {
+            effect.target != form.actor
+                || !world
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 46)
+        }) || !actors.contains_key(&form.actor)
+            || world.tag_of(form.vampire_race) != Some(super::T(b"RACE"))
+        {
+            return Err(soe_papyrus::VmError::State(
+                "invalid Vampire Lord transformation state".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn change_values(

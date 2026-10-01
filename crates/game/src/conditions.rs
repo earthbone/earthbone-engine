@@ -1685,11 +1685,7 @@ fn function_value(
         }
         264 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
-            boolean(
-                world
-                    .actor(subject)
-                    .is_some_and(|actor| actor.spells.contains(&spell)),
-            )
+            boolean(world.has_spell(subject, spell))
         }
         289 => boolean(world.actor(subject).is_some_and(|actor| actor.in_combat)),
         323 => {

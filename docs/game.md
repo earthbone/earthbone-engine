@@ -2888,6 +2888,21 @@ SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
 duration and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
 
+An active MGEF's `Equip Ability` link grants that spell for the lifetime of the
+application. `Actor.HasSpell` and condition function 264 see the grant while the
+effect is active. The grant is derived from the saved active effect, so expiry
+or dispel removes only that application's grant and preserves a spell the actor
+knows independently. The link is resolved in the MGEF's winning plugin context
+and must name a live SPEL. MGEF `Perk to Apply` remains unsupported. xEdit's
+MGEF schema identifies these as separate SPEL and PERK links, and CK
+`DispelSpell_-_Actor.wikitext` documents spell-wide removal independently of
+the active effect's equip ability.
+
+`mag_20_effect_grants_its_authored_equip_ability`,
+`mag_20_expiry_removes_its_equip_ability_grant` and
+`mag_20_expiring_grant_preserves_independently_owned_spell` cover grant
+visibility and ownership through expiry.
+
 MGEF's `Resist Value` field and its enum come from local
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Its actor-value indices map through
 `crates/game/src/actor_values.rs`. The local skymp magic action handler leaves
@@ -3092,8 +3107,68 @@ Actor-value indices from 0 through 163 resolve through the shared mapping in
 [actor values](actor-values.md). Recover effects use the temporary modifier
 domain. Other effects damage or restore the damage component without changing
 permanent modifiers.
-Automatic ability application from AddSpell or NPC spell lists, effect artwork and sounds, actor-event forwarding, effect inventory filters and VM object reclamation remain unfinished.
-This is an active-effect foundation, not complete magic execution.
+Automatic ability application from AddSpell or NPC spell lists, enchantments,
+potions, resistance and absorption, effect artwork and sounds, actor-event
+forwarding and VM object reclamation remain unfinished.
+
+### Vampire Lord transformation, MAG-67
+
+MGEF archetype 46 resolves its associated item as a RACE form. Applying it
+sets the target actor's runtime race to that winning form and adds the race's
+direct SPLO entries whose winning SPEL records have the Ability type. Only
+spells newly inserted by that transformation are owned by it. Their constant
+effects are applied through the actor ability path. The `MAG-67` world save
+section retains the previous race, assigned race, added spells and resulting
+effect identities. Dispel or expiry restores the previous race only if the
+actor still has the race this effect assigned, then removes its added spells
+and their active effects. A spell that was already known remains known.
+
+The local `TES5Edit/Core/wbDefinitionsTES5.pas` MGEF archetype enum and
+`uesp-modfileformat/MGEF.wikitext` identify archetype 46 and its associated
+RACE link. xEdit's `wbSPLOs` definition identifies race SPLO entries as actor
+effects. The requested CK Magic Effect page is absent from the local CK wiki
+dump. The available CK `GetRace`, `AddSpell` and `RemoveSpell` pages establish
+the actor race and spell operations used here. Race SPLO entries that are
+leveled lists or shouts are not applied by this path.
+
+### Paralysis, MAG-42
+
+Direct casts and ingestibles accept MGEF archetype 21 as a timed active effect.
+Its signed magnitude temporarily modifies the forced `paralysis` actor value.
+While that effect is live, `World::actor_is_paralyzed` reports true for its
+recipient. The NPC package driver pauses that actor before package evaluation
+or movement, and the host player controller sends zero horizontal movement and
+does not jump. Expiry reverses only this effect's actor-value delta and clears
+the condition, so NPC and player movement resume. This uses the winning MGEF
+record and existing saved active-effect state, with no additional save fields.
+
+The sources are local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`. Their archetype tables identify 21 as
+Paralysis and require the `paralysis` actor value. The CK `HasMagicEffect` and
+`OnMagicEffectApply` pages describe active application checks and callbacks,
+not movement handling. `mag_42_paralysis_stops_npc_travel_until_effect_expires`
+exercises NPC movement, the forced actor value and expiry with synthetic
+records. Player locomotion is covered by the host's `mag_42_*` tests. The check
+names no vanilla records, so it has no `SKYRIM_DATA`-gated case.
+
+### Cure Paralysis, MAG-48
+
+Direct casts and ingestibles execute MGEF archetype 27 by ending each active
+archetype 21 application on the recipient. Other effects on that actor and
+paralysis effects on other actors remain live. The existing effect-ending path
+reverses the ended applications' temporary `paralysis` actor-value changes and
+queues their `OnEffectFinish` events, so `World::actor_is_paralyzed` becomes
+false when no paralysis application remains. The implementation uses the
+existing active-effect save state and adds no save fields.
+
+The local xEdit `MGEF` archetype table identifies 27 as Cure Paralysis. UESP's
+`MGEF.wikitext` says this archetype has no extra data and identifies 21 as
+Paralysis, which forces the `paralysis` actor value. The CK dump has no
+archetype-specific execution page. Its active-effect and dispel pages describe
+the live application and finish path reused here. Synthetic
+`mag_48_*` tests cover target selection, restoration of control, and the
+ingestible path. The check names no vanilla records, so it has no
+`SKYRIM_DATA`-gated case.
 
 ### Demoralize, MAG-30
 
@@ -3108,7 +3183,7 @@ targets follow the existing hostile-hit rejection path.
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` MGEF table names archetype 7
 Demoralize. The local `uesp-modfileformat/MGEF.wikitext` says its primary actor
 value is forced to Confidence. The CK wiki dump has no MGEF archetype page.
-its local `OnMagicEffectApply_-_ObjectReference.wikitext` and
+Its local `OnMagicEffectApply_-_ObjectReference.wikitext` and
 `HasMagicEffect_-_Actor.wikitext` establish the application event and active
 effect query contracts. The implementation uses the existing active-effect
 save data and reverses the Confidence modifier through the shared actor-value
@@ -3194,6 +3269,33 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 423 quests through 1,388 native calls with zero unresolved calls. Binding now
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
+
+### Werewolf, MAG-57
+
+Direct casts execute MGEF archetype 36 by resolving its associated item to a
+winning `RACE` form. The race's `SPLO` `SPEL` abilities and `SHOU` entries are
+added to the target's state, constant-effect abilities are applied through
+the existing ability path, and the target's current race changes to the
+authored race.
+Removing or expiring that effect restores the prior race only if the actor
+still has the transformed race. It removes only spells and active ability
+applications this transform added, retaining pre-existing race and spell
+state. Actor-owned transform metadata is saved in the `MAG-57` actor section.
+
+`TES5Edit/Core/wbDefinitionsTES5.pas` names archetype 36 Werewolf and
+identifies its related form as a race. The local
+`uesp-modfileformat/MGEF.wikitext` independently says the related ID is a
+race, and `RACE.wikitext` defines `SPLO` entries as `SPEL` or `SHOU` links.
+The cloned CK wiki has no Magic Effect archetype page, so the record meaning
+comes from xEdit and UESP. `ck-wiki/Actor_Script.wikitext` describes
+`SendLycanthropyStateChanged` as notifying listeners. This executor does not
+raise that event. Host appearance refresh is not handled here.
+
+`mag_57_transformation_uses_authored_race_and_grants_its_ability`,
+`mag_57_reversion_restores_only_race_and_abilities_owned_by_transform` and
+`mag_57_saved_transform_restores_owned_state_after_load` cover the synthetic
+record path. The check names no installed records, so it has no
+`SKYRIM_DATA`-gated case.
 
 ### Direct hostile hits, MAG-01
 
@@ -4316,10 +4418,15 @@ parity with Skyrim.
 
 ## Image-space rendering prerequisite audit, MAG-71
 
-MAG-71 is blocked on MAG-25 and MAG-72. Its acceptance check still requires
-rendered animated color, blur, depth and HDR fixtures at the active stack
-weights. MAG-72 owns the missing shared base image-space inputs and renderer.
-No curve evaluator or partial rendering path was added by this audit.
+MAG-71 depends on MAG-25's active modifier lifetimes and MAG-72's shared base
+image-space inputs. `World::image_space_curve_samples` resolves each active
+modifier through its winning IMAD record, validates the authored key arrays,
+and samples float and RGBA keys at normalized age. Float keys use linear
+interpolation, with values held at the first or last key outside the key range.
+The host frame carries those samples with the independent active stack
+strength. This does not combine modifier values with base IMGS data or render
+a screen pass. The rendered acceptance check remains open until MAG-72 supplies
+the base values and rendering path.
 
 The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
 `Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen

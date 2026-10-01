@@ -979,8 +979,7 @@ impl World {
         } else {
             (1, BTreeMap::new())
         };
-        // Active effects are validated below after the version 37 world section
-        // table has restored section-owned state such as summoned actor ownership.
+        // Active effects are validated after named sections restore owned state.
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {
                 if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
@@ -1145,6 +1144,7 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_vampire_forms = std::mem::take(&mut self.vampire_lord_forms);
         let fallback_player_level = player
             .and_then(|id| actors.get(&id).map(|actor| actor.level))
             .unwrap_or(self.player_level)
@@ -1157,17 +1157,25 @@ impl World {
         } else {
             Ok(())
         };
+        let validation_result = if section_result.is_ok() {
+            super::magic::validate_vampire_lord_state(self, &actors, &self.active_effects)
+        } else {
+            Ok(())
+        };
         let player_level = self.player_level;
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
+        self.vampire_lord_forms = previous_vampire_forms;
         section_result?;
+        validation_result?;
         r.expect_end()?;
         for (id, effect) in &active_effects {
             let headless_ability = effect.source == effect.target
@@ -1299,8 +1307,9 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
-        self.unresolved_records = unresolved_records;
         self.brewed_potions = brewed_potions;
+        self.vampire_lord_forms = vampire_lord_forms;
+        self.unresolved_records = unresolved_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;

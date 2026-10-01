@@ -326,6 +326,8 @@ pub struct ActorState {
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
     pub werewolf: bool,
+    /// Race and race effects owned by one active Werewolf archetype effect.
+    pub(crate) werewolf_transform: Option<WerewolfTransformState>,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
     /// Player character head parts selected in the race menu, keyed by HDPT type.
@@ -358,6 +360,16 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WerewolfTransformState {
+    pub effect: crate::world::magic::EffectId,
+    pub prior_race: Option<GlobalFormId>,
+    pub transformed_race: GlobalFormId,
+    pub added_spells: BTreeSet<GlobalFormId>,
+    pub added_shouts: BTreeSet<GlobalFormId>,
+    pub added_effects: BTreeSet<crate::world::magic::EffectId>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -671,6 +683,7 @@ pub struct World {
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
     pub(crate) spell_casts_in_progress: BTreeMap<GlobalFormId, magic::SpellCast>,
+    pub(crate) vampire_lord_forms: BTreeMap<magic::EffectId, magic::VampireLordForm>,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
@@ -825,6 +838,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             spell_casts_in_progress: BTreeMap::new(),
+            vampire_lord_forms: BTreeMap::new(),
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,
             telekinesis_grab: None,

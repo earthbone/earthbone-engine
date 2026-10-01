@@ -1740,6 +1740,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if world.is_player(actor) {
             continue;
         }
+        if world.actor_is_paralyzed(actor) {
+            continue;
+        }
         let Some((dead, unconscious)) = world.actor(actor).map(|a| (a.dead, a.unconscious)) else {
             continue;
         };
