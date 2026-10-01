@@ -467,6 +467,14 @@ impl World {
         self.active_effects.values()
     }
 
+    /// Whether a live command effect currently owns this actor.
+    #[must_use]
+    pub fn is_commanded_actor(&self, target: GlobalFormId) -> bool {
+        self.active_effects
+            .values()
+            .any(|effect| effect.target == target && effect.restore_owner.is_some())
+    }
+
     /// Whether an actor currently has a live Calm application.
     pub(crate) fn is_calmed(&self, target: GlobalFormId) -> bool {
         self.active_effects.values().any(|effect| {

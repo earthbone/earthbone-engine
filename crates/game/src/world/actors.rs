@@ -46,6 +46,59 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Set the actor's head-tracking flag.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor.
+    pub fn set_head_tracking(&mut self, id: GlobalFormId, enabled: bool) -> Result<(), String> {
+        let actor = self
+            .actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?;
+        actor.head_tracking = Some(enabled);
+        Ok(())
+    }
+
+    /// Whether head tracking is enabled, using the CK default when unset.
+    #[must_use]
+    pub fn head_tracking(&mut self, id: GlobalFormId) -> Option<bool> {
+        self.actor(id)
+            .map(|actor| actor.head_tracking.unwrap_or(true))
+    }
+
+    pub(super) fn write_scr_12(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+        match actor.head_tracking {
+            None => writer.u8(0),
+            Some(enabled) => {
+                writer.u8(1);
+                writer.u8(u8::from(enabled));
+            }
+        }
+    }
+
+    pub(super) fn read_scr_12(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), soe_papyrus::VmError> {
+        actor.head_tracking = match reader.u8()? {
+            0 => None,
+            1 => match reader.u8()? {
+                0 => Some(false),
+                1 => Some(true),
+                _ => {
+                    return Err(soe_papyrus::VmError::State(
+                        "invalid SCR-12 head tracking value".into(),
+                    ))
+                }
+            },
+            _ => {
+                return Err(soe_papyrus::VmError::State(
+                    "invalid SCR-12 head tracking flag".into(),
+                ))
+            }
+        };
+        Ok(())
+    }
+
     /// Set a CK expression override on an actor.
     ///
     /// # Errors
@@ -267,6 +320,39 @@ impl World {
             actor.race = Some(race);
         }
         Ok(())
+    }
+
+    /// Whether an actor's current winning race has the RACE DATA Child flag.
+    ///
+    /// # Errors
+    /// Returns an error for a non-actor, a missing or invalid race record, or
+    /// malformed RACE DATA.
+    pub fn actor_is_child(&mut self, id: GlobalFormId) -> Result<bool, soe_esm::Error> {
+        let race = self
+            .actor(id)
+            .ok_or_else(|| soe_esm::Error::Invalid("form is not an actor".into()))?
+            .race;
+        let Some(race) = race else {
+            return Ok(false);
+        };
+        let record = self
+            .record(race)
+            .filter(|record| !record.is_deleted())
+            .ok_or_else(|| soe_esm::Error::Invalid("missing actor race".into()))?;
+        crate::race::is_child(record).map(|child| child.unwrap_or(false))
+    }
+
+    /// Stop this actor's current combat and clear its local alarm state.
+    ///
+    /// Returns false when `id` is not an actor reference.
+    pub fn stop_combat_alarm(&mut self, id: GlobalFormId) -> bool {
+        let Some(actor) = self.actor(id) else {
+            return false;
+        };
+        actor.in_combat = false;
+        actor.combat_target = None;
+        actor.alerted = false;
+        true
     }
 
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.

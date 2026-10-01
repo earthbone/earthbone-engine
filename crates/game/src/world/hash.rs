@@ -284,6 +284,7 @@ fn faction_state(h: &mut StateHasher, f: &FactionState) {
     h.i32(f.infamy_nonviolent);
     h.bool(f.player_expelled);
     h.bool(f.player_enemy);
+    h.bool(f.player_attacked);
     h.bool(f.tracks_crime);
 }
 
@@ -544,6 +545,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
+    }
+    match a.head_tracking {
+        None => h.u32(0),
+        Some(false) => h.u32(1),
+        Some(true) => h.u32(2),
     }
 }
 

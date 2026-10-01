@@ -335,6 +335,10 @@ fn game() -> Game {
         game.load_script(&script).unwrap();
     }
     game.bind();
+    game.load_cell(soe_esm::GlobalFormId {
+        file: 0,
+        object: INSIDE,
+    });
     game
 }
 
@@ -730,6 +734,51 @@ fn ui_03_equip_spell_native_and_the_magic_menu_share_one_hand_state() {
     assert_eq!(
         via_menu_after_unequip, None,
         "UnequipSpell must clear the same hand state EquipSpell set"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-15: `GetEquippedSpell` reads the selected hand through the spell-hand
+/// state used by `EquipSpell`. Unsupported source values return no form.
+#[test]
+fn scr_15_get_equipped_spell_reads_the_requested_hand() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let spell = obj(&mut g, "TestFlames");
+
+    call(&mut g, &vampire, "AddSpell", &[spell.clone()]);
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(0)],
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(0)]),
+        spell,
+        "source zero reads the left hand"
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
+        Value::None,
+        "reading the other hand does not alias the left hand"
+    );
+
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
+        spell,
+        "source one reads the right hand"
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(4)]),
+        Value::None,
+        "an unsupported source returns no spell"
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }

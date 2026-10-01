@@ -247,6 +247,10 @@ mod ai_71_reference_conditions;
 mod ai_72_adversarial;
 #[path = "ai_72_reference_state_conditions.rs"]
 mod ai_72_reference_state_conditions;
+#[path = "ai_73_breaker_adversarial.rs"]
+mod ai_73_breaker_adversarial;
+#[path = "ai_73_reference_conditions.rs"]
+mod ai_73_reference_conditions;
 #[path = "ai_74_adversarial.rs"]
 mod ai_74_adversarial;
 #[path = "ai_74_conditions.rs"]
@@ -263,8 +267,38 @@ mod ai_76_breaker2_adversarial;
 mod ai_76_breaker_adversarial;
 #[path = "ai_76_reference_conditions.rs"]
 mod ai_76_reference_conditions;
+#[path = "ai_77_breaker_adversarial.rs"]
+mod ai_77_breaker_adversarial;
+#[path = "ai_77_reference_conditions.rs"]
+mod ai_77_reference_conditions;
 #[path = "ai_78_adversarial.rs"]
 mod ai_78_adversarial;
+#[path = "ai_79_breaker_adversarial.rs"]
+mod ai_79_breaker_adversarial;
+#[path = "ai_79_relationship_conditions.rs"]
+mod ai_79_relationship_conditions;
+#[path = "ai_80_breaker_adversarial.rs"]
+mod ai_80_breaker_adversarial;
+#[path = "ai_80_player_conditions.rs"]
+mod ai_80_player_conditions;
+#[path = "ai_81_breaker_adversarial.rs"]
+mod ai_81_breaker_adversarial;
+#[path = "ai_82_breaker_adversarial.rs"]
+mod ai_82_breaker_adversarial;
+#[path = "ai_82_relationship_conditions.rs"]
+mod ai_82_relationship_conditions;
+#[path = "ai_83_breaker_adversarial.rs"]
+mod ai_83_breaker_adversarial;
+#[path = "ai_83_relationship_conditions.rs"]
+mod ai_83_relationship_conditions;
+#[path = "ai_84_breaker_adversarial.rs"]
+mod ai_84_breaker_adversarial;
+#[path = "ai_84_world_conditions.rs"]
+mod ai_84_world_conditions;
+#[path = "ai_85_adversarial.rs"]
+mod ai_85_adversarial;
+#[path = "ai_85_conditions_batch_2.rs"]
+mod ai_85_conditions_batch_2;
 #[path = "ai_86_adversarial.rs"]
 mod ai_86_adversarial;
 #[path = "ai_86_condition_contracts.rs"]
@@ -947,14 +981,44 @@ mod sav_68_adversarial;
 mod sav_68_reset;
 #[path = "save_generations.rs"]
 mod save_generations;
+#[path = "scr_01_adversarial.rs"]
+mod scr_01_adversarial;
+#[path = "scr_02_adversarial.rs"]
+mod scr_02_adversarial;
+#[path = "scr_02_native_contract_inventory.rs"]
+mod scr_02_native_contract_inventory;
+#[path = "scr_03_adversarial.rs"]
+mod scr_03_adversarial;
+#[path = "scr_03_component.rs"]
+mod scr_03_component;
+#[path = "scr_05_adversarial.rs"]
+mod scr_05_adversarial;
+#[path = "scr_05_lazy_cell_binding.rs"]
+mod scr_05_lazy_cell_binding;
 #[path = "scr_08_actor_native_contracts.rs"]
 mod scr_08_actor_native_contracts;
 #[path = "scr_08_adversarial.rs"]
 mod scr_08_adversarial;
+#[path = "scr_09_actor_queries.rs"]
+mod scr_09_actor_queries;
+#[path = "scr_09_adversarial.rs"]
+mod scr_09_adversarial;
 #[path = "scr_10_actor_state_natives.rs"]
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_11_adversarial.rs"]
+mod scr_11_adversarial;
+#[path = "scr_12_adversarial.rs"]
+mod scr_12_adversarial;
+#[path = "scr_13_actor_native_batch.rs"]
+mod scr_13_actor_native_batch;
+#[path = "scr_13_adversarial.rs"]
+mod scr_13_adversarial;
+#[path = "scr_14_adversarial.rs"]
+mod scr_14_adversarial;
+#[path = "scr_15_adversarial.rs"]
+mod scr_15_adversarial;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
 #[path = "scr_17_adversarial.rs"]

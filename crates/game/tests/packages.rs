@@ -1122,6 +1122,7 @@ fn evaluate_package_from_a_script_switches_at_once() {
     let guard = game.form("GuardRef").unwrap();
     let quest = game.form("GuardQuest").unwrap();
     game.bind();
+    game.load_cell(id(CELL_A));
     tick(&mut game, 0.1);
     assert_eq!(package_name(&game, guard), "GuardSandbox");
     game.set_stage(quest, 10);

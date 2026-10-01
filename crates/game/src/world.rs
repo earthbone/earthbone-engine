@@ -431,6 +431,8 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+    /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
+    pub head_tracking: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -496,6 +498,8 @@ pub struct FactionState {
     pub infamy_nonviolent: i32,
     pub player_expelled: bool,
     pub player_enemy: bool,
+    /// Whether the player has committed a melee hit against this faction.
+    pub player_attacked: bool,
     /// The `Track Crime` flag in `DATA`.
     pub tracks_crime: bool,
 }

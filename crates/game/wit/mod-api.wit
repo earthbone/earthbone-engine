@@ -1,0 +1,12 @@
+package soe:mod-api@0.1.0;
+
+interface engine {
+    subscribe-on-activate: func() -> bool;
+    set-stage: func(file: u32, object: u32, stage: u16) -> bool;
+}
+
+world runtime {
+    import engine;
+    export initialize: func();
+    export on-activate: func(target-file: u32, target-object: u32, activator-file: u32, activator-object: u32);
+}

@@ -119,11 +119,14 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days and learned magic effects.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references.
-/// Version 37 appends named section tables (`save_sections`) to the world,
-/// actor and reference records, after each record's saved fields. Versions
-/// before 37 have no section tables. This is the last version this constant
-/// will reach. New saved state goes into a section registered in
-/// `save_section_registry` at its owning level.
+/// Version 36 retains whether the player has attacked each faction, BOS
+/// record flags on instantiated references, and the active phase and
+/// completed action slots for each scene.
+/// Version 37 appends named sections at world, actor and reference levels,
+/// after each record's saved fields. Versions before 37 have no section
+/// tables. This is the last version this constant will reach. New saved state
+/// goes into a section registered in `save_section_registry` at its owning
+/// level.
 /// World sections include SAV-53 base-object fields, SAV-42 static-object
 /// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
 /// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
@@ -396,6 +399,7 @@ impl World {
             body.bool(f.player_expelled);
             body.bool(f.player_enemy);
             body.bool(f.tracks_crime);
+            body.bool(f.player_attacked);
         }
         // Persisted whole, including entries `World::actor_base` populated
         // only to answer a protected/essential/invulnerable check during a
@@ -869,6 +873,7 @@ impl World {
                     player_expelled: r.bool()?,
                     player_enemy: r.bool()?,
                     tracks_crime: r.bool()?,
+                    player_attacked: version >= 36 && r.bool()?,
                 },
             );
         }
@@ -1091,7 +1096,7 @@ impl World {
         } else {
             BTreeSet::new()
         };
-        let mut scene_runs = if (36..37).contains(&version) {
+        let scene_runs = if (36..37).contains(&version) {
             let count = r.len()?;
             let mut runs = BTreeMap::new();
             for _ in 0..count {
@@ -1170,12 +1175,9 @@ impl World {
         };
         // Read world sections against candidate state while keeping the live
         // world unchanged if any section rejects its payload.
-        let previous_scenes = std::mem::replace(&mut self.scenes, scenes.clone());
-        let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs.clone());
-        if version >= 37 {
-            self.scene_runs.clear();
-        }
         let previous_pending = std::mem::replace(&mut self.pending, pending);
+        let previous_scenes = std::mem::replace(&mut self.scenes, scenes.clone());
+        let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs);
         let previous_refs = std::mem::replace(&mut self.refs, refs);
         let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
         let previous_quests = std::mem::replace(&mut self.quests, quests);
@@ -1214,12 +1216,12 @@ impl World {
             Ok(())
         };
         let player_level = self.player_level;
-        self.scenes = previous_scenes;
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
+        let scenes = std::mem::replace(&mut self.scenes, previous_scenes);
+        let scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         refs = std::mem::replace(&mut self.refs, previous_refs);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
-        scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         let follower_services =
             std::mem::replace(&mut self.follower_services, previous_follower_services);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
@@ -1496,69 +1498,6 @@ pub(super) fn read_learned_enchantment_effects(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     world.learned_enchantment_effects = read_form_set(reader)?;
-    Ok(())
-}
-
-pub(super) fn write_scene_runs(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
-    writer.len(world.scene_runs.len());
-    for (id, run) in &world.scene_runs {
-        write_form_id(writer, *id);
-        writer.u32(run.phase);
-        writer.len(run.completed_actions.len());
-        for slot in &run.completed_actions {
-            writer.u32(*slot);
-        }
-    }
-}
-
-pub(super) fn read_scene_runs(
-    world: &mut World,
-    reader: &mut FormReader<'_, '_>,
-    _table: &ArrayTable,
-) -> Result<(), VmError> {
-    let count = reader.len()?;
-    let mut runs = BTreeMap::new();
-    for _ in 0..count {
-        let id = read_form_id(reader)?;
-        let phase = reader.u32()?;
-        let action_count = reader.len()?;
-        let mut completed_actions = BTreeSet::new();
-        for _ in 0..action_count {
-            if !completed_actions.insert(reader.u32()?) {
-                return Err(VmError::State("duplicate completed scene action".into()));
-            }
-        }
-        let scene_record = world
-            .record(id)
-            .ok_or_else(|| VmError::State("scene runtime state names a missing form".into()))?;
-        let scene = soe_esm::records::gameplay::Scene::from_record(scene_record)
-            .map_err(|error| VmError::State(format!("invalid scene runtime record: {error}")))?;
-        if !world.scenes.contains(&id)
-            || phase as usize >= scene.phases.len()
-            || completed_actions.iter().any(|slot| {
-                scene
-                    .actions
-                    .get(*slot as usize)
-                    .is_none_or(|action| action.end_phase != Some(phase))
-            })
-            || runs
-                .insert(
-                    id,
-                    super::SceneRunState {
-                        phase,
-                        completed_actions,
-                        ..Default::default()
-                    },
-                )
-                .is_some()
-        {
-            return Err(VmError::State("invalid scene runtime state".into()));
-        }
-    }
-    if runs.len() != world.scenes.len() || world.scenes.iter().any(|id| !runs.contains_key(id)) {
-        return Err(VmError::State("scene runtime state is incomplete".into()));
-    }
-    world.scene_runs = runs;
     Ok(())
 }
 

@@ -778,6 +778,7 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
 fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
+
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
         (18, "created namespace in a legacy world state".to_string()),
