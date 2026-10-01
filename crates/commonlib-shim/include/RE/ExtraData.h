@@ -1,8 +1,12 @@
-// Generated from crates/commonlib-shim/src/extra.rs. Do not edit.
+// Generated from crates/commonlib-shim/src/extra.rs and extra_data.rs. Do not edit.
 #pragma once
 #include "RE/Form.h"
+#include "RE/Math.h"
+#include "RE/Reference.h"
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace RE {
 enum class ExtraDataType : std::uint8_t { LeveledCreature = 0x2D, Hotkey = 0x49, Enchantment = 0x9B };
@@ -29,7 +33,40 @@ public:
     static constexpr const char* REMOVE_UNSUPPORTED = "ExtraDataList::Remove mutates engine-owned list state";
     static constexpr const char* REMOVE_BY_TYPE_UNSUPPORTED = "ExtraDataList::RemoveByType mutates engine-owned list state";
     static constexpr const char* SET_ENCHANTMENT_UNSUPPORTED = "ExtraDataList::SetEnchantment mutates engine-owned list state";
- private:
-     const ExtraDataSource& source_;
+private:
+    const ExtraDataSource& source_;
+};
+
+struct DoorTeleportData {
+    ObjectRefHandle linkedDoor;
+    NiPoint3 position;
+    NiPoint3 rotation;
+    std::int8_t flags;
+};
+
+enum class ReferenceExtraKind { MissingRefIDs, NorthRotation, OutfitItem, Poison, Teleport };
+struct ReferenceExtraValue {
+    ReferenceExtraKind kind;
+    std::vector<ActivateParentID> missingRefIDs;
+    std::optional<float> northRotation;
+    std::optional<FormId> outfitItem;
+    std::optional<FormId> poison;
+    std::int32_t poisonCount{};
+    std::optional<DoorTeleportData> teleport;
+};
+
+class ReferenceExtraQuery {
+public:
+    virtual ~ReferenceExtraQuery() = default;
+    virtual bool supports_extra(ReferenceExtraKind kind) const = 0;
+    virtual std::optional<ReferenceExtraValue> extra(ObjectRefHandle reference, ReferenceExtraKind kind) const = 0;
+};
+
+class HookRegistry {
+public:
+    static bool reject(const std::string& name, std::string& error) {
+        error = "unsupported binary hook: " + name;
+        return false;
+    }
 };
 } // namespace RE

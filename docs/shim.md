@@ -183,14 +183,27 @@ read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
 implements for those values. Missing optional values mean the reference has no
 such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
 supported by this engine.
+`RE/ExtraData.h` also declares the SHM-10 views for `ExtraMissingRefIDs`,
+`ExtraNorthRotation`, `ExtraOutfitItem`, `ExtraPoison` and `ExtraTeleport`.
+The value field names and types were checked against the alandtse CommonLib
+headers `include/RE/E/ExtraMissingRefIDs.h`,
+`include/RE/E/ExtraNorthRotation.h`, `include/RE/E/ExtraOutfitItem.h`,
+`include/RE/E/ExtraPoison.h` and `include/RE/E/ExtraTeleport.h`.
+The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
+absent value. The game adapter reads outfit item, poison and door teleport
+values from shared reference and inventory state. Missing reference IDs and
+north rotation have no runtime backing field and report unsupported. Binary
+hook requests return a diagnostic through `HookRegistry::reject`.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
 module through the new entry point and checks its unsupported hook report. The SHM-03 test
 compiles the generated headers, and its game-side test calls the adapter over live actor and AI
-state. No surveyed plugin has been compiled against the headers or loaded. The C++ declarations
-are not linked through an FFI bridge. The counts are token counts,
+state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust. No sample
+plugin has been compiled against the headers or loaded. The C++ declarations are not linked
+through an FFI bridge. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
