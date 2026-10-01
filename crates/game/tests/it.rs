@@ -199,14 +199,24 @@ mod ai_64_adversarial;
 mod ai_64_motion_conditions;
 #[path = "ai_65_adversarial.rs"]
 mod ai_65_adversarial;
+#[path = "ai_65_breaker2_adversarial.rs"]
+mod ai_65_breaker2_adversarial;
+#[path = "ai_65_breaker_adversarial.rs"]
+mod ai_65_breaker_adversarial;
 #[path = "ai_65_conditions.rs"]
 mod ai_65_conditions;
 #[path = "ai_66_adversarial.rs"]
 mod ai_66_adversarial;
+#[path = "ai_66_breaker_adversarial.rs"]
+mod ai_66_breaker_adversarial;
 #[path = "ai_66_motion_conditions.rs"]
 mod ai_66_motion_conditions;
 #[path = "ai_67_adversarial.rs"]
 mod ai_67_adversarial;
+#[path = "ai_67_breaker2_adversarial.rs"]
+mod ai_67_breaker2_adversarial;
+#[path = "ai_67_breaker_adversarial.rs"]
+mod ai_67_breaker_adversarial;
 #[path = "ai_67_motion_conditions.rs"]
 mod ai_67_motion_conditions;
 #[path = "ai_68_adversarial.rs"]
@@ -239,6 +249,10 @@ mod ai_75_adversarial;
 mod ai_75_reference_conditions;
 #[path = "ai_76_adversarial.rs"]
 mod ai_76_adversarial;
+#[path = "ai_76_breaker2_adversarial.rs"]
+mod ai_76_breaker2_adversarial;
+#[path = "ai_76_breaker_adversarial.rs"]
+mod ai_76_breaker_adversarial;
 #[path = "ai_76_reference_conditions.rs"]
 mod ai_76_reference_conditions;
 #[path = "ai_78_adversarial.rs"]
