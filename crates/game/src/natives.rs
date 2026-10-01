@@ -625,6 +625,28 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         vm,
         w,
         "ObjectReference",
+        "IsFurnitureInUse",
+        |world, call, me| {
+            let ignore_reservations = call.args.first().is_some_and(Value::as_bool);
+            b(!ignore_reservations && world.furniture_marker_in_use(me, None))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsFurnitureMarkerInUse",
+        |world, call, me| {
+            let marker = u16::try_from(call.arg(0).as_int()).ok();
+            let ignore_reservations = call.arg(1).as_bool();
+            b(!ignore_reservations
+                && marker.is_some_and(|marker| world.furniture_marker_in_use(me, Some(marker))))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
         "GetBaseObject",
         |world, call, me| {
             let base = world.base_of(me);
@@ -1118,7 +1140,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 return none();
             };
             if let Some(horse) = world.reference(horse) {
-                horse.position = position;
+                let yaw = rotation[2];
+                horse.position = [
+                    position[0] + yaw.sin() * 100.0,
+                    position[1] - yaw.cos() * 100.0,
+                    position[2],
+                ];
                 horse.rotation = rotation;
                 horse.cell = cell;
             }
@@ -3894,7 +3921,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let bools: &[(&str, &str, bool)] = &[
-        ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
@@ -3906,8 +3932,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Cell", "IsAttached", true),
         ("Scene", "IsActionComplete", false),
         ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Ragdoll execution is not implemented.
-        ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
     ];

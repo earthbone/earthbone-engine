@@ -245,9 +245,9 @@ DEST and its subrecords but does not include the linked DEST field page. The
 Creation Kit `DamageObject` and `GetCurrentDestructionStage` pages establish
 native behavior and the undamaged return value.
 
-`KnockAreaEffect` and `PushActorAway` remain quiet stubs in this checkout.
-Their shared host impulse and ragdoll behavior is assigned to CMB-38, whose
-implementation is not present here.
+`KnockAreaEffect` and `PushActorAway` enqueue impulses through CMB-38. The
+host consumes queued vectors once. See the CMB-38 section below for argument
+validation and the documented attenuation approximation.
 
 **Natives cannot touch the VM.** They run inside a VM thread. Anything they
 want the VM to do, an `OnActivate` event, an `OnInit`, a stage fragment call,
@@ -459,10 +459,12 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native moves the supplied horse to the
-cart reference's current placement, following the CK page's positioning
-behavior. `CellStreamerNode` owns pin joints between supplied rigid body RIDs,
-but the Papyrus runtime does not yet connect cart and horse references to those
+**ObjectReference.TetherToHorse.** The native places the supplied horse 100
+Skyrim units behind the cart along its local Y axis, copies the cart rotation,
+and moves the horse into the cart's cell. The CK page specifies positioning
+relative to the cart but no offset, so this is the runtime's simple placement
+rule. `CellStreamerNode` owns pin joints between supplied rigid body RIDs, but
+the Papyrus runtime does not yet connect cart and horse references to those
 host bodies or pivots.
 
 **Facial expression override, ANM-59.** `Actor.SetExpressionOverride` stores a
@@ -720,9 +722,8 @@ Their CK contracts are described by
   reference completes the wait with false. Waiting latent IDs and completed
   results are stored in the world `ANM-58` save section.
 - `ObjectReference.InterruptCast`, `ForceAddRagdollToWorld`,
-  `ForceRemoveRagdollFromWorld` and `TetherToHorse` remain registered quiet
-  stubs. The game native layer does not call a cast interruption, ragdoll or
-  host tether API for these methods.
+  `ForceRemoveRagdollFromWorld` and `TetherToHorse` use their owning magic,
+  combat and host placement APIs as described in their sections below.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
   other in the notification queue, and returns button 0. `ShowAsHelpMessage`
   queues one notification for each nonempty input-event name until reset.
@@ -2124,19 +2125,13 @@ and logs an error and returns zero for a reference without a supported
 trigger primitive. These behaviors use the trigger movement API described
 below.
 
-`IsFurnitureInUse` and `IsFurnitureMarkerInUse` remain quiet false-returning
-stubs. The runtime does not yet track occupied or reserved FURN markers.
-`HST-09` covers reserving a marker when an actor sits and releasing it when
-the actor stands. The corresponding SCR-38 binding cannot report occupancy
-until that state exists.
-
-`GetCurrentDestructionStage` remains a quiet zero-returning stub. The
-reference state has no DEST stage value, and the runtime does not apply DEST
-thresholds or clear a destruction stage. `CMB-37` covers those behaviors and
-must supply the stage query's owning state before this native can return the
-CK contract, including stage `-1` for an undamaged object. The SCR-38 probe
-tests for Is3DLoaded and GetTriggerObjectCount invoke the methods through
-Papyrus `CallMethod`.
+`IsFurnitureInUse` reads HST-09 reservations on any marker for the reference.
+`IsFurnitureMarkerInUse` checks one zero-based marker index. Their optional
+ignore-reservations arguments return false when the only known use is a
+reservation. HST-09 does not yet track transient animation occupancy.
+`GetCurrentDestructionStage` reads CMB-37 reference state and returns `-1`
+before the first DEST threshold, then the zero-based DSTD stage. The SCR-38
+probes exercise all four methods through Papyrus `CallMethod`.
 
 ### Exterior attachment deltas
 

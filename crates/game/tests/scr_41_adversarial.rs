@@ -16,6 +16,8 @@ const CELL: u32 = 0x210;
 const TRIGGER: u32 = 0x320;
 const ORDINARY: u32 = 0x321;
 const BASE: u32 = 0x410;
+const ACTOR_BASE: u32 = 0x420;
+const SPELL: u32 = 0x430;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -25,6 +27,10 @@ fn plugin() -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"CELL"), CELL));
     plugin.push_top(Record::new(T(b"ACTI"), BASE));
+    plugin.push_top(Record::new(T(b"NPC_"), ACTOR_BASE));
+    let mut spell = vec![0; 36];
+    spell[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    plugin.push_top(Record::new(T(b"SPEL"), SPELL).sub(T(b"SPIT"), spell));
     let mut trigger = Record::new(T(b"REFR"), TRIGGER)
         .sub(T(b"NAME"), BASE.to_le_bytes())
         .sub(
@@ -197,5 +203,38 @@ fn scr_41_tether_places_horse_at_cart_relative_position() {
     let horse = Value::Object(game.object_of_form(id(ORDINARY)));
     call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[horse]);
     let horse = game.world_mut().reference(id(ORDINARY)).unwrap().position;
-    assert_ne!(horse, [10.0, 20.0, 30.0]);
+    assert_eq!(horse, [10.0, -80.0, 30.0]);
+}
+
+#[test]
+fn scr_41_interrupt_cast_clears_pending_cast_without_applying_effects() {
+    let mut game = game();
+    game.world_mut()
+        .begin_spell_cast(id(TRIGGER), id(SPELL), None)
+        .unwrap();
+    assert!(game.world().pending_spell_cast(id(TRIGGER)).is_some());
+
+    call(&mut game, id(TRIGGER), "InterruptCast");
+
+    assert!(game.world().pending_spell_cast(id(TRIGGER)).is_none());
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn scr_41_ragdoll_methods_set_and_clear_actor_override() {
+    let mut game = game();
+    let actor = game
+        .world_mut()
+        .place_at(id(ACTOR_BASE), id(TRIGGER), false);
+
+    call(&mut game, actor, "ForceAddRagdollToWorld");
+    assert_eq!(
+        game.world_mut().actor(actor).unwrap().ragdoll_forced,
+        Some(true)
+    );
+    call(&mut game, actor, "ForceRemoveRagdollFromWorld");
+    assert_eq!(
+        game.world_mut().actor(actor).unwrap().ragdoll_forced,
+        Some(false)
+    );
 }

@@ -16,6 +16,9 @@ const CELL: u32 = 0x210;
 const TRIGGER: u32 = 0x320;
 const ORDINARY: u32 = 0x321;
 const BASE: u32 = 0x410;
+const FURNITURE: u32 = 0x322;
+const FURN_BASE: u32 = 0x411;
+const ACTOR_BASE: u32 = 0x412;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -25,6 +28,12 @@ fn plugin() -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"CELL"), CELL));
     plugin.push_top(Record::new(T(b"ACTI"), BASE));
+    plugin.push_top(
+        Record::new(T(b"FURN"), FURN_BASE)
+            .sub(T(b"MNAM"), 1_u32.to_le_bytes())
+            .sub(T(b"FNPR"), vec![1, 0, 0, 0]),
+    );
+    plugin.push_top(Record::new(T(b"NPC_"), ACTOR_BASE));
     let mut trigger = Record::new(T(b"REFR"), TRIGGER)
         .sub(T(b"NAME"), BASE.to_le_bytes())
         .sub(
@@ -41,6 +50,9 @@ fn plugin() -> Plugin {
     let mut ordinary = Record::new(T(b"REFR"), ORDINARY).sub(T(b"NAME"), BASE.to_le_bytes());
     ordinary.placement.cell = Some(CELL);
     plugin.push_top(ordinary);
+    let mut furniture = Record::new(T(b"REFR"), FURNITURE).sub(T(b"NAME"), FURN_BASE.to_le_bytes());
+    furniture.placement.cell = Some(CELL);
+    plugin.push_top(furniture);
     plugin
 }
 
@@ -141,6 +153,56 @@ fn scr_38_furniture_queries_accept_ck_arguments_for_reference_without_markers() 
     );
 }
 
+#[test]
+fn scr_38_furniture_queries_report_hst_09_marker_reservations() {
+    let mut game = game();
+    let actor = game
+        .world_mut()
+        .place_at(id(ACTOR_BASE), id(FURNITURE), false);
+    assert_eq!(
+        game.world_mut()
+            .reserve_furniture_marker(id(FURNITURE), actor),
+        Some(0)
+    );
+
+    assert_eq!(
+        call_with_args(
+            &mut game,
+            id(FURNITURE),
+            "IsFurnitureInUse",
+            &[Value::Bool(false)]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call_with_args(
+            &mut game,
+            id(FURNITURE),
+            "IsFurnitureInUse",
+            &[Value::Bool(true)]
+        ),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call_with_args(
+            &mut game,
+            id(FURNITURE),
+            "IsFurnitureMarkerInUse",
+            &[Value::Int(0), Value::Bool(false)]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call_with_args(
+            &mut game,
+            id(FURNITURE),
+            "IsFurnitureMarkerInUse",
+            &[Value::Int(1), Value::Bool(false)]
+        ),
+        Value::Bool(false)
+    );
+}
+
 fn resident_game() -> Game {
     let game = game();
     game.world_mut()
@@ -181,10 +243,21 @@ fn scr_38_trigger_count_returns_occupancy_and_diagnoses_non_triggers() {
 }
 
 #[test]
-fn scr_38_destruction_stage_binding_remains_stub_until_cmb_37() {
+fn scr_38_trigger_count_reads_actor_occupancy() {
+    let mut game = game();
+    let actor = game.world_mut().place_at(id(ACTOR_BASE), id(CELL), false);
+    game.update_trigger_actor_position(actor, Some(id(CELL)), [20.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+    assert_eq!(
+        call(&mut game, id(TRIGGER), "GetTriggerObjectCount"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn scr_38_destruction_stage_reports_undamaged_baseline() {
     let mut game = game();
     assert_eq!(
         call(&mut game, id(ORDINARY), "GetCurrentDestructionStage"),
-        Value::Int(0)
+        Value::Int(-1)
     );
 }

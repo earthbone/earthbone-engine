@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 const BASE: u32 = 0x100;
 const REF: u32 = 0x200;
+const ACTOR_BASE: u32 = 0x201;
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 fn id(object: u32) -> GlobalFormId {
@@ -38,6 +39,7 @@ fn fixture() -> Game {
             .sub(T(b"DSTF"), vec![]),
     );
     plugin.push_top(Record::new(T(b"REFR"), REF).sub(T(b"NAME"), BASE.to_le_bytes().to_vec()));
+    plugin.push_top(Record::new(T(b"NPC_"), ACTOR_BASE));
     let mut order = LoadOrder::new();
     order.add("Scr40.esm", plugin).unwrap();
     Game::new(order)
@@ -204,4 +206,41 @@ fn scr_40_clear_destruction_marker_survives_save_round_trip() {
         .world_mut()
         .damage_object(id(REF), 100.0, &mut allocate);
     assert_eq!(restored.world_mut().destruction_stage(id(REF)), -1);
+}
+
+#[test]
+fn scr_40_push_actor_away_routes_actor_and_force_arguments() {
+    let mut game = fixture();
+    let actor = game.world_mut().place_at(id(ACTOR_BASE), id(REF), false);
+    game.world_mut().reference(actor).unwrap().position = [3.0, 4.0, 0.0];
+    let actor_object = Value::Object(game.object_of_form(actor));
+    native(
+        &mut game,
+        "PushActorAway",
+        &[actor_object, Value::Float(-10.0)],
+    );
+
+    assert_eq!(
+        game.world_mut().take_actor_impulses(actor)[0].vector,
+        [-6.0, -8.0, 0.0]
+    );
+    assert!(game.world_mut().actor(actor).unwrap().unconscious);
+}
+
+#[test]
+fn scr_40_knock_area_effect_routes_magnitude_and_radius() {
+    let mut game = fixture();
+    let actor = game.world_mut().place_at(id(ACTOR_BASE), id(REF), false);
+    game.world_mut().reference(actor).unwrap().position = [3.0, 4.0, 0.0];
+    native(
+        &mut game,
+        "KnockAreaEffect",
+        &[Value::Float(0.8), Value::Float(10.0)],
+    );
+
+    let impulse = game.world_mut().take_actor_impulses(actor).pop().unwrap();
+    for (actual, expected) in impulse.vector.into_iter().zip([0.24, 0.32, 0.0]) {
+        assert!((actual - expected).abs() < 1e-6);
+    }
+    assert!(game.world_mut().actor(actor).unwrap().unconscious);
 }
