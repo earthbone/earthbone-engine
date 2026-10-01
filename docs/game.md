@@ -3314,6 +3314,18 @@ active while the armor stays equipped.
 
 Unsupported casts return a typed error before applying any of their effects, and Papyrus casts log that error. Unsupported cases include concentration, taper, perk adjustments, equip abilities and other unsupported archetypes. Aimed casts require projectile contact and location casts use the selected point for area targeting. Area selection is covered separately under Area targeting, MAG-06. Absorb and Cure Disease are supported below.
 
+`Scroll.Cast(source, target)` calls `World::cast_scroll_from_record` on its owning SPEL
+record. A SPEL record with cast type 3 answers as Papyrus class `Scroll`, which
+lets VM method dispatch reach this native. The record must use cast type 3.
+Source and optional target references flow into the shared cast executor,
+which applies supported effects and keeps the source, caster and target on
+each active effect. A missing required actor target or unsupported effect logs
+the typed error under `Scroll.Cast`. This path does not charge the player or
+consume an item. The local `skse64/scripts/vanilla/Scroll.psc` supplies the
+method signature and optional target contract. The CK dump has no `Scroll.Cast`
+page. `tests/magic.rs` covers cast attribution, effect application and typed
+failure paths.
+
 #### Cure Disease archetype, MAG-27
 
 MGEF archetype 3 removes active applications on the target whose MGEF lists the

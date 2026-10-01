@@ -3022,6 +3022,17 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Scroll", "Cast", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let target = world.form_arg(&call.arg(1));
+        world.spell_casts.push((me, source, target));
+        if let Err(error) = world.cast_scroll_from_record(me, source, target, alloc!(call)) {
+            call.log.push(call.time, format!("Scroll.Cast: {error}"));
+        }
+        none()
+    });
 }
 
 /// Shipped ImageSpaceModifier methods keep ordinary and crossfade lifetimes apart.
@@ -3866,7 +3877,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Topic", "Add"),
         ("Weather", "SetActive"),
         ("Weapon", "Fire"),
-        ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
