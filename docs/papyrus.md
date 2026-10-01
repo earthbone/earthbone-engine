@@ -132,6 +132,10 @@ recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
 `defer()` to allocate a latent id.
 
+`NativeRegistry::method_bindings` and `global_bindings` return sorted,
+lowercase `(class, name)` pairs for registered bindings. The game crate uses
+these read-only views to audit native contracts.
+
 **Base classes.** `create_object_of(name, class)` gives an object a class
 with no script attached, and `NativeCall::create_object` does the same from
 inside a native. Method lookup falls through the attached scripts to that
@@ -159,6 +163,11 @@ of an identifier or string operand for the name slots without a lookup. The
 first `start` of the installed game reached 63 natives through 1,095 calls
 after the fix and none before it. `NativeRegistry::calls` counts calls per
 `class.function` so a host can see which natives real scripts hit.
+
+`NativeRegistry::method_bindings` and `global_bindings` expose read-only
+iterators over the registered keys, normalized to lowercase. The game crate
+uses the method and global iterators to compare its Cell and `Clear` inventory
+against the local Creation Kit contract corpus.
 
 **Redeclared natives.** `Alias.pex` declares `RegisterForUpdate` and its
 relatives as natives of its own, `ReferenceAlias.pex` declares `GetReference`,

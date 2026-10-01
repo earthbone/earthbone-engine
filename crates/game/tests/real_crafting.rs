@@ -4,8 +4,7 @@
 //! Installed COBJ execution. Hearthfires nail quantities and the forge reference
 //! are also covered by skymp/unit/CraftTest.cpp. No game data is copied here.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{records::gameplay::Recipe, GlobalFormId, Tag};
 use soe_game::Game;

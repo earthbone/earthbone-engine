@@ -54,6 +54,10 @@ pub fn apply_host_request(menu: &mut MainMenuState, request: HostRequest) {
     match request {
         HostRequest::QuitToMainMenu => menu.enter(),
         HostRequest::StartTitleSequence(name) => menu.start_sequence(name),
+        HostRequest::FadeOutGame { .. }
+        | HostRequest::Save { .. }
+        | HostRequest::CameraFirstPerson
+        | HostRequest::CameraThirdPerson => {}
     }
 }
 
