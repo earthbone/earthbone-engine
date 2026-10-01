@@ -95,7 +95,7 @@ fn dlg_07_persuasion_number_passes_and_fails_on_speechcraft() {
 }
 
 #[test]
-fn dlg_07_intimidate_success_branches_on_speechcraft_versus_confidence() {
+fn dlg_07_intimidate_success_reports_the_unavailable_perk_formula() {
     let game = fixture();
     assert!(conditions::supports_function(655));
 
@@ -107,13 +107,19 @@ fn dlg_07_intimidate_success_branches_on_speechcraft_versus_confidence() {
         .set_actor_value(id(0x900), "confidence", 2.0)
         .unwrap();
     let succeeds = condition(655, 1.0);
-    assert_eq!(evaluate(&game, id(0x900), &succeeds), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &succeeds),
+        Err(conditions::Error::Unavailable(655))
+    );
 
     game.world_mut()
         .set_actor_value(id(0x900), "confidence", 4.0)
         .unwrap();
-    let fails = condition(655, 1.0);
-    assert_eq!(evaluate(&game, id(0x900), &fails), Ok(false));
+    let fails = condition(655, 0.0);
+    assert_eq!(
+        evaluate(&game, id(0x900), &fails),
+        Err(conditions::Error::Unavailable(655))
+    );
 }
 
 #[test]
@@ -131,9 +137,8 @@ fn dlg_07_is_intimidated_by_player_reads_last_bribed_intimidated_flag() {
     assert_eq!(evaluate(&game, id(0x900), &set), Ok(true));
 }
 
-/// Live check against a real install: confirms the four functions resolve
-/// against vanilla NPC records (not just the synthetic fixture above)
-/// without erroring, naming the record used.
+/// Resolve the functions against Hulda, including the unavailable intimidation
+/// formula documented by local CK `WillIntimidateSucceed_-_Actor.wikitext`.
 #[test]
 fn dlg_07_persuasion_functions_resolve_against_a_vanilla_npc() {
     let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
@@ -149,9 +154,12 @@ fn dlg_07_persuasion_functions_resolve_against_a_vanilla_npc() {
         .expect("Hulda (0x13475) missing from Skyrim.esm");
     eprintln!("using vanilla NPC_ record 0x{:06X}", npc.form_id);
 
-    let mut synth = Plugin::new(FileHeader::default());
-    synth.push_top(Record::new(Tag(*b"NPC_"), 0x800));
-    synth.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), hulda.to_le_bytes()));
+    let mut synth = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..FileHeader::default()
+    });
+    synth.push_top(Record::new(Tag(*b"NPC_"), 0x0100_0800));
+    synth.push_top(Record::new(Tag(*b"ACHR"), 0x0100_0900).sub(Tag(*b"NAME"), hulda.to_le_bytes()));
 
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
@@ -162,11 +170,18 @@ fn dlg_07_persuasion_functions_resolve_against_a_vanilla_npc() {
         file: 1,
         object: 0x900,
     };
-    for (function, expected) in [(225, 0.0f32), (315, 0.0), (655, 0.0), (116, 0.0)] {
+    assert!(game.world_mut().actor(subject).is_some());
+    for (function, expected) in [(225, 0.0f32), (315, 0.0), (116, 0.0)] {
         let c = condition(function, expected);
         match evaluate(&game, subject, &c) {
-            Ok(_) | Err(conditions::Error::Form(_)) => {}
+            Ok(_) => {}
             Err(e) => panic!("function {function} errored unexpectedly: {e:?}"),
         }
+    }
+    for expected in [0.0, 1.0] {
+        assert_eq!(
+            evaluate(&game, subject, &condition(655, expected)),
+            Err(conditions::Error::Unavailable(655))
+        );
     }
 }

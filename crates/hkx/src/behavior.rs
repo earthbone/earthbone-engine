@@ -528,6 +528,8 @@ pub struct BlenderChild {
     pub generator: Option<NodeId>,
     /// Per-bone mask. Missing masks give every bone weight one.
     pub bone_weights: Option<Vec<f32>>,
+    /// Data offset of the referenced hkbBoneWeightArray.
+    pub bone_weights_pointer: Option<u32>,
     pub weight: f32,
     pub world_from_model_weight: f32,
     pub bindings: Option<VariableBindingSet>,
@@ -546,6 +548,8 @@ pub struct BlenderGenerator {
     pub flags: i16,
     pub subtract_last_child: bool,
     pub children: Vec<BlenderChild>,
+    /// Bone masks referenced by pointer variables or blender children.
+    pub bone_weight_masks: HashMap<u32, Vec<f32>>,
 }
 
 /// `hkbTransitionEffect`: selfTransitionMode (0 continue if cyclic and
@@ -603,6 +607,55 @@ pub struct IStateData {
     pub state_machine: NodeId,
     pub state_id: i32,
     pub state_to_set_as: i32,
+}
+/// One leg handled by `hkbFootIkModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkLeg {
+    pub hip_index: usize,
+    pub knee_index: usize,
+    pub ankle_index: usize,
+    pub max_ankle_height: f32,
+    pub min_ankle_height: f32,
+}
+/// One authored transform from `hkbKeyframeBonesModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeyframeInfo {
+    pub position: [f32; 4],
+    pub rotation: [f32; 4],
+    pub bone_index: i16,
+    pub is_valid: bool,
+}
+/// Control values authored by `hkbPoweredRagdollControlsModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PoweredRagdollControlData {
+    pub max_force: f32,
+    pub tau: f32,
+    pub damping: f32,
+    pub proportional_recovery_velocity: f32,
+    pub constant_recovery_velocity: f32,
+}
+
+/// World-from-model selection carried by a powered ragdoll modifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldFromModelModeData {
+    pub pose_matching_bones: [i16; 3],
+    pub mode: i8,
+}
+
+/// `hkbTwistModifier`: the twist applied over the inclusive authored bone
+/// index span. The class metadata marks its chain arrays as runtime caches.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TwistModifier {
+    pub enable: bool,
+    pub axis_of_rotation: [f32; 4],
+    pub twist_angle: f32,
+    pub start_bone_index: i16,
+    pub end_bone_index: i16,
+    /// 0 linear, 1 ramped.
+    pub set_angle_method: i8,
+    /// 0 model coordinates, 1 local coordinates.
+    pub rotation_axis_coordinates: i8,
+    pub is_additive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -697,6 +750,7 @@ pub enum NodeKind {
         enable: bool,
         time_step: f32,
     },
+
     /// `BSInterpValueModifier`: moves the bound source toward target at gain
     /// units per second and publishes the result.
     InterpValue {
@@ -705,6 +759,17 @@ pub enum NodeKind {
         target: f32,
         result: f32,
         gain: f32,
+    },
+
+    /// `hkbGetUpModifier`: align the selected pose bones toward the ground normal.
+    GetUpModifier {
+        enable: bool,
+        ground_normal: [f32; 4],
+        duration: f32,
+        align_with_ground_duration: f32,
+        root_bone_index: i16,
+        other_bone_index: i16,
+        another_bone_index: i16,
     },
     /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
     /// variable to and an invert bit. Skyrim uses it to turn parts of a
@@ -729,6 +794,7 @@ pub enum NodeKind {
         minimum_number_of_events_before_send: i8,
         randomize_number_of_events: bool,
     },
+    TwistModifier(TwistModifier),
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -792,6 +858,53 @@ pub enum NodeKind {
         gain: f32,
         bone_radius: f32,
         cast_offset: f32,
+    },
+    /// Applies caller supplied vertical ground corrections to declared ankle bones.
+    FootIk {
+        enable: bool,
+        legs: Vec<FootIkLeg>,
+        raycast_distance_up: f32,
+        raycast_distance_down: f32,
+        vertical_offset: f32,
+        ground_ascending_gain: f32,
+        ground_descending_gain: f32,
+    },
+    /// `hkbKeyframeBonesModifier`: valid entries replace the selected local
+    /// bone positions and rotations. A present bone list further restricts
+    /// the entries that can run.
+    KeyframeBonesModifier {
+        enable: bool,
+        keyframe_info: Vec<KeyframeInfo>,
+        keyframed_bones: Option<Vec<i16>>,
+    },
+    /// `hkbPoweredRagdollControlsModifier`: per-bone weights and shared controls.
+    PoweredRagdollControls {
+        enable: bool,
+        control: PoweredRagdollControlData,
+        bones: Vec<i16>,
+        world_from_model: WorldFromModelModeData,
+        bone_weights: Vec<f32>,
+    },
+    /// `hkbRigidBodyRagdollControlsModifier`: hierarchy controller values,
+    /// blend duration, and an optional list of controlled bone indices.
+    RigidBodyRagdollControlsModifier {
+        enable: bool,
+        control_data: [f32; 12],
+        duration_to_blend: f32,
+        bones: Option<Vec<i16>>,
+    },
+    /// `hkbTransformVectorModifier`: rotates and optionally translates a
+    /// vector, or applies the inverse transform, then publishes `vectorOut`.
+    TransformVector {
+        enable: bool,
+        rotation: [f32; 4],
+        translation: [f32; 4],
+        vector_in: [f32; 4],
+        vector_out: [f32; 4],
+        rotate_only: bool,
+        inverse: bool,
+        compute_on_activate: bool,
+        compute_on_modify: bool,
     },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
@@ -883,13 +996,20 @@ impl Node {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
             | NodeKind::InterpValue { .. }
+            | NodeKind::GetUpModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::EveryNEventsModifier { .. }
+            | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::LookAtModifier { .. }
             | NodeKind::LimbIk { .. }
+            | NodeKind::FootIk { .. }
+            | NodeKind::KeyframeBonesModifier { .. }
+            | NodeKind::PoweredRagdollControls { .. }
+            | NodeKind::RigidBodyRagdollControlsModifier { .. }
+            | NodeKind::TransformVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1168,13 +1288,34 @@ impl BehaviorGraph {
             Some(d) => BehaviorGraphData::from_obj(d)?,
             None => BehaviorGraphData::default(),
         };
+        let mut bone_weight_masks = HashMap::new();
+        if let Some(values) = &data.variable_initial_values {
+            for (index, info) in data.variable_infos.iter().enumerate() {
+                if info.ty != VariableType::Pointer {
+                    continue;
+                }
+                let Some(Some(offset)) = values.variant_values.get(index) else {
+                    continue;
+                };
+                let target = o.packfile().object(*offset);
+                if target.class() == Some("hkbBoneWeightArray") {
+                    bone_weight_masks.insert(*offset, bone_weights(target)?);
+                }
+            }
+        }
         let mut loader = Loader {
             nodes: Vec::new(),
             by_offset: HashMap::new(),
             pending: Vec::new(),
+            bone_weight_masks,
         };
         let root = o.ptr(o.layout_offset(76, 128))?.map(|r| loader.node_id(r));
         loader.drain()?;
+        for node in &mut loader.nodes {
+            if let NodeKind::Blender(blender) = &mut node.kind {
+                blender.bone_weight_masks = loader.bone_weight_masks.clone();
+            }
+        }
         Ok(BehaviorGraph {
             name: o.string_or_empty(o.layout_offset(32, 56))?,
             variable_mode: o.i8(o.layout_offset(40, 72))?,
@@ -1193,6 +1334,7 @@ struct Loader<'a> {
     nodes: Vec<Node>,
     by_offset: HashMap<u32, NodeId>,
     pending: Vec<(NodeId, Obj<'a>)>,
+    bone_weight_masks: HashMap<u32, Vec<f32>>,
 }
 
 impl<'a> Loader<'a> {
@@ -1343,12 +1485,15 @@ impl<'a> Loader<'a> {
         for c in o.array_ptrs(o.layout_offset(64, 96))?.into_iter().flatten() {
             c.expect_class("hkbBlenderGeneratorChild")?;
             let generator = self.opt_id(c.ptr(c.layout_offset(32, 48))?);
+            let mask = c.ptr(c.layout_offset(36, 56))?;
+            let decoded_mask = mask.map(bone_weights).transpose()?;
+            if let (Some(mask), Some(weights)) = (mask, &decoded_mask) {
+                self.bone_weight_masks.insert(mask.base, weights.clone());
+            }
             children.push(BlenderChild {
                 generator,
-                bone_weights: c
-                    .ptr(c.layout_offset(36, 56))?
-                    .map(bone_weights)
-                    .transpose()?,
+                bone_weights: decoded_mask,
+                bone_weights_pointer: mask.map(|mask| mask.base),
                 weight: c.f32(c.layout_offset(40, 64))?,
                 world_from_model_weight: c.f32(c.layout_offset(44, 68))?,
                 bindings: Self::bindings(c)?,
@@ -1363,6 +1508,7 @@ impl<'a> Loader<'a> {
             flags: o.i16(o.layout_offset(58, 90))?,
             subtract_last_child: o.bool(o.layout_offset(60, 92))?,
             children,
+            bone_weight_masks: HashMap::new(),
         })
     }
 
@@ -1503,6 +1649,7 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
             },
+
             "BSDirectAtModifier" => NodeKind::DirectAt {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 direct_at_target: o.bool(o.layout_offset(44, 80))?,
@@ -1533,6 +1680,16 @@ impl<'a> Loader<'a> {
                 target: o.f32(o.layout_offset(48, 84))?,
                 result: o.f32(o.layout_offset(52, 88))?,
                 gain: o.f32(o.layout_offset(56, 92))?,
+            },
+
+            "hkbGetUpModifier" => NodeKind::GetUpModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                ground_normal: o.vec4(o.layout_offset(48, 80))?,
+                duration: o.f32(o.layout_offset(64, 96))?,
+                align_with_ground_duration: o.f32(o.layout_offset(68, 100))?,
+                root_bone_index: o.i16(o.layout_offset(72, 104))?,
+                other_bone_index: o.i16(o.layout_offset(74, 106))?,
+                another_bone_index: o.i16(o.layout_offset(76, 108))?,
             },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
@@ -1696,6 +1853,150 @@ impl<'a> Loader<'a> {
                     cast_offset,
                 }
             }
+            "hkbFootIkModifier" => {
+                let legs = o
+                    .array_structs(o.layout_offset(92, 128), 160)?
+                    .into_iter()
+                    .map(|leg| {
+                        Ok(FootIkLeg {
+                            hip_index: usize::try_from(leg.i16(leg.layout_offset(136, 144))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK hip index".into())
+                                })?,
+                            knee_index: usize::try_from(leg.i16(leg.layout_offset(138, 146))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK knee index".into())
+                                })?,
+                            ankle_index: usize::try_from(leg.i16(leg.layout_offset(140, 148))?)
+                                .map_err(|_| {
+                                    crate::Error::Unsupported("negative foot IK ankle index".into())
+                                })?,
+                            max_ankle_height: leg.f32(leg.layout_offset(112, 120))?,
+                            min_ankle_height: leg.f32(leg.layout_offset(116, 124))?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let gains = o.layout_offset(44, 80);
+                NodeKind::FootIk {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    legs,
+                    raycast_distance_up: o.f32(o.layout_offset(104, 144))?,
+                    raycast_distance_down: o.f32(o.layout_offset(108, 148))?,
+                    vertical_offset: o.f32(o.layout_offset(160, 192))?,
+                    ground_ascending_gain: o.f32(gains + 4)?,
+                    ground_descending_gain: o.f32(gains + 8)?,
+                }
+            }
+            "hkbKeyframeBonesModifier" => {
+                let keyframe_info = o
+                    .array_structs(o.layout_offset(44, 80), 48)?
+                    .into_iter()
+                    .map(|info| {
+                        Ok(KeyframeInfo {
+                            position: info.vec4(0)?,
+                            rotation: info.vec4(16)?,
+                            bone_index: info.i16(32)?,
+                            is_valid: info.bool(34)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let keyframed_bones = o
+                    .ptr(o.layout_offset(56, 96))?
+                    .map(|list| {
+                        list.expect_class("hkbBoneIndexArray")?;
+                        list.array_i16(list.layout_offset(28, 48))
+                    })
+                    .transpose()?;
+                NodeKind::KeyframeBonesModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    keyframe_info,
+                    keyframed_bones,
+                }
+            }
+            "hkbPoweredRagdollControlsModifier" => {
+                let control_offset = o.layout_offset(48, 80);
+                let bones = o
+                    .ptr(o.layout_offset(80, 112))?
+                    .map(|array| {
+                        array.expect_class("hkbBoneIndexArray")?;
+                        array.array_i16(array.layout_offset(28, 48))
+                    })
+                    .transpose()?
+                    .unwrap_or_default();
+                let bone_weights = o
+                    .ptr(o.layout_offset(92, 128))?
+                    .map(bone_weights)
+                    .transpose()?
+                    .unwrap_or_default();
+                if !bone_weights.is_empty() && bone_weights.len() != bones.len() {
+                    return Err(crate::Error::Unsupported(
+                        "powered ragdoll bone and weight counts differ".into(),
+                    ));
+                }
+                let world_offset = o.layout_offset(84, 120);
+                NodeKind::PoweredRagdollControls {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    control: PoweredRagdollControlData {
+                        max_force: o.f32(control_offset)?,
+                        tau: o.f32(control_offset + 4)?,
+                        damping: o.f32(control_offset + 8)?,
+                        proportional_recovery_velocity: o.f32(control_offset + 12)?,
+                        constant_recovery_velocity: o.f32(control_offset + 16)?,
+                    },
+                    bones,
+                    world_from_model: WorldFromModelModeData {
+                        pose_matching_bones: [
+                            o.i16(world_offset)?,
+                            o.i16(world_offset + 2)?,
+                            o.i16(world_offset + 4)?,
+                        ],
+                        mode: o.i8(world_offset + 6)?,
+                    },
+                    bone_weights,
+                }
+            }
+            "hkbRigidBodyRagdollControlsModifier" => {
+                let data = o.layout_offset(48, 80);
+                let mut control_data = [0.0; 12];
+                for (i, value) in control_data.iter_mut().enumerate() {
+                    *value = o.f32(data + u32::try_from(i * 4).unwrap_or(0))?;
+                }
+                let bone_offset = o.layout_offset(112, 144);
+                let bones = o
+                    .ptr(bone_offset)?
+                    .map(|array| {
+                        array.expect_class("hkbBoneIndexArray")?;
+                        array.array_i16(array.layout_offset(28, 48))
+                    })
+                    .transpose()?;
+                NodeKind::RigidBodyRagdollControlsModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    control_data,
+                    duration_to_blend: o.f32(data + 48)?,
+                    bones,
+                }
+            }
+            "hkbTransformVectorModifier" => NodeKind::TransformVector {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                rotation: o.vec4(o.layout_offset(48, 80))?,
+                translation: o.vec4(o.layout_offset(64, 96))?,
+                vector_in: o.vec4(o.layout_offset(80, 112))?,
+                vector_out: o.vec4(o.layout_offset(96, 128))?,
+                rotate_only: o.bool(o.layout_offset(112, 144))?,
+                inverse: o.bool(o.layout_offset(113, 145))?,
+                compute_on_activate: o.bool(o.layout_offset(114, 146))?,
+                compute_on_modify: o.bool(o.layout_offset(115, 147))?,
+            },
+            "hkbTwistModifier" => NodeKind::TwistModifier(TwistModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                axis_of_rotation: o.vec4(o.layout_offset(48, 80))?,
+                twist_angle: o.f32(o.layout_offset(64, 96))?,
+                start_bone_index: o.i16(o.layout_offset(68, 100))?,
+                end_bone_index: o.i16(o.layout_offset(70, 102))?,
+                set_angle_method: o.i8(o.layout_offset(72, 104))?,
+                rotation_axis_coordinates: o.i8(o.layout_offset(73, 105))?,
+                is_additive: o.bool(o.layout_offset(74, 106))?,
+            }),
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
@@ -2130,5 +2431,54 @@ mod tests {
             ),
             "{e}"
         );
+    }
+
+    #[test]
+    fn anm_45_decodes_powered_ragdoll_controls_and_ordered_weights() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let modifier = b.object("hkbPoweredRagdollControlsModifier", 144);
+        let bones = b.object("hkbBoneIndexArray", 64);
+        let weights = b.object("hkbBoneWeightArray", 64);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        b.ptr(graph, 128, modifier);
+        b.ptr(modifier, 112, bones);
+        b.ptr(modifier, 128, weights);
+        b.set_bool(modifier, 72, true);
+        for (index, value) in [120.0, 0.7, 0.2, 3.0, 0.5].into_iter().enumerate() {
+            b.set_f32(modifier, 80 + 4 * u32::try_from(index).unwrap(), value);
+        }
+        b.set_i16(modifier, 120, 1);
+        b.set_i16(modifier, 122, 2);
+        b.set_i16(modifier, 124, 3);
+        b.set_i8(modifier, 126, 4);
+        b.array_i16(bones, 48, &[7, 12]);
+        b.array_f32(weights, 48, &[0.25, 0.75]);
+
+        let bytes = b.finish();
+        let pf = Packfile::parse(&bytes).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let NodeKind::PoweredRagdollControls {
+            control,
+            bones,
+            world_from_model,
+            bone_weights,
+            ..
+        } = &graph.node(NodeId(0)).kind
+        else {
+            panic!("powered ragdoll node was not decoded");
+        };
+        assert_eq!(control.max_force, 120.0);
+        assert_eq!(control.tau, 0.7);
+        assert_eq!(control.damping, 0.2);
+        assert_eq!(control.proportional_recovery_velocity, 3.0);
+        assert_eq!(control.constant_recovery_velocity, 0.5);
+        assert_eq!(bones, &[7, 12]);
+        assert_eq!(world_from_model.pose_matching_bones, [1, 2, 3]);
+        assert_eq!(world_from_model.mode, 4);
+        assert_eq!(bone_weights, &[0.25, 0.75]);
     }
 }

@@ -109,6 +109,16 @@ referenceCount).
 - `hkbBlendingTransitionEffect`: selfTransitionMode 72, eventMode 73,
   duration 80, toGeneratorStartTimeFraction 84, flags 88, endMode 90,
   blendCurve 91.
+- `hkbPoweredRagdollControlsModifier`: the shared `controlData` fields
+  start at 80 (`maxForce`, `tau`, `damping`, proportional and constant
+  recovery velocities), `bones` is 112, `worldFromModelModeData` is 120,
+  and `boneWeights` is 128. The nested 8-byte mode data contains three
+  pose-matching bone indices and a mode enum. `hkbBoneIndexArray` and
+  `hkbBoneWeightArray` hold the ordered per-bone indices and weights. These
+  offsets and member meanings come from serde-hkx's local
+  `hkbPoweredRagdollControlsModifier`, `hkbPoweredRagdollControlData`,
+  `hkbWorldFromModelModeData`, `hkbBoneIndexArray`, and
+  `hkbBoneWeightArray` class descriptions.
 - Skyrim's own: `BSiStateTaggingGenerator` (pDefaultGenerator 80,
   iStateToSetAs 88, iPriority 92), `BSSynchronizedClipGenerator`
   (pClipGenerator 80, SyncAnimPrefix 88, ...), `BSCyclicBlendTransitionGenerator`
@@ -199,6 +209,18 @@ the worklist for widening the model.
 The graph's symbol tables come with it: event names, variable names with
 types and roles, attribute defaults, character property names, and the
 initial variable values. Ids in nodes index these tables directly.
+`hkbKeyframeBonesModifier` stores its keyframe entries as position,
+rotation, bone index, and validity fields. Its optional bone-index array
+restricts which entries can affect the output pose.
+
+`hkbTransformVectorModifier` reads its rotation, translation, input and output
+vectors, enable and transform flags from the x86 or x64 layout declared by
+serde-hkx. When active, it rotates the input and adds translation unless
+`rotateOnly` is set. With `inverse`, it removes translation first and applies
+the conjugate rotation. The output binding publishes the computed vector.
+`computeOnActivate` computes the first active result and `computeOnModify`
+recomputes it on later active updates. Variable bindings can supply vectorIn,
+rotation and translation as quad variables.
 
 ## 5. Interpreter design
 
@@ -339,9 +361,9 @@ run-time record per node. `update(dt)` runs the order the SDK headers
 publish: apply variable bindings, activate the root if it is not, deliver
 the queued external events outermost first, generate children before
 parents, then deliver the events nodes raised during the frame (bounded
-to eight rounds). The result is `Output { pose, weight }`, a local-space
-pose with one transform per bone and weight zero when nothing had a pose
-to give. `active_states`, `active_clips`, `take_changes` and
+to eight rounds). The result contains a local-space pose, per-bone pose
+weights and powered ragdoll control entries. Pose weight is zero when
+nothing had a pose to give. `active_states`, `active_clips`, `take_changes` and
 `take_events` expose the observables the replay harness in 5.4 diffs.
 
 What each node does:
@@ -407,14 +429,33 @@ What each node does:
   unchanged. The entry layout comes from serde-hkx's
   `BSIStateManagerModifier` and `BSIStateManagerModifierBSiStateData` class
   descriptions.
+- `hkbKeyframeBonesModifier` replaces position and rotation for valid,
+  in-range entries when enabled. A present `keyframedBonesList` further
+  restricts those entries. Scale and bones outside the selected entries
+  retain the generator output.
+- `hkbPoweredRagdollControlsModifier`: emits one control entry per ordered
+  bone and weight pair, preserving the shared control values and
+  world-from-model mode. The modifier enable state gates emission. Blender
+  child weights and transition alpha scale the emitted weights. This exposes
+  authored controls in behavior output. It does not solve ragdoll physics or
+  apply controls to a host physics world.
+- `hkbRigidBodyRagdollControlsModifier` adds one rigid-body ragdoll control
+  output when enabled. It carries the twelve authored hierarchy-control
+  scalars, blend duration and optional bone indices. Its weight starts at one
+  and is scaled by blender and transition contributions.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
 Bindings resolve at construction to typed setters: `playbackSpeed`,
 `userControlledTimeFraction`, `blendParameter`, `weight` on a blender
-child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
-other member path is reported in `Unsupported::unbound`. Reals live in the
-word table as their bit pattern, which is how the file stores them.
+child (also `children:N/weight`), `boneWeights` on a blender child,
+`selectedGeneratorIndex`, `enable`. A `boneWeights` binding requires a Pointer
+variable. Pointer values come from the variant table in
+`hkbVariableValueSet`, and changing one selects another parsed bone-weight
+array on the next update without reloading the graph. A null pointer means no
+mask, so every bone has weight one. Unknown pointer targets contribute zero.
+Other unsupported member paths are reported in `Unsupported::unbound`. Reals
+live in the word table as their bit pattern, which is how the file stores them.
 
 ### Checked against the sampler (2026-09-18)
 
@@ -497,6 +538,16 @@ maintainer and the layouts are what we need rather than the code.
 - `hkbVariableBindingSetBinding`: `hasOutputBinding` on the set is
   `SERIALIZE_IGNORED`, so a file never says whether a binding reads or
   writes. The member decides, see below.
+- `hkbRigidBodyRagdollControlsModifier` stores `controlData` at offset 80
+  on SE and its bone-array pointer at 144. Its embedded control data contains
+  the 48-byte `hkaKeyFrameHierarchyUtilityControlData` followed by
+  `durationToBlend`. `hkbBoneIndexArray.boneIndices` is an array of signed
+  16-bit indices.
+
+ANM-46 decodes those fields from the local `serde-hkx/assets/classes/`
+definitions and publishes active controls in `Output`. Blender weights and
+transition alpha scale each control's output weight. The crate exposes these
+controls to its caller. It does not apply them to a physics world.
 
 ### Linking, and why symbols map by name
 
@@ -715,10 +766,12 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,175 nodes across 31 classes. `BSIsActiveModifier` is excluded because
-its bound activity slots already write their output variables. The test freezes
-the sorted names and counts, and checks that every class has a bounded backlog
-row whose title names that class.
+The inventory found 4,134 nodes across 28 classes. It excludes
+`BSIsActiveModifier` because its bound activity slots already write their
+output variables, and `hkbGetUpModifier` because ANM-43 executes its ground
+alignment. The test freezes the sorted names and counts of the remaining
+passthrough classes, and checks that every class has a bounded backlog row
+whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
@@ -740,8 +793,9 @@ row whose title names that class.
 | `hkbEventDrivenModifier` | 158 | [ANM-17](../BACKLOG.csv) |
 | `hkbEventsFromRangeModifier` | 3 | [ANM-15](../BACKLOG.csv) |
 | `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
+
 | `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
-| `hkbGetUpModifier` | 46 | [ANM-43](../BACKLOG.csv) |
+
 | `hkbKeyframeBonesModifier` | 91 | [ANM-44](../BACKLOG.csv) |
 | `hkbModifierGenerator` | 1,909 | [ANM-52](../BACKLOG.csv) |
 | `hkbModifierList` | 708 | [ANM-51](../BACKLOG.csv) |
@@ -750,7 +804,6 @@ row whose title names that class.
 | `hkbRotateCharacterModifier` | 6 | [ANM-14](../BACKLOG.csv) |
 | `hkbTimerModifier` | 59 | [ANM-16](../BACKLOG.csv) |
 | `hkbTransformVectorModifier` | 1 | [ANM-47](../BACKLOG.csv) |
-| `hkbTwistModifier` | 17 | [ANM-48](../BACKLOG.csv) |
 
 `hkbModifierList` traverses each listed modifier while decoding, and
 `hkbModifierGenerator` traverses both its modifier and generator children.
@@ -814,6 +867,66 @@ local pose inputs. Its heading and pitch axes are Z and X, with Y as the
 forward axis. The direct-at synthetic tests cover clamping, chain scope,
 offsets, gains, target modes, enable state and invalid ranges. These choices
 are not verified against a captured Havok runtime.
+
+### Foot IK modifier (ANM-42)
+
+The behavior decoder reads `hkbFootIkModifier` and its leg array using the
+layouts in `engine-refs/serde-hkx/assets/classes/hkbFootIkModifier.json` and
+`hkbFootIkModifierLeg.json`. It retains hip, knee and ankle indices and ankle
+height limits, and reads the enabled flag, raycast distances, vertical offset,
+and ascending and descending gains. Runtime fields marked
+`SERIALIZE_IGNORED` are not read as authored values.
+
+The host supplies local-Z corrections for ankle indices through
+`Interpreter::set_foot_ik_ground_targets`. During the wrapped generator's
+update, the modifier clamps each correction plus the vertical offset to the
+configured up and down ray distances, scales it by the matching directional
+gain, and applies it to the declared ankle bone's local Z translation. Other
+pose transforms, including the root, pass through. The interpreter does not
+issue physics raycasts or solve hip and knee rotations. Synthetic tests cover
+target application, ray distance clamping, directional gain, root and knee
+continuity, and the disabled modifier path.
+
+### Get-up ground alignment (ANM-43)
+
+`hkbGetUpModifier` reads its inherited `enable` flag, ground normal, total
+duration, ground-alignment duration and three signed bone indices from the
+field layouts in `engine-refs/serde-hkx/assets/classes/hkbGetUpModifier.json`.
+The class metadata marks its elapsed time, time step and initialization flag
+as serialization-ignored runtime state. The interpreter starts elapsed time at
+zero when the modifier activates and advances it by the graph update delta.
+
+For a finite nonzero ground normal, the interpreter builds a rotation from
+model +Z to that normal. The rotation ramps in over `alignWithGroundDuration`
+and fades out over `duration`. It composes that partial rotation with the pose
+rotation at each valid selected index. Translation, scale and every other bone
+remain unchanged. A nonpositive alignment duration means immediate alignment,
+and a nonpositive total duration means no fade. Invalid or repeated indices are
+skipped. Synthetic tests cover field decoding, timing, selected-bone scope,
+inherited disable and ignored serialized timer values. The local class source
+defines layout, not the Havok runtime algorithm, so this timing and rotation
+policy is interpreter behavior and has not been compared with Skyrim.
+
+### Twist modifier (2026-09-28)
+
+`hkbTwistModifier` decodes `axisOfRotation`, `twistAngle`, the start and end
+bone indices, both enum fields, `isAdditive` and the inherited enable flag
+from the paired x86 and x64 offsets in
+`engine-refs/serde-hkx/assets/classes/hkbTwistModifier.json`. That class marks
+`boneChainIndices` and `parentBoneIndices` as serialization-ignored runtime
+caches. The interpreter applies the twist to the inclusive index span between
+the authored start and end bones. It leaves all other pose entries unchanged
+and skips negative, out-of-pose, non-finite or unsupported inputs.
+
+The twist runs after the wrapped generator samples its pose. `LINEAR` divides
+the angle into equal increments. `RAMPED` increases each successive increment
+in proportion to its position in the span while keeping their sum equal to the
+authored angle. Additive local-axis rotations post-multiply the bone rotation.
+Model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
+rotation is replaced by the twist rotation. The `twistAngle` variable binding
+overrides the authored angle. Synthetic ANM-48 tests check chain boundaries,
+angle distribution, disabled behavior and malformed indices. The installed
+archive test checks all 17 vanilla twist modifiers when `SKYRIM_DATA` is set.
 
 ### False-to-true event slots (2026-09-20)
 
@@ -1077,6 +1190,22 @@ choice. The class tables declare an array but do not specify its out-of-range
 semantics. The editor rejects out-of-range editing indices. No original-runtime
 capture was available to settle short-mask sampling. Full-length authored
 masks and their packed values are covered by the installed corpus survey.
+
+## Bound bone-mask references, ANM-53
+
+`hkbVariableValueSet.variantVariableValues` retains the object offset for each
+pointer variable. Blender child bindings to `boneWeights` require a variable
+whose declared type is Pointer. The interpreter resolves that variable's
+current offset to a parsed `hkbBoneWeightArray` each update, so replacing the
+pointer changes the bones that child contributes without rebuilding the graph.
+A null pointer removes the mask. A pointer target that is not among the
+graph's parsed pointer-variable or blender-child masks contributes zero.
+
+The layout follows serde-hkx's `hkbVariableValueSet.json` and
+`hkbBlenderGeneratorChild.json`. The change reuses the existing bone-mask
+decoder and per-bone blending path. `tests/interp.rs` verifies the initial
+reference, a live pointer change, per-bone output and rejection of a
+non-pointer setter.
 
 ## Extracted-motion decoding, ANM-05
 
