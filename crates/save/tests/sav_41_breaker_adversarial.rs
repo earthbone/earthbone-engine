@@ -37,7 +37,10 @@ fn saves(path: &Path, output: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         if path.is_dir() {
             saves(&path, output);
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+        {
             output.push(path);
         }
     }
@@ -46,7 +49,11 @@ fn saves(path: &Path, output: &mut Vec<PathBuf>) {
 #[test]
 fn sav_41_external_corpus_accounts_for_every_matching_payload() {
     let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
-        || PathBuf::from("/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves"),
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves",
+            )
+        },
         PathBuf::from,
     );
     let mut paths = Vec::new();
@@ -60,7 +67,12 @@ fn sav_41_external_corpus_accounts_for_every_matching_payload() {
             if matches!(form.record_type(), "CONT" | "FURN" | "MISC") {
                 let raw = form.payload().unwrap();
                 let decoded = form.static_object_change().unwrap().unwrap();
-                assert_eq!(decoded.data_bytes().unwrap(), raw.as_ref(), "{}", path.display());
+                assert_eq!(
+                    decoded.data_bytes().unwrap(),
+                    raw.as_ref(),
+                    "{}",
+                    path.display()
+                );
             }
         }
     }

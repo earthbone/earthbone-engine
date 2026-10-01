@@ -96,6 +96,8 @@ pub struct LightStaticChange {
     pub value_changed: bool,
     /// Whether xEdit's zero-byte base-object full-name marker is set.
     pub full_name_changed: bool,
+    /// Change flag bits xEdit labels unnamed.
+    pub unnamed_flags: u32,
 }
 
 impl LightStaticChange {
@@ -105,6 +107,7 @@ impl LightStaticChange {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags
     }
 
     /// Rebuild the exact source-defined payload bytes.
@@ -184,15 +187,10 @@ impl ChangeForm {
     /// Decode a LIGH, STAT or MSTT change payload defined by xEdit.
     ///
     /// # Errors
-    /// Returns decompression, truncation, unknown-flag or trailing-byte errors.
+    /// Returns decompression, truncation or trailing-byte errors.
     pub fn light_static_change(&self) -> Result<Option<LightStaticChange>> {
         if !matches!(self.record_type(), "LIGH" | "STAT" | "MSTT") {
             return Ok(None);
-        }
-        if self.change_flags & !0b111 != 0 {
-            return Err(Error::RecordChange {
-                reason: "unknown LIGH/STAT/MSTT change flags".into(),
-            });
         }
         let fields = self
             .base_object_fields()?
@@ -210,6 +208,7 @@ impl ChangeForm {
                 .map(|(flags, unknown)| FormFlags { flags, unknown }),
             value_changed: fields.value_changed,
             full_name_changed: fields.full_name_changed,
+            unnamed_flags: self.change_flags & !0b111,
         }))
     }
 

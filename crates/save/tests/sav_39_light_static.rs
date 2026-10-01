@@ -55,6 +55,7 @@ fn sav_39_every_source_flag_combination_roundtrips_exactly() {
             );
             assert_eq!(decoded.value_changed, flags & 2 != 0);
             assert_eq!(decoded.full_name_changed, flags & 4 != 0);
+            assert_eq!(decoded.unnamed_flags, flags & !0b111);
         }
     }
 }
@@ -75,9 +76,16 @@ fn sav_39_every_truncated_flag_payload_is_rejected() {
 }
 
 #[test]
-fn sav_39_rejects_undefined_flags_and_trailing_payload() {
+fn sav_39_retains_unnamed_flags_and_rejects_trailing_payload() {
     for kind in KINDS {
-        assert!(form(kind, 8, Vec::new()).light_static_change().is_err());
+        let unnamed_flags = 1 << 3;
+        let decoded = form(kind, unnamed_flags, Vec::new())
+            .light_static_change()
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.unnamed_flags, unnamed_flags);
+        assert_eq!(decoded.change_flags(), unnamed_flags);
+        assert_eq!(decoded.data_bytes(), Vec::<u8>::new());
         assert!(form(kind, 0, vec![0xA5]).light_static_change().is_err());
     }
 }

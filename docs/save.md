@@ -1227,13 +1227,14 @@ remaining suffix length for type-specific readers. It does not restore a
 value or name. See [saved base-object fields](save-base-fields.md) for the
 source audit and scope.
 
-`ChangeForm::light_static_change` fully decodes LIGH, STAT and MSTT. It accepts
-the three defined flag bits, retains the optional form flag words, and treats
-the value and full-name markers as zero-byte fields. It rejects other flag
-bits, incomplete form flags and trailing payload bytes. The typed fields
-rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
-combinations for each record type and reports record counts, distinct flag
-sets and payload bytes from `SOE_TEST_SAVES`, falling back to the local
+`ChangeForm::light_static_change` fully decodes LIGH, STAT and MSTT. It retains
+the three named flag bits and all unnamed flag bits, keeps the optional form
+flag words, and treats the value and full-name markers as zero-byte fields. It
+rejects incomplete form flags and trailing payload bytes. The typed fields
+rebuild the same flags and payload bytes. xEdit labels the remaining bits
+`UnnamedFlag`. SAV-39 tests all eight named flag combinations and each unnamed
+flag bit for every record type, and reports record counts, distinct flag sets
+and payload bytes from `SOE_TEST_SAVES`, falling back to the local
 `engine-refs/saves` corpus. The 60-save survey found no LIGH, STAT or MSTT
 change forms, so it accounted for zero records and zero payload bytes.
 

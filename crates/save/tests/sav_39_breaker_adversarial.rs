@@ -3,7 +3,10 @@
 
 //! Adversarial SAV-39 checks for unnamed source flags and corpus coverage.
 
-use std::{io::Write, path::{Path, PathBuf}};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use soe_save::quest::FormFlags;
 use soe_save::{ChangeForm, RefId, Save};
@@ -72,7 +75,11 @@ fn collect_saves(path: &Path, paths: &mut Vec<PathBuf>) {
 #[test]
 fn sav_39_corpus_audit_requires_and_accounts_for_the_external_save_set() {
     let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
-        || PathBuf::from("/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves"),
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves",
+            )
+        },
         PathBuf::from,
     );
     let mut paths = Vec::new();

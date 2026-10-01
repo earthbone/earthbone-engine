@@ -65,17 +65,24 @@ fn sav_41_decompresses_before_decoding_and_rejects_bad_compressed_size() {
     let compressed = encoder.finish().unwrap();
 
     for kind in [14, 18, 22] {
-        let decoded = change(kind, flags::FORM | flags::VALUE, compressed.clone(), raw.len() as u32)
-            .static_object_change()
-            .unwrap()
-            .unwrap();
+        let decoded = change(
+            kind,
+            flags::FORM | flags::VALUE,
+            compressed.clone(),
+            raw.len() as u32,
+        )
+        .static_object_change()
+        .unwrap()
+        .unwrap();
         assert_eq!(decoded.form_flags, Some((0xDEAD_BEEF, 0x2010)));
         assert_eq!(decoded.opaque_suffix, [0x30, 0x40]);
         assert_eq!(decoded.data_bytes().unwrap(), raw);
 
-        assert!(change(kind, flags::FORM, compressed.clone(), raw.len() as u32 + 1)
-            .static_object_change()
-            .is_err());
+        assert!(
+            change(kind, flags::FORM, compressed.clone(), raw.len() as u32 + 1)
+                .static_object_change()
+                .is_err()
+        );
     }
 }
 
@@ -147,5 +154,8 @@ fn sav_41_external_save_corpus_accounts_for_target_payloads() {
 
     assert_eq!(counts, [0, 0, 0]);
     assert_eq!(bytes, 0);
-    eprintln!("SAV-41 surveyed {} saves, counts CONT/FURN/MISC={counts:?}, payload bytes={bytes}", paths.len());
+    eprintln!(
+        "SAV-41 surveyed {} saves, counts CONT/FURN/MISC={counts:?}, payload bytes={bytes}",
+        paths.len()
+    );
 }
