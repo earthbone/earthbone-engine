@@ -2216,6 +2216,15 @@ The contact query now reads two owner maps: bodies registered through
 attacker in either map is excluded. `intersect_ray` returns the nearest hit
 along the segment, so the first actor or unmapped obstruction wins.
 
+`cast_touch_spell(spell_file, spell_object)` casts a touch spell at the first
+eligible actor intersected by the camera's forward physics ray. The ray length
+comes from the winning SPEL's SPIT range converted to Godot metres. The player's
+own bodies are excluded, and the nearest static obstruction or unmapped body
+blocks actors behind it. The returned actor must still be enabled, undeleted
+and alive in the shared World. `World::cast_spell` performs its authored reach
+check before applying effects. Invalid spells, unavailable physics space,
+misses and rejected targets return false.
+
 `aimed_spell_projectile_contact(spell_file, spell_object, contact_body)` maps
 the contacted actor body RID through that same owner table and applies the
 aimed spell through `World::cast_spell_on_projectile_contact`. Unknown bodies

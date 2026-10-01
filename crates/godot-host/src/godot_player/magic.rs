@@ -16,6 +16,26 @@ use crate::magic_menu;
 
 use super::PlayerNode;
 
+fn touch_ray(transform: Transform3D, reach: f32) -> Option<(Vector3, Vector3)> {
+    if !reach.is_finite() || reach < 0.0 || !transform.origin.is_finite() {
+        return None;
+    }
+    let direction = -transform.basis.col_c();
+    if !direction.is_finite() || direction.length_squared() == 0.0 {
+        return None;
+    }
+    let end = transform.origin + direction.normalized() * (reach * crate::units::METRES_PER_UNIT);
+    Some((transform.origin, end))
+}
+
+fn touch_target(hit: crate::godot_combat::ContactHit) -> Option<GlobalFormId> {
+    match hit {
+        crate::godot_combat::ContactHit::Actor(actor) => Some(actor),
+        crate::godot_combat::ContactHit::Empty
+        | crate::godot_combat::ContactHit::Obstruction(_) => None,
+    }
+}
+
 const HANDS: [Hand; 2] = [Hand::Left, Hand::Right];
 
 #[derive(Clone, Copy)]
@@ -109,6 +129,82 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Cast a touch spell at the first eligible actor under the camera reticle.
+    /// The ray is capped by the spell's authored SPIT reach and static bodies
+    /// block actors behind them.
+    #[func]
+    pub fn cast_touch_spell(&mut self, spell_file: i32, spell_object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(transform), Some(world_3d)) = (
+            u16::try_from(spell_file),
+            u32::try_from(spell_object),
+            self.camera
+                .as_ref()
+                .map(|camera| camera.get_global_transform()),
+            self.base().get_world_3d(),
+        ) else {
+            return false;
+        };
+        let space = world_3d.get_space();
+        if !space.is_valid() {
+            return false;
+        }
+        if !self.sync_actor_bodies() {
+            return false;
+        }
+        let spell = GlobalFormId { file, object };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let player = game.player();
+        let definition = match game.world_mut().spell(spell) {
+            Ok(definition) if definition.data.delivery == 1 => definition,
+            _ => return false,
+        };
+        let reach = definition.data.range;
+        if !reach.is_finite() || reach < 0.0 {
+            return false;
+        }
+        let Some((origin, end)) = touch_ray(transform, reach) else {
+            return false;
+        };
+        let owners = [&self.melee_bodies, self.actor_bodies.owners()];
+        let hit = match crate::godot_combat::first_contact(space, &owners, player, origin, end) {
+            Ok(hit) => hit,
+            Err(error) => {
+                godot_error!("PlayerNode: touch target query failed: {error}");
+                return false;
+            }
+        };
+        let Some(target) = touch_target(hit) else {
+            return false;
+        };
+        let target_eligible = {
+            let mut shared = game.world_mut();
+            shared
+                .reference(target)
+                .is_some_and(|reference| reference.enabled && !reference.deleted)
+                && shared.actor(target).is_some_and(|actor| !actor.dead)
+        };
+        if !target_eligible {
+            return false;
+        }
+        let shared = game.shared_world();
+        let result = shared.borrow_mut().cast_spell(
+            spell,
+            player,
+            Some(player),
+            Some(target),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        );
+        match result {
+            Ok(_) => true,
+            Err(error) => {
+                godot_error!("PlayerNode: touch cast rejected: {error}");
+                false
+            }
+        }
+    }
+
     /// Cast a target-location spell at a selected Skyrim world position.
     /// Static world geometry blocks the cast when it intersects the segment
     /// from the player to the selected point.
@@ -246,5 +342,40 @@ impl PlayerNode {
             self.magic_content();
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod mag_16_tests {
+    use super::*;
+    use crate::godot_combat::ContactHit;
+
+    #[test]
+    fn mag_16_touch_target_accepts_actor_hits_and_rejects_empty_or_obstructed_hits() {
+        let actor = GlobalFormId {
+            file: 1,
+            object: 0x123,
+        };
+        assert_eq!(touch_target(ContactHit::Actor(actor)), Some(actor));
+        assert_eq!(touch_target(ContactHit::Empty), None);
+        assert_eq!(touch_target(ContactHit::Obstruction(Rid::Invalid)), None);
+    }
+
+    #[test]
+    fn mag_16_touch_ray_uses_authored_reach_independent_of_camera_scale() {
+        let transform = Transform3D::new(
+            Basis::from_cols(Vector3::RIGHT, Vector3::UP, Vector3::new(0.0, 0.0, 4.0)),
+            Vector3::ZERO,
+        );
+        let (start, end) = touch_ray(transform, 128.0).expect("finite reach makes a ray");
+        assert!((start.distance_to(end) - 128.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert!(end.z < start.z, "camera forward points down negative Z");
+    }
+
+    #[test]
+    fn mag_16_touch_ray_rejects_invalid_authored_reach() {
+        let transform = Transform3D::IDENTITY;
+        assert!(touch_ray(transform, -1.0).is_none());
+        assert!(touch_ray(transform, f32::NAN).is_none());
     }
 }
