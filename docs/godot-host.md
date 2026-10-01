@@ -298,7 +298,7 @@ Particle emission, palette and edge texture effects, skin-only filtering, and
 attachment to skinned surfaces are not implemented. The local reference
 corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
-host fade/blend selection; live rendered output has not been verified.
+host fade/blend selection. Live rendered output has not been verified.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
