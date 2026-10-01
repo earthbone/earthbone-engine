@@ -2561,6 +2561,18 @@ fn leveled(vm: &mut Vm, w: &Shared) {
                 })
                 .map_or(0, i32::from))
         });
+        if class != "LeveledSpell" {
+            method!(vm, w, class, "GetNthCount", |world, call, me| {
+                let idx = usize::try_from(call.arg(0).as_int()).ok();
+                i(idx
+                    .and_then(|k| {
+                        world
+                            .leveled_list(me)
+                            .and_then(|l| l.entries.get(k).map(|e| e.count))
+                    })
+                    .map_or(0, i32::from))
+            });
+        }
         method!(vm, w, class, "SetNthLevel", |world, call, me| {
             let idx = usize::try_from(call.arg(0).as_int()).ok();
             let raw_level = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
@@ -2572,35 +2584,25 @@ fn leveled(vm: &mut Vm, w: &Shared) {
             }
             none()
         });
-        method!(vm, w, class, "GetNthCount", |world, call, me| {
-            let idx = usize::try_from(call.arg(0).as_int()).ok();
-            i(idx
-                .and_then(|k| {
-                    world
-                        .leveled_list(me)
-                        .and_then(|l| l.entries.get(k).map(|e| e.count))
-                })
-                .map_or(0, i32::from))
-        });
-        method!(vm, w, class, "SetNthCount", |world, call, me| {
-            let idx = usize::try_from(call.arg(0).as_int()).ok();
-            let raw_count = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
-            let count = raw_count.min(u32::from(u16::MAX)) as u16;
-            if let Some(entry) =
-                idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
-            {
-                entry.count = count;
+        method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
+            .leveled_list(me)
+            .map_or(0, |l| i32::from(l.chance_none))));
+        method!(vm, w, class, "SetChanceNone", |world, call, me| {
+            let chance = u8::try_from(call.arg(0).as_int().rem_euclid(256)).unwrap_or(0);
+            if let Some(l) = world.leveled_list(me) {
+                l.chance_none = chance;
             }
             none()
         });
-        if class != "LeveledActor" {
-            method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
-                .leveled_list(me)
-                .map_or(0, |l| i32::from(l.chance_none))));
-            method!(vm, w, class, "SetChanceNone", |world, call, me| {
-                let chance = u8::try_from(call.arg(0).as_int().clamp(0, 100)).unwrap_or(0);
-                if let Some(l) = world.leveled_list(me) {
-                    l.chance_none = chance;
+        if class != "LeveledSpell" {
+            method!(vm, w, class, "SetNthCount", |world, call, me| {
+                let idx = usize::try_from(call.arg(0).as_int()).ok();
+                let raw_count = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
+                let count = raw_count.min(u32::from(u16::MAX)) as u16;
+                if let Some(entry) =
+                    idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
+                {
+                    entry.count = count;
                 }
                 none()
             });
@@ -2647,8 +2649,8 @@ fn location(vm: &mut Vm, w: &Shared) {
         let filter = world.form_arg(&call.arg(1));
         b(world.locations_share_parent(me, other, filter))
     });
-    // IsSameLocation(akOther, akFilter = None): the same location, or with
-    // a filter keyword, two locations under one parent that carries it.
+    // IsSameLocation also accepts a keyworded parent/child pair, as the
+    // shipped Location.psc wrapper specifies.
     method!(vm, w, "Location", "IsSameLocation", |world, call, me| {
         let Some(other) = world.form_arg(&call.arg(0)) else {
             return b(false);
@@ -2656,8 +2658,15 @@ fn location(vm: &mut Vm, w: &Shared) {
         if other == me {
             return b(true);
         }
-        let filter = world.form_arg(&call.arg(1));
-        b(filter.is_some() && world.locations_share_parent(me, other, filter))
+        let Some(filter) = world.form_arg(&call.arg(1)) else {
+            return b(false);
+        };
+        let common = world.locations_share_parent(me, other, Some(filter));
+        let other_matches_parent =
+            world.keywords(other).contains(&filter) && world.location_is_child(other, me);
+        let self_matches_parent =
+            world.keywords(me).contains(&filter) && world.location_is_child(me, other);
+        b(common || other_matches_parent || self_matches_parent)
     });
 }
 

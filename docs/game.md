@@ -511,6 +511,21 @@ extra, and preserves damaged values below 1.0, following
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
 
+**LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
+checks the registered methods for `LeveledItem`, `LeveledActor`,
+`LeveledSpell` and `Location` against the local scripts. The vanilla SKSE
+`LeveledSpell.psc` defines `AddForm(Form, int)` and `Revert()`. Its modified
+script adds `GetChanceNone`, `SetChanceNone`, `GetNumForms`, `GetNthForm`,
+`GetNthLevel` and `SetNthLevel`. Spell lists do not expose `GetNthCount`.
+`SetNthLevel` updates only an existing entry and clamps levels above 65535.
+`Location.psc` defines the seven implemented Location methods. Its
+`IsSameLocation` wrapper accepts identical locations, a shared ancestor with
+the requested keyword, and a keyworded parent/child pair in either direction.
+`IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount`
+remain quiet stubs owned by SCR-35. The corresponding Creation Kit named
+pages are not present in the local corpus, so the shipped scripts are the
+contract source for these bindings.
+
 ## Conformance table
 
 `natives::register` has 373 stateful registrations and 178 quiet stubs,
@@ -539,8 +554,8 @@ an SKSE member.
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | LeveledItem | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount, GetChanceNone, SetChanceNone | |
-| LeveledActor | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount | |
-| LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount, GetChanceNone, SetChanceNone | |
+| LeveledActor | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetNthCount, SetNthCount, GetChanceNone, SetChanceNone | |
+| LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, SetNthLevel, GetChanceNone, SetChanceNone | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |

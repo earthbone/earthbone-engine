@@ -947,10 +947,7 @@ fn leveled_actor_and_spell_lists_share_the_shape() {
     let flames = obj(&mut g, "Flames");
     call(&mut g, &spells, "AddForm", &[flames, Value::Int(30)]);
     assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(2));
-    assert_eq!(
-        call(&mut g, &spells, "GetNthCount", &[Value::Int(1)]),
-        Value::Int(1)
-    );
+    assert!(!g.vm.natives.has_method("LeveledSpell", "GetNthCount"));
     call(&mut g, &spells, "Revert", &[]);
     assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(1));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
@@ -1021,7 +1018,7 @@ fn scr_64_leveled_actor_and_item_bindings_match_skse_contracts() {
             Value::Int(i32::from(u16::MAX))
         );
     }
-    assert_eq!(call(&mut g, &actors, "GetChanceNone", &[]), Value::None);
+    assert_eq!(call(&mut g, &actors, "GetChanceNone", &[]), Value::Int(0));
     assert_eq!(call(&mut g, &items, "GetChanceGlobal", &[]), Value::None);
     let chance_global = obj(&mut g, "Counter");
     assert_eq!(
@@ -1037,7 +1034,139 @@ fn scr_64_leveled_actor_and_item_bindings_match_skse_contracts() {
     );
 }
 
+/// The method inventory follows the shipped Location script and SKSE's
+/// vanilla and modified LeveledSpell scripts.
+#[test]
+fn scr_65_registry_inventory_matches_location_and_leveled_spell_contracts() {
+    let g = game();
+    let mut expected = Vec::new();
+    for class in ["LeveledItem", "LeveledActor"] {
+        for name in [
+            "AddForm",
+            "Revert",
+            "GetNumForms",
+            "GetNthForm",
+            "GetNthLevel",
+            "SetNthLevel",
+            "GetNthCount",
+            "GetChanceNone",
+            "SetChanceNone",
+        ] {
+            expected.push((class, name));
+        }
+    }
+    for name in [
+        "AddForm",
+        "Revert",
+        "GetNumForms",
+        "GetNthForm",
+        "GetNthLevel",
+        "SetNthLevel",
+        "GetChanceNone",
+        "SetChanceNone",
+    ] {
+        expected.push(("LeveledSpell", name));
+    }
+    for name in [
+        "GetKeywordData",
+        "SetKeywordData",
+        "IsCleared",
+        "SetCleared",
+        "IsChild",
+        "HasCommonParent",
+        "IsSameLocation",
+        "IsLoaded",
+        "HasRefType",
+        "GetRefTypeAliveCount",
+        "GetRefTypeDeadCount",
+    ] {
+        expected.push(("Location", name));
+    }
+
+    let inventory: Vec<_> = expected
+        .iter()
+        .copied()
+        .filter(|(class, name)| g.vm.natives.has_method(class, name))
+        .collect();
+    assert_eq!(inventory, expected);
+    assert!(expected
+        .iter()
+        .all(|(class, name)| !g.vm.natives.has_global(class, name)));
+    assert!(!g.vm.natives.has_method("LeveledSpell", "GetNthCount"));
+}
+
+/// SKSE exposes SetNthLevel on LeveledSpell, clamps large levels to u16,
+/// and leaves the list unchanged for an out-of-range entry index.
+#[test]
+fn scr_65_leveled_spell_setters_match_skse_contract() {
+    let mut g = game();
+    let spells = obj(&mut g, "SpellList");
+    call(
+        &mut g,
+        &spells,
+        "SetNthLevel",
+        &[Value::Int(0), Value::Int(70_000)],
+    );
+    assert_eq!(
+        call(&mut g, &spells, "GetNthLevel", &[Value::Int(0)]),
+        Value::Int(i32::from(u16::MAX))
+    );
+    call(
+        &mut g,
+        &spells,
+        "SetNthLevel",
+        &[Value::Int(4), Value::Int(12)],
+    );
+    assert_eq!(
+        call(&mut g, &spells, "GetNthLevel", &[Value::Int(0)]),
+        Value::Int(i32::from(u16::MAX))
+    );
+    call(&mut g, &spells, "SetChanceNone", &[Value::Int(101)]);
+    assert_eq!(call(&mut g, &spells, "GetChanceNone", &[]), Value::Int(101));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 // ----- locations -----
+
+/// Location.IsSameLocation accepts identity, a matching shared ancestor,
+/// and either direction of a keyworded parent/child relationship.
+#[test]
+fn scr_65_same_location_matches_keyworded_parent_child_contract() {
+    let mut g = game();
+    let hold = obj(&mut g, "HoldLoc");
+    let town = obj(&mut g, "TownLoc");
+    let inn = obj(&mut g, "InnLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+    let keyword = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(
+            &mut g,
+            &hold,
+            "IsSameLocation",
+            &[town.clone(), keyword.clone()]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &town,
+            "IsSameLocation",
+            &[hold.clone(), keyword.clone()]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[other, keyword]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[hold, Value::None]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
 
 /// SetKeywordData stores a float per keyword on the location and
 /// GetKeywordData reads it back, zero when never set.
