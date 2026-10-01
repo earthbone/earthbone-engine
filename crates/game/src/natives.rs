@@ -2032,13 +2032,19 @@ fn alias(vm: &mut Vm, w: &Shared) {
         world.force_alias(quest, alias, target);
         none()
     });
-    alias_method!(vm, w, "ForceRefIfEmpty", |world, call, quest, alias| {
-        if world.alias_ref(quest, alias).is_some() {
-            return b(false);
+    alias_method_on!(
+        vm,
+        w,
+        "ReferenceAlias",
+        "ForceRefIfEmpty",
+        |world, call, quest, alias| {
+            if world.alias_ref(quest, alias).is_some() {
+                return b(false);
+            }
+            let target = world.form_arg(&call.arg(0));
+            b(world.force_alias(quest, alias, target))
         }
-        let target = world.form_arg(&call.arg(0));
-        b(world.force_alias(quest, alias, target))
-    });
+    );
     alias_method!(vm, w, "Clear", |world, call, quest, alias| {
         world.force_alias(quest, alias, None);
         none()
@@ -2787,7 +2793,12 @@ fn faction(vm: &mut Vm, w: &Shared) {
         w,
         "Faction",
         "IsFactionInCrimeGroup",
-        |world, call, me| b(world.faction(me).is_some_and(|f| f.tracks_crime))
+        |world, call, me| {
+            let Some(other) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            b(world.faction_in_crime_group(me, other))
+        }
     );
 }
 
@@ -4145,7 +4156,6 @@ mod tests {
             "GetActorReference",
             "GetActorRef",
             "ForceRefTo",
-            "ForceRefIfEmpty",
             "Clear",
         ];
 
@@ -4257,5 +4267,58 @@ mod tests {
             Tag::new(b"NPC_")
         ));
         assert!(!cell_owner_tag_matches(None, Tag::new(b"FACT")));
+    }
+
+    #[test]
+    fn scr_58_faction_registry_matches_the_contract_inventory() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let implemented = [
+            "SetAlly",
+            "SetEnemy",
+            "GetReaction",
+            "SetReaction",
+            "GetCrimeGold",
+            "GetCrimeGoldViolent",
+            "GetCrimeGoldNonViolent",
+            "SetCrimeGold",
+            "SetCrimeGoldViolent",
+            "ModCrimeGold",
+            "GetInfamy",
+            "GetInfamyViolent",
+            "GetInfamyNonViolent",
+            "CanPayCrimeGold",
+            "PlayerPayCrimeGold",
+            "IsPlayerExpelled",
+            "SetPlayerExpelled",
+            "SetPlayerEnemy",
+            "IsFactionInCrimeGroup",
+        ];
+        let stubs = ["SendAssaultAlarm", "SendPlayerToJail", "ModReaction"];
+
+        for name in implemented.into_iter().chain(stubs) {
+            assert!(vm.natives.has_method("Faction", name), "Faction.{name}");
+            assert!(
+                !vm.natives.has_global("Faction", name),
+                "Faction.{name} is a method, not a global"
+            );
+        }
+        assert_eq!(implemented.len(), 19);
+        assert_eq!(stubs.len(), 3);
+        assert_eq!(implemented.len() + stubs.len(), 22);
+    }
+
+    #[test]
+    fn scr_58_force_ref_if_empty_is_scoped_to_reference_alias() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        assert!(vm.natives.has_method("ReferenceAlias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_method("Alias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_method("LocationAlias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_global("ReferenceAlias", "ForceRefIfEmpty"));
     }
 }
