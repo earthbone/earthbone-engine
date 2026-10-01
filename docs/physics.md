@@ -218,9 +218,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. Downward snapping accepts only the
-current probe step, so a larger drop continues as a fall across ticks instead
-of moving the character to the lower floor at once. The fall per step is
+`on_ground` and cancel downward velocity. Walking snaps descend at most a
+quarter capsule radius per tick, so a larger drop continues as a fall across
+ticks instead of moving the character to the lower floor at once. Settling
+after a step-up trial can use the full step height. The fall per step is
 capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,
@@ -468,9 +469,13 @@ back down no further than it was lifted. It only runs from the ground, so it
 cannot be used to climb in mid air, and it is refused when the lift itself does
 not fit or when nothing standable is underneath the new spot.
 
-**A downward floor search.** Walking off a riser searches for support within
-one step height. The thin-floor correction below bounds the committed descent
-to a quarter radius, so a deeper drop falls over successive ticks.
+**A bounded downward snap.** Following OpenMW's `mwphysics/stepper.cpp`,
+the solver probes down to the first supporting contact. OpenMW uses a Bullet
+sweep, while this endpoint solver probes in radius-bounded increments.
+Walking off a riser searches for support within one step height. Walking
+accepts a snap only within a quarter capsule radius of the prior position, so
+larger drops continue under gravity across ticks. The thin-floor correction
+below uses the same descent bound.
 
 **Crouch.** `set_crouch` swaps the capsule to `crouch_height` (72 units against
 128 standing), and standing up is refused while the taller capsule would not

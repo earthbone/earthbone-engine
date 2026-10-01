@@ -447,8 +447,11 @@ impl SimpleWorld {
         // CONTEXT: Follow a riser down without reversing the requested walk
         // to reach a lower surface beyond a rounded obstacle.
         if was_ground && !ground && vel.z <= 0.0 {
+            // CONTEXT: Settling a raised stair trial needs the full step height,
+            // but walking off an edge must not drop that far in one tick.
             if let Some(snapped) = self
                 .snap_down(pos, &s, height)
+                .filter(|landed| start.z - landed.z <= s.radius * 0.25)
                 .filter(|snapped| (*snapped - start).dot(wanted) >= 0.0)
                 .filter(|snapped| start.z - snapped.z <= s.radius * 0.25)
             {

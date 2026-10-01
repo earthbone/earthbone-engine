@@ -20,8 +20,8 @@ use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
-    reaction, AnimationListener, BinkOptions, Handle, HostRequest, LeveledEntry, LosListener,
-    MenuRequest, World,
+    reaction, AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
+    LosListener, MenuRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -241,7 +241,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 381;
+pub const NATIVE_COUNT: usize = 383;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1441,6 +1441,71 @@ fn actor(vm: &mut Vm, w: &Shared) {
         world.evaluate_package(me, alloc!(call));
         none()
     });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "MoveToPackageLocation",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation expects no arguments",
+                );
+            } else if !world.move_to_package_location(me) {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation has no package location",
+                );
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "WillIntimidateSucceed",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.WillIntimidateSucceed expects no arguments",
+                );
+                return b(false);
+            }
+            match crate::conditions::will_intimidate_succeed(world, me) {
+                Ok(succeeds) => b(succeeds),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("Actor.WillIntimidateSucceed: {error}"));
+                    b(false)
+                }
+            }
+        }
+    );
+    method!(vm, w, "Actor", "DoCombatSpellApply", |world, call, me| {
+        let Some(spell) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a spell form");
+            return none();
+        };
+        let Some(target) = call.args.get(1).and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a target form");
+            return none();
+        };
+        if call.args.len() != 2 {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply expects two arguments");
+            return none();
+        }
+        if let Err(error) = world.cast_spell(spell, me, Some(me), Some(target), alloc!(call)) {
+            call.log
+                .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
+        }
+        none()
+    });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
         let package = world.current_package(me);
         form_value(world, call, package)
@@ -2508,15 +2573,65 @@ fn game(vm: &mut Vm, w: &Shared) {
 }
 
 fn debug(vm: &mut Vm, w: &Shared) {
-    for name in ["Trace", "TraceUser", "TraceConditional", "TraceStack"] {
+    for name in ["Trace", "TraceConditional", "TraceStack"] {
         global!(vm, w, "Debug", name, |world, call| {
             let msg = match name {
-                "TraceUser" => text_world(world, &call.arg(1)),
                 "TraceConditional" if !call.arg(1).as_bool() => return none(),
                 _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
             none()
+        });
+    }
+    global!(vm, w, "Debug", "TraceUser", |world, call| {
+        let log_name = text(&call.arg(0));
+        let message = text_world(world, &call.arg(1));
+        if let Some(lines) = world.user_logs.get_mut(&log_name) {
+            lines.push(message.clone());
+            call.log.push(call.time, message);
+        } else {
+            call.log.push(
+                call.time,
+                format!("error: Debug.TraceUser log is not open: {log_name}"),
+            );
+        }
+        b(world.user_logs.contains_key(&log_name))
+    });
+    global!(vm, w, "Debug", "OpenUserLog", |world, call| {
+        let name = text(&call.arg(0));
+        if name.is_empty() || world.user_logs.contains_key(&name) {
+            return b(false);
+        }
+        world.user_logs.insert(name, Vec::new());
+        b(true)
+    });
+    global!(vm, w, "Debug", "CloseUserLog", |world, call| {
+        world.user_logs.remove(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Debug", "QuitGame", |world, _call| {
+        world.debug_host_requests.push(DebugHostRequest::Quit);
+        none()
+    });
+    for (name, wait) in [("CenterOnCell", false), ("CenterOnCellAndWait", true)] {
+        global!(vm, w, "Debug", name, |world, call| {
+            let cell_name = text(&call.arg(0));
+            let Some(cell) = world.cell_by_editor_id(&cell_name) else {
+                call.log.push(
+                    call.time,
+                    format!("error: Debug.{name} cell not found: {cell_name}"),
+                );
+                return if wait { f(-1.0) } else { none() };
+            };
+            let latent = wait.then(|| call.defer());
+            world
+                .debug_host_requests
+                .push(DebugHostRequest::CenterOnCell { cell, latent });
+            if let Some(latent) = latent {
+                NativeReturn::Latent(latent)
+            } else {
+                none()
+            }
         });
     }
     global!(vm, w, "Debug", "Notification", |world, call| {
@@ -2529,6 +2644,45 @@ fn debug(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Debug", "TakeScreenshot", |world, call| {
         world.request_screenshot(text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Debug", "SetGodMode", |world, call| {
+        world.debug_god_mode = call.arg(0).as_bool();
+        none()
+    });
+    global!(vm, w, "Debug", "ToggleAI", |world, _call| {
+        world.debug_ai_enabled = !world.debug_ai_enabled;
+        none()
+    });
+    global!(vm, w, "Debug", "ToggleCollisions", |world, _call| {
+        world.debug_collisions_enabled = !world.debug_collisions_enabled;
+        none()
+    });
+    global!(vm, w, "Debug", "DumpAliasData", |world, call| {
+        let Some(quest) = world.form_arg(&call.arg(0)) else {
+            call.log
+                .push(call.time, "Debug.DumpAliasData: argument is not a quest");
+            return none();
+        };
+        let Some(state) = world.quest_state(quest) else {
+            call.log
+                .push(call.time, "Debug.DumpAliasData: quest has no runtime state");
+            return none();
+        };
+        let mut aliases: Vec<_> = state.aliases.iter().collect();
+        aliases.sort_by_key(|(id, _)| **id);
+        for (id, reference) in aliases {
+            let fill = (*reference).map_or_else(|| "empty".to_string(), |form| form.to_string());
+            call.log
+                .push(call.time, format!("Debug.DumpAliasData: {id} {fill}"));
+        }
+        none()
+    });
+    global!(vm, w, "Debug", "DebugChannelNotify", |_world, call| {
+        call.log.push(
+            call.time,
+            format!("[{}] {}", text(&call.arg(0)), text(&call.arg(1))),
+        );
         none()
     });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
@@ -2556,6 +2710,38 @@ fn debug(vm: &mut Vm, w: &Shared) {
         if let Err(error) = call.stop_stack_profiling() {
             call.log
                 .push(call.time, format!("Papyrus profile write failed: {error}"));
+        }
+        none()
+    });
+    global!(vm, w, "Debug", "SetFootIK", |world, call| {
+        world.set_debug_foot_ik(call.arg(0).as_bool());
+        none()
+    });
+    global!(vm, w, "Debug", "ShowRefPosition", |world, call| {
+        match world.form_arg(&call.arg(0)) {
+            Some(reference) if world.show_debug_ref_position(reference) => none(),
+            _ => {
+                call.log
+                    .push(call.time, "Debug.ShowRefPosition: invalid reference");
+                none()
+            }
+        }
+    });
+    global!(vm, w, "Debug", "PlayerMoveToAndWait", |world, call| {
+        let target = world.form(&text(&call.arg(0)));
+        let success = target.is_some_and(|target| world.debug_player_move_to_reference(target));
+        if !success {
+            call.log.push(
+                call.time,
+                "Debug.PlayerMoveToAndWait: destination reference not found",
+            );
+        }
+        f(if success { 1.0 } else { 0.0 })
+    });
+    global!(vm, w, "Debug", "MoveToCell", |world, call| {
+        if !world.debug_player_move_to_cell(&text(&call.arg(0))) {
+            call.log
+                .push(call.time, "Debug.MoveToCell: destination cell not found");
         }
         none()
     });
@@ -3264,6 +3450,16 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
         let class = world.actor_base(me).and_then(|a| a.class);
         form_value(world, call, class)
     });
+    method!(vm, w, "ActorBase", "GetGiftFilter", |world, call, me| {
+        match world.actor_base_gift_filter(me) {
+            Ok(filter) => form_value(world, call, filter),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("ActorBase.GetGiftFilter: {error}"));
+                none()
+            }
+        }
+    });
     method!(vm, w, "ActorBase", "GetSex", |world, call, me| i(world
         .actor_base(me)
         .map_or(-1, |a| i32::from(a.female))));
@@ -3355,6 +3551,13 @@ fn cell(vm: &mut Vm, w: &Shared) {
         if let Some(c) = world.cell_state(me) {
             c.public = on;
         }
+        none()
+    });
+    method!(vm, w, "Cell", "IsAttached", |world, _call, me| {
+        b(world.cell_is_attached(me))
+    });
+    method!(vm, w, "Cell", "Reset", |world, _call, me| {
+        let _ = world.reset_cell(me);
         none()
     });
 }
@@ -3706,6 +3909,47 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "DispelAllSpells", |world, call, me| {
         world.dispel_all_spells(me, alloc!(call));
+        none()
+    });
+    method!(vm, w, "Actor", "UnequipAll", |world, call, me| {
+        let items: Vec<_> = world
+            .reference(me)
+            .map(|reference| reference.inventory.iter().map(|(item, _)| *item).collect())
+            .unwrap_or_default();
+        for item in items {
+            if let Err(error) = world.unequip_item(me, item) {
+                call.log
+                    .push(call.time, format!("Actor.UnequipAll: {error}"));
+                return none();
+            }
+        }
+        if let Some(actor) = world.actor(me) {
+            actor.equipped.clear();
+            actor.left_weapon = None;
+            actor.right_weapon = None;
+            actor.left_spell = None;
+            actor.right_spell = None;
+            actor.equipped_shout = None;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "RemoveAllSpells", |world, _call, me| {
+        if let Some(actor) = world.actor(me) {
+            let spells = actor.spells.clone();
+            actor.spells.clear();
+            actor.left_spell = None;
+            actor.right_spell = None;
+            actor.equipped.retain(|item| !spells.contains(item));
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "StartVampireFeed", |world, call, me| {
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            if world.actor(target).is_some_and(|actor| actor.ai.sleeping) {
+                let target = world.form_value(Some(target), alloc!(call));
+                world.form_event(me, "OnVampireFeed", vec![target], alloc!(call));
+            }
+        }
         none()
     });
     self_method!(
@@ -4419,8 +4663,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Cell", "IsAttached", true),
-        ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
@@ -4467,20 +4709,12 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetEquippedShield"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
-        ("Actor", "UnequipAll"),
-        ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
-        ("Actor", "StartVampireFeed"),
-        // The arrow 3d is renderer work, the DLC scripts only ask for it.
+        // Attached-arrow state is owned by the host renderer.
         ("Actor", "ClearExtraArrows"),
-        ("Actor", "DoCombatSpellApply"),
-        ("Actor", "MoveToPackageLocation"),
-        ("Actor", "WillIntimidateSucceed"),
-        ("Cell", "Reset"),
     ];
     for (class, name) in methods_none {
         vm.natives
@@ -4506,26 +4740,10 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "SendWereWolfTransformation"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Game", "ShakeController"),
-        ("Debug", "QuitGame"),
-        ("Debug", "CenterOnCell"),
-        ("Debug", "CloseUserLog"),
-        ("Debug", "SetGodMode"),
-        ("Debug", "ToggleAI"),
-        ("Debug", "ToggleCollisions"),
-        ("Debug", "DumpAliasData"),
-        ("Debug", "DebugChannelNotify"),
-        ("Debug", "SetFootIK"),
-        ("Debug", "ShowRefPosition"),
-        ("Debug", "MoveToCell"),
     ];
     for (class, name) in globals_none {
         vm.natives
             .register_global(class, name, Box::new(|_| none()));
-        n += 1;
-    }
-    for name in ["CenterOnCellAndWait", "PlayerMoveToAndWait"] {
-        vm.natives
-            .register_global("Debug", name, Box::new(|_| f(0.0)));
         n += 1;
     }
     n
@@ -4700,6 +4918,11 @@ mod tests {
         assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
         assert!(vm.natives.has_global("game", "getplayergrabbedref"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+        assert!(vm.natives.has_global("debug", "setgodmode"));
+        assert!(vm.natives.has_global("debug", "toggleai"));
+        assert!(vm.natives.has_global("debug", "togglecollisions"));
+        assert!(vm.natives.has_global("debug", "dumpaliasdata"));
+        assert!(vm.natives.has_global("debug", "debugchannelnotify"));
     }
 
     #[test]

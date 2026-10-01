@@ -1116,9 +1116,11 @@ impl Game {
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
-            w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
-                vm.create_object_of(n, c)
-            });
+            if w.debug_ai_enabled {
+                w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+                    vm.create_object_of(n, c)
+                });
+            }
         }
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());

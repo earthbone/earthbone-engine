@@ -88,6 +88,31 @@ impl World {
         self.actors.get(&actor).and_then(|a| a.ai.package)
     }
 
+    /// `Actor.MoveToPackageLocation`: pop an actor to its selected package's
+    /// location center.
+    ///
+    /// # Returns
+    ///
+    /// Returns `false` when the actor has no selected package location, the
+    /// location is non-finite or the actor lacks a live reference.
+    pub fn move_to_package_location(&mut self, actor: GlobalFormId) -> bool {
+        let Some((position, cell)) = self
+            .actor(actor)
+            .map(|state| (state.ai.center, state.ai.center_cell))
+        else {
+            return false;
+        };
+        let Some(position) = position.filter(|point| point.iter().all(|v| v.is_finite())) else {
+            return false;
+        };
+        let Some(reference) = self.reference(actor) else {
+            return false;
+        };
+        reference.position = position;
+        reference.cell = cell;
+        true
+    }
+
     /// Advance every driven actor by `real_seconds`.
     pub fn ai_tick(&mut self, real_seconds: f64, alloc: Alloc<'_>) {
         crate::ai::tick(self, real_seconds, alloc);

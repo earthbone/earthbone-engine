@@ -2970,6 +2970,29 @@ fn furniture_marker_type(
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
 }
 
+/// Approximate the player's intimidation result using Speechcraft and target
+/// Confidence. The perk entry point that supplies the complete formula is
+/// not implemented yet.
+pub(crate) fn will_intimidate_succeed(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<bool, Error> {
+    let player = world.player();
+    let speechcraft = world
+        .actor(player)
+        .ok_or(Error::Form(player))?
+        .values
+        .get("speechcraft")
+        .current();
+    let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+    if subject_actor.values.contains("confidence") {
+        let confidence = subject_actor.values.get("confidence").current();
+        Ok(speechcraft >= confidence * 25.0)
+    } else {
+        Ok(false)
+    }
+}
+
 /// Shared actor queries keep package and gameplay predicates on the same state.
 pub(crate) fn actor_query(
     world: &mut World,

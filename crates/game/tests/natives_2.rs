@@ -85,6 +85,7 @@ const REPEATED_REFERENCE_ADD_LIST: u32 = 0x928;
 const MIXED_REFERENCE_ADD_LIST: u32 = 0x929;
 const NESTED_LEVELED_ADD_LIST: u32 = 0x92A;
 const DEEP_ADD_LIST: u32 = 0x930;
+const DEBUG_QUEST: u32 = 0xA00;
 const PLAYER: u32 = 0x14;
 
 fn le(v: u32) -> [u8; 4] {
@@ -188,6 +189,14 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"NPC_"), PLAYER_BASE)
             .zsub(EDID, "PlayerBase")
             .sub(T(b"ACBS"), acbs(0)),
+    );
+    p.push_top(
+        Record::new(T(b"QUST"), DEBUG_QUEST)
+            .zsub(EDID, "DebugQuest")
+            .sub(T(b"DNAM"), [0; 12])
+            .sub(T(b"NEXT"), [])
+            .sub(T(b"INDX"), [0; 4])
+            .sub(T(b"ALST"), 7_u32.to_le_bytes()),
     );
     p.push_top(
         Record::new(T(b"NPC_"), GUARD_BASE)
@@ -727,6 +736,100 @@ fn call_global(game: &mut Game, class: &str, name: &str, args: &[Value]) -> Valu
     let thread = game.vm.call_global(&script, "Run", args).unwrap();
     game.run_until_idle(64);
     game.vm.thread_result(thread).unwrap_or(Value::None)
+}
+
+#[test]
+fn scr_21_set_god_mode_updates_the_shared_runtime_switch() {
+    let mut game = game();
+
+    assert!(matches!(
+        call_global(&mut game, "Debug", "SetGodMode", &[Value::Bool(true)]),
+        Value::None
+    ));
+    assert!(game.world().debug_god_mode);
+    assert!(matches!(
+        call_global(&mut game, "Debug", "SetGodMode", &[Value::Bool(false)]),
+        Value::None
+    ));
+    assert!(!game.world().debug_god_mode);
+}
+
+#[test]
+fn scr_21_toggle_ai_alternates_the_package_driver_switch() {
+    let mut game = game();
+    assert!(game.world().debug_ai_enabled);
+
+    call_global(&mut game, "Debug", "ToggleAI", &[]);
+    assert!(!game.world().debug_ai_enabled);
+    call_global(&mut game, "Debug", "ToggleAI", &[]);
+    assert!(game.world().debug_ai_enabled);
+}
+
+#[test]
+fn scr_21_toggle_collisions_alternates_the_shared_runtime_switch() {
+    let mut game = game();
+    assert!(game.world().debug_collisions_enabled);
+
+    call_global(&mut game, "Debug", "ToggleCollisions", &[]);
+    assert!(!game.world().debug_collisions_enabled);
+    call_global(&mut game, "Debug", "ToggleCollisions", &[]);
+    assert!(game.world().debug_collisions_enabled);
+}
+
+#[test]
+fn scr_21_dump_alias_data_reports_a_non_quest_argument() {
+    let mut game = game();
+
+    assert!(matches!(
+        call_global(&mut game, "Debug", "DumpAliasData", &[Value::None]),
+        Value::None
+    ));
+    assert!(game
+        .vm
+        .log
+        .contains("Debug.DumpAliasData: argument is not a quest"));
+}
+
+#[test]
+fn scr_21_dump_alias_data_logs_the_quest_alias_fill() {
+    let mut game = game();
+    let quest_id = game.world().order().resolve(0, DEBUG_QUEST);
+    let quest = Value::Object(game.object_of_form(quest_id));
+    let alias_found = game
+        .world_mut()
+        .quest_state(quest_id)
+        .is_some_and(|state| state.aliases.contains_key(&7));
+    assert!(
+        alias_found,
+        "quest record: {:?}",
+        game.world().record(quest_id)
+    );
+
+    assert!(matches!(
+        call_global(&mut game, "Debug", "DumpAliasData", &[quest]),
+        Value::None
+    ));
+    assert!(
+        game.vm.log.contains("Debug.DumpAliasData: 7 empty"),
+        "{:?}",
+        game.vm.log.messages()
+    );
+}
+
+#[test]
+fn scr_21_debug_channel_notify_logs_channel_and_message() {
+    let mut game = game();
+
+    assert!(matches!(
+        call_global(
+            &mut game,
+            "Debug",
+            "DebugChannelNotify",
+            &[Value::string("combat"), Value::string("hit")],
+        ),
+        Value::None
+    ));
+    assert!(game.vm.log.contains("[combat] hit"));
 }
 
 fn obj(game: &mut Game, edid: &str) -> Value {
@@ -2109,6 +2212,51 @@ fn ownership_is_typed_by_the_owner_record() {
     let id = g.form("InnCell").unwrap();
     assert!(g.world_mut().cell_state(id).unwrap().public);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Cell.IsAttached reports current streamed residency. Cell.Reset marks the
+/// cell for a record-backed temporary-reference rebuild at its next load.
+#[test]
+fn scr_19_cell_is_attached_tracks_cell_residency() {
+    let mut g = game();
+    let cell = obj(&mut g, "InnCell");
+    let id = g.form("InnCell").unwrap();
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().prefetch_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().load_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(true));
+    g.world_mut().unload_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_19_cell_reset_restores_temporary_references_on_next_load() {
+    let mut g = game();
+    let cell = obj(&mut g, "InnCell");
+    let marker = obj(&mut g, "MarkerRef");
+    let cell_id = g.form("InnCell").unwrap();
+    let marker_id = g.form("MarkerRef").unwrap();
+    g.world_mut().load_cell(cell_id);
+    call(&mut g, &marker, "Disable", &[]);
+    assert!(!g.world_mut().reference(marker_id).unwrap().enabled);
+    assert_eq!(call(&mut g, &cell, "Reset", &[]), Value::None);
+    let saved = g.world_mut().save_state();
+    g.world_mut().load_state(&saved).unwrap();
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().unload_cell(cell_id);
+    g.world_mut().load_cell(cell_id);
+    assert!(g.world_mut().reference(marker_id).unwrap().enabled);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_19_cell_reset_rejects_non_cell_forms() {
+    let g = game();
+    let marker_id = g.form("MarkerRef").unwrap();
+    let err = g.world_mut().reset_cell(marker_id).unwrap_err();
+    assert!(err.to_string().contains("invalid cell reset target"));
 }
 
 /// AddToMap "adds this reference (which must be a map marker) to the

@@ -845,6 +845,30 @@ mod scr_08_adversarial;
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_16_adversarial.rs"]
+mod scr_16_adversarial;
+#[path = "scr_17_adversarial.rs"]
+mod scr_17_adversarial;
+#[path = "scr_18_actor_base_gift_filter.rs"]
+mod scr_18_actor_base_gift_filter;
+#[path = "scr_18_adversarial.rs"]
+mod scr_18_adversarial;
+#[path = "scr_19_adversarial.rs"]
+mod scr_19_adversarial;
+#[path = "scr_20_adversarial.rs"]
+mod scr_20_adversarial;
+#[path = "scr_20_debug_natives.rs"]
+mod scr_20_debug_natives;
+#[path = "scr_21_adversarial.rs"]
+mod scr_21_adversarial;
+#[path = "scr_22_adversarial.rs"]
+mod scr_22_adversarial;
+#[path = "scr_22_debug_profiling.rs"]
+mod scr_22_debug_profiling;
+#[path = "scr_23_adversarial.rs"]
+mod scr_23_adversarial;
+#[path = "scr_23_debug_natives.rs"]
+mod scr_23_debug_natives;
 #[path = "scr_24_adversarial.rs"]
 mod scr_24_adversarial;
 #[path = "scr_24_effect_shader.rs"]

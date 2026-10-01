@@ -180,6 +180,16 @@ pub enum Handle {
     ActiveEffect(magic::EffectId),
 }
 
+/// A host action requested by a Papyrus Debug native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugHostRequest {
+    Quit,
+    CenterOnCell {
+        cell: GlobalFormId,
+        latent: Option<LatentId>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RefState {
     pub base: Option<GlobalFormId>,
@@ -705,6 +715,10 @@ pub struct World {
     /// References whose host cell has loaded 3D. Rebuilt from cell streaming
     /// transitions and not saved, like `streamed_cells`.
     loaded_3d_references: std::collections::HashSet<GlobalFormId>,
+    /// Cells attached to the runtime world, distinct from prefetched cells.
+    attached_cells: std::collections::HashSet<GlobalFormId>,
+    /// Cells marked by `Cell.Reset`, consumed the next time they are loaded.
+    pub(crate) pending_cell_resets: std::collections::BTreeSet<GlobalFormId>,
     /// A cell whose detach events have fired and whose references are still
     /// resident, waiting for [`World::settle_unload`].
     ///
@@ -746,6 +760,10 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Open Papyrus user logs and the lines written to each during this run.
+    pub user_logs: BTreeMap<String, Vec<String>>,
+    /// One-shot requests for the host, which owns process and cell streaming.
+    pub debug_host_requests: Vec<DebugHostRequest>,
     /// Enabled states for movement, fighting, camera, looking, sneaking, menu,
     /// activation and journal controls, in that order.
     pub player_control_flags: [bool; 8],
@@ -754,6 +772,14 @@ pub struct World {
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
+    /// Runtime switches changed by the Papyrus `Debug` globals.
+    pub debug_god_mode: bool,
+    pub debug_ai_enabled: bool,
+    pub debug_collisions_enabled: bool,
+    /// The state requested by `Debug.SetFootIK` for host actor presentation.
+    pub debug_foot_ik: bool,
+    /// References requested by `Debug.ShowRefPosition` for development markers.
+    pub(crate) debug_ref_positions: BTreeSet<GlobalFormId>,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -1004,6 +1030,8 @@ impl World {
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
             loaded_3d_references: std::collections::HashSet::new(),
+            attached_cells: std::collections::HashSet::new(),
+            pending_cell_resets: std::collections::BTreeSet::new(),
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
@@ -1029,10 +1057,17 @@ impl World {
             help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            user_logs: BTreeMap::new(),
+            debug_host_requests: Vec::new(),
             player_control_flags: [true; 8],
             player_control_pov_type: 0,
             player_controls: true,
             camera_controls: CameraControls::default(),
+            debug_god_mode: false,
+            debug_ai_enabled: true,
+            debug_collisions_enabled: true,
+            debug_foot_ik: true,
+            debug_ref_positions: BTreeSet::new(),
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),
