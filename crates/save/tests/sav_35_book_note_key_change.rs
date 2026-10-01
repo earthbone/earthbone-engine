@@ -132,11 +132,35 @@ fn sav_35_rejects_truncated_form_flags_and_reserved_bits() {
 
 #[test]
 fn sav_35_preserves_bytes_after_source_defined_fields() {
-    let change = form(13, flags::BOOK_READ, vec![0x08]);
-    let book = change.book_change().unwrap().unwrap();
-    assert!(book.read);
-    assert_eq!(book.opaque_suffix, [0x08]);
-    assert_eq!(book.data_bytes(), [0x08]);
+    for (kind, change_flags, suffix) in [
+        (13, flags::BOOK_READ, vec![0x08, 0xFE]),
+        (25, flags::VALUE | flags::FULL_NAME, vec![0xA7, 0x00]),
+        (28, flags::NOTE_READ, vec![0x31, 0x42]),
+    ] {
+        let change = form(kind, change_flags, suffix.clone());
+        let encoded = decoded(&change).unwrap();
+        assert_eq!(encoded, (change_flags, suffix), "{}", change.record_type());
+    }
+}
+
+#[test]
+fn sav_35_zero_byte_markers_need_no_payload() {
+    let book_flags = flags::VALUE | flags::FULL_NAME | flags::BOOK_TEACHES | flags::BOOK_READ;
+    let book = form(13, book_flags, vec![]).book_change().unwrap().unwrap();
+    assert!(book.value_changed && book.full_name_changed && book.teaches_skill && book.read);
+    assert_eq!(book.data_bytes(), []);
+
+    let key_flags = flags::VALUE | flags::FULL_NAME;
+    let key = form(25, key_flags, vec![]).key_change().unwrap().unwrap();
+    assert!(key.value_changed && key.full_name_changed);
+    assert_eq!(key.data_bytes(), []);
+
+    let note = form(28, flags::NOTE_READ, vec![])
+        .note_change()
+        .unwrap()
+        .unwrap();
+    assert!(note.read);
+    assert_eq!(note.data_bytes(), []);
 }
 
 fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {

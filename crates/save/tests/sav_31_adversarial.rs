@@ -49,12 +49,10 @@ fn sav_31_adversarial_repeated_decode_and_rebuild_stays_stable() {
         (15, "DOOR", 0x5A5A_0005, vec![13, 14, 15, 16, 17, 18]),
     ] {
         let original = form(kind, flags, data.clone());
-        let mut rebuilt_flags = flags;
-        let mut rebuilt_data = data.clone();
         for _ in 0..3 {
             let typed = original.activator_change().unwrap().unwrap();
-            rebuilt_flags = typed.change_flags(record_type).unwrap();
-            rebuilt_data = typed.data_bytes();
+            let rebuilt_flags = typed.change_flags(record_type).unwrap();
+            let rebuilt_data = typed.data_bytes();
             assert_eq!(rebuilt_flags, flags, "{record_type}");
             assert_eq!(rebuilt_data, data, "{record_type}");
         }

@@ -83,8 +83,8 @@ fn sav_33_compressed_payloads_decode_repeatedly_and_bad_streams_reject() {
         for _ in 0..2 {
             let decoded = change.item_change().unwrap().unwrap();
             assert_eq!(decoded.form_flags, Some((0xB4A3_9281, 0xD6C5)));
-            assert_eq!(decoded.value_changed, true);
-            assert_eq!(decoded.full_name_changed, true);
+            assert!(decoded.value_changed);
+            assert!(decoded.full_name_changed);
             assert_eq!(decoded.data_bytes(), original);
         }
         assert!(form(kind, 1, vec![0x78, 0x9C, 0xFF], 8)

@@ -1256,7 +1256,9 @@ BOOK carrying only the read marker, whose meaning is not defined by xEdit.
 FallrimTools keeps these payloads raw, and UESP documents the outer
 change-form framing rather than these record layouts. The corpus test accounts
 for every BOOK, NOTE and KEYM change in the external save set and checks exact
-payload re-encoding.
+payload re-encoding. SAV-35 covers each subset of the source-defined flags,
+checks that zero-byte markers work without a payload, rejects each truncated
+form-flags prefix and checks suffix preservation for all three record types.
 
 ## ACTI, TACT and DOOR changes
 

@@ -793,6 +793,19 @@ pub struct ActivatorChange {
 impl ActivatorChange {
     /// Rebuild the record's change flag word.
     pub fn change_flags(self, record_type: &str) -> Result<u32> {
+        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
+            return Err(invalid_record("unsupported activator change type"));
+        }
+        let source_flags = if record_type == "TACT" {
+            0x0080_0007
+        } else {
+            0b111
+        };
+        if self.other_flags & source_flags != 0 {
+            return Err(invalid_record(
+                "unnamed flags overlap source-defined activator markers",
+            ));
+        }
         let speaker = if self.speaker_changed {
             if record_type != "TACT" {
                 return Err(invalid_record("speaker marker belongs only to TACT"));
@@ -801,9 +814,6 @@ impl ActivatorChange {
         } else {
             0
         };
-        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
-            return Err(invalid_record("unsupported activator change type"));
-        }
         Ok(u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
