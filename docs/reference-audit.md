@@ -82,6 +82,7 @@ The inventory test also checks that `GetID` remains registered on `Alias`,
 where `LocationAlias` inherits it, and that the invalid instance form of
 `Message.ResetHelpMessage` is absent. The CK comparison covers every direct
 registry binding for both classes and the Message global.
+
 ## SCR-57 Debug and EffectShader contracts
 
 The inventory below follows registrations in `game/src/natives.rs`, including

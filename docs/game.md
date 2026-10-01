@@ -732,6 +732,7 @@ delivery are assigned to SCR-10, which owns the actor LOS query behavior.
 `LeveledItem.GetChanceGlobal` and `SetChanceGlobal` are SKSE methods and are
 not registered. Their record and save-state support belongs to the leveled-item
 selection work tracked by PRG-05.
+
 ## Faction and alias native contract audit
 
 The SCR-58 inventory is checked against the registered methods. The local
