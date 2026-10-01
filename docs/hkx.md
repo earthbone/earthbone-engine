@@ -547,7 +547,7 @@ maintainer and the layouts are what we need rather than the code.
 ANM-46 decodes those fields from the local `serde-hkx/assets/classes/`
 definitions and publishes active controls in `Output`. Blender weights and
 transition alpha scale each control's output weight. The crate exposes these
-controls to its caller; it does not apply them to a physics world.
+controls to its caller. It does not apply them to a physics world.
 
 ### Linking, and why symbols map by name
 
@@ -921,8 +921,8 @@ and skips negative, out-of-pose, non-finite or unsupported inputs.
 The twist runs after the wrapped generator samples its pose. `LINEAR` divides
 the angle into equal increments. `RAMPED` increases each successive increment
 in proportion to its position in the span while keeping their sum equal to the
-authored angle. Additive local-axis rotations post-multiply the bone rotation;
-model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
+authored angle. Additive local-axis rotations post-multiply the bone rotation.
+Model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
 rotation is replaced by the twist rotation. The `twistAngle` variable binding
 overrides the authored angle. Synthetic ANM-48 tests check chain boundaries,
 angle distribution, disabled behavior and malformed indices. The installed
