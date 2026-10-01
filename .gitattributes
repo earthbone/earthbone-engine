@@ -1,1 +1,2 @@
 crates/game/src/world/save_section_registry.rs merge=union
+crates/game/tests/it.rs merge=union
