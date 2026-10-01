@@ -176,6 +176,12 @@ body. The public [libSkyrim RTTI header](https://github.com/himika/libSkyrim/blo
 also registers the two types without defining a payload. No third-party code
 or dependency was added. No game executable was inspected or disassembled.
 
+The local UESP `PACK.wikitext` describes Stacked as a package-tree branch that
+can contain multiple procedures. Mutagen's package reader describes plugin
+package data records, not the type 108 saved execution state. Neither source
+defines the saved continuation fields or its boundary. The available sources
+therefore still do not support a typed Stacked decoder.
+
 The Stacked-specific local snapshots have these SHA-256 digests:
 
 ```text
