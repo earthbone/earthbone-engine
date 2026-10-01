@@ -23,7 +23,7 @@ fn mag_24_rejects_rfct_data_with_trailing_bytes() {
     order.add("BadEffect.esm", plugin).unwrap();
     let mut world = World::new(order);
     assert!(world.visual_effect_data(id(3)).is_none());
-    assert!(!world.play_visual_effect(id(3), id(2)));
+    assert!(!world.attach_visual_effect(id(3), id(2)));
     assert_eq!(world.visual_effects().count(), 0);
 }
 
@@ -41,9 +41,9 @@ fn mag_24_stop_is_idempotent_and_only_removes_the_requested_pair() {
     let mut order = LoadOrder::new();
     order.add("Effect.esm", plugin).unwrap();
     let mut world = World::new(order);
-    assert!(world.play_visual_effect(id(3), id(2)));
-    assert!(world.play_visual_effect(id(3), id(4)));
-    assert!(world.stop_visual_effect(id(3), id(2)));
-    assert!(!world.stop_visual_effect(id(3), id(2)));
+    assert!(world.attach_visual_effect(id(3), id(2)));
+    assert!(world.attach_visual_effect(id(3), id(4)));
+    assert!(world.detach_visual_effect(id(3), id(2)));
+    assert!(!world.detach_visual_effect(id(3), id(2)));
     assert_eq!(world.visual_effects().next().unwrap().target, id(4));
 }

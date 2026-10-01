@@ -428,6 +428,8 @@ fn remove_actor_sections(bytes: &mut Vec<u8>, actor: &ActorState) {
 /// version 36. AI state added after version 33 is stored in a named actor
 /// section. Sentinels locate newer fields to remove, and the current writers
 /// locate the section tables and post-version-23 trailing blocks.
+/// Legacy created identities use version 18, the last version that migrates
+/// file slot 255 into the current created namespace.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -657,7 +659,12 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     assert!(bytes.ends_with(&world_sections.out));
     bytes.truncate(bytes.len() - world_sections.out.len());
-    legacy_tail::truncate_to_version(&mut bytes, 29, |candidate| {
+    let version = if ids.iter().any(|id| id.file == 255) {
+        18
+    } else {
+        23
+    };
+    legacy_tail::truncate_to_version(&mut bytes, version, |candidate| {
         World::new(legacy_order()).load_state(candidate).is_ok()
     });
     bytes

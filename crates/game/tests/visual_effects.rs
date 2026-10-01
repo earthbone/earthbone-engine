@@ -105,7 +105,9 @@ fn mag_24_visual_effect_play_attaches_authored_art_and_stop_releases_target() {
 fn mag_24_visual_effect_rejects_wrong_records_and_targets_without_partial_attachment() {
     let game = fixture();
     assert!(!game.world_mut().attach_visual_effect(id(ART), id(TARGET)));
-    assert!(!game.world_mut().attach_visual_effect(id(EFFECT), id(SHADER)));
+    assert!(!game
+        .world_mut()
+        .attach_visual_effect(id(EFFECT), id(SHADER)));
     assert!(game.world().visual_effects().next().is_none());
 }
 
