@@ -1100,6 +1100,24 @@ views read through the override-aware record lookup. SOEW version 37 stores
 the retained metadata and reapplies the mask after engine save/load. Earlier
 versions still load without that extension.
 
+## WOOP and MGEF saved change payloads, SAV-49
+
+`ChangeForm::word_of_power_change` and `magic_effect_change` expose the
+optional six-byte form flags, the value and full-name change markers, and the
+unnamed bits in the change flag word. xEdit defines both marker payloads as
+zero bytes. The decoder rejects an incomplete form-flags payload and any bytes
+left after the defined fields. Its typed value rebuilds the original flag word
+and payload bytes.
+
+`sav_49_woop_mgef` checks all eight combinations of the three named flags for
+both record types, preserves unnamed flags and form-flag values, and rejects
+truncated or trailing payloads. Its external-corpus survey requires all 60
+saves, decodes every encountered WOOP and MGEF payload, checks exact payload
+and flag re-encoding, and reports counts by save version, form version, type,
+flags and payload length. It reads saves in place through `SOE_TEST_SAVES` or
+the local engine-refs corpus path. Skyrim.esm record signatures are checked
+separately when `SKYRIM_DATA` is set.
+
 ## Reference ownership and locks, SAV-16, blocked
 
 The partial `World::restore_vanilla_reference_extras` pass inspects every
