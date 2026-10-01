@@ -163,6 +163,46 @@ fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
     );
 }
 
+#[test]
+fn sav_54_reference_mask_words_leave_enable_and_persistence_authored() {
+    let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let persistent = soe_esm::plugin::flags::PERSISTENT;
+    for authored in [0, disabled, persistent, disabled | persistent] {
+        for (mask, set_word) in [
+            (0, 0),
+            (disabled, 0),
+            (persistent, 0),
+            (disabled | persistent, 0),
+            (0, u16::MAX),
+            (u32::MAX, 0x0050),
+        ] {
+            let mut save = fixture();
+            set_form_mask(&mut save.change_forms[1], mask, set_word, 78);
+            let mut world = World::new(fixture_order_with_flags(authored));
+            let report = world.restore_vanilla_reference_placements(&save).unwrap();
+            assert_eq!(
+                report.remaining[&id(0, 0xA00)].form_flags,
+                Some((mask, set_word))
+            );
+
+            let reference = world.reference_ref(id(0, 0xA00)).unwrap();
+            assert_eq!(reference.enabled, authored & disabled == 0);
+            assert_eq!(reference.persistent, authored & persistent != 0);
+            assert_eq!(
+                world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
+                authored & persistent != 0
+            );
+
+            let bytes = world.save_state();
+            let mut loaded = World::new(fixture_order_with_flags(authored));
+            loaded.load_state(&bytes).unwrap();
+            let restored = loaded.reference_ref(id(0, 0xA00)).unwrap();
+            assert_eq!(restored.enabled, authored & disabled == 0);
+            assert_eq!(restored.persistent, authored & persistent != 0);
+        }
+    }
+}
+
 fn change(
     raw: u32,
     actor: bool,

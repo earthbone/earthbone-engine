@@ -4,8 +4,7 @@
 //! Survey winning NPC and race inputs in the five shipped masters.
 //! This checks authored inputs, not agreement with running Skyrim.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::{collections::BTreeMap, path::PathBuf};
 

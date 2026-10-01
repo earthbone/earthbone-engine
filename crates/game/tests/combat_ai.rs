@@ -3,8 +3,7 @@
 
 //! NPC AI data and template sources, following xEdit's NPC_ AIDT definition.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{

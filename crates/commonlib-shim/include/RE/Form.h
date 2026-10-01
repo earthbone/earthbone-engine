@@ -1,5 +1,6 @@
 // Generated from crates/commonlib-shim/src/form.rs. Do not edit.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -8,6 +9,7 @@
 namespace RE {
 struct FormId {
     std::uint32_t value;
+    friend constexpr bool operator==(FormId, FormId) = default;
     static constexpr std::uint32_t LIGHT_PREFIX = 0xFE;
     static constexpr std::uint32_t LIGHT_LOCAL_MASK = 0x0FFF;
     std::optional<std::uint8_t> slot() const noexcept {
@@ -42,6 +44,12 @@ public:
     virtual std::vector<FormId> keywords() const { return {}; }
 };
 
+struct FileInfo {
+    std::string name;
+    std::optional<std::uint8_t> regular_index;
+    std::optional<std::uint16_t> light_index;
+    bool is_light() const noexcept { return light_index.has_value(); }
+};
 class DataHandler {
 public:
     virtual ~DataHandler() = default;
@@ -49,5 +57,8 @@ public:
     virtual const Form* lookup_by_editor_id(const std::string& editor_id) const = 0;
     virtual std::vector<FormId> forms_of_type(FormType kind) const = 0;
     virtual std::vector<std::string> files() const = 0;
+    virtual std::optional<FileInfo> file(std::size_t index) const = 0;
 };
+using TESDataHandler = DataHandler;
+using TESFile = FileInfo;
 } // namespace RE

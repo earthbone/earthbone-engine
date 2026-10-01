@@ -5,6 +5,69 @@
 
 use std::time::Duration;
 
+/// Timed Papyrus fade request, sharing the player's existing overlay.
+#[cfg(any(feature = "godot", test))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct GameFade {
+    delay: f32,
+    duration: f32,
+    elapsed: f32,
+    fading_out: bool,
+    black: bool,
+}
+
+#[cfg(any(feature = "godot", test))]
+impl GameFade {
+    /// Install a timed fade. Invalid durations leave the active fade unchanged.
+    pub(crate) fn request(
+        &mut self,
+        fading_out: bool,
+        black: bool,
+        delay: f32,
+        duration: f32,
+    ) -> bool {
+        if !delay.is_finite() || !duration.is_finite() || delay < 0.0 || duration < 0.0 {
+            return false;
+        }
+        self.elapsed = 0.0;
+        self.delay = delay;
+        self.duration = duration;
+        self.fading_out = fading_out;
+        self.black = black;
+        true
+    }
+
+    /// Advance the transition and return overlay opacity.
+    pub(crate) fn advance(&mut self, elapsed: f32) -> f32 {
+        if elapsed.is_finite() && elapsed > 0.0 {
+            self.elapsed += elapsed;
+        }
+        self.opacity()
+    }
+
+    /// Current overlay opacity.
+    #[must_use]
+    pub(crate) fn opacity(&self) -> f32 {
+        if self.elapsed < self.delay {
+            return if self.fading_out { 0.0 } else { 1.0 };
+        }
+        if self.duration == 0.0 {
+            return if self.fading_out { 1.0 } else { 0.0 };
+        }
+        let t = ((self.elapsed - self.delay) / self.duration).clamp(0.0, 1.0);
+        if self.fading_out {
+            t
+        } else {
+            1.0 - t
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_black(&self) -> bool {
+        self.black
+    }
+}
+
 /// Cold texture preparation may consume this much time without a fade.
 pub const COLD_TEXTURE_PREPARATION_BUDGET: Duration = Duration::from_millis(50);
 
@@ -87,5 +150,20 @@ mod tests {
         assert_eq!(fade.advance(DOOR_FADE_OUT / 2), 0.5);
         assert_eq!(fade.advance(DOOR_FADE_OUT / 2), 0.0);
         assert!(!fade.is_active());
+    }
+
+    #[test]
+    fn scr_28_fade_obeys_delay_duration_direction_and_validation() {
+        let mut fade = GameFade::default();
+        assert!(!fade.request(true, true, -1.0, 1.0));
+        assert!(fade.request(true, true, 0.5, 2.0));
+        assert_eq!(fade.advance(0.5), 0.0);
+        assert_eq!(fade.advance(1.0), 0.5);
+        assert_eq!(fade.advance(1.0), 1.0);
+        assert!(fade.is_black());
+        assert!(fade.request(false, false, 0.0, 1.0));
+        assert_eq!(fade.advance(0.5), 0.5);
+        assert_eq!(fade.advance(0.5), 0.0);
+        assert!(!fade.is_black());
     }
 }
