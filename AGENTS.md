@@ -132,6 +132,13 @@ skip cleanly when it is unset:
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
 ```
 
+The game crate builds integration tests in one binary, `it`. For a new
+`crates/game/tests/<name>.rs`, add `#[path = "<name>.rs"]` followed by
+`mod <name>;` to `crates/game/tests/it.rs`. Keep the test file in place and
+import shared helpers through `crate::common` or `crate::support`.
+The `tst_16_every_test_file_is_registered` guard reports missing declarations.
+`tests/it.rs` uses `merge=union`, so additions from separate branches combine.
+
 Sixty real Special Edition saves sit under `../engine-refs/saves/`, reached
 through `SOE_TEST_SAVE`. They are the user's own data. Read them, never commit
 one, never copy one into this repository.

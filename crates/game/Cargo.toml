@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Runtime form table, the object model Papyrus sees, the first natives by vanilla call count, and the game clock that drives the VM"
+autotests = false
 
 [lib]
 name = "soe_game"
 path = "src/lib.rs"
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
 
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
@@ -22,6 +27,7 @@ soe-bsa = { path = "../bsa" }
 soe-navmesh = { path = "../navmesh" }
 soe-moddata = { path = "../moddata" }
 soe-profile = { path = "../profile" }
+soe-commonlib-shim = { path = "../commonlib-shim" }
 soe-save = { path = "../save" }
 soe-nif = { path = "../nif" }
 soe-hkx = { path = "../hkx" }
@@ -31,7 +37,6 @@ soe-audio = { path = "../audio" }
 # disagree about how fast an actor walks. `physics` depends on `trace` and
 # `nif` only, so there is no cycle.
 soe-physics = { path = "../physics" }
-soe-commonlib-shim = { path = "../commonlib-shim" }
 
 [lints]
 workspace = true

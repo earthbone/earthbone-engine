@@ -562,3 +562,11 @@ pub trait ActivateRefChildren {
     fn timer(&self, reference: FormId) -> Result<f32, UnsupportedHook>;
     fn activate_children(&self, reference: FormId) -> Result<(), UnsupportedHook>;
 }
+
+// World views added by the inventory and player-state contracts share this
+// namespace while keeping their provider trait isolated in `world_runtime`.
+pub use crate::world_runtime::{
+    FormKey, IFormFactory, InventoryChanges, InventoryEntryData, ItemList, LookupReferenceByHandle,
+    PlayerCharacter, ProcessLists, Projectile, ProjectileHandle, ReanimateEffect, ReferenceKind,
+    RuntimeState, Setting, SettingValue, SitSleepState, Sky, Unsupported, UnsupportedWorldHook,
+};

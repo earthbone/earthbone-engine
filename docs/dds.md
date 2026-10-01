@@ -66,6 +66,7 @@ vanilla texture was unsupported.
 On Linux, the crate's build script links `libstdc++` when `encode` is enabled.
 The bundled C++ archive in `intel_tex_2` 0.2.2 needs this runtime, but that
 dependency's `build.rs` does not emit its link directive.
+On Linux, `build.rs` links `stdc++` when the `encode` feature is enabled. The packaged ASTC C++ object from `intel_tex_2` 0.2.2 does not declare its C++ runtime, so this crate supplies the missing link for downstream binaries.
 
 `encode::encode_rgba8(width, height, rgba, mip_levels, dxgi_format)` produces a DDS file in
 memory, mip count zero meaning a full chain. `encode::recompress(src, Target)` decodes the base

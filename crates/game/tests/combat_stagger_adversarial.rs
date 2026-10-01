@@ -20,8 +20,7 @@
 //! exercise this field. This file builds its own weapon record with a
 //! configurable Stagger fraction instead.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, Game};

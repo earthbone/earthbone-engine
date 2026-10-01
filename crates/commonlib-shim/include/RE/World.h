@@ -1,6 +1,7 @@
 // Generated from crates/commonlib-shim/src/world.rs. Do not edit.
 #pragma once
 #include "RE/Form.h"
+#include "RE/WorldTypes.h"
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -16,7 +17,6 @@ struct ActorValue {
 inline const ActorValue ActorValue::HEALTH{24};
 inline const ActorValue ActorValue::MAGICKA{25};
 inline const ActorValue ActorValue::STAMINA{26};
-enum class UnsupportedHook { ArrowProjectile, LoadFormBuffer, ActivateReferenceChildren };
 
 class ActorValueWorldState {
 public:

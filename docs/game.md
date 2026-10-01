@@ -26,6 +26,13 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+`world::commonlib` projects existing world state into the MIT CommonLib shim:
+ExtraWorn flags from inventory stacks, GameSettingCollection reads through the
+runtime override and winning GMST path, placed HAZD reference identity and
+placement, the actor's combat target and stagger window, and HitData from an
+accepted melee result. The adapter owns no parallel state. Hazard ticking,
+head tracking, animation sequence state and executable hit dispatch remain
+unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
 HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
@@ -46,6 +53,9 @@ It exposes enchantment identity and charge, hotkey slot, and leveled-creature
 base links to the MIT API. The serialized stack does not retain the runtime
 enchantment removal flag, so that field is returned as unknown. Malformed
 layouts and unsupported mutation hooks do not produce editable extra data.
+- `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
+  stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
@@ -70,6 +80,10 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   destinations and inventory outfit/poison extras. Missing reference IDs and
   north rotation have no authoritative runtime field and are reported as
   unsupported by the shim adapter.
+- `World::add_quest_start_stop_sink` registers an MIT shim event listener.
+  Successful `Start`, `Stop`, and stage-driven quest transitions emit the
+  resolved runtime FormID and the resulting failed state. The event source
+  observes the existing quest state and does not keep a second quest copy.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
@@ -146,6 +160,23 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   loaded actor components, DOBJ records and quest alias assignments. It does
   not store duplicate state. Activate-reference-children is explicitly
   unsupported because the runtime has no matching child activation data.
+- The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
+  reanimation effects from this same `World`. Sit and sleep animation state is
+  not stored by the runtime, so the adapter reports it as unsupported. Binary
+  address and vtable hooks have no runtime target.
+
+`World::commonlib_event_sources` exposes the in-process CommonLib event
+channels for disarm, dragon souls gained, level increase and location
+discovery. The matching `commonlib_*` methods send those event payloads to
+registered sinks. Form identities retain both the load-order file index and
+object id. Level increase reads `player_level` and the current player identity
+from the live world, and rejects levels outside the event's `u16` field before
+dispatch. These events add no saved state. Disarm, dragon soul awards and
+location discovery are event entry points for their gameplay callers. This
+crate does not currently implement those gameplay systems. Binary hook
+requests return the requested hook name as an unsupported result without
+changing runtime state. The corresponding source-level API and C++ contract
+fixture are in `crates/commonlib-shim`.
 
 ## Design
 
@@ -357,12 +388,40 @@ dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 establishes that aliases are objects owned by their quest. Fill selection for
 location reference types and `ALFI` forced-into copying are not implemented.
 
+**Quest transition queries.** `Quest.IsStarting` and `Quest.IsStopping` are
+registered natives backed by restored quest lifecycle tasks. Quest start and
+stop normally complete synchronously, so both queries return false then. A
+transitional startup or shutdown task restored from a save is reported until
+the lifecycle scheduler resumes it. See SAV-10 in BACKLOG.csv.
+
+**World reference placement. World reads out, host never writes back.**
+`World::ref_placement` (in
+`world/refs.rs`) is the read-only view a host uses to keep its own rendering
+and collision resources in step with a reference's runtime state: current
+position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
+struct, not the mutable `RefState` a native or VM path uses to change that
+state. It returns `None` for a reference never instantiated, whose
+record-authored placement is still current. A deleted reference remains
+present with `visible: false` so the host can release its resources. The host
+side of this contract, and the split it takes
+between collision and rendering change detection, is documented in
+[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `World::set_host_ref_pose` accepts finite position and rotation from a live
 rigid body for an enabled, non-deleted, non-actor reference. The host calls it
 after a physics step, and rendering reads the resulting placement in the same
 tick. It writes the existing saved fields, so the world save format is
 unchanged. A late pose from a disabled or deleted body is rejected.
 
+**CommonLib world reads.** The MIT `soe-commonlib-shim` boundary exposes
+player identity, player position and actor values, plus the actor forms whose
+runtime state is built. `World` implements these reads directly through its
+player, reference and actor methods. The shim's `FormKey` retains both load
+order file and object identity. It does not keep a parallel copy of world
+state. Projectile runtime access returns an explicit unsupported-hook result
+because projectile simulation is not implemented. The matching local
+CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
+`ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
+shim exposes source-level C++ declarations only, without an FFI bridge.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. The
@@ -543,6 +602,31 @@ extra, and preserves damaged values below 1.0, following
 `ck-wiki/GetItemHealthPercent_-_ObjectReference.wikitext`. CTDA 664 retains
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
+
+## CommonLib world views, SHM-16
+
+`World::commonlib_data_handler` returns the MIT `TESDataHandler` view over winning records and
+load-order files. A lookup exposes the resolved runtime FormID, record signature, editor ID
+and associated keywords. `World::commonlib_reference` builds a reference through the normal
+world path, then exposes its current base, transform, cell and enabled/deleted flags through
+the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
+File views retain the load-order filename and regular or light slot.
+
+`World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
+Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
+`weapon_drawn` field to `Drawn` or `Sheathed`. The world does not yet track animation transition
+states. `SetBaseObject` and invalid actor-value requests return an unsupported result without
+changing state. Tests exercise these views against a synthetic load order. No installed-data
+records or SKSE binary plugin are required for this contract.
+
+**CommonLib event channels.** The shared world exposes the MIT shim's
+`ActorKill` and `CriticalHit` event sources. Non-silent deaths with a valid
+actor killer dispatch `ActorKill` after the victim enters dead state. The
+critical-hit reporting method validates an actor and winning WEAP record,
+then sends the caller-confirmed event. Critical chance and damage modifiers
+are not calculated by this reporting method. The listeners live only for the
+current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
+for the projected C++ payload contract and unsupported binary hook boundary.
 
 ## Conformance table
 
@@ -775,6 +859,22 @@ Their CK contracts are described by
   `SAV-10` world section.
 
 ## Tests
+
+`Cargo.toml` disables automatic integration-test discovery and registers one
+binary, `it`, rooted at `tests/it.rs`. Each top-level test file stays in place
+and is registered there with `#[path]`. Shared installed-data, legacy-save
+and magic fixtures are declared once under `crate::common` and
+`crate::support`. Test files import these helpers through `crate::` paths.
+Existing nested scenario reruns retain their test names below the new
+top-level module prefix. Determinism child processes use that prefix when
+selecting their exact test, as do feature-gated persistence child processes.
+Rerun fixtures include their module path in temporary-directory names so
+concurrent modules do not overwrite each other's inputs.
+
+`tst_16_every_test_file_is_registered` compares the top-level Rust files with
+the module declarations and reports the declaration to add for a missing
+file. The registration file uses Git's union merge driver. New test files
+need their module declaration in `tests/it.rs`.
 
 Installed integration tests use `tests/common/installed.rs`. Each test
 process caches parsed plugin files and load orders by their installed master
@@ -1259,6 +1359,21 @@ cannot be read from the runtime yet. The CK `GetFlyingState` page defines
 states 0 to 4, but that contract alone does not provide the missing runtime
 state.
 
+The MIT CommonLib shim exposes these fields through `CONDITION_ITEM_DATA` and
+delegates condition calls through `ConditionRuntime`. `Game` implements that
+boundary by resolving supplied runtime handles and running the condition
+against its current world and Papyrus VM. Condition copy hooks return an
+explicit unsupported-hook error.
+
+**Procedures.** AI-02 walks sequential branches in authored preorder. The
+actor retains the active child and its completion state. A completed Travel
+starts the next child on the next driver tick. Nested `Sequence` branches
+finish after their children, and `Repeat when Complete` restarts only the
+branch carrying that flag. `Success Completes Package` stops the whole tree,
+including enclosing repeats. Once Per Day is recorded after the tree finishes,
+not at every Travel arrival. Conditions are checked when entering each branch.
+Unsupported group types hold with an explicit `Procedure::Unsupported` value.
+The tooling helper `procedure_of` reports the first procedure before conditions.
 **Quest reference alias searches.** At quest start, a reference alias with
 Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
 and `REFR` records in sorted FormID order. The scan stops before evaluation if
@@ -1905,6 +2020,14 @@ incompatible files, with a minimum configured limit of two generations.
 The `sav_63_` tests also corrupt a newly published generation after an
 interrupted rotation, then recover the older verified state and finish a
 bounded retry.
+
+The `sav_61_` tests cover the available recovery boundary: an accepted native
+generation lives in a separate directory and leaves the source save bytes
+unchanged, while a generation written against a different script schema is
+rejected without changing the live game. Dependency preflight, unresolved
+record and script preservation, and reconnection are not implemented in this
+tree, so these checks do not establish missing-mod recovery play or a host
+recovery scenario.
 
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
@@ -2828,14 +2951,29 @@ DLG-07 adds IsIntimidatedbyPlayer (116) and GetIntimidateSuccess (655). Both
 take no parameter in `wbDefinitionsTES5.pas` and
 `Raw_Function_Data.wikitext`, so a nonzero value in either parameter slot is
 rejected with `Error::Parameter`. The intimidated flag reads the
-LastBribedIntimidated actor value that also backs SetBribed, and the success
-check compares the player's Speechcraft against the subject's Confidence
-(AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an
-approximation of the CK wiki's "Mod Player Intimidation" perk entry point
-formula, which the engine does not run yet. The Papyrus native
+LastBribedIntimidated actor value that also backs SetBribed. The success
+check returns `Error::StateContract(655)` when the subject has no Confidence
+actor value and `Error::Unavailable(655)` otherwise. The local CK
+`WillIntimidateSucceed_-_Actor.wikitext` points to the "Mod Player Intimidation"
+perk entry point formula, which the engine does not run yet. Speechcraft and
+Confidence alone cannot supply that result. The Papyrus native
 `WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
 LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
+
+AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
+parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
+value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
+Arrested state reads the subject actor's `arrested` field, matching CK's
+`IsArrested`. Nonzero unused parameter slots and subjects without actor state
+return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
+`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
+has no arresting-target state to evaluate. Its condition is reported as
+`Error::Function(657)` instead of guessing from combat or alert state. The
+function names and parameter counts follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
+contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
+`IsArrestingTarget` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
@@ -2937,7 +3075,10 @@ specifying the archetype's execution rules.
 ### Peak Value Modifier, MAG-55
 
 Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
-form must resolve to a KYWD record. Active effects on the same target compete
+form must resolve to a KYWD record. A missing related keyword returns an
+unsupported-keyword error before changing state, including the installed
+`FrostSlowFFContact` effect whose `RelatedID` is zero.
+Active effects on the same target compete
 when their keyword and primary actor value match, and the greatest signed
 modifier is applied once. Distinct keywords form separate groups. A lower new
 modifier does not change the actor value.

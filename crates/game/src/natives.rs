@@ -1760,18 +1760,12 @@ fn quest(vm: &mut Vm, w: &Shared) {
                     )
                 )
         })));
-    method!(vm, w, "Quest", "IsStarting", |world, call, me| b(world
-        .quest_state(me)
-        .is_some_and(|q| matches!(
-            q.lifecycle_task,
-            Some(crate::quest::state::LifecycleTask::Starting)
-        ))));
-    method!(vm, w, "Quest", "IsStopping", |world, call, me| b(world
-        .quest_state(me)
-        .is_some_and(|q| matches!(
-            q.lifecycle_task,
-            Some(crate::quest::state::LifecycleTask::Stopping)
-        ))));
+    method!(vm, w, "Quest", "IsStarting", |world, _call, me| b(
+        world.quest_is_starting(me)
+    ));
+    method!(vm, w, "Quest", "IsStopping", |world, _call, me| b(
+        world.quest_is_stopping(me)
+    ));
     method!(vm, w, "Quest", "IsCompleted", |world, call, me| b(world
         .quest_state(me)
         .is_some_and(|q| q.completed)));

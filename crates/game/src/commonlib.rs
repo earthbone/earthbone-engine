@@ -7,10 +7,15 @@ use soe_commonlib_shim::form::FormId;
 use soe_commonlib_shim::ni::NiPoint3;
 use soe_commonlib_shim::refr::{
     Actor as ShimActor, ActorApiError, ActorHandle, ActorPtr, ActorState, ActorValue, ObjectRef,
+    Unsupported, WeaponState,
 };
 use soe_esm::GlobalFormId;
 
 use crate::world::World;
+
+pub use crate::commonlib_api::{
+    form_factory, inventory_changes, item_list, lookup_reference_by_handle,
+};
 
 /// A borrowed view of one actor in the form-backed world.
 pub struct WorldActor<'a> {
@@ -112,12 +117,15 @@ impl ObjectRef for WorldActor<'_> {
             .is_some_and(|reference| reference.deleted)
     }
 
-    fn set_base(&mut self, base: FormId) {
-        if let Some(base) = global(self.world, base) {
-            if let Some(reference) = self.world.reference(self.id) {
-                reference.base = Some(base);
-            }
-        }
+    fn set_base(&mut self, base: FormId) -> Result<(), Unsupported> {
+        let base = global(self.world, base).ok_or(Unsupported {
+            operation: "TESObjectREFR::SetBaseObject received an unknown form",
+        })?;
+        let reference = self.world.reference(self.id).ok_or(Unsupported {
+            operation: "TESObjectREFR::SetBaseObject received an invalid reference",
+        })?;
+        reference.base = Some(base);
+        Ok(())
     }
 }
 
@@ -174,6 +182,18 @@ impl ShimActor for WorldActor<'_> {
 
     fn is_player(&self) -> bool {
         self.world.is_player(self.id)
+    }
+
+    fn weapon_state(&self) -> WeaponState {
+        if self
+            .world
+            .actor_ref(self.id)
+            .is_some_and(|state| state.weapon_drawn)
+        {
+            WeaponState::Drawn
+        } else {
+            WeaponState::Sheathed
+        }
     }
 
     fn add_spell(&mut self, spell: FormId) -> bool {
