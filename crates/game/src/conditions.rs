@@ -221,6 +221,12 @@ pub fn supports_function(function: u16) -> bool {
             | 639
             | 655
             | 659
+            | 254
+            | 258
+            | 259
+            | 261
+            | 365
+            | 410
             | 683
             | 698
             | 704
@@ -1358,6 +1364,70 @@ fn function_value(
                 c.function,
                 "CK names hostility but does not define its faction and crime rules",
             ));
+        }
+        254 | 365 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let value = if c.function == 254 {
+                world.race_is_playable(base)
+            } else {
+                world.race_is_child(base)
+            }
+            .ok_or(Error::Form(base))?;
+            boolean(value)
+        }
+        258 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            if world.actor(other).is_none() {
+                return Err(Error::Form(other));
+            }
+            let association = resolve(world, context.owner, c.parameters[1], Some(*b"ASTP"))?;
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let second = world.base_of(other).ok_or(Error::Form(other))?;
+            boolean(world.actors_have_association(first, second, association))
+        }
+        259 | 261 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = if c.function == 259 && raw == 0 {
+                None
+            } else {
+                let other = resolve_reference(world, context.owner, raw)?;
+                if world.actor(other).is_none() {
+                    return Err(Error::Form(other));
+                }
+                Some(other)
+            };
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let matched = if c.function == 259 {
+                let second = other
+                    .map(|other| world.base_of(other).ok_or(Error::Form(other)))
+                    .transpose()?;
+                world.actors_have_family_relationship(first, second)
+            } else {
+                let other = other.ok_or(Error::Form(subject))?;
+                let second = world.base_of(other).ok_or(Error::Form(other))?;
+                world.actors_have_parent_relationship(first, second)
+            };
+            boolean(matched)
+        }
+        410 => {
+            let first = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            let second = resolve(world, context.owner, c.parameters[1], Some(*b"FACT"))?;
+            world
+                .faction(first)
+                .ok_or(Error::Form(first))?
+                .reactions
+                .get(&second)
+                .copied()
+                .unwrap_or(crate::world::reaction::NEUTRAL) as f32
         }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;

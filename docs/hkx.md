@@ -241,6 +241,13 @@ track by track. That is the model to reproduce.
   which is how Skyrim gets `FootLeft` and `SoundPlay` events from vanilla
   animations.
 
+`Interpreter::take_events` exposes the graph events delivered during an update.
+`SkinnedActorNode` maps their ids through the behavior graph event table and
+emits each event after uploading the matching pose. `PlayerNode` forwards the
+signal to `Game`, where Papyrus animation listeners and latent
+`WaitForAnimationEvent` calls receive it. Leaving the scene tree reports graph
+unload so outstanding waits can finish false.
+
 ### 5.2 Variable model
 
 - Storage is one `VariableValueSet` per graph instance, initialized from

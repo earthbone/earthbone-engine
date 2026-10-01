@@ -67,7 +67,11 @@ impl PlayerNode {
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         if let Some(game) = &mut self.game {
             let player = game.player();
-            {
+            let prior = game
+                .world()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            let cell = {
                 let mut world = game.world_mut();
                 // The previous frame has already installed the new host resources.
                 world.settle_unload();
@@ -94,7 +98,12 @@ impl PlayerNode {
                 if should_stand {
                     world.stand_from_furniture(player);
                 }
-            }
+                world
+                    .reference_ref(player)
+                    .and_then(|reference| reference.cell)
+            };
+            let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
+            game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
@@ -385,6 +394,7 @@ impl PlayerNode {
             self.character = Some(id);
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
+            self.sync_cell_ambience(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());

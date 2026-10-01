@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Legacy SOEW fixtures from world/save.rs and world/save_sections.rs.
+
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
@@ -12,7 +14,7 @@ use soe_game::world::World;
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too. It also reduces world-level section payloads
-/// to the empty table expected by legacy fixture offsets.
+/// to an empty table before measuring the legacy tail.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -221,12 +223,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
 
-        // The right spell field is immediately followed by this actor's
-        // named save-section table, which a pre-version-37 writer never
-        // emitted. Read each length so this stays correct as sections are
-        // added to the actor registry.
-        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
-        fields.push((table_offset, section_table_len(&bytes, table_offset)));
+        // Remove this actor's complete section table, including any named
+        // sections added after the legacy version being simulated.
+        let actor_sections = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((actor_sections, section_table_len(&bytes, actor_sections)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the named
@@ -244,8 +244,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let alpha_offset = alpha_offsets[0];
         bytes[alpha_offset..alpha_offset + alpha_marker.len()]
             .copy_from_slice(&prior_alpha.to_le_bytes());
-        let reference_table = alpha_offset + alpha_marker.len();
-        fields.push((reference_table, section_table_len(&bytes, reference_table)));
+        let reference_sections = alpha_offset + alpha_marker.len();
+        fields.push((
+            reference_sections,
+            section_table_len(&bytes, reference_sections),
+        ));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
@@ -269,7 +272,7 @@ pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> V
 /// alpha value. A fixture that materializes a bare reference, such as an
 /// authored loose item never turned into an actor, calls this instead
 /// before truncating the rest of the buffer to an older header. Order does
-/// not matter, an empty slice is a no-op that still round trips the state.
+/// not matter, a table with no registered sections still round trips the state.
 ///
 /// Same cross-binary sharing as `without_exclusive_branches` above: only the
 /// binaries that fixture a bare reference call this one.
@@ -359,8 +362,8 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
         assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
         let offset = found[0];
         bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
-        let table = offset + marker.len();
-        offsets.push((table, section_table_len(&bytes, table)));
+        let section_offset = offset + marker.len();
+        offsets.push((section_offset, section_table_len(&bytes, section_offset)));
     }
     offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in offsets {
@@ -401,14 +404,11 @@ pub fn world_section_growth(bytes: &[u8]) -> usize {
     bytes.len() - normalized.len()
 }
 
-/// Return the number of trailing bytes a versioned reader rejects before the
-/// first prefix it accepts. The callback should parse with a fresh fixture.
-#[allow(dead_code)]
-pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
-    (0..=bytes.len())
-        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
-        .expect("a legacy save prefix is accepted")
-}
+#[path = "save_tail.rs"]
+mod save_tail;
+
+#[allow(unused_imports)]
+pub use save_tail::{truncate_to_version, version_tail_len};
 
 #[allow(dead_code)]
 pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {

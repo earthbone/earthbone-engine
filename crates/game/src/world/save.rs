@@ -1625,12 +1625,14 @@ fn read_ref_state_with_table(
         on_map,
         fast_travel,
         destroyed,
+        destruction_health: None,
         destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
         anim_bools,
         alpha,
+        translation: None,
         persistent: false,
     };
     if version >= 37 {

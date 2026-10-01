@@ -217,15 +217,14 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     let section_start = end + 2;
     let section_len = legacy::section_table_len(&bytes, section_start);
     bytes.drain(offsets[0]..section_start + section_len);
-    legacy::strip_world_sections(&mut bytes);
-    // The scene runtime count (version 36) and detection pool count
-    // (version 37) are past where a version 29 save ends.
-    bytes.truncate(bytes.len() - 8);
-    let visit_count = bytes.len() - 12;
-    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
-    bytes.drain(visit_count..visit_count + 4);
-    // Roll the header back to a real pre-witness-tracking version.
-    bytes[4..6].copy_from_slice(&29u16.to_le_bytes());
+    // CONTEXT: Empty visit and repeat tables have identical encodings in this fixture.
+    legacy::truncate_to_version(&mut bytes, 29, |candidate| {
+        fixture(Some(crva16(0, 0, 0, 0, 0, 0, 1.0)))
+            .0
+            .world_mut()
+            .load_state(candidate)
+            .is_ok()
+    });
 
     w.load_state(&bytes)
         .expect("a real version 29 save must still load");
