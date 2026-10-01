@@ -4227,9 +4227,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsDetectedBy", true),
         ("Cell", "IsAttached", true),
         ("Scene", "IsActionComplete", false),
-        ("Game", "IsPlayerSungazing", false),
-        ("Keyword", "SendStoryEventAndWait", false),
-        ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
     ];
@@ -4278,8 +4275,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetEquippedShield"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("Faction", "ModReaction"),
-        ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
