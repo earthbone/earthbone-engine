@@ -19,6 +19,7 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
+use crate::crime::CrimeType;
 use crate::world::{
     reaction, AnimationListener, BinkOptions, Handle, HostRequest, LeveledEntry, LosListener,
     MenuRequest, World,
@@ -1406,6 +1407,24 @@ fn actor(vm: &mut Vm, w: &Shared) {
         if let Some(a) = world.actor(me) {
             a.in_combat = false;
             a.combat_target = None;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "StopCombatAlarm", |world, call, me| {
+        world.stop_combat_alarm(me);
+        none()
+    });
+    method!(vm, w, "Actor", "SendTrespassAlarm", |world, call, me| {
+        let Some(criminal) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "Actor.SendTrespassAlarm: akCriminal must be an Actor",
+            );
+            return none();
+        };
+        if let Err(error) = world.record_witnessed_crime(criminal, me, CrimeType::Trespass) {
+            call.log
+                .push(call.time, format!("Actor.SendTrespassAlarm: {error}"));
         }
         none()
     });
@@ -3860,11 +3879,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
         ("Actor", "ShowGiftMenu"),
-        ("Actor", "ShowBarterMenu"),
-        ("Actor", "OpenInventory"),
-        ("Actor", "SendTrespassAlarm"),
-        ("Actor", "StopCombatAlarm"),
-        ("Actor", "ClearForcedMovement"),
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
@@ -3906,6 +3920,22 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     for (class, name) in methods_none {
         vm.natives
             .register_method(class, name, Box::new(|_| none()));
+        n += 1;
+    }
+    for name in ["ShowBarterMenu", "OpenInventory", "ClearForcedMovement"] {
+        vm.natives.register_method(
+            "Actor",
+            name,
+            Box::new(move |call| {
+                let detail = match name {
+                    "ShowBarterMenu" => "barter transactions and menu are not implemented",
+                    "OpenInventory" => "actor inventory presenter is not implemented",
+                    _ => "forced movement state is not implemented",
+                };
+                call.log.push(call.time, format!("Actor.{name}: {detail}"));
+                none()
+            }),
+        );
         n += 1;
     }
     // No warmth system (the survival plugin is not loaded) and no sun to
