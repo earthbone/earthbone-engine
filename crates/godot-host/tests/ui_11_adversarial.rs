@@ -36,7 +36,13 @@ fn config_game() -> Game {
             FunctionBuilder::new("OpenConfig", "None")
                 .ins(
                     CallMethod,
-                    vec![s("SetPage"), ident("self"), ident("::nonevar"), s(""), i(-1)],
+                    vec![
+                        s("SetPage"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s(""),
+                        i(-1),
+                    ],
                 )
                 .build(),
         )
@@ -59,10 +65,7 @@ fn config_game() -> Game {
     let child = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
         .variable("selection_count", "Int", i(0))
         .variable("selected_option", "Int", i(-1))
-        .function(
-            FunctionBuilder::new("OnConfigInit", "None")
-                .build(),
-        )
+        .function(FunctionBuilder::new("OnConfigInit", "None").build())
         .function(
             FunctionBuilder::new("OnPageReset", "None")
                 .param("page", "String")

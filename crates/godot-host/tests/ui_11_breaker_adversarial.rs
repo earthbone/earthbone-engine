@@ -31,7 +31,11 @@ fn ui_11_selection_stays_blocked_when_hidden_option_is_enabled() {
     let mut game = Game::new(order);
     let mut page = ConfigPage::new(1);
     let option = page
-        .add_text("Status", "Ready", soe_godot_host::mcm_menu::OPTION_FLAG_DISABLED | 0x02)
+        .add_text(
+            "Status",
+            "Ready",
+            soe_godot_host::mcm_menu::OPTION_FLAG_DISABLED | 0x02,
+        )
         .unwrap();
 
     assert!(page.set_enabled(option, true));

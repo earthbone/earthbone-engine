@@ -11,14 +11,6 @@ use soe_papyrus::Value;
 
 const CONFIG_QUEST: u32 = 0x800;
 
-fn game() -> Game {
-    let mut order = LoadOrder::new();
-    order
-        .add("Fixture.esp", Plugin::new(FileHeader::default()))
-        .unwrap();
-    Game::new(order)
-}
-
 fn skyui_fixture() -> Game {
     let vmad = Vmad {
         scripts: vec![ScriptEntry::new("ConfigFixture")],
@@ -203,10 +195,10 @@ fn ui_11_updates_enabled_state_and_preserves_other_flags() {
 
 #[test]
 fn ui_11_selection_dispatches_once_and_rejects_disabled_rows() {
-    let mut game = game();
+    let mut game = skyui_fixture();
     let script = GlobalFormId {
         file: 0,
-        object: 0x123,
+        object: CONFIG_QUEST,
     };
     let mut page = ConfigPage::new(0);
     let text = page.add_text("Status", "Ready", 0).unwrap();
@@ -217,6 +209,8 @@ fn ui_11_selection_dispatches_once_and_rejects_disabled_rows() {
     assert!(page.select(&mut game, script, text));
     assert!(!page.select(&mut game, script, toggle));
     assert!(!page.select(&mut game, script, 127));
+    assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
+    assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0));
 }
 
 #[test]
