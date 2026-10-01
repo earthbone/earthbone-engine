@@ -690,6 +690,7 @@ Their CK contracts are described by
   CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
   identifies both functions and their float arguments. The host does not yet
   consume the layer snapshot or render particle geometry.
+
 ### Utility runtime queries, SCR-50
 
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
