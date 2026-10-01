@@ -111,8 +111,8 @@ fn prg_10_saved_visit_keeps_expiry_deadline_after_reload() {
     let saved = world.save_state();
 
     let mut loaded = fixture();
-    loaded.player_level = 20;
     loaded.load_state(&saved).unwrap();
+    loaded.player_level = 20;
     loaded.clock.game_days = 12.0;
     assert_eq!(loaded.enter_encounter_zone(id(ZONE_A)).unwrap(), 14);
     assert!(!loaded.reference(id(REF_A)).unwrap().opened);
