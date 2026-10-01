@@ -105,13 +105,13 @@ fn keyword_story_event(
         |index: usize| StoryParameter::Integer(args.get(index).map_or(0, Value::as_int) as u32);
     StoryEvent {
         id: world.runtime_id(keyword),
-        code: *b"SCRP",
+        code: *b"SCPT",
         parameters: vec![
             StoryParameter::Reference {
-                kind: 2,
+                kind: 1,
                 reference: Some(keyword),
             },
-            reference(0, 4),
+            reference(0, 2),
             reference(1, 0),
             reference(2, 0),
             integer(3),
@@ -2989,27 +2989,8 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
         .editor_id(me)
         .unwrap_or_default()));
     method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
-        let reference = |value: &Value, kind| crate::quest::state::StoryParameter::Reference {
-            kind,
-            reference: world.form_arg(value),
-        };
-        world
-            .pending_story_events
-            .push(crate::quest::state::StoryEvent {
-                id: me.object,
-                code: *b"SCPT",
-                parameters: vec![
-                    crate::quest::state::StoryParameter::Reference {
-                        kind: 1,
-                        reference: Some(me),
-                    },
-                    reference(&call.arg(0), 2),
-                    reference(&call.arg(1), 0),
-                    reference(&call.arg(2), 0),
-                    crate::quest::state::StoryParameter::Integer(call.arg(3).as_int() as u32),
-                    crate::quest::state::StoryParameter::Integer(call.arg(4).as_int() as u32),
-                ],
-            });
+        let event = keyword_story_event(world, me, &call.args);
+        world.pending_story_events.push(event);
         none()
     });
     method!(

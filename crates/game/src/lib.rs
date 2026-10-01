@@ -1186,7 +1186,10 @@ impl Game {
             };
             match result {
                 Ok(quests) => routed += quests.len(),
-                Err(error) => self.vm.log.push(self.vm.time(), error.to_string()),
+                Err(error) => self
+                    .vm
+                    .log
+                    .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
             }
         }
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);

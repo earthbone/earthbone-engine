@@ -107,7 +107,7 @@ fn script_event() -> StoryEvent {
 }
 
 #[test]
-fn prg_14_send_story_event_and_wait_stub_does_not_route_a_quest() {
+fn prg_14_send_story_event_and_wait_routes_a_script_quest() {
     let mut game = game(*b"SCPT");
     let script = ScriptBuilder::new("Prg14WaitProbe", "Quest")
         .function(
@@ -148,8 +148,8 @@ fn prg_14_send_story_event_and_wait_stub_does_not_route_a_quest() {
     ];
     let thread = game.vm.call_global("Prg14WaitProbe", "Run", &args).unwrap();
     game.run_until_idle(64);
-    assert_eq!(game.vm.thread_result(thread), Some(Value::Bool(false)));
-    assert!(game.world().quest(id(QUEST)).is_none());
+    assert_eq!(game.vm.thread_result(thread), Some(Value::Bool(true)));
+    assert!(game.world().quest(id(QUEST)).unwrap().running);
 }
 
 #[test]

@@ -39,7 +39,7 @@ fn game(with_quest: bool, malformed: bool) -> Game {
     if with_quest {
         plugin.push_top(Record::new(tag(*b"QUST"), QUEST).sub(tag(*b"DNAM"), [0; 12]));
         let mut root = Record::new(tag(*b"SMEN"), EVENT_NODE)
-            .sub(tag(*b"ENAM"), u32::from_le_bytes(*b"SCRP").to_le_bytes());
+            .sub(tag(*b"ENAM"), u32::from_le_bytes(*b"SCPT").to_le_bytes());
         if malformed {
             root = root.sub(tag(*b"CTDA"), []);
         }
@@ -110,14 +110,14 @@ fn args(game: &mut Game) -> Vec<Value> {
 fn expected_event() -> StoryEvent {
     StoryEvent {
         id: KEYWORD,
-        code: *b"SCRP",
+        code: *b"SCPT",
         parameters: vec![
             StoryParameter::Reference {
-                kind: 2,
+                kind: 1,
                 reference: Some(id(KEYWORD)),
             },
             StoryParameter::Reference {
-                kind: 4,
+                kind: 2,
                 reference: Some(id(LOCATION)),
             },
             StoryParameter::Reference {

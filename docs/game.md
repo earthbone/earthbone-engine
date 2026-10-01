@@ -3347,7 +3347,8 @@ determinism hash.
 `Game::send_story_event` is an explicit runtime API. Papyrus
 `Keyword.SendStoryEvent` queues a `SCPT` event with the keyword, location, two
 references and two integer arguments in CK order. The game scheduler routes it
-after the native returns. `SendStoryEventAndWait` remains a quiet stub.
+after the native returns. `SendStoryEventAndWait` routes the same event before
+returning whether a quest started.
 Gameplay actions do not generally emit story events automatically. The AI-69
 draft was not present in this worktree. Its condition functions
 `GetScriptVariable`, `GetQuestVariable`,
@@ -3369,12 +3370,15 @@ through Story Manager quest selection, item instance state and host menus
 remain unfinished. The full requested execution scope is tracked in
 [execution-plan.md](execution-plan.md).
 
-`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCRP` event
+`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCPT` event
 with the keyword, location, two references and two integer arguments in CK
-order. The waiting native returns whether routing started a quest. These
-natives evaluate direct world conditions without Papyrus variable lookup.
-Conditions that require Papyrus state return a routing error, logged by the
-native, and the waiting native returns false.
+order, using reference kinds 1 for the keyword and 2 for the location.
+The event code follows local `uesp-modfileformat/SMEN.wikitext`, and the native
+return contract follows `ck-wiki/Keyword_Script.wikitext`. The waiting native
+evaluates direct world conditions without Papyrus variable lookup. Conditions
+that require Papyrus state return a routing error, and the waiting native
+logs it and returns false. Deferred routing errors retain the
+`Keyword.SendStoryEvent` caller name in the VM log.
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
