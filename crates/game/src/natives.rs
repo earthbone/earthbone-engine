@@ -3336,7 +3336,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "StartVampireFeed", |world, call, me| {
         if let Some(target) = world.form_arg(&call.arg(0)) {
-            if world.actor(target).is_some() {
+            if world.actor(target).is_some_and(|actor| actor.ai.sleeping) {
                 let target = world.form_value(Some(target), alloc!(call));
                 world.form_event(me, "OnVampireFeed", vec![target], alloc!(call));
             }

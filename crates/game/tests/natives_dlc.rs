@@ -1015,6 +1015,8 @@ fn scr_16_start_vampire_feed_delivers_actor_event() {
     g.start();
     let vampire = obj(&mut g, "VampireRef");
     let player = obj(&mut g, "PlayerRef");
+    let player_id = form(&g, "PlayerRef");
+    g.world_mut().actor(player_id).unwrap().ai.sleeping = true;
     call(&mut g, &vampire, "StartVampireFeed", &[player]);
     g.pump();
     assert!(g

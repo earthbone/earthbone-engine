@@ -609,9 +609,9 @@ because the local CK corpus does not provide usable condition semantics for them
 and the equipped shout while retaining the actor's known spells and inventory.
 `Actor.RemoveAllSpells` clears known spells and spell hand assignments while
 leaving unrelated equipment in place. `StartVampireFeed` queues the documented
-`OnVampireFeed` event on the calling actor when its target resolves to an actor.
-It does not check that target's sleep state. `StartCannibal` remains a quiet
-stub because actor action state is not modeled. `ClearExtraArrows` needs
+`OnVampireFeed` event on the calling actor when its target resolves to a
+sleeping actor. `StartCannibal` remains a quiet stub because actor action state
+is not modeled. `ClearExtraArrows` needs
 attached-arrow state in the host renderer.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
