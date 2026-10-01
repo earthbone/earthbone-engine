@@ -84,7 +84,7 @@ source-level contracts without a C ABI. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
 The RE and SKSE interface declarations are source-level headers and do not provide engine
 bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
-Condition methods delegate to `ConditionRuntime`; the game implementation evaluates against the
+Condition methods delegate to `ConditionRuntime`. The game implementation evaluates against the
 current world and VM. Native condition copying reports `UnsupportedHook`.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
@@ -143,7 +143,7 @@ and instantiated reference and actor state. The form view carries resolved runti
 signatures, editor IDs and associated keywords. `TESFile` views expose load-order names and
 regular or light compile indices. `TESObjectREFRPtr` is a nullable runtime FormID handle.
 `WEAPON_STATE` exposes the six CommonLib numeric values. Since the game currently stores only
-whether an actor's weapon is drawn, live actor queries return `kSheathed` or `kDrawn`; the four
+whether an actor's weapon is drawn, live actor queries return `kSheathed` or `kDrawn`. The four
 animation transition states are available in the contract but not produced by the runtime.
 
 The runtime does not implement `TESObjectREFR::SetBaseObject` for an existing reference. Its
