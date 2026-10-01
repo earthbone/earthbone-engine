@@ -2711,6 +2711,36 @@ No EffectShader page exists in the local CK wiki corpus. The host currently
 draws one temporary emissive sphere at the target reference placement. It
 does not parse EFSH textures, colors, blend modes or fade curves.
 
+### Cure Poison, MAG-50
+
+The Cure Poison archetype (MGEF archetype 29) ends active applications whose
+source is an ALCH record marked as a poison by ENIT flag bit 17. Other active
+effects on the target remain applied. Ending a selected application uses the
+usual dispel path, including reversal of recoverable actor-value changes and
+`OnEffectFinish` delivery.
+
+The archetype number and ALCH poison bit match
+`TES5Edit/Core/wbDefinitionsTES5.pas`, MGEF and ALCH, and CommonLibSSE-NG's
+`EffectArchetypes.h` and `AlchemyItem.h`. UESP's `MGEF.wikitext` lists Cure
+Poison without additional archetype data. The local CK wiki corpus has no page
+specifying the archetype's execution rules.
+
+### Peak Value Modifier, MAG-55
+
+Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
+form must resolve to a KYWD record. Active effects on the same target compete
+when their keyword and primary actor value match, and the greatest signed
+modifier is applied once. Distinct keywords form separate groups. A lower new
+modifier does not change the actor value.
+When the effect supplying the peak ends, the remaining group is recalculated
+and its next greatest modifier takes effect. Secondary actor value fields do
+not contribute. The group is derived from active effects and winning MGEF
+records, so it adds no save fields.
+
+`magic.rs` tests cover peak selection, keyword groups, ignored secondary
+values, and promotion of the next active modifier after expiration. They use
+synthetic records.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and
@@ -2839,7 +2869,8 @@ boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Absorb, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
+of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts,
+Dispel and Cloak effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self, aimed actor and target-actor delivery are supported for constant
 and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
@@ -2898,7 +2929,10 @@ Each effect applies to enabled, undeleted actor references inside its authored
 EFIT area around the selected point. A zero area selects only actors at the
 exact point. xEdit's SPIT definition and the local UESP SPEL format page name
 Target Location as delivery 4 and Range as valid for this delivery. The host
-collision result is supplied by `godot-host` and is not saved.
+collision result is supplied by `godot-host` and is not saved. Cloak effects
+are the concentration exception: their associated aimed or target spell runs
+once per second while the cloak is active. Their saved pulse phase and owned
+effect identities are described under Cloak, MAG-56.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
@@ -3012,6 +3046,15 @@ magic-effect application as a TODO, so it supplies no resistance formula. The
 85 percent cap and order are the runtime's selected behavior. Keeping magic
 and specific resistance as separate terms preserves their independent actor
 values.
+
+The runtime executes MGEF archetype 33, Stagger, for spells and ingestibles.
+Each prepared Stagger application passes its authored magnitude and caster
+form, falling back to the cast source, to the shared stagger lifecycle once.
+It uses the same `fStaggerDuration` real-time deadline as melee stagger. Actor
+state retains the latest magnitude and direction source with that deadline,
+serialized in the `MAG-54` actor save section under SOEW version 37. Local
+xEdit and UESP MGEF layouts name archetype 33 and specify no archetype-specific
+data. The local CK wiki dump has no page that defines its runtime behavior.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
@@ -3272,6 +3315,28 @@ the live application and finish path reused here. Synthetic
 ingestible path. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case.
 
+### Accumulate Magnitude, MAG-53
+
+MGEF archetype 32 accumulates the effect's authored magnitude into its primary
+actor value, at `fMagicWardPowerMaxBase` points per unpaused simulation second.
+The current value is capped at the effect magnitude. An effect with No Duration
+stays active until it is dispelled. Menu time does not accumulate the value.
+For the shipped ward records, xEdit names archetype 32 and UESP identifies its
+primary actor value as WardPower. The accumulation rate comes from the
+`fMagicWardPowerMaxBase` GMST. A missing or invalid setting returns a typed
+magic error and leaves the effect's elapsed time unchanged.
+
+The accumulated value uses the actor's existing persistent value components,
+so it and the active effect continue from their saved state after reload. No
+separate magic save field is added. `mag_53_accumulates_primary_actor_value_on_unpaused_clock_and_caps_at_magnitude`
+checks the primary value, paused clock, rate and cap.
+`mag_53_accumulated_amount_and_effect_resume_after_reload` checks the saved
+partial amount and continued accumulation. The local CK wiki corpus has no
+Accumulate Magnitude page describing its rate formula. This implementation
+uses the named GMST directly. The source inventory is local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`.
+
 ### Demoralize, MAG-30
 
 Direct Demoralize effects use the active-effect lifecycle to lower the target's
@@ -3345,6 +3410,25 @@ save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
 visuals, sounds, and host presentation remain outside this check.
 
+### Slow Time, MAG-58
+
+Direct casts execute MGEF archetype 37. The active effect magnitude is treated
+as a percentage of time removed, clamped to 100 percent. When multiple Slow
+Time effects are active, the strongest one sets the rate. The resulting rate
+scales game-calendar advancement and NPC package movement. The real-seconds
+clock, its update timers, active-effect durations and Papyrus real-time clock
+continue at the supplied tick duration. Menu ticks pause world clocks and
+movement while the Papyrus real-time clock continues.
+
+Local xEdit `wbDefinitionsTES5.pas` names archetype 37 Slow Time. Local UESP
+`MGEF.wikitext` says it has no archetype-specific extra data. The CK wiki dump
+has no page describing this archetype's execution formula, so the percentage
+interpretation uses the effect entry magnitude. `mag_58_slow_time_scales_game_time_without_slowing_real_time_waits`
+checks calendar progression and completion of an ordinary Papyrus wait. The
+menu test checks that menu pause preserves world clocks, completes a Papyrus
+menu wait and leaves an ordinary wait asleep. Both use synthetic records, and
+the check names no vanilla records.
+
 ### Command Summoned, MAG-33
 
 Direct casts execute MGEF archetype 10 only for a reference spawned by a live
@@ -3398,6 +3482,35 @@ raise that event. Host appearance refresh is not handled here.
 `mag_57_saved_transform_restores_owned_state_after_load` cover the synthetic
 record path. The check names no installed records, so it has no
 `SKYRIM_DATA`-gated case.
+
+### Cloak, MAG-56
+
+Archetype 35 resolves its associated item as a winning SPEL record. The
+associated spell must use concentration casting with aimed or target-actor
+delivery. A live Cloak effect uses its authored magnitude as the radius around
+the effect target and applies the associated spell to enabled actor references
+in that range once per second. Area target selection ignores cell seams.
+Each cloak tracks the effect
+applications from its latest pulse. A later pulse removes those applications
+before creating the next set, and dispelling or expiring the cloak removes its
+owned applications.
+
+The xEdit source `TES5Edit/Core/wbDefinitionsTES5.pas` maps archetype 35 to a
+SPEL associated item. Local `uesp-modfileformat/MGEF.wikitext` agrees on the
+archetype and area fields. The local CK dump has no Magic Effect page. The
+published [Creation Kit Magic Effect page](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
+specifies the associated concentration spell and says Cloak casts it on area
+targets. Its concentration section establishes one-second reapplication.
+`area_targets` reuses MAG-06's loaded actor selection. The cloak pulse phase
+and owned active-effect identities are saved in the world section `MAG-56`,
+without changing SOEW version 37.
+
+`mag_56_cloak_pulses_on_its_one_second_cadence_and_selects_nearby_actors`
+checks pulse timing, radius selection and exclusion outside the authored
+area. `mag_56_cloak_expiry_cleans_up_only_its_owned_effects_and_survives_save_load`
+checks owned cleanup at expiry after save/load. Neither check names a vanilla
+record, so no `SKYRIM_DATA` case applies. Host visuals, sound and concentration
+input are outside this row.
 
 ### Direct hostile hits, MAG-01
 
@@ -3550,6 +3663,28 @@ vanilla record, so no SKYRIM_DATA-gated case was added. Ingestible and poison
 area remains its own unsupported entry, out of this row's scope. Concentration,
 projectiles, contact and location delivery and taper stay separately
 unsupported as before.
+
+### Concussion archetype, MAG-51
+
+xEdit numbers Concussion as MGEF archetype 30. The local UESP MGEF page says
+this archetype has no extra data. Its associated-item selector does not assign
+archetype 30 a specialized association field. The existing `MagicEffect` view
+still decodes the shared DATA values, including archetype, actor values,
+casting and delivery values, and effect metadata. Those decoded fields do not
+establish which values Concussion execution reads.
+
+The local CK wiki corpus has no Magic Effect archetype page and defines no
+Concussion execution behavior. The local source evidence therefore establishes
+no live runtime contract, consumed archetype-specific fields or implementation
+to port. No execution row is warranted by this characterization.
+
+`mag_51_concussion_named_fixture_decodes_generic_mgef_data` exercises the
+shared DATA view on a named synthetic MGEF fixture with archetype 30.
+`mag_51_concussion_five_master_corpus_result` surveys the winning records in
+Skyrim, Update, Dawnguard, HearthFires and Dragonborn. On the installed data,
+the survey decoded 1,573 non-deleted winning MGEFs and found zero archetype-30
+records. This establishes absence from that five-master corpus, not absence
+from mods or behavior in the original runtime.
 
 ### Unnamed archetypes, MAG-68
 
@@ -4579,6 +4714,21 @@ scene target, but the five Papyrus natives expose no target argument.
 Fallback target behavior, curve interpolation, unused channels and exact
 strength composition are not recovered contracts. They must not be inferred
 from similarly named Godot properties or a linear crossfade weight test.
+
+## Value and Parts archetype, MAG-52
+
+MGEF archetype 31 prepares the authored primary actor value as a reversible
+modifier on each selected actor, for spells and ingestibles. It does not change
+other actor values or actors outside the delivery target. The selected MGEF
+association field does not define a body-part target for this archetype.
+
+The local xEdit MGEF definition names archetype 31 and selects the `Unused`
+associated-item field for it. The local UESP `MGEF.wikitext` says the archetype
+uses PrimaryAV and is not used in game. The runtime follows that field contract
+for explicit records while keeping effect state in the shared actor-value
+system. The `mag_52_value_and_parts_changes_only_the_authored_value_on_its_target`
+and `mag_52_value_and_parts_ingestible_changes_only_its_authored_value` tests
+check the independent values and target actors for spell and ingestible paths.
 
 ## Dispel archetype, MAG-05
 

@@ -1144,6 +1144,7 @@ impl World {
             &mut self.learned_enchantment_effects,
             learned_enchantment_effects.clone(),
         );
+        let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let fallback_player_level = player
             .and_then(|id| actors.get(&id).map(|actor| actor.level))
             .unwrap_or(self.player_level)
@@ -1167,9 +1168,8 @@ impl World {
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
-        let unresolved_records =
-            std::mem::replace(&mut self.unresolved_records, previous_unresolved);
-        let brewed_potions = std::mem::replace(&mut self.brewed_potions, previous_brewed);
+        let unresolved_records = std::mem::take(&mut self.unresolved_records);
+        let brewed_potions = std::mem::take(&mut self.brewed_potions);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
@@ -1178,6 +1178,10 @@ impl World {
             &mut self.learned_enchantment_effects,
             previous_learned_effects,
         );
+        let cloak_effects = std::mem::take(&mut self.cloak_effects);
+        self.unresolved_records = previous_unresolved;
+        self.brewed_potions = previous_brewed;
+        self.cloak_effects = previous_cloaks;
         section_result?;
         validation_result?;
         r.expect_end()?;
@@ -1350,6 +1354,12 @@ impl World {
         self.dialogue.repeated = dialogue_repeats;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
+        if version >= 37 {
+            self.cloak_effects = cloak_effects;
+            self.validate_cloaks()?;
+        } else {
+            self.cloak_effects.clear();
+        }
         self.image_space = image_space;
 
         self.objects = objects;

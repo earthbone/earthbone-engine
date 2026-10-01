@@ -19,9 +19,9 @@ use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
 use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
-use soe_papyrus::Value;
+use soe_papyrus::{ThreadState, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -65,6 +65,8 @@ mod mag_67_vampire_lord;
 mod mag_70_conditions;
 #[path = "magic/mag_73.rs"]
 mod mag_73;
+#[path = "magic/peak_value.rs"]
+mod peak_value;
 #[path = "magic/scroll.rs"]
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]
@@ -517,6 +519,64 @@ fn mag_11_equip_item_drinks_a_potion_through_the_actor_native() {
 }
 
 #[test]
+fn mag_52_value_and_parts_changes_only_the_authored_value_on_its_target() {
+    let mut game = game(plugin(
+        effect(1 << 1, 31, 24, false),
+        vec![spell(SPELL, 0, false, 17.0, 5)],
+    ));
+
+    assert_eq!(cast(&mut game, SPELL, OTHER).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 117.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "magicka"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 100.0);
+    let active = game.world().active_effects().next().unwrap().clone();
+    assert_eq!(active.magnitude, 17.0);
+    assert_eq!(active.target, id(OTHER));
+    assert_eq!(
+        game.world()
+            .magic_effect(id(EFFECT))
+            .unwrap()
+            .data
+            .associated_item,
+        0
+    );
+}
+
+#[test]
+fn mag_52_value_and_parts_ingestible_changes_only_its_authored_value() {
+    let mut game = game(plugin(
+        effect(1 << 1, 31, 24, false),
+        vec![ingestible(POTION, 13.0, 5)],
+    ));
+    game.world_mut().add_item(id(ACTOR), id(POTION), 1);
+
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        })
+        .unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 113.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "magicka"), 100.0);
+    let active = game.world().active_effects().next().unwrap().clone();
+    assert_eq!(active.magnitude, 13.0);
+    assert_eq!(active.target, id(ACTOR));
+    assert_eq!(
+        game.world()
+            .magic_effect(id(EFFECT))
+            .unwrap()
+            .data
+            .associated_item,
+        0
+    );
+}
+
+#[test]
 fn mag_11_saved_timed_potion_keeps_its_effect_without_reconsuming_it() {
     let mut original = game(plugin(
         effect(1 << 1, 0, 24, false),
@@ -951,6 +1011,125 @@ fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
     ));
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_54_stagger_forwards_authored_magnitude_and_caster_direction_once_through_reload() {
+    let authored_magnitude = 0.65;
+    let effect_record = effect(0, 33, 24, false);
+    let mut original = game(plugin(
+        effect_record,
+        vec![spell(SPELL, 0, false, authored_magnitude, 0)],
+    ));
+
+    let applied = cast(&mut original, SPELL, OTHER).unwrap();
+    assert_eq!(applied.len(), 1);
+    let deadline = {
+        let world = original.world();
+        let actor = world.actor_ref(id(OTHER)).unwrap();
+        assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+        assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+        actor.stagger_end_time.unwrap()
+    };
+
+    original.tick(0.25);
+    {
+        let world = original.world();
+        let actor = world.actor_ref(id(OTHER)).unwrap();
+        assert_eq!(actor.stagger_end_time, Some(deadline));
+        assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+        assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+    }
+
+    let saved = original.save_state().unwrap();
+    let mut restored = game(plugin(
+        effect(0, 33, 24, false),
+        vec![spell(SPELL, 0, false, authored_magnitude, 0)],
+    ));
+    restored.load_state(&saved).unwrap();
+    let world = restored.world();
+    let actor = world.actor_ref(id(OTHER)).unwrap();
+    assert_eq!(actor.stagger_end_time, Some(deadline));
+    assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+    assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+}
+
+#[test]
+fn mag_58_slow_time_scales_game_time_without_slowing_real_time_waits() {
+    let mut game = fixture(0, 37, 90.0, 10);
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    let wait_script = ScriptBuilder::new("SlowTimeClockProbe", "").function(
+        FunctionBuilder::new("Wait", "Int")
+            .global()
+            .ins(
+                soe_papyrus::Opcode::CallStatic,
+                vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.0)],
+            )
+            .ins(Return, vec![i(1)])
+            .build(),
+    );
+    game.load_script(&wait_script.bytes()).unwrap();
+    let wait = game
+        .vm
+        .call_global("SlowTimeClockProbe", "Wait", &[])
+        .unwrap();
+    game.run_until_idle(64);
+    game.tick(1.0);
+
+    let world = game.world();
+    assert_eq!(world.clock.real_seconds, 1.0);
+    assert!((world.clock.game_days - (20.0 / 10.0 / 86_400.0)).abs() < 1e-12);
+    assert_eq!(game.vm.thread_result(wait), Some(Value::Int(1)));
+}
+
+#[test]
+fn mag_58_menu_pause_preserves_slow_time_state_and_advances_real_time_waits() {
+    let mut game = fixture(0, 37, 90.0, 10);
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    game.tick(1.0);
+    let game_days = game.world().clock.game_days;
+    let real_seconds = game.world().clock.real_seconds;
+    let wait_script = ScriptBuilder::new("SlowTimeMenuClockProbe", "")
+        .function(
+            FunctionBuilder::new("Wait", "Int")
+                .global()
+                .ins(
+                    soe_papyrus::Opcode::CallStatic,
+                    vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.0)],
+                )
+                .ins(Return, vec![i(1)])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("WaitMenuMode", "Int")
+                .global()
+                .ins(
+                    soe_papyrus::Opcode::CallStatic,
+                    vec![s("Utility"), s("WaitMenuMode"), ident("::nonevar"), f(1.0)],
+                )
+                .ins(Return, vec![i(2)])
+                .build(),
+        );
+    game.load_script(&wait_script.bytes()).unwrap();
+    let real_wait = game
+        .vm
+        .call_global("SlowTimeMenuClockProbe", "Wait", &[])
+        .unwrap();
+    let menu_wait = game
+        .vm
+        .call_global("SlowTimeMenuClockProbe", "WaitMenuMode", &[])
+        .unwrap();
+    game.run_until_idle(64);
+
+    game.tick_menu_mode(2.0, true);
+
+    assert_eq!(game.world().clock.game_days, game_days);
+    assert_eq!(game.world().clock.real_seconds, real_seconds);
+    assert_eq!(
+        game.vm.thread_state(real_wait),
+        Some(ThreadState::Sleeping(2.0))
+    );
+    assert_eq!(game.vm.thread_result(menu_wait), Some(Value::Int(2)));
 }
 
 #[test]
@@ -1775,7 +1954,7 @@ fn mag_61_spawn_hazard_requires_owned_lifecycle_without_changes() {
 #[test]
 fn unsupported_second_effect_does_not_partially_apply_the_spell() {
     let good = effect(2, 0, 24, false);
-    let mut bad = effect(0, 35, 24, false);
+    let mut bad = effect(0, 13, 24, false);
     bad.form_id = EFFECT + 1;
     let mut efit = 10.0f32.to_le_bytes().to_vec();
     efit.extend_from_slice(&[0; 8]);
@@ -2315,7 +2494,7 @@ fn hostile_hits_reject_dead_ghost_and_missing_targets_without_events_or_damage()
 #[test]
 fn invalid_second_hostile_effect_rejects_before_first_hit() {
     let good = effect(5, 0, 24, false);
-    let mut bad = effect(5, 35, 24, false);
+    let mut bad = effect(5, 13, 24, false);
     bad.form_id = EFFECT + 1;
     let mut efit = 10.0f32.to_le_bytes().to_vec();
     efit.extend_from_slice(&[0; 8]);

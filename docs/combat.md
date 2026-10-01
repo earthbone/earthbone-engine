@@ -845,11 +845,13 @@ magnitude is that health damage scaled by the weapon's own DNAM Stagger
 fraction, `health_damage * weapon.stagger`. A hit above `fStaggerThreshold`
 sets `ActorState::stagger_end_time` to `World::clock.real_seconds` plus
 `fStaggerDuration`, the same real-time clock `ai::wait_until` uses for its
-own deadlines, not the calendar `game_days` clock. `World::is_staggered(id)`
-reads that deadline lazily against the current clock, mirroring the
-`is_player` and `is_reference` query methods rather than adding an active
-per-tick clear. `HitResult::staggered` reports whether this particular hit
-crossed the threshold.
+own deadlines, not the calendar `game_days` clock. A qualifying hit passes
+its computed magnitude and attacker as direction source to the shared
+stagger lifecycle, which retains them with the deadline.
+`World::is_staggered(id)` reads that deadline lazily against the current clock,
+mirroring the `is_player` and `is_reference` query methods rather than adding
+an active per-tick clear. `HitResult::staggered` reports whether this
+particular hit crossed the threshold.
 
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` WEAP definition places the
 Stagger float as DNAM's last field, the four bytes at offset 96 to 100 of

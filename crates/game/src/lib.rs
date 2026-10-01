@@ -1080,8 +1080,9 @@ impl Game {
             self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
+            let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
-            w.advance_clock(real_seconds);
+            w.advance_clock_scaled(real_seconds, slow_time_scale);
             w.tick_image_space(real_seconds);
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
@@ -1096,7 +1097,9 @@ impl Game {
             }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+                vm.create_object_of(n, c)
+            });
         }
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
