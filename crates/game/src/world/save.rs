@@ -1174,7 +1174,10 @@ impl World {
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.vampire_lord_forms = previous_vampire_forms;
-        self.learned_enchantment_effects = previous_learned_effects;
+        let learned_enchantment_effects = std::mem::replace(
+            &mut self.learned_enchantment_effects,
+            previous_learned_effects,
+        );
         section_result?;
         validation_result?;
         r.expect_end()?;
@@ -1320,9 +1323,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
-        if version < 37 {
-            self.learned_enchantment_effects = learned_enchantment_effects;
-        }
+        self.learned_enchantment_effects = learned_enchantment_effects;
         self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
@@ -1341,9 +1342,7 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
-        if version < 37 {
-            self.scene_runs = scene_runs;
-        }
+        self.scene_runs = scene_runs;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;

@@ -2835,7 +2835,6 @@ the new rig and appearance before replacing the previous view. Every selected
 skin shape must map all its bone names onto the race rig or the replacement is
 rejected. Paths use the data source VFS and its file overlay.
 
-
 ## Facial expression target mapping (ANM-59)
 
 `facial::expression_weights` maps CK expression ids 0 through 16 to the

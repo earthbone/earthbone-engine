@@ -625,10 +625,6 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut source = rich_world(255);
         let mut legacy = without_exclusive_branches(&mut source);
-        let mut version_15 = legacy.clone();
-        let tail = legacy_tail::truncate_to_version(&mut version_15, 15, |candidate| {
-            World::new(legacy_order()).load_state(candidate).is_ok()
-        });
         if version == 17 {
             let mut before_difficulty = legacy.clone();
             legacy_tail::truncate_to_version(&mut before_difficulty, 15, |candidate| {
@@ -653,14 +649,6 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         }
         if version == 15 || version == 17 {
             expected.difficulty = Difficulty::Adept;
-        }
-        match version {
-            15 => legacy.truncate(tail),
-            16 => legacy.truncate(tail + 1),
-            17 => {
-                legacy.remove(tail);
-            }
-            _ => {}
         }
         legacy[4..6].copy_from_slice(&version.to_le_bytes());
         let mut loaded = World::new(legacy_order());

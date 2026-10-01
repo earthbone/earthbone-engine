@@ -220,13 +220,14 @@ impl ActorAssets {
         behavior: &str,
     ) -> Result<ActorAssets, ActorError> {
         let (skeleton, ragdoll) = Self::load_skeleton(vfs)?;
-        let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
+        let behavior = rooted_asset_path(CHARACTER_ROOT, behavior);
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph, CHARACTER_ROOT);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
         let skeleton_path = HUMAN_SKELETON.to_string();
         let skeleton_model_path = HUMAN_SKELETON.to_string();
-        let behavior_path = behavior.to_string();
+        let behavior_path = behavior;
         Ok(ActorAssets {
             skeleton,
             ragdoll,

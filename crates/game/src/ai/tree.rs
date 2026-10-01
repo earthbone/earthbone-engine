@@ -188,7 +188,7 @@ impl Tree {
                 let index = branch.inputs.get(position).copied().unwrap_or(u8::MAX);
                 if index == u8::MAX {
                     return match position {
-                        2..=4 => Some((self.owner, DataValue::Bool(false))),
+                        2..=5 => Some((self.owner, DataValue::Bool(false))),
                         _ => None,
                     };
                 }

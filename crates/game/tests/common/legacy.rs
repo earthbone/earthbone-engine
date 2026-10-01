@@ -442,6 +442,21 @@ pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
     length
 }
 
+/// Add the empty collections that versions 34 to 36 stored outside sections.
+/// This fixture requires empty learned effects, scene progress and detection.
+#[allow(dead_code)]
+pub fn empty_legacy_world_collections(bytes: &mut Vec<u8>, version: u16) {
+    if (34..37).contains(&version) {
+        strip_world_sections(bytes);
+        // CONTEXT: These trailing collections all have zero counts. Moving
+        // the empty detection count past the inserted counts preserves it.
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        if version == 36 {
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
+    }
+}
+
 pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
     let _ = strip_world_sections(bytes);
     bytes.extend_from_slice(&0u16.to_le_bytes());

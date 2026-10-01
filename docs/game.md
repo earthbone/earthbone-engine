@@ -5446,7 +5446,6 @@ animation system, it does not replace a live Havok clip yet.
 `anm_09_` tests use authored records and synthetic OAR directories to check
 conditioned selection, priority order and unsupported-condition rejection.
 
-
 ## Saved static-object changes, SAV-42
 
 `World::restore_vanilla_static_objects` maps CONT, MISC and FURN references

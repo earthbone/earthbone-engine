@@ -420,9 +420,6 @@ fn start(
     } else {
         None
     };
-    if params.horse && mount.is_none() {
-        return Err("Patrol requires an available owned horse");
-    }
     destination(world, ai, points[index])?;
     ai.patrol = Some(PatrolState {
         start,
