@@ -105,9 +105,11 @@ pub struct PlayerNode {
     last_melee_target: Option<GlobalFormId>,
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
+    presented_hud_cart_mode: bool,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     dialogue_voice_slot: Option<i32>,
     footstep_cadence: crate::audio::FootstepCadence,
+    ambience_owner: crate::audio::AmbienceOwner,
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
@@ -172,9 +174,11 @@ impl INode3D for PlayerNode {
             last_melee_target: None,
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
+            presented_hud_cart_mode: false,
             sound_bank: None,
             dialogue_voice_slot: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
+            ambience_owner: crate::audio::AmbienceOwner::default(),
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
@@ -375,6 +379,28 @@ impl PlayerNode {
     /// Emitted after closing and releasing owned content controls.
     #[signal]
     fn menu_closed();
+
+    /// A Game native changed the HUD cart-mode flag.
+    #[signal]
+    fn hud_cart_mode_changed(enabled: bool);
+
+    /// A Game native requested the race and sex editor.
+    #[signal]
+    fn race_menu_requested();
+
+    /// A Game native requested a screen blood effect.
+    #[signal]
+    fn screen_blood_requested(value: i32);
+
+    /// A Game native requested Bink playback with its authored options.
+    #[signal]
+    fn bink_requested(
+        file_name: GString,
+        interruptible: bool,
+        mute_audio: bool,
+        mute_music: bool,
+        letterbox: bool,
+    );
 
     #[func]
     fn input_focus_lost(&mut self) {

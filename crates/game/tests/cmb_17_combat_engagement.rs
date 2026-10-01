@@ -13,6 +13,7 @@ const CELL: u32 = 0x800;
 const HUNTER_BASE: u32 = 0x801;
 const TARGET_BASE: u32 = 0x802;
 const IGNORE_COMBAT_PACKAGE: u32 = 0x850;
+const NO_COMBAT_ALERT_PACKAGE: u32 = 0x851;
 const HUNTER: u32 = 0x900;
 const TARGET: u32 = 0x901;
 
@@ -102,6 +103,14 @@ fn fixture() -> World {
             IGNORE_COMBAT_PACKAGE,
             "IgnoreCombat",
             package::flags::IGNORE_COMBAT,
+            Schedule::default(),
+        ),
+    )));
+    plugin.push_top(package::with_actions(package::finish(
+        package::build_record(
+            NO_COMBAT_ALERT_PACKAGE,
+            "NoCombatAlert",
+            package::flags::NO_COMBAT_ALERT,
             Schedule::default(),
         ),
     )));
@@ -235,6 +244,32 @@ fn cmb_17_unaggressive_actor_does_not_acquire_a_target() {
         .set_actor_value(id(HUNTER), "aggression", 0.0)
         .unwrap();
     detect_target(&mut world);
+    world.ai_tick(0.0, &mut |_, _| panic!("unexpected package script binding"));
+
+    let hunter = world.actor(id(HUNTER)).unwrap();
+    assert!(!hunter.in_combat);
+    assert_eq!(hunter.combat_target, None);
+}
+
+#[test]
+fn ai_05_no_combat_alert_flag_suppresses_alert_state_on_engagement() {
+    for (package, expected_alerted) in [(Some(NO_COMBAT_ALERT_PACKAGE), false), (None, true)] {
+        let mut world = fixture();
+        detect_target(&mut world);
+        world.actor(id(HUNTER)).unwrap().ai.package = package.map(id);
+        world.ai_tick(0.0, &mut |_, _| panic!("unexpected package script binding"));
+
+        let hunter = world.actor(id(HUNTER)).unwrap();
+        assert!(hunter.in_combat);
+        assert_eq!(hunter.alerted, expected_alerted);
+    }
+}
+
+#[test]
+fn ai_05_ignore_combat_flag_prevents_engagement() {
+    let mut world = fixture();
+    detect_target(&mut world);
+    world.actor(id(HUNTER)).unwrap().ai.package = Some(id(IGNORE_COMBAT_PACKAGE));
     world.ai_tick(0.0, &mut |_, _| panic!("unexpected package script binding"));
 
     let hunter = world.actor(id(HUNTER)).unwrap();

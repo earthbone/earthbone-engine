@@ -1934,13 +1934,12 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    // The extra 6 bytes beyond the old 70 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. `without_exclusive_branches` already strips
-    // each actor's and reference's own mid-stream section table.
-    old.truncate(old.len() - 76);
-    old[4..6].copy_from_slice(&8u16.to_le_bytes());
+    legacy::truncate_to_version(&mut old, 8, |candidate| {
+        fixture(0, 1, 0.0, 10)
+            .world_mut()
+            .load_state(candidate)
+            .is_ok()
+    });
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().active_effects().count(), 0);
@@ -1952,9 +1951,30 @@ fn corrupt_effect_data_leaves_the_live_world_unchanged() {
     cast(&mut game, SPELL, OTHER).unwrap();
     let before = game.world().state_hash();
     let mut bytes = game.world().save_state();
-    let offset = bytes.len() - 20;
+    let effect = game.world().active_effects().next().unwrap().clone();
+    let mut marker = effect.id.0.to_le_bytes().to_vec();
+    for form in [effect.spell, effect.effect] {
+        marker.extend_from_slice(&form.file.to_le_bytes());
+        marker.extend_from_slice(&form.object.to_le_bytes());
+    }
+    marker.extend_from_slice(&effect.effect_index.to_le_bytes());
+    marker.extend_from_slice(&effect.source.file.to_le_bytes());
+    marker.extend_from_slice(&effect.source.object.to_le_bytes());
+    marker.push(u8::from(effect.caster.is_some()));
+    if let Some(caster) = effect.caster {
+        marker.extend_from_slice(&caster.file.to_le_bytes());
+        marker.extend_from_slice(&caster.object.to_le_bytes());
+    }
+    marker.extend_from_slice(&effect.target.file.to_le_bytes());
+    marker.extend_from_slice(&effect.target.object.to_le_bytes());
+    let offset = legacy::unique_offset(&bytes, &marker) + marker.len();
     bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
-    assert!(game.world_mut().load_state(&bytes).is_err());
+    assert!(game
+        .world_mut()
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid active effect state"));
     assert_eq!(game.world().state_hash(), before);
 }
 

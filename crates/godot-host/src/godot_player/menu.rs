@@ -339,6 +339,28 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Select and play one eligible MUSC track for the current player.
+    #[func]
+    pub fn select_music_type(&mut self, file: i64, object: i64, draw: f64) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let track = {
+            let Some(game) = self.game.as_mut() else {
+                return false;
+            };
+            let music_type = GlobalFormId { file, object };
+            let subject = game.player();
+            match soe_game::music::select(game, music_type, subject, draw as f32) {
+                Ok(track) => track,
+                Err(_) => return false,
+            }
+        };
+        self.sound_bank
+            .as_mut()
+            .is_some_and(|bank| bank.bind_mut().play_selected_music(&track))
+    }
+
     /// Open the modal shell. The framework owns controls added to menu_content.
     #[func]
     pub fn open_menu(&mut self, title: GString) -> bool {

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
 use super::{ActiveEffect, EffectId, PriorOwner, World};
@@ -49,7 +49,7 @@ impl World {
     }
 }
 
-fn write_command_owners(world: &World, w: &mut Writer) {
+fn write_command_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
     let commanded: Vec<_> = world
         .active_effects
         .values()
@@ -68,7 +68,11 @@ fn write_command_owners(world: &World, w: &mut Writer) {
     }
 }
 
-fn read_command_owners(world: &mut World, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+fn read_command_owners(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
     let count = r.len()?;
     if count > r.remaining() / 9 {
         return Err(VmError::State(

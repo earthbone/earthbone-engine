@@ -26,6 +26,16 @@ exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
 interactive Godot sight run or frame-cost measurement is recorded here.
 
+## Cell ambience, AUD-09
+
+The player owns one non-positional ambience stream through a Godot
+`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
+first eligible single-track path returned by `soe_game::ambience`, which reads
+MUST conditions and palette leaves. This uses Godot's audio server path
+documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
+crossfades, multiple regional sound descriptors and MUSC priority arbitration
+are not implemented.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
@@ -159,6 +169,17 @@ unmeasured. Static world collision is not evidence of hazard execution.
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
+### Game native presentation signals, SCR-29
+
+`PlayerNode` drains transient `GameUiRequest` values from the shared `World`
+after each gameplay tick. It emits `race_menu_requested`,
+`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
+mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
+native. A change to `World::hud_cart_mode` emits
+`hud_cart_mode_changed(enabled)`. These signals are the host presentation
+boundary. A connected UI or media presenter supplies the corresponding race
+editor, overlay and video playback.
+
 ## EffectShader playback, MAG-14
 
 `CellStreamerNode` consumes transient EffectShader requests from the shared
@@ -183,6 +204,13 @@ of a unit. Skyrim is Z up with Y north, Godot is Y up with north at -Z. The map
 draws clockwise faces as front faces. Whether Skyrim's shapes come out counter-clockwise
 after the map is not settled until a real NIF renders, so `MeshOptions::flip_winding` is a
 switch, default on, and the generated normals follow it.
+
+## Determinism
+
+`data_source::workers::ordered_map` returns builder results in input order for
+both sequential and threaded runs. The TST-02 test hashes those results into
+the game's per-tick `host.builders` partition, so worker output participates
+in the same divergence report as world and VM state.
 
 ## Streaming
 
@@ -780,10 +808,22 @@ around the origin carry their own `LAND`, the city draws Tamriel's under the oth
 have terrain. Whether the shipped engine draws the parent's land under a child cell that has
 its own is not settled here, the override wins.
 
-What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
-layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
-untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
-shots for a quick visual sweep. Distant geometry is Bethesda's precomputed LOD (the `BTO` and
+For each terrain cell, `terrain_texture::bake` samples four 128 by 128 quadrant images. Each
+quadrant starts with its `BTXT` base texture, or `textures/landscape/dirt02.dds` when its
+texture is zero or unavailable. Each `ATXT` layer resolves its `LTEX` record, `TNAM` texture
+set and `TX00` diffuse path, then blends into the base using the `VTXT` opacity points on the
+17 by 17 quadrant grid. Opacity is bilinearly interpolated. Source textures repeat four times
+per quadrant. The baked RGBA image is attached to the terrain surface's ordinary albedo
+material and uploaded through the existing texture path. This uses the LAND/TXST layouts in
+TES5Edit and the UESP LAND description. Terrain3D's control map is a separate layer-index
+representation, but this host already streams one ordinary mesh per cell, so baking keeps
+the rendering path on Godot's existing mesh and material servers without adding Terrain3D.
+`rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
+`LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
+terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
+RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
+block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
 its winners, both streamed. Interior streaming by proximity is still unstarted.
@@ -1816,6 +1856,24 @@ Unrestricted runs received SIGTERM while loading, before reaching the assertions
 The full lint gate passed with 1,169 Rust and 11 Python tests, with all optional
 lint tools present. Installed-data checks are separate from that gate.
 
+## Music playback (AUD-05)
+
+`PlayerNode.select_music_type(file, object, draw)` resolves the supplied MUSC
+through the shared `Game`, evaluates MUST conditions against the player, and
+passes the selected leaf to its SoundBank. A silent MUST fades the current
+music out. Other tracks decode through the active VFS into stereo
+`AudioStreamWav` resources and use two non-positional `AudioStreamPlayer`
+children. A transition fades the old MUST using its authored fade-out and
+brings in the selected track using the MUSC fade. Abrupt transitions skip both
+ramps. Starting another transition stops the earlier outgoing slot, so it
+cannot continue under the latest selection.
+
+Loose `.xwm` music and xWMA files in FUZ require the optional
+`xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
+policy, or track cycle/order flags. It uses those records' eligible ordered
+entries to select one track per call. Mixer playback is implemented, while
+physical speaker output remains unverified.
+
 ## Footstep audio integration (2026-09-19)
 
 Starting PlayerNode gameplay now creates a SoundBank sharing the same immutable
@@ -1865,6 +1923,12 @@ asset from the response and current speaker. An explicit TRDT sound override
 does not use the generated voice path. Otherwise the path uses the response
 INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
 INFO's local FormID, its response number and the speaker's VTYP editor ID.
+For shared response data, DIAL and QUST come from the response INFO's owning
+topic.
+When their combined length exceeds 25 characters, the quest ID is capped at
+10 characters if it is longer than 10, and the topic ID is capped at 15.
+For a shorter quest ID, the topic ID may use the remaining characters up to
+the combined limit. This follows Mutagen's `GetQuestAndTopicStrings` rule.
 NPC speakers take VTCK from their Traits template source. Talking activators
 take VNAM. The current speaker reference position is converted from Skyrim
 units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
@@ -1877,6 +1941,9 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
+Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
+`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
+assets. The dialogue tests use a mock output and do not verify Godot playback.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 samples the native mouth targets against that player's playback position,
@@ -1973,6 +2040,21 @@ move projectiles or resolve impacts, which remain CMB-22 work.
 The synthetic host tests cover one returned request, duplicate release markers
 and cancellation with the ammunition count unchanged. No Godot node or
 per-reference resource is created for this release state.
+
+## Projectile flight, CMB-22
+
+`combat::ProjectileFlight` advances the release request with fixed-step
+gravity, checks each segment through `PhysicsDirectSpaceState3D.intersect_ray`,
+and stops on its first actor or obstruction. Actor bodies resolve through the
+existing World-owned RID map, and the firing actor's bodies are excluded. The
+flight ends at PROJ range if it has no contact. Contact is latched once, so
+later updates cannot report another target or obstruction. Flight state is
+transient and adds no node or per-reference resource.
+
+Synthetic tests exercise configured gravity, repeatable fixed steps, range
+termination and one-time actor and obstruction contacts. The query uses a
+segment ray, so PROJ collision radius and actor impact damage are not applied
+by this increment.
 
 ## Actor contact bodies and pose segments, CMB-28
 
@@ -2585,6 +2667,15 @@ The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
 surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its
 idle-to-walk transition completed with exit status 0.
 
+Skinned actor meshes resolve each shape's NIF material textures through the
+same VFS and DDS loader as streamed meshes. `SkinnedActorNode` opens the nine
+vanilla texture archives alongside its mesh and animation archives, creates a
+`StandardMaterial3D` from each shape's material and decoded textures, and
+attaches it to the uploaded mesh surface. The installed-data check
+`rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
+that the vanilla male body has authored diffuse paths and that each path
+resolves to image data. This verifies material inputs, not a rendered capture.
+
 ## Nearby interior prefetch, HST-07
 
 PlayerNode checks nearby load doors every 250 ms of simulation time after
@@ -2765,8 +2856,8 @@ TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
 `LODLevelMin`/`LODLevelMax`), the only LOD block sizes the corpus documents.
 No corpus source documents landscape LOD generation the way `wbLOD.pas`
 documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
-`TwbLodSettings.BlockForCell` and this crate's own
-`terrain::RegionSpec::region_of` rather than a landscape-specific reference.
+`TwbLodSettings.BlockForCell`, with integer division truncated toward zero
+relative to the worldspace's anchor, including negative offsets.
 
 ### Residency and budget
 
@@ -2888,6 +2979,29 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Per-cell occluder trial, RND-07
+
+`batch::cell_occluder_mesh` selects at most four opaque source surfaces per
+cell, ordered by descending triangle count with source order breaking ties.
+Cutout and blended surfaces are excluded because they contain visible holes
+or transparency. Candidate vertices already converted to Godot coordinates
+are copied into one mesh. A `MultiMesh` surface receives its placement
+transform before it is copied. `CellStreamerNode` creates one server occluder
+instance for a cell when the runtime exposes Godot's 3D occluder methods, and
+frees both associated RIDs when the cell unloads or the node clears. The
+exported `cell_occluders` switch defaults off pending a measured improvement.
+
+Godot's local `ArrayOccluder3D` and `OccluderInstance3D` docs state that
+occlusion culling has CPU cost and is usually not useful for large open
+scenes. The trial therefore uses the existing windowed `bench.gd` sampler
+with the same scene and camera. `SOE_BENCH_OCCLUDERS=0` disables both the
+occlusion setting and generated meshes. Setting it to `1` enables both.
+The first Bannered Mare run loaded 318 statics and 145 draw instances with
+zero mesh failures, but X11 reported `BadAccess` and the process did not
+produce a frame percentile. Baseline p99: not recorded. Occluder p99: not
+recorded. The feature remains off until both values can be collected and the
+occluder run is lower.
 
 ## Water planes, RND-02 (2026-09-24)
 
@@ -3053,3 +3167,17 @@ Open gaps, none closed by this row:
 - The `CellStreamer` release path in the Godot layer only follows
   `stream_exterior` grid positions. `stream_cell` by editor id does not
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
+
+## Named NIF particle emitters (RND-14)
+
+`ParticleEmitterNode::load_nif(path, emitter_name)` parses an SSE NIF through
+`soe-nif`, selects a named volume emitter, and creates one `MultiMesh` and
+one `RenderingServer` instance in its 3D scenario. Each `advance(delta)`
+updates the bounded `soe-nif` timeline, writes the surviving positions as
+MultiMesh transforms and sets the visible instance count. `_process` calls
+`advance` while `playing` is true. `particle_count`, `emitted_count` and
+`rendered_count` expose the timing and upload counts to
+`godot/rnd_14_test.gd`. The node frees its RID on exit.
+
+Each particle draws an untextured, two sided quad in the emitter's initial
+color and radius. The node loads a NIF by path and selects an emitter by name.
