@@ -29,6 +29,7 @@ pub mod error;
 pub mod header;
 pub mod mesh;
 pub mod particle;
+pub mod serialize;
 pub mod static_mesh;
 pub mod stream;
 pub mod tri;
@@ -125,6 +126,15 @@ impl NifFile {
             colors.set(controller.target_color, interpolator.value);
             true
         }
+    }
+
+    /// Serialize the supported Skyrim SE collision graph to NIF bytes.
+    ///
+    /// This currently writes `NiNode` blocks and opaque Havok collision
+    /// blocks, which is the graph produced by `soe-physics` collision export.
+    /// Other parsed block types return `Error::UnsupportedWrite`.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        serialize::to_bytes(self)
     }
 }
 

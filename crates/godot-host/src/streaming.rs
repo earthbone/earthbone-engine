@@ -104,14 +104,15 @@ pub struct StreamPlan {
     pub unload: Vec<CellCoord>,
 }
 
-/// Measured or estimated mesh work for one cell load.
+/// Measured or estimated render work for one cell load.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StreamCost {
     pub triangles: usize,
+    /// Mesh array bytes plus texture payload bytes required by the cell.
     pub bytes: usize,
 }
 
-/// Maximum mesh work selected for one streaming tick. A zero limit is
+/// Maximum render work selected for one streaming tick. A zero limit is
 /// unlimited, matching the cell-count limits in [`StreamConfig`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StreamBudget {
@@ -174,7 +175,12 @@ impl CellStreamer {
                 }
             }
         }
-        wanted.sort_by_key(|cell| (cell.distance_sq(centre), cell.x, cell.y));
+        wanted.sort_by_key(|cell| {
+            let distance_to_centre = (i64::from(cell.x) - i64::from(centre.x)).abs()
+                + (i64::from(cell.y) - i64::from(centre.y)).abs();
+            let distance_to_origin = i64::from(cell.x).abs() + i64::from(cell.y).abs();
+            (distance_to_centre, distance_to_origin, cell.x, cell.y)
+        });
         wanted
     }
 

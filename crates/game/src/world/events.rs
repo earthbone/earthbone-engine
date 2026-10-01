@@ -12,7 +12,10 @@ use soe_papyrus::vm::state::Writer;
 use soe_papyrus::{vm::LatentId, VmError};
 use soe_papyrus::{ObjectId, Value};
 
-use super::{Alloc, Handle, Pending, World};
+use super::{
+    Alloc, AnimationCompletion, AnimationHostNotice, AnimationRequest, AnimationWait, Handle,
+    Pending, World,
+};
 
 pub(super) fn write_animation_waits(world: &World, writer: &mut Writer) {
     world.write_animation_waits(writer);
@@ -73,6 +76,59 @@ pub struct EffectShaderRequest {
 }
 
 impl World {
+    /// Queue a graph event for the exact placed reference that owns it.
+    pub fn request_animation(&mut self, target: GlobalFormId, animation: &str) {
+        self.animation_requests.push(AnimationRequest {
+            target,
+            animation: animation.to_string(),
+        });
+    }
+
+    /// Queue a graph event emitted by a host visual for script delivery.
+    pub fn queue_animation_report(&mut self, source: GlobalFormId, name: &str) {
+        self.animation_host_notices
+            .push(AnimationHostNotice::Event {
+                source,
+                name: name.to_string(),
+            });
+    }
+
+    /// Drain ordered graph and unload notifications for the game loop.
+    pub fn take_animation_host_notices(&mut self) -> Vec<AnimationHostNotice> {
+        std::mem::take(&mut self.animation_host_notices)
+    }
+
+    /// Queue a host visual unload so latent waits can return false.
+    pub fn queue_animation_unload(&mut self, target: GlobalFormId) {
+        self.animation_host_notices
+            .push(AnimationHostNotice::Unloaded { target });
+    }
+
+    /// Record a latent wait for an event from one reference's graph.
+    pub(crate) fn wait_for_animation(
+        &mut self,
+        target: GlobalFormId,
+        event: &str,
+        latent: LatentId,
+    ) {
+        self.animation_waits.push(AnimationWait {
+            target,
+            event: event.to_string(),
+            latent,
+        });
+    }
+
+    /// A host graph event reached its target. Matching waits are removed
+    /// before completion is queued, so duplicate reports cannot resolve twice.
+    pub fn animation_graph_event(&mut self, source: GlobalFormId, name: &str, alloc: Alloc<'_>) {
+        self.animation_event(source, name, alloc);
+    }
+
+    /// Drain latent results for the game loop to resolve.
+    pub fn take_animation_completions(&mut self) -> Vec<AnimationCompletion> {
+        std::mem::take(&mut self.animation_completions)
+    }
+
     /// The active scene whose quest alias currently names `reference`.
     pub fn current_scene(&mut self, reference: GlobalFormId) -> Option<GlobalFormId> {
         let scenes: Vec<_> = self.scenes.iter().copied().collect();
@@ -268,6 +324,24 @@ impl World {
             }
         }
         self.animation_waiters = remaining;
+
+        let mut index = 0;
+        while index < self.animation_waits.len() {
+            let wait = &self.animation_waits[index];
+            let matches_event = match event {
+                None => true,
+                Some(name) => wait.event.eq_ignore_ascii_case(name),
+            };
+            if wait.target == source && matches_event {
+                let wait = self.animation_waits.remove(index);
+                self.animation_completions.push(AnimationCompletion {
+                    latent: wait.latent,
+                    succeeded: event.is_some(),
+                });
+            } else {
+                index += 1;
+            }
+        }
     }
 
     /// A viewer gains or loses sight of a target: `OnGainLOS` or
@@ -644,5 +718,92 @@ impl World {
         self.sound_instances
             .insert(self.next_sound, (sound, source, 1.0));
         self.next_sound
+    }
+}
+
+#[cfg(test)]
+mod hst_10_tests {
+    use super::*;
+    use crate::world::World;
+    use soe_esm::LoadOrder;
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    #[test]
+    fn hst_10_matching_reference_event_completes_wait_once() {
+        let mut world = World::new(LoadOrder::new());
+        world.wait_for_animation(id(1), "Done", LatentId(4));
+        world.wait_for_animation(id(2), "Done", LatentId(5));
+
+        world.animation_graph_event(id(2), "Done", &mut |_, _| unreachable!());
+        assert_eq!(
+            world.take_animation_completions(),
+            [AnimationCompletion {
+                latent: LatentId(5),
+                succeeded: true,
+            }]
+        );
+        world.animation_graph_event(id(1), "Done", &mut |_, _| unreachable!());
+        assert_eq!(
+            world.take_animation_completions(),
+            [AnimationCompletion {
+                latent: LatentId(4),
+                succeeded: true,
+            }]
+        );
+        world.animation_graph_event(id(1), "Done", &mut |_, _| unreachable!());
+        assert!(world.take_animation_completions().is_empty());
+    }
+
+    #[test]
+    fn hst_10_unloaded_reference_fails_all_waits_once() {
+        let mut world = World::new(LoadOrder::new());
+        world.wait_for_animation(id(1), "DoneA", LatentId(6));
+        world.wait_for_animation(id(1), "DoneB", LatentId(7));
+        world.animation_graph_unloaded(id(1));
+        assert_eq!(
+            world.take_animation_completions(),
+            [
+                AnimationCompletion {
+                    latent: LatentId(6),
+                    succeeded: false,
+                },
+                AnimationCompletion {
+                    latent: LatentId(7),
+                    succeeded: false,
+                },
+            ]
+        );
+        world.animation_graph_unloaded(id(1));
+        assert!(world.take_animation_completions().is_empty());
+    }
+
+    #[test]
+    fn hst_10_unload_before_end_event_reports_failure() {
+        let mut world = World::new(LoadOrder::new());
+        world.wait_for_animation(id(1), "Done", LatentId(8));
+        world.queue_animation_unload(id(1));
+        world.queue_animation_report(id(1), "Done");
+
+        for notice in world.take_animation_host_notices() {
+            match notice {
+                AnimationHostNotice::Event { source, name } => {
+                    world.animation_graph_event(source, &name, &mut |_, _| unreachable!());
+                }
+                AnimationHostNotice::Unloaded { target } => {
+                    world.animation_graph_unloaded(target);
+                }
+            }
+        }
+
+        assert_eq!(
+            world.take_animation_completions(),
+            [AnimationCompletion {
+                latent: LatentId(8),
+                succeeded: false,
+            }]
+        );
     }
 }

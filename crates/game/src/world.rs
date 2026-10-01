@@ -540,6 +540,34 @@ pub struct AnimationWaiter {
     pub latent: LatentId,
 }
 
+/// A named event to send to one placed reference's animation graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationRequest {
+    pub target: GlobalFormId,
+    pub animation: String,
+}
+
+/// Result waiting for the game loop to resolve in the Papyrus VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationCompletion {
+    pub latent: LatentId,
+    pub succeeded: bool,
+}
+
+/// One ordered notification from a host animation visual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnimationHostNotice {
+    Event { source: GlobalFormId, name: String },
+    Unloaded { target: GlobalFormId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnimationWait {
+    pub target: GlobalFormId,
+    pub event: String,
+    pub latent: LatentId,
+}
+
 /// A line-of-sight registration. `single` is a one-shot gain or lost
 /// registration, `gain` says which of the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -733,6 +761,8 @@ pub struct World {
     /// Host interaction results for the current rendered frame.
     crosshair_reference: Option<GlobalFormId>,
     grabbed_reference: Option<GlobalFormId>,
+    /// Save character ID used by deterministic SPID distribution rules.
+    player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
     /// Player training purchases used at the current character level.
@@ -748,6 +778,8 @@ pub struct World {
     pub host_requests: Vec<HostRequest>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
+    /// Script events submitted by Papyrus and waiting for Story Manager routing.
+    pub(crate) pending_story_events: Vec<crate::quest::state::StoryEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     /// Recoverable errors raised by void Papyrus Game natives.
@@ -761,6 +793,13 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Requests awaiting delivery to a host animation graph.
+    pub animation_requests: Vec<AnimationRequest>,
+    pub(crate) animation_waits: Vec<AnimationWait>,
+    /// Ordered events and unloads reported by host animation visuals.
+    pub animation_host_notices: Vec<AnimationHostNotice>,
+    /// Completed latent calls awaiting the game loop.
+    pub animation_completions: Vec<AnimationCompletion>,
     /// Open Papyrus user logs and the lines written to each during this run.
     pub user_logs: BTreeMap<String, Vec<String>>,
     /// One-shot requests for the host, which owns process and cell streaming.
@@ -979,6 +1018,20 @@ pub struct CameraShake {
 }
 
 impl World {
+    /// Set the current save character ID used by deterministic SPID rules.
+    ///
+    /// The host supplies the ID from the active save identity. New games use
+    /// zero until the host sets one.
+    pub fn set_player_character_id(&mut self, id: u64) {
+        self.player_character_id = id;
+    }
+
+    /// Return the current save character ID used by deterministic SPID rules.
+    #[must_use]
+    pub const fn player_character_id(&self) -> u64 {
+        self.player_character_id
+    }
+
     pub fn new(order: LoadOrder) -> World {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -1039,6 +1092,7 @@ impl World {
             player: None,
             crosshair_reference: None,
             grabbed_reference: None,
+            player_character_id: 0,
             player_level: 1,
             training_sessions_this_level: 0,
             training_session_level: 1,
@@ -1050,6 +1104,7 @@ impl World {
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
+            pending_story_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             native_errors: Vec::new(),
@@ -1059,6 +1114,10 @@ impl World {
             help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            animation_requests: Vec::new(),
+            animation_waits: Vec::new(),
+            animation_host_notices: Vec::new(),
+            animation_completions: Vec::new(),
             user_logs: BTreeMap::new(),
             debug_host_requests: Vec::new(),
             player_control_flags: [true; 8],

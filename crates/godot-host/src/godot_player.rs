@@ -126,6 +126,7 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
     game_fade: GameFade,
@@ -160,6 +161,7 @@ pub struct PlayerNode {
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
+    objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     crafting_bench: Option<GlobalFormId>,
@@ -207,6 +209,7 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            swing_doors: HashMap::new(),
             loaded_cell: None,
             door_fade: DoorFade::default(),
             game_fade: GameFade::default(),
@@ -236,6 +239,7 @@ impl INode3D for PlayerNode {
             appearance_choice: None,
             menu_view: None,
             quest_journal_snapshot: None,
+            objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
             crafting_bench: None,
@@ -370,6 +374,9 @@ impl INode3D for PlayerNode {
     fn process(&mut self, delta: f64) {
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
+        }
+        if self.menu.title() == Some("Map") {
+            self.refresh_objective_map();
         }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
@@ -576,6 +583,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
+                self.clear_swing_doors();
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
                     self.register_actions();
@@ -640,6 +648,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
+        self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -1096,6 +1105,52 @@ impl PlayerNode {
             result.push(&row);
         }
         result
+    }
+
+    /// Unlocked non-teleport doors in the current cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_swing_doors(&self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell), Some(source)) =
+            (&self.game, self.loaded_cell, &self.data_source)
+        else {
+            return Array::new();
+        };
+        let world = game.world();
+        let mut result = Array::new();
+        for id in source.cell_index().references(cell).iter().copied() {
+            let Some(reference_record) = source.order().winner(id) else {
+                continue;
+            };
+            if reference_record.find(soe_esm::Tag::new(b"XTEL")).is_some() {
+                continue;
+            }
+            let Some(record_ref) = source.order().winner_ref(id) else {
+                continue;
+            };
+            let Ok(reference) = soe_esm::records::refr::Refr::from_record(reference_record) else {
+                continue;
+            };
+            let base = source.order().resolve(record_ref.file, reference.base);
+            if source
+                .order()
+                .winner(base)
+                .is_none_or(|record| record.tag != soe_esm::Tag::new(b"DOOR"))
+                || world.reference_ref(id).is_some_and(|state| state.locked)
+            {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Number of animated swing doors currently attached to the player.
+    #[func]
+    pub fn swing_door_count(&self) -> i32 {
+        i32::try_from(self.swing_doors.len()).unwrap_or(i32::MAX)
     }
 
     /// Drive the same activation path from a runtime harness using a resolved FormID.
