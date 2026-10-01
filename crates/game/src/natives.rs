@@ -90,6 +90,36 @@ fn form_value(
     ret(world.form_value(id, alloc!(call)))
 }
 
+fn keyword_story_event(
+    world: &World,
+    keyword: GlobalFormId,
+    args: &[Value],
+) -> crate::quest::state::StoryEvent {
+    use crate::quest::state::{StoryEvent, StoryParameter};
+
+    let reference = |index: usize, kind| StoryParameter::Reference {
+        kind,
+        reference: args.get(index).and_then(|value| world.form_arg(value)),
+    };
+    let integer =
+        |index: usize| StoryParameter::Integer(args.get(index).map_or(0, Value::as_int) as u32);
+    StoryEvent {
+        id: world.runtime_id(keyword),
+        code: *b"SCRP",
+        parameters: vec![
+            StoryParameter::Reference {
+                kind: 2,
+                reference: Some(keyword),
+            },
+            reference(0, 4),
+            reference(1, 0),
+            reference(2, 0),
+            integer(3),
+            integer(4),
+        ],
+    }
+}
+
 macro_rules! method {
     ($vm:expr, $w:expr, $class:expr, $name:expr, |$world:ident, $call:ident, $me:ident| $body:expr) => {{
         let w = $w.clone();
@@ -2468,6 +2498,36 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Keyword", "GetString", |world, call, me| s(&world
         .editor_id(me)
         .unwrap_or_default()));
+    method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
+        let event = keyword_story_event(world, me, &call.args);
+        let mut alloc = |name: &str, class: &str| call.create_object(name, class);
+        match world.send_story_event_without_vm(&event, &mut alloc) {
+            Ok(_) => none(),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Keyword.SendStoryEvent: {error}"));
+                none()
+            }
+        }
+    });
+    method!(
+        vm,
+        w,
+        "Keyword",
+        "SendStoryEventAndWait",
+        |world, call, me| {
+            let event = keyword_story_event(world, me, &call.args);
+            let mut alloc = |name: &str, class: &str| call.create_object(name, class);
+            match world.send_story_event_without_vm(&event, &mut alloc) {
+                Ok(started) => b(!started.is_empty()),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("Keyword.SendStoryEventAndWait: {error}"));
+                    b(false)
+                }
+            }
+        }
+    );
     method!(vm, w, "Cell", "IsInterior", |world, call, me| b(world
         .record(me)
         .is_some_and(|r| r.placement.world.is_none())));
@@ -3782,7 +3842,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),
-        ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
         // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
@@ -3840,7 +3899,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Faction", "ModReaction"),
-        ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
