@@ -1360,6 +1360,71 @@ fn actor(vm: &mut Vm, w: &Shared) {
         world.evaluate_package(me, alloc!(call));
         none()
     });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "MoveToPackageLocation",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation expects no arguments",
+                );
+            } else if !world.move_to_package_location(me) {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation has no package location",
+                );
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "WillIntimidateSucceed",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.WillIntimidateSucceed expects no arguments",
+                );
+                return b(false);
+            }
+            match crate::conditions::will_intimidate_succeed(world, me) {
+                Ok(succeeds) => b(succeeds),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("Actor.WillIntimidateSucceed: {error}"));
+                    b(false)
+                }
+            }
+        }
+    );
+    method!(vm, w, "Actor", "DoCombatSpellApply", |world, call, me| {
+        let Some(spell) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a spell form");
+            return none();
+        };
+        let Some(target) = call.args.get(1).and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a target form");
+            return none();
+        };
+        if call.args.len() != 2 {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply expects two arguments");
+            return none();
+        }
+        if let Err(error) = world.cast_spell(spell, me, Some(me), Some(target), alloc!(call)) {
+            call.log
+                .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
+        }
+        none()
+    });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
         let package = world.current_package(me);
         form_value(world, call, package)
@@ -3906,6 +3971,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "DoCombatSpellApply"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
+        ("ObjectReference", "CreateDetectionEvent"),
+        ("ObjectReference", "TranslateTo"),
+        ("ObjectReference", "SplineTranslateTo"),
+        ("ObjectReference", "StopTranslation"),
+        ("ObjectReference", "Reset"),
         ("Cell", "Reset"),
     ];
     for (class, name) in methods_none {

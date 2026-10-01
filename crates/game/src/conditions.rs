@@ -2604,31 +2604,12 @@ fn function_value(
             // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
             // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
             // perk entry point for the real formula, which this engine does not run
-            // yet (the native is still a stub in natives.rs). This approximates the
-            // same shape without the entry point: the player's Speechcraft against
+            // yet. This approximates the same shape without the entry point: the
+            // player's Speechcraft against
             // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
             // the 0 to 100 skill range.
             no_parameter(c)?;
-            let player = world.player();
-            let speechcraft = world
-                .actor(player)
-                .ok_or(Error::Form(player))?
-                .values
-                .get("speechcraft")
-                .current();
-            let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-            if subject_actor.values.contains("confidence") {
-                let confidence = subject_actor.values.get("confidence").current();
-                boolean(speechcraft >= confidence * 25.0)
-            } else {
-                // No AIDT subrecord on the speaker's NPC_ record: the
-                // source has made no claim about Confidence at all, so
-                // reading the unset default (0.0, Cowardly) would treat a
-                // record silent on the point as the easiest possible
-                // target to intimidate. Fail closed instead (see
-                // dlg_07_missing_aidt_adversarial.rs).
-                boolean(false)
-            }
+            boolean(will_intimidate_succeed(world, subject)?)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,
@@ -2960,6 +2941,29 @@ fn furniture_marker_type(
         .nth(usize::from(marker))
         .and_then(|data| data.get(..2))
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
+}
+
+/// Approximate the player's intimidation result using Speechcraft and target
+/// Confidence. The perk entry point that supplies the complete formula is
+/// not implemented yet.
+pub(crate) fn will_intimidate_succeed(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<bool, Error> {
+    let player = world.player();
+    let speechcraft = world
+        .actor(player)
+        .ok_or(Error::Form(player))?
+        .values
+        .get("speechcraft")
+        .current();
+    let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+    if subject_actor.values.contains("confidence") {
+        let confidence = subject_actor.values.get("confidence").current();
+        Ok(speechcraft >= confidence * 25.0)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.
