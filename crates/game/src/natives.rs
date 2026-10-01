@@ -194,10 +194,13 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     actor_base(vm, world);
     cell(vm, world);
     message_scene_sound_spell(vm, world);
+    visual_effect(vm, world);
     dlc(vm, world);
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    weapon(vm, world);
+    weather(vm, world);
     let stubs = stubs(vm, world);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -205,7 +208,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 373;
+pub const NATIVE_COUNT: usize = 375;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2024,13 +2027,19 @@ fn alias(vm: &mut Vm, w: &Shared) {
         world.force_alias(quest, alias, target);
         none()
     });
-    alias_method!(vm, w, "ForceRefIfEmpty", |world, call, quest, alias| {
-        if world.alias_ref(quest, alias).is_some() {
-            return b(false);
+    alias_method_on!(
+        vm,
+        w,
+        "ReferenceAlias",
+        "ForceRefIfEmpty",
+        |world, call, quest, alias| {
+            if world.alias_ref(quest, alias).is_some() {
+                return b(false);
+            }
+            let target = world.form_arg(&call.arg(0));
+            b(world.force_alias(quest, alias, target))
         }
-        let target = world.form_arg(&call.arg(0));
-        b(world.force_alias(quest, alias, target))
-    });
+    );
     alias_method!(vm, w, "Clear", |world, call, quest, alias| {
         let optional = world
             .quest_state(quest)
@@ -2300,13 +2309,10 @@ fn debug(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
-        match world.form_arg(&call.arg(0)) {
-            Some(target) => {
-                world.animation_event(target, &text(&call.arg(1)), alloc!(call));
-                b(true)
-            }
-            None => b(false),
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            world.animation_event(target, &text(&call.arg(1)), alloc!(call));
         }
+        none()
     });
     global!(vm, w, "Debug", "StartScriptProfiling", |_world, call| {
         call.start_script_profiling(&text(&call.arg(0)));
@@ -2791,7 +2797,12 @@ fn faction(vm: &mut Vm, w: &Shared) {
         w,
         "Faction",
         "IsFactionInCrimeGroup",
-        |world, call, me| b(world.faction(me).is_some_and(|f| f.tracks_crime))
+        |world, call, me| {
+            let Some(other) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            b(world.faction_in_crime_group(me, other))
+        }
     );
 }
 
@@ -2893,9 +2904,22 @@ fn cell(vm: &mut Vm, w: &Shared) {
             form_value(world, call, owner)
         });
     }
-    for name in ["SetActorOwner", "SetFactionOwner"] {
+    for (name, expected) in [
+        ("SetActorOwner", Tag::new(b"NPC_")),
+        ("SetFactionOwner", Tag::new(b"FACT")),
+    ] {
         method!(vm, w, "Cell", name, |world, call, me| {
-            let owner = world.form_arg(&call.arg(0));
+            let arg = call.arg(0);
+            let owner = if matches!(arg, Value::None) {
+                None
+            } else if let Some(owner) = world
+                .form_arg(&arg)
+                .filter(|owner| cell_owner_tag_matches(world.tag_of(*owner), expected))
+            {
+                Some(owner)
+            } else {
+                return none();
+            };
             if let Some(c) = world.cell_state(me) {
                 c.owner = owner;
             }
@@ -2909,6 +2933,10 @@ fn cell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+}
+
+fn cell_owner_tag_matches(actual: Option<soe_esm::Tag>, expected: soe_esm::Tag) -> bool {
+    actual == Some(expected)
 }
 
 fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
@@ -3094,6 +3122,47 @@ fn image_space(vm: &mut Vm, w: &Shared) {
     );
 }
 
+fn weapon(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Weapon", "Fire", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                crate::combat::FireError::SourceArgument.to_string(),
+            );
+            return none();
+        };
+        let ammo_arg = call.arg(1);
+        let ammo = if matches!(ammo_arg, Value::None) {
+            None
+        } else if let Some(ammo) = world.form_arg(&ammo_arg) {
+            Some(ammo)
+        } else {
+            call.log.push(
+                call.time,
+                crate::combat::FireError::AmmoArgument.to_string(),
+            );
+            return none();
+        };
+        if let Err(error) = world.fire_weapon(me, source, ammo) {
+            call.log.push(call.time, format!("Weapon.Fire: {error}"));
+        }
+        none()
+    });
+}
+
+/// Weather requests are retained by the world for the host sky implementation.
+fn weather(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Weather", "SetActive", |world, call, me| {
+        let override_weather = call.args.first().is_some_and(Value::as_bool);
+        let accelerate = call.args.get(1).is_some_and(Value::as_bool);
+        if let Err(error) = world.set_active_weather(me, override_weather, accelerate) {
+            call.log
+                .push(call.time, format!("Weather.SetActive: {error}"));
+        }
+        none()
+    });
+}
+
 /// CK active-effect identity, queries and dispelling contracts.
 fn active_magic(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
@@ -3192,6 +3261,46 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+}
+
+/// Papyrus VisualEffect.Play and Stop, routed through transient World state.
+fn visual_effect(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "VisualEffect", "Play", |world, call, me| {
+        let Some(target) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "VisualEffect.Play: missing target reference");
+            return none();
+        };
+        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
+        let facing = match call.args.get(2) {
+            None | Some(Value::None) => None,
+            Some(value) => match world.form_arg(value) {
+                Some(form) => Some(form),
+                None => {
+                    call.log
+                        .push(call.time, "VisualEffect.Play: invalid facing reference");
+                    return none();
+                }
+            },
+        };
+        if let Err(error) = world.play_visual_effect(me, target, f64::from(duration), facing) {
+            call.log
+                .push(call.time, format!("VisualEffect.Play: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "VisualEffect", "Stop", |world, call, me| {
+        let Some(target) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "VisualEffect.Stop: missing target reference");
+            return none();
+        };
+        if let Err(error) = world.stop_visual_effect(me, target) {
+            call.log
+                .push(call.time, format!("VisualEffect.Stop: {error}"));
+        }
+        none()
+    });
 }
 
 /// What Dawnguard, HearthFires and Dragonborn added to the base classes.
@@ -3875,16 +3984,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        // The effect, music and particle systems are not implemented yet.
-        ("VisualEffect", "Play"),
-        ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
         ("MusicType", "Remove"),
         ("Topic", "Add"),
-        ("Weather", "SetActive"),
-        ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
         ("Actor", "MoveToPackageLocation"),
@@ -3935,7 +4039,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "GetFormEx2"),
         ("Debug", "QuitGame"),
         ("Debug", "CenterOnCell"),
-        ("Debug", "CenterOnCellAndWait"),
         ("Debug", "CloseUserLog"),
         ("Debug", "SetGodMode"),
         ("Debug", "ToggleAI"),
@@ -3944,7 +4047,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Debug", "DebugChannelNotify"),
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
-        ("Debug", "PlayerMoveToAndWait"),
         ("Debug", "MoveToCell"),
         ("Utility", "CaptureFrameRate"),
         ("Utility", "StartFrameRateCapture"),
@@ -3957,6 +4059,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     for (class, name) in globals_none {
         vm.natives
             .register_global(class, name, Box::new(|_| none()));
+        n += 1;
+    }
+    for name in ["CenterOnCellAndWait", "PlayerMoveToAndWait"] {
+        vm.natives
+            .register_global("Debug", name, Box::new(|_| f(0.0)));
         n += 1;
     }
     n
@@ -4093,6 +4200,29 @@ mod tests {
     ];
 
     #[test]
+    fn scr_72_registry_inventory_has_a_contract_comparison_for_each_binding() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        assert_eq!(SCR_72_BINDINGS.len(), 27);
+        for (class, name, global, contract) in SCR_72_BINDINGS {
+            assert!(
+                !contract.is_empty(),
+                "{class}.{name} has no contract comparison"
+            );
+            assert!(
+                if global {
+                    vm.natives.has_global(class, name)
+                } else {
+                    vm.natives.has_method(class, name)
+                },
+                "{class}.{name} registry shape disagrees with its contract inventory"
+            );
+        }
+    }
+
+    #[test]
     fn the_hand_kept_count_matches_the_registry() {
         let mut vm = Vm::new();
         let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
@@ -4138,53 +4268,229 @@ mod tests {
     }
 
     #[test]
-    fn scr_71_registry_inventory_matches_spell_and_topic_script_bindings() {
+    fn scr_55_actorbase_alias_inventory_matches_registry() {
         let mut vm = Vm::new();
         let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
         register(&mut vm, &world);
 
-        let script_bindings = [
-            ("Spell", "Cast"),
-            ("Spell", "IsHostile"),
-            ("Spell", "RemoteCast"),
-            ("Spell", "Preload"),
-            ("Spell", "Unload"),
-            ("Topic", "Add"),
+        let form_methods = [
+            "GetFormID",
+            "GetName",
+            "GetType",
+            "HasKeyword",
+            "GetKeywords",
+            "RegisterForSingleUpdate",
+            "RegisterForUpdate",
+            "RegisterForSingleUpdateGameTime",
+            "RegisterForUpdateGameTime",
+            "UnregisterForUpdate",
+            "UnregisterForUpdateGameTime",
+            "RegisterForSleep",
+            "UnregisterForSleep",
+            "RegisterForTrackedStatsEvent",
+            "UnregisterForTrackedStatsEvent",
+            "RegisterForAnimationEvent",
+            "UnregisterForAnimationEvent",
+            "RegisterForLOS",
+            "RegisterForSingleLOSGain",
+            "RegisterForSingleLOSLost",
+            "UnregisterForLOS",
         ];
-        let registered: Vec<_> = script_bindings
-            .iter()
-            .copied()
-            .filter(|(class, name)| vm.natives.has_method(class, name))
-            .collect();
-        assert_eq!(registered, script_bindings);
+        let actor_base_methods = [
+            "GetSkin",
+            "SetSkin",
+            "GetRace",
+            "GetClass",
+            "GetSex",
+            "GetDeadCount",
+            "IsEssential",
+            "IsProtected",
+            "IsInvulnerable",
+            "IsUnique",
+            "SetEssential",
+            "SetProtected",
+            "SetInvulnerable",
+            "SetOutfit",
+            "GetGiftFilter",
+        ];
+        let alias_methods = [
+            "GetOwningQuest",
+            "GetID",
+            "GetName",
+            "GetReference",
+            "GetRef",
+            "GetActorReference",
+            "GetActorRef",
+            "ForceRefTo",
+            "Clear",
+        ];
 
-        for (class, name) in script_bindings {
-            assert!(vm.natives.has_method(class, name), "{class}.{name}");
-            assert!(!vm.natives.has_global(class, name), "{class}.{name}");
+        for name in actor_base_methods {
+            assert!(
+                vm.natives.has_method("ActorBase", name),
+                "ActorBase.{name} is missing from the registry"
+            );
+            assert!(
+                !vm.natives.has_global("ActorBase", name),
+                "ActorBase.{name} was registered as a global"
+            );
         }
-        assert!(!vm.natives.has_method("Topic", "Remove"));
+        for name in alias_methods {
+            assert!(
+                vm.natives.has_method("Alias", name),
+                "Alias.{name} is missing from the registry"
+            );
+            assert!(
+                !vm.natives.has_global("Alias", name),
+                "Alias.{name} was registered as a global"
+            );
+        }
+        for name in form_methods {
+            assert!(
+                vm.natives.has_method("Form", name),
+                "inherited Form.{name} is missing from the registry"
+            );
+        }
+
+        assert!(!vm.natives.has_global("ActorBase", "GetGiftFilter"));
+        assert!(!vm.natives.has_global("Alias", "GetOwningQuest"));
+
+        let audit = include_str!("../../../docs/reference-audit.md");
+        for name in actor_base_methods {
+            assert!(audit.contains(&format!("`ActorBase.{name}`")));
+        }
+        for name in alias_methods {
+            assert!(audit.contains(&format!("`Alias.{name}`")));
+        }
+        for name in form_methods {
+            assert!(audit.contains(&format!("`Form.{name}`")));
+        }
+        assert!(audit.contains("`ActorBase` and `Alias` have no registered global bindings"));
+        assert!(audit.contains("assigns the correction to SCR-18"));
+        assert!(audit.contains("SCR-68 owns optional validation and its diagnostic"));
+        assert!(audit.contains("Assign reference-type validation to SCR-59"));
+        let backlog = include_str!("../../../BACKLOG.csv");
+        assert!(backlog.contains("\"SCR-18\""));
+        assert!(backlog.contains("\"SCR-68\""));
+        assert!(backlog.contains("\"SCR-59\""));
     }
 
     #[test]
-    fn scr_72_registry_inventory_has_a_contract_comparison_for_each_binding() {
+    fn scr_56_registry_inventory_matches_ck_contracts() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+        let mut inventory: Vec<_> = vm
+            .natives
+            .method_bindings()
+            .into_iter()
+            .filter(|(class, name)| *class == "cell" || *name == "clear")
+            .collect();
+        inventory.sort_unstable();
+        let global_inventory: Vec<_> = vm
+            .natives
+            .global_bindings()
+            .into_iter()
+            .filter(|(class, name)| *class == "cell" || *name == "clear")
+            .collect();
+        let mut compared = vec![
+            ("alias", "clear"),
+            ("cell", "getactorowner"),
+            ("cell", "getfactionowner"),
+            ("cell", "isattached"),
+            ("cell", "isinterior"),
+            ("cell", "reset"),
+            ("cell", "setactorowner"),
+            ("cell", "setfactionowner"),
+            ("cell", "setpublic"),
+        ];
+        let mut compared: Vec<_> = compared
+            .drain(..)
+            .map(|(class, name)| (class.to_owned(), name.to_owned()))
+            .collect();
+        compared.sort_unstable();
+        // Each binding is compared with its CK page or the corresponding
+        // vanilla PSC declaration. Unsupported effects are assigned in
+        // docs/reference-audit.md to the existing owning rows.
+        assert_eq!(inventory, compared);
+        assert!(global_inventory.is_empty());
+    }
+
+    #[test]
+    fn scr_56_cell_owner_setters_require_the_ck_record_type() {
+        assert!(cell_owner_tag_matches(
+            Some(Tag::new(b"NPC_")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(cell_owner_tag_matches(
+            Some(Tag::new(b"FACT")),
+            Tag::new(b"FACT")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"FACT")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"NPC_")),
+            Tag::new(b"FACT")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"ACHR")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(!cell_owner_tag_matches(None, Tag::new(b"FACT")));
+    }
+
+    #[test]
+    fn scr_58_faction_registry_matches_the_contract_inventory() {
         let mut vm = Vm::new();
         let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
         register(&mut vm, &world);
 
-        assert_eq!(SCR_72_BINDINGS.len(), 27);
-        for (class, name, global, contract) in SCR_72_BINDINGS {
+        let implemented = [
+            "SetAlly",
+            "SetEnemy",
+            "GetReaction",
+            "SetReaction",
+            "GetCrimeGold",
+            "GetCrimeGoldViolent",
+            "GetCrimeGoldNonViolent",
+            "SetCrimeGold",
+            "SetCrimeGoldViolent",
+            "ModCrimeGold",
+            "GetInfamy",
+            "GetInfamyViolent",
+            "GetInfamyNonViolent",
+            "CanPayCrimeGold",
+            "PlayerPayCrimeGold",
+            "IsPlayerExpelled",
+            "SetPlayerExpelled",
+            "SetPlayerEnemy",
+            "IsFactionInCrimeGroup",
+        ];
+        let stubs = ["SendAssaultAlarm", "SendPlayerToJail", "ModReaction"];
+
+        for name in implemented.into_iter().chain(stubs) {
+            assert!(vm.natives.has_method("Faction", name), "Faction.{name}");
             assert!(
-                !contract.is_empty(),
-                "{class}.{name} has no contract comparison"
-            );
-            assert!(
-                if global {
-                    vm.natives.has_global(class, name)
-                } else {
-                    vm.natives.has_method(class, name)
-                },
-                "{class}.{name} registry shape disagrees with its contract inventory"
+                !vm.natives.has_global("Faction", name),
+                "Faction.{name} is a method, not a global"
             );
         }
+        assert_eq!(implemented.len(), 19);
+        assert_eq!(stubs.len(), 3);
+        assert_eq!(implemented.len() + stubs.len(), 22);
+    }
+
+    #[test]
+    fn scr_58_force_ref_if_empty_is_scoped_to_reference_alias() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        assert!(vm.natives.has_method("ReferenceAlias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_method("Alias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_method("LocationAlias", "ForceRefIfEmpty"));
+        assert!(!vm.natives.has_global("ReferenceAlias", "ForceRefIfEmpty"));
     }
 }

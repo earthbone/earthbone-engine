@@ -106,6 +106,11 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   aliases with forced references, and each objective target's alias, lock
   marker flag and CTDA conditions, plus local or external alias dependencies.
 - `natives`: the base game's natives, closed over the shared world.
+- `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
+  resolved RFCT and placed-reference forms. Calls stack, finite durations
+  expire on unpaused game ticks, and `Stop` removes all matching instances.
+  Hosts can inspect the active requests in stable call order. Rendering the
+  RFCT art object is not connected yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -311,6 +316,9 @@ and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
+Its SCR-57 section compares all 26 registered Debug globals and both
+EffectShader methods with the local CK and PSC contracts, including quiet
+stubs and the host behavior they still require.
 
 **Game presentation natives, SCR-29.** `Game.SetHudCartMode` updates the
 transient `World::hud_cart_mode` flag. `ShowRaceMenu`, `TriggerScreenBlood`
@@ -611,9 +619,10 @@ owning system has no behavior yet.
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse | IsFurnitureInUse, PlayAnimationAndWait, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation |
 | Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
-| ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
+| ActorBase | GetSkin, SetSkin, GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
-| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
+| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, plus Form identity, keyword and event-listener methods | |
+| ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
@@ -637,7 +646,9 @@ owning system has no behavior yet.
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType | | Add, Remove |
 | Topic | | Add |
-| Weather, Weapon, Scroll | | SetActive, Fire, Cast |
+| Weather | SetActive | |
+| Weapon | Fire | |
+| Scroll | | Cast |
 
 Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
 (`GetIgnoreFriendlyHits`) use the local CK contracts and xEdit function
@@ -692,14 +703,57 @@ registered by the Papyrus VM rather than `game::natives::register`, so they are
 not part of this registry inventory. Their clock contracts are documented in
 the VM section above.
 
+## Faction and alias native contract audit
+
+The SCR-58 inventory is checked against the registered methods. The local
+`engine-refs/skse64/scripts/vanilla/Faction.psc` supplies the Faction native
+signatures, defaults and comments. The CK wiki's `ReferenceAlias_Script`
+documents `ForceRefIfEmpty` as a Boolean member of `ReferenceAlias`. The named
+Faction function pages are not present in the local CK wiki corpus, so each
+Faction contract below is compared to that shipped Papyrus interface and its
+comments. No bindings in this inventory are globals.
+
+| Binding | Source contract compared to the registration |
+|---|---|
+| Faction.SetAlly | Takes another faction and two false-by-default direction flags. A true flag stores Friend for that direction, otherwise Ally. |
+| Faction.SetEnemy | Takes another faction and two false-by-default direction flags. A true flag stores Neutral for that direction, otherwise Enemy. |
+| Faction.GetReaction | Takes another faction and returns this faction's reaction toward it. Missing relation defaults to Neutral. |
+| Faction.SetReaction | Takes another faction and an integer reaction, then changes only this faction's direction. |
+| Faction.GetCrimeGold | Returns the combined violent and non-violent bounty. |
+| Faction.GetCrimeGoldViolent | Returns the violent bounty. |
+| Faction.GetCrimeGoldNonViolent | Returns the non-violent bounty. |
+| Faction.SetCrimeGold | Sets the non-violent bounty. |
+| Faction.SetCrimeGoldViolent | Sets the violent bounty. |
+| Faction.ModCrimeGold | Adds to the violent or non-violent bounty. The second argument defaults false. Positive additions grow matching accumulated infamy. |
+| Faction.GetInfamy | Returns accumulated violent and non-violent infamy. |
+| Faction.GetInfamyViolent | Returns accumulated violent infamy. |
+| Faction.GetInfamyNonViolent | Returns accumulated non-violent infamy. |
+| Faction.CanPayCrimeGold | Compares the player's Gold001 count with the faction's combined bounty. |
+| Faction.PlayerPayCrimeGold | The source has `abRemoveStolenItems = true` and `abGoToJail = true`. Current code takes Gold001 and clears both bounty fields, but does not honor either flag or the unable-to-pay path. Assign those payment and arrest choices to PRG-12, with jail consequences in PRG-13. |
+| Faction.IsPlayerExpelled | Returns this faction's player-expelled flag. |
+| Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
+| Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
+| Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
+| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding. Witnessed assault handling is part of PRG-12's arrest path. |
+| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding. Jail, property handling and sentence effects belong to PRG-13. |
+| Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
+| ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
+
+The shipped `ReferenceAlias.psc` also returns false when already filled and
+otherwise delegates to `ForceRefTo`. `CRGR` is a form link to an FLST, as
+declared by TES5Edit and the UESP FACT layout. Crime-group membership is
+derived from those records and adds no saved state.
+
 Current behavior and compatibility limits:
 
 - `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
-  and `Exterior cell loads per update`. `GetCurrentBudget` returns each
-  configured limit, and `OverBudget` is false because these are scheduling
-  caps, not measured usage counters. Invalid indices return an empty name, zero
-  and false. The CK Utility page documents these signatures, and SKSE's vanilla
-  `Utility.psc` declares them as global natives.
+  and `Exterior cell loads per update`. `GetCurrentBudget` returns the matching
+  limit from `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. `OverBudget` returns false because these
+  limits are scheduling caps and the runtime does not expose usage counters.
+  Invalid indices return an empty name, zero and false. The CK Utility page
+  documents these global signatures, and SKSE's vanilla `Utility.psc` declares
+  them as global natives.
 
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
@@ -748,6 +802,16 @@ Their CK contracts are described by
   reverses their actor-value changes. Unsupported or malformed effects are
   logged by `Actor.EquipItem`. Weapon enchantments remain outside this path
   and are not applied during combat yet.
+- `VisualEffect.Play` adds a transient effect instance for the RFCT form and
+  placed target. Calls stack, negative durations remain until stopped, and a
+  finite duration expires on an unpaused game tick. The optional facing
+  reference is retained. `VisualEffect.Stop` removes every matching instance
+  on its target. Rendering the RFCT art object is not connected yet.
+- `Weather.SetActive` stores the selected `WTHR` form and its optional override
+  and acceleration flags in `World::weather_request`. Both flags default to
+  false. A non-weather receiver logs an error and leaves the previous request
+  unchanged. This transient request is not saved, and no host sky currently
+  consumes it to render weather.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -823,6 +887,10 @@ Their CK contracts are described by
   `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
   Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
   `GetFactionOwner` answer by the owner's record type.
+- `Cell.SetActorOwner` accepts an `NPC_` base or `None`, and
+  `Cell.SetFactionOwner` accepts a `FACT` or `None`. Other record types leave
+  the existing owner unchanged. The SCR-56 registry-derived CK comparison
+  and remaining native gaps are listed in [reference-audit](reference-audit.md).
 - The listener registrations (`RegisterForSleep`, `RegisterForTrackedStatsEvent`,
   `RegisterForAnimationEvent`, `RegisterForLOS` and the single variants) keep
   lists of VM objects. `Game.IncrementStat` fires `OnTrackedStatsEvent`,
@@ -2145,9 +2213,12 @@ the appearance empty.
   are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
-  are recorded, no effect applies. Arrest choice accounting and jail
-  sentences exist, but guard movement, jail placement and resistance combat
-  are not implemented.
+  are recorded, no effect applies. Crime has bounty and infamy ledgers, no
+  arrest implementation. Arrest choice accounting and jail sentences exist,
+  but guard movement, jail placement and resistance combat are not implemented.
+- `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
+  the shared form table. It logs a typed unsupported error for valid requests
+  until ranged projectile execution exists. See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
@@ -5277,9 +5348,10 @@ their owning load-order namespace and expose the resulting shared base state.
 Its weather input is an explicitly selected weather and time blend.
 Autonomous climate selection and weather scheduling are outside that row.
 SCR-73's audit records the registered `Weather.SetActive` method and eight
-additional vanilla Weather natives missing from the registry. SCR-54 owns the
-weather bindings, including the quiet `Weather.SetActive` stub. Its current
-implementation does not select or release weather.
+additional vanilla Weather natives missing from the registry. SCR-54 exposes
+the selected `WTHR` and transition flags through the shared weather request
+API, but `Weather.SetActive` remains a quiet stub and does not select or
+release weather. Host sky rendering remains outside the native binding.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation

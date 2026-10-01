@@ -43,6 +43,53 @@ The previous inventory grouped `Topic` with `MusicType` and listed both Add
 and Remove. The source declares no `Topic.Remove`. The docs now list only
 `Topic.Add`. These sources contain no Spell or Topic global bindings.
 
+## SCR-57 Debug and EffectShader contracts
+
+The inventory below follows registrations in `game/src/natives.rs`, including
+quiet stubs. `Debug_Script.wikitext` provides the class-level Papyrus
+signatures and summaries. The CK corpus has an individual page only for
+`CenterOnCell`, which specifies its `None` return and warns that it can freeze
+the application. Individual CK pages for the other registered names are not
+present locally. `skse64/scripts/vanilla/EffectShader.psc` supplies the two
+EffectShader signatures and the optional duration default because there is no
+EffectShader CK page in the corpus.
+
+| Registry binding | CK or PSC contract | Current behavior and resolution |
+|---|---|---|
+| `Debug.Trace` global | String, Int severity, no result. Write to Papyrus log and debug text page. | Logs the stringified first argument. SCR-07 covers form-id conversion. Severity and debug text page output have no owning open backlog row. |
+| `Debug.TraceUser` global | String log name, String text, Int severity, Bool result. Write to named user log and debug text page. | Writes to Papyrus log and returns `None`. User log behavior and Bool result belong with SCR-20's user-log system. |
+| `Debug.TraceConditional` global | String, Bool condition, no result. Log only when true. | Logs only when true. Matches the documented condition and result. |
+| `Debug.TraceStack` global | String, Int severity, no result. Write message and full call stack. | Logs the stringified message without a call stack. Native calls do not expose stack frames yet, and no open backlog row owns this gap. |
+| `Debug.Notification` global | String, no result. Display an in-game notification. | Adds the text to `World::notifications`. The host display path is separate. Matches the runtime queue contract. |
+| `Debug.MessageBox` global | String, no result. Display an OK message box. | Adds the text to `World::message_boxes`. The host display path is separate. Matches the runtime queue contract. |
+| `Debug.SendAnimationEvent` global | ObjectReference, String, no result. Send the event to the reference. | Queues the event when its target resolves and returns `None`, matching the Papyrus result shape. |
+| `Debug.OpenUserLog` global | String, Bool result. Open a user log and fail if already open. | Returns `true` without creating a log. SCR-20 owns user-log behavior. |
+| `Debug.QuitGame` global | No arguments or result. Quit the game. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCell` global | String cell name, no result. Teleport the player. The individual CK page warns it can freeze. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCellAndWait` global | String cell name, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-20 owns the debug host action. |
+| `Debug.CloseUserLog` global | String log name, no result. Close the named log. | Quiet stub. SCR-20 owns user-log behavior. |
+| `Debug.DumpAliasData` global | Quest, no result. Dump alias fill information. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.DebugChannelNotify` global | No local CK contract found. | Quiet stub. SCR-21 owns this registry-only debug binding until a local contract is established. |
+| `Debug.SetGodMode` global | Bool, no result. Set god mode. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleAI` global | No arguments or result. Toggle AI. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleCollisions` global | No arguments or result. Toggle collision. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.StartScriptProfiling` global | String script name, no result. Start script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopScriptProfiling` global | String script name, no result. Stop script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StartStackProfiling` global | No arguments or result. Start profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopStackProfiling` global | No arguments or result. Stop profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.TakeScreenshot` global | No arguments or result. Take a screenshot. | Quiet stub. SCR-22 owns the debug host action. |
+| `Debug.SetFootIK` global | Bool, no result. Enable or disable foot IK. | Quiet stub. SCR-23 owns the host animation control. |
+| `Debug.ShowRefPosition` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `Debug.PlayerMoveToAndWait` global | String destination reference, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-23 owns the debug host action. |
+| `Debug.MoveToCell` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `EffectShader.Play` method | PSC: ObjectReference and optional Float duration defaulting to -1 seconds. Negative duration means infinite. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
+| `EffectShader.Stop` method | PSC: ObjectReference. Stop the shader on that target. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
+
+`scr_57_registry_contains_every_audited_binding` checks the 26 Debug globals
+and two EffectShader methods against the actual native registry. The audit
+does not claim that queued notifications or message boxes are drawn by a host,
+that debug-only host controls execute, or that effect shaders render.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares
@@ -126,6 +173,161 @@ instance methods `ForceActive` and `GetClassification`, and globals
 bindings with weather-system behavior. SCR-53 owns replacing the quiet
 `Weapon.Fire` stub with weapon-system behavior. The audit does not claim that
 either current stub implements the vanilla contract.
+
+## ActorBase and Alias native audit, SCR-55
+
+The inventory below is checked against the registrations made by
+`natives::register` in `scr_55_actorbase_alias_inventory_matches_registry`.
+`ActorBase` and `Alias` have no registered global bindings. The CK class pages
+also say both classes have no global functions.
+
+| Registry binding | CK contract comparison | Disposition |
+|---|---|---|
+| `ActorBase.GetSkin` | Returns the actor base skin armor. | Reads the record-backed skin. |
+| `ActorBase.SetSkin` | Sets the actor base skin armor. | Writes the record-backed skin override. |
+| `ActorBase.GetRace` | Returns the actor base race. | Reads its race form. |
+| `ActorBase.GetClass` | Returns the actor base class. | Reads its class form. |
+| `ActorBase.GetSex` | Returns the actor base sex as an integer. | Reads the female flag as 1 or 0. |
+| `ActorBase.GetDeadCount` | Returns the number of dead actors using this base. | Reads the current dead count field. |
+| `ActorBase.IsEssential` | Reports whether the base is essential. | Reads the base flag. |
+| `ActorBase.IsProtected` | Reports whether the base is protected. | Reads the base flag. |
+| `ActorBase.IsInvulnerable` | Reports whether the base is invulnerable. | Reads the base flag. |
+| `ActorBase.IsUnique` | Reports whether the base is unique. | Reads the base flag. |
+| `ActorBase.SetEssential` | Sets the essential flag. A base cannot be both essential and protected. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetProtected` | Sets the protected flag. A base cannot be both protected and essential. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetInvulnerable` | Sets the invulnerable flag. | Updates the base flag. |
+| `ActorBase.SetOutfit` | Sets the default or sleep outfit according to its boolean argument. | Updates the corresponding base outfit field. |
+| `ActorBase.GetGiftFilter` | Returns the actor base gift-filter FormList. | Quiet stub. Implement record-backed value access under SCR-18. |
+| `Alias.GetOwningQuest` | Returns the quest owning the alias. | Returns the quest in the alias handle. |
+| `Alias.GetID` | SKSE addition. Returns the alias ID. | Returns the alias handle ID. |
+| `Alias.GetName` | SKSE addition. Returns the alias's unique name, not its display name. | Reads the alias definition name. |
+| `Alias.GetReference` | Returns the ObjectReference held by the alias. | Returns the current alias target. |
+| `Alias.GetRef` | Shorthand for `GetReference`. | Returns the same current alias target. |
+| `Alias.GetActorReference` | Returns the held reference as an Actor. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic. Package reevaluation remains unimplemented there. |
+| `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
+| `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method. Alias runtime objects have no resolved form ID. |
+| `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
+| `Form.GetName` inherited by `Alias` | Returns the form name. Alias declares its own SKSE `GetName`, which shadows this binding. | Alias-specific binding returns the alias definition name. |
+| `Form.GetType` inherited by `ActorBase` | Returns the form type code. | Reads the resolved record type. |
+| `Form.GetType` inherited by `Alias` | Returns the form type code. | Alias runtime objects have no resolved form type. |
+| `Form.HasKeyword` inherited by `ActorBase` | Reports whether the form has the specified keyword. | Queries the form-backed keyword list. |
+| `Form.HasKeyword` inherited by `Alias` | Reports whether the form has the specified keyword. | Alias runtime objects do not resolve to forms, so the native returns false. |
+| `Form.GetKeywords` inherited by `ActorBase` | Returns the form's keyword array. | Builds an array from the form-backed keywords. |
+| `Form.GetKeywords` inherited by `Alias` | Returns the form's keyword array. | Alias runtime objects do not resolve to forms, so the native returns an empty array. |
+| `Form.RegisterForSingleUpdate` inherited by `ActorBase` | Registers one update after the given seconds. | The VM object receives one real-time update. |
+| `Form.RegisterForSingleUpdate` inherited by `Alias` | Registers one update after the given seconds. | The alias VM object receives one real-time update. |
+| `Form.RegisterForUpdate` inherited by `ActorBase` | Registers or changes repeating update seconds. | The VM object receives repeating real-time updates. |
+| `Form.RegisterForUpdate` inherited by `Alias` | Registers or changes repeating update seconds. | The alias VM object receives repeating real-time updates. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `ActorBase` | Registers one update after the given game hours. | The VM object receives one game-time update. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `Alias` | Registers one update after the given game hours. | The alias VM object receives one game-time update. |
+| `Form.RegisterForUpdateGameTime` inherited by `ActorBase` | Registers or changes repeating update game hours. | The VM object receives repeating game-time updates. |
+| `Form.RegisterForUpdateGameTime` inherited by `Alias` | Registers or changes repeating update game hours. | The alias VM object receives repeating game-time updates. |
+| `Form.UnregisterForUpdate` inherited by `ActorBase` | Cancels repeating and single real-time updates. | Removes real-time update registration. |
+| `Form.UnregisterForUpdate` inherited by `Alias` | Cancels repeating and single real-time updates. | Removes the alias's real-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `ActorBase` | Cancels game-time updates. | Removes game-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `Alias` | Cancels game-time updates. | Removes the alias's game-time update registration. |
+| `Form.RegisterForSleep` inherited by `ActorBase` | Registers for player sleep start and stop events. | Adds the VM object to the sleep listener set. |
+| `Form.RegisterForSleep` inherited by `Alias` | Registers for player sleep start and stop events. | Adds the alias VM object to the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `ActorBase` | Unregisters from player sleep events. | Removes the VM object from the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `Alias` | Unregisters from player sleep events. | Removes the alias VM object from the sleep listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `ActorBase` | Registers for tracked-stat updates. | Adds the VM object to the tracked-stat listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `Alias` | Registers for tracked-stat updates. | Adds the alias VM object to the tracked-stat listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `ActorBase` | Unregisters from tracked-stat updates. | Removes the VM object from the listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `Alias` | Unregisters from tracked-stat updates. | Removes the alias VM object from the listener set. |
+| `Form.RegisterForAnimationEvent` inherited by `ActorBase` | Registers for a named animation event on a sender. | Adds a listener for the sender and event name. |
+| `Form.RegisterForAnimationEvent` inherited by `Alias` | Registers for a named animation event on a sender. | Adds the alias VM object as listener. |
+| `Form.UnregisterForAnimationEvent` inherited by `ActorBase` | Removes a named animation event registration. | Removes matching listener entries. |
+| `Form.UnregisterForAnimationEvent` inherited by `Alias` | Removes a named animation event registration. | Removes matching alias listener entries. |
+| `Form.RegisterForLOS` inherited by `ActorBase` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent viewer-target listener. |
+| `Form.RegisterForLOS` inherited by `Alias` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent alias listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `ActorBase` | Registers for one line-of-sight gain event. | Adds a single-gain listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `Alias` | Registers for one line-of-sight gain event. | Adds a single-gain alias listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `ActorBase` | Registers for one line-of-sight lost event. | Adds a single-lost listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `Alias` | Registers for one line-of-sight lost event. | Adds a single-lost alias listener. |
+| `Form.UnregisterForLOS` inherited by `ActorBase` | Unregisters matching line-of-sight events. | Removes matching viewer-target listener entries. |
+| `Form.UnregisterForLOS` inherited by `Alias` | Unregisters matching line-of-sight events. | Removes matching alias listener entries. |
+
+Contract sources are `ck-wiki/ActorBase_Script.wikitext`,
+`ck-wiki/Alias_Script.wikitext`, `ck-wiki/ReferenceAlias_Script.wikitext`,
+`ck-wiki/GetClass_-_ActorBase.wikitext`,
+`ck-wiki/GetOwningQuest_-_Alias.wikitext`, and
+`ck-wiki/Clear_-_ReferenceAlias.wikitext`. The class pages define the remaining
+methods listed there. Alias reference getter and setter variants are compared
+against the ReferenceAlias class page, which includes their return types and
+shorthand relationships. The current check is synthetic because these methods
+do not require installed game records.
+
+## Cell and Clear native contracts, SCR-56
+
+The registry-derived inventory is tested by
+`scr_56_registry_inventory_matches_ck_contracts`. It includes every registered
+method whose class is `Cell` and every method or global whose name is exactly
+`Clear`. There are no matching global bindings. Contract statements below
+come from `engine-refs/ck-wiki` and the shipped
+`skse64/scripts/vanilla` declarations.
+
+| Binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Cell.GetActorOwner` | `GetActorOwner_-_Cell.wikitext` returns the cell's actor base owner and states that inherited ownership is separate. | Returns only an `NPC_` owner from the cell's `XOWN` state. |
+| `Cell.GetFactionOwner` | `Cell_Script.wikitext` says it returns the owning faction. | Returns only a `FACT` owner from the cell's `XOWN` state. |
+| `Cell.IsInterior` | `Cell_Script.wikitext` asks whether the cell is an interior. | Uses absence of a worldspace in the record placement. |
+| `Cell.IsAttached` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a boolean attached-state query. | Quiet true stub does not track attachment. SCR-19 owns the live attachment query. |
+| `Cell.Reset` | `Cell_Script.wikitext` says it flags the cell for reset on next load. | Quiet no-op stub. SCR-19 owns cell reset behavior. |
+| `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`. `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
+| `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
+| `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
+| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
+
+The Cell method comparison has eight bindings. The exact-name `Clear` comparison
+has one method binding and no global binding. The setter type discrepancy is
+corrected by checking resolved record tags before changing `XOWN`.
+
+## Faction and ForceRefIfEmpty native contracts, SCR-58
+
+The registry inventory is checked against `natives::register` by
+`scr_58_faction_registry_matches_the_contract_inventory` and
+`scr_58_force_ref_if_empty_is_scoped_to_reference_alias`. CK contracts below
+come from `ck-wiki/Faction_Script.wikitext` and
+`ck-wiki/ReferenceAlias_Script.wikitext`. The function pages add no different
+semantics beyond their declared signatures and summaries.
+
+| Registry binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Faction.SetAlly` | Takes a faction and optional boolean, making the other faction an ally when true. | Updates the relation entry for that faction. |
+| `Faction.SetEnemy` | Takes a faction and optional boolean, making the other faction an enemy when true. | Updates the relation entry for that faction. |
+| `Faction.GetReaction` | Takes a faction and returns the relation code. | Reads the stored reaction, defaulting to neutral. |
+| `Faction.SetReaction` | Takes a faction and integer relation code. | Stores the relation code. |
+| `Faction.GetCrimeGold` | Returns total crime gold owed to this faction. | Sums violent and nonviolent bounty. |
+| `Faction.GetCrimeGoldViolent` | Returns violent crime gold owed. | Reads the violent bounty field. |
+| `Faction.GetCrimeGoldNonViolent` | Returns nonviolent crime gold owed. | Reads the nonviolent bounty field. |
+| `Faction.SetCrimeGold` | Sets total crime gold owed. | Updates the total bounty value. |
+| `Faction.SetCrimeGoldViolent` | Sets violent crime gold owed. | Updates the violent bounty field. |
+| `Faction.ModCrimeGold` | Modifies crime gold by an amount and optional violent flag. | Applies the amount to the selected bounty. |
+| `Faction.GetInfamy` | Returns total infamy for the player in this faction. | Sums violent and nonviolent infamy. |
+| `Faction.GetInfamyViolent` | Returns violent infamy. | Reads the violent infamy field. |
+| `Faction.GetInfamyNonViolent` | Returns nonviolent infamy. | Reads the nonviolent infamy field. |
+| `Faction.CanPayCrimeGold` | Reports whether the player can pay this faction's crime gold. | Checks player gold against the recorded bounty. |
+| `Faction.PlayerPayCrimeGold` | Pays crime gold, with optional stolen-item removal and jail transfer. | Updates bounty and queues the supported payment effects. |
+| `Faction.IsPlayerExpelled` | Reports whether the player is expelled from this faction. | Reads the faction state. |
+| `Faction.SetPlayerExpelled` | Sets whether the player is expelled. | Updates the faction state. |
+| `Faction.SetPlayerEnemy` | Sets whether the player is an enemy of this faction. | Updates the faction state. |
+| `Faction.IsFactionInCrimeGroup` | Takes another faction and reports whether it belongs to this faction's crime group. | Resolves `CRGR` to its linked `FLST` and checks membership. |
+| `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
+| `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
+| `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
+| `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias. An empty alias accepts the form. SCR-59 owns reference-type validation. |
+
+The inventory tests cover 22 `Faction` methods, including the three quiet
+stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no
+global bindings for these names. No per-reference package reevaluation is
+claimed for alias assignment.
+`scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted
+record tags, cross-type rejection, reference rejection and `None`. The
+remaining gaps are already assigned to their feature rows above.
 
 ## Sources to use for current gaps and future systems
 

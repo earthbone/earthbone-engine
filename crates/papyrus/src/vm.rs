@@ -381,7 +381,6 @@ impl NativeRegistry {
     ///
     /// # Panics
     /// This method does not panic.
-    #[must_use]
     pub fn method_bindings(&self) -> Vec<(String, String)> {
         let mut bindings: Vec<_> = self.methods.keys().cloned().collect();
         bindings.sort_unstable();
@@ -395,7 +394,6 @@ impl NativeRegistry {
     ///
     /// # Panics
     /// This method does not panic.
-    #[must_use]
     pub fn global_bindings(&self) -> Vec<(String, String)> {
         let mut bindings: Vec<_> = self.globals.keys().cloned().collect();
         bindings.sort_unstable();
