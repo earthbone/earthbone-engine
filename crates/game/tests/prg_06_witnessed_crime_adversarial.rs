@@ -12,8 +12,7 @@
 //! `crates/game/src/world/save.rs`'s own version log, which documents
 //! version 31 as the one that added `witnessed_crimes`.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::plugin::flags;
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};

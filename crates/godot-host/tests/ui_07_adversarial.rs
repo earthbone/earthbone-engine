@@ -8,7 +8,7 @@ use soe_godot_host::race_menu;
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 fn race(id: u32, playable: bool) -> Record {
-    let mut data = vec![0; 64];
+    let mut data = vec![0; 124];
     data[32..36].copy_from_slice(&u32::from(playable).to_le_bytes());
     Record::new(T(b"RACE"), id)
         .zsub(T(b"FULL"), &format!("Race {id}"))

@@ -16,6 +16,16 @@ measurements below remain tied to their recorded revisions.
 - NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4, Godot 4.4.1 Forward+
 - Fedora Atomic, release build, the installed Skyrim SE under Steam
 
+## TST-16 game integration test binary, 2026-10-01
+
+The change recorded 440 `soe-game` integration test executables before
+the change and one `it` executable after it. On the same machine, warm
+`cargo test -p soe-game --no-run` took 341.869 seconds before and 131.178
+seconds after. These measurements come from the TST-16 run at commit
+`0dfc2cae`, whose temporary build records were removed after the comparison.
+The before run had warmed dependencies before timing the test build. The
+after run built the consolidated integration test target.
+
 ## Parsed plugin cache, 2026-09-29
 
 `crates/esm/tests/fmt_29_cache.rs::fmt_29_installed_skyrim_master_cache_hit_matches_and_times_second_load`
@@ -27,13 +37,21 @@ fresh parse. The same test checked cache equality for Update.esm, Dawnguard.esm,
 HearthFires.esm and Dragonborn.esm. This is one run, including the cache write
 on the first load. It is not a release benchmark.
 
+`soe-bench open-data` opens the installed data folder with its archives and
+reports the parsed-plugin cache cold and warm separately. On 2026-09-29, a
+release run with 24 threads and three samples measured a 4.713 s cold median
+(4.596 s minimum) and a 3.173 s warm median (3.091 s minimum). Each cold sample
+started with an empty cache directory. The warm samples reused the entries
+from the cold run. For comparison, the 2026-09-17 open-data result below was
+9.18 s median before the parsed-plugin cache integration.
+
 ## How to run
 
 ```text
 SKYRIM_DATA="<Data>" cargo run -p soe-bench --release -- [--runs N] [--out DIR] <subcommand>
 ```
 
-Subcommands: `load-order`, `archives`, `cell <editor id>`, `cell-index <editor
+Subcommands: `load-order`, `open-data`, `archives`, `cell <editor id>`, `cell-index <editor
 id>`, `exterior <editor id>`, `scripts`, `navmesh`, `save`, `overhead <editor
 id>`, `trace <subcommand
 ...>` (writes `soe-bench-trace-<name>.json` for Perfetto or `chrome://tracing`
