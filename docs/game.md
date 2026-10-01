@@ -684,8 +684,8 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
 | `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
 | `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
-| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite; VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
-| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target; VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 
 The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
 registered by the Papyrus VM rather than `game::natives::register`, so they are
@@ -890,7 +890,7 @@ confirms the return type and owning-quest meaning for aliases, while it does not
 document the Scene method. The available `GetCurrentScene - ObjectReference`
 CK page is for a different binding.
 
-`Scene.Start` starts a valid, inactive scene and sends `OnBegin`; its record
+`Scene.Start` starts a valid, inactive scene and sends `OnBegin`. Its record
 must have phase bounds the current runtime accepts. `Scene.Stop` ends a running
 scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent

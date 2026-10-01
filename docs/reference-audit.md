@@ -35,12 +35,12 @@ signatures and behavior notes instead.
 | `Spell.Cast` method | `Spell.psc`: source reference, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext`: calling from an unloaded source cell warns and cannot cast. | Calls `World::cast_spell` with the explicit source reference and credits that source as caster. Supported direct casts execute. The unloaded-source warning is not reproduced because the cast API has no loaded-cell query. Assign that diagnostic to `MAG-02` with delivery integration. Unsupported delivery or effects are logged by the native and remain in the existing magic delivery rows. |
 | `Spell.IsHostile` method | `Spell.psc`: zero arguments and a boolean result. The CK page is absent, so the record rule is inferred from the MGEF hostile flag used by the runtime. | Added in SCR-71. Resolves each attached effect in the spell's plugin context and returns true if any referenced MGEF has the hostile flag. Bad references log and return false. |
 | `Spell.RemoteCast` method | `Spell.psc`: source reference, blame actor, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext` gives the same unloaded-source-cell warning as Cast. | Calls `World::cast_spell` with the explicit source and blame actor. The unloaded-source warning has the same `MAG-02` assignment as Cast. Unsupported delivery or effects are logged and remain in the existing magic delivery rows. |
-| `Spell.Preload` method | `Spell.psc`: no arguments or return value; preloads spell art and warns about misuse and memory use. | Quiet stub. Owning implementation row: `SCR-47`. |
-| `Spell.Unload` method | `Spell.psc`: no arguments or return value; unloads spell art previously preloaded and warns about misuse. | Quiet stub. Owning implementation row: `SCR-47`. |
-| `Topic.Add` method | `Topic.psc`: no arguments or return value; adds the topic to the list known by the player. | Quiet stub. Owning implementation row: `SCR-48`. |
+| `Spell.Preload` method | `Spell.psc`: no arguments or return value. Preloads spell art and warns about misuse and memory use. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Spell.Unload` method | `Spell.psc`: no arguments or return value. Unloads spell art previously preloaded and warns about misuse. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Topic.Add` method | `Topic.psc`: no arguments or return value. Adds the topic to the list known by the player. | Quiet stub. Owning implementation row: `SCR-48`. |
 
 The previous inventory grouped `Topic` with `MusicType` and listed both Add
-and Remove. The source declares no `Topic.Remove`; the docs now list only
+and Remove. The source declares no `Topic.Remove`. The docs now list only
 `Topic.Add`. These sources contain no Spell or Topic global bindings.
 
 No new runtime dependency or upstream source file was imported. Core code is
@@ -63,8 +63,8 @@ For each listed `ObjectReference` method, the corresponding
 Papyrus signature, parameter order and defaults, return type and stated
 behavior. The class declaration is `ck-wiki/ObjectReference_Script.wikitext`.
 `MusicType.Add` and `MusicType.Remove` have no named function or class page in
-the local CK corpus. They are registered as methods and remain quiet stubs;
-their owning implementation work is SCR-37.
+the local CK corpus. They are registered as methods and remain quiet stubs.
+Their owning implementation work is SCR-37.
 
 | Registry method | CK contract comparison |
 |---|---|
@@ -82,7 +82,7 @@ their owning implementation work is SCR-37.
 | GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
 | PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
 | AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
-| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs; destruction-stage behavior belongs to SCR-40. |
+| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs. Destruction-stage behavior belongs to SCR-40. |
 | IgnoreFriendlyHits, IsIgnoringFriendlyHits | Setter and query match the documented boolean behavior. |
 | GetCurrentLocation, GetEditorLocation, IsInLocation | Reference location queries match their return types and child-location behavior. |
 | GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner | Owner methods match their typed form parameters and None returns. |
@@ -94,7 +94,7 @@ their owning implementation work is SCR-37.
 | ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, CreateDetectionEvent, TranslateTo, SplineTranslateTo, StopTranslation, Reset | Their method bindings are quiet stubs assigned to SCR-41 or SCR-42. |
 
 The audit found two implementation discrepancies. `MoveTo` ignored
-`abMatchRotation`; SCR-67 fixes it, and the synthetic native-call test covers
+`abMatchRotation`. SCR-67 fixes it, and the synthetic native-call test covers
 both the default and false value. `RemoveAllItems` currently clears every
 inventory entry even when `abRemoveQuestItems` is false. The inventory model
 does not preserve quest-item eligibility, so the owning fix needs an inventory
