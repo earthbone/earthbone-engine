@@ -435,6 +435,10 @@ impl World {
         id
     }
 
+    pub(crate) fn is_player_reference(&self, id: GlobalFormId) -> bool {
+        self.player == Some(id)
+    }
+
     pub fn player(&mut self) -> GlobalFormId {
         if let Some(player) = self.player {
             return player;
@@ -554,6 +558,33 @@ impl World {
             }
             None => false,
         }
+    }
+
+    /// Reset a reference to its winning record state and base inventory.
+    /// An optional loaded target supplies the destination position and cell.
+    /// Actor faction and relationship state lives outside `RefState` and is
+    /// retained, while actors are resurrected.
+    pub fn reset_reference(&mut self, id: GlobalFormId, target: Option<GlobalFormId>) -> bool {
+        let Some(mut fresh) = self.load_ref(id) else {
+            return false;
+        };
+        let destination = if fresh.cell.is_some_and(|cell| self.cell_is_resident(cell)) {
+            target
+                .and_then(|target| self.reference(target))
+                .map(|target| (target.position, target.cell))
+        } else {
+            None
+        };
+        if let Some((position, cell)) = destination {
+            fresh.position = position;
+            fresh.cell = cell;
+        }
+        let is_actor = fresh.is_actor;
+        self.refs.insert(id, fresh);
+        if is_actor {
+            let _ = self.resurrect_actor(id);
+        }
+        true
     }
 
     pub fn distance(&mut self, a: GlobalFormId, b: GlobalFormId) -> f32 {

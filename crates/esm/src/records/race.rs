@@ -102,7 +102,11 @@ mod tests {
     use super::*;
 
     fn weights(v: &[f32]) -> Vec<u8> {
-        v.iter().flat_map(|f| f.to_le_bytes()).collect()
+        let mut bytes = Vec::with_capacity(std::mem::size_of_val(v));
+        for value in v {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes
     }
 
     fn built() -> Record {

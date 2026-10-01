@@ -625,6 +625,39 @@ fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
+fn wait_for_animation_thread(
+    game: &mut Game,
+    target: &Value,
+    event: &str,
+) -> soe_papyrus::ThreadId {
+    let n = PROBES.fetch_add(1, Ordering::SeqCst);
+    let script = format!("Probe{n}");
+    let fun = FunctionBuilder::new("Run", "Bool")
+        .global()
+        .param("target", "ObjectReference")
+        .param("event", "String")
+        .local("result", "Bool")
+        .ins(
+            CallMethod,
+            vec![
+                s("WaitForAnimationEvent"),
+                ident("target"),
+                ident("result"),
+                ident("event"),
+            ],
+        )
+        .ins(Return, vec![ident("result")])
+        .build();
+    let bytes = ScriptBuilder::new(&script, "Form").function(fun).bytes();
+    game.load_script(&bytes).unwrap();
+    let thread = game
+        .vm
+        .call_global(&script, "Run", &[target.clone(), Value::string(event)])
+        .unwrap();
+    game.run_until_idle(64);
+    thread
+}
+
 /// Call a global `Class.Name(args)` the same way.
 fn call_global(game: &mut Game, class: &str, name: &str, args: &[Value]) -> Value {
     let n = PROBES.fetch_add(1, Ordering::SeqCst);
@@ -1834,6 +1867,57 @@ fn add_item_form_list_empty_and_nonpositive_counts_do_not_mutate() {
 }
 
 // ----- listeners on Form -----
+
+#[test]
+fn anm_58_graph_events_resume_named_waits_true() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let thread = wait_for_animation_thread(&mut g, &sender, "done");
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "other");
+    g.pump();
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "DONE");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), Some(Value::Bool(true)));
+    assert_eq!(
+        g.world().animation_events,
+        vec![(source, "other".into()), (source, "DONE".into())]
+    );
+}
+
+#[test]
+fn anm_58_graph_unload_and_reference_disable_resume_false() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let unloaded = wait_for_animation_thread(&mut g, &sender, "finished");
+    g.animation_graph_unloaded(source);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(unloaded), Some(Value::Bool(false)));
+
+    let disabled = wait_for_animation_thread(&mut g, &sender, "finished");
+    call(&mut g, &sender, "DisableNoWait", &[]);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(disabled), Some(Value::Bool(false)));
+}
+
+#[test]
+fn anm_58_wait_registration_survives_world_save_load() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let _thread = wait_for_animation_thread(&mut g, &sender, "finished");
+    let saved = g.world().save_state();
+    g.world_mut().load_state(&saved).unwrap();
+    g.world_mut().animation_graph_unloaded(source);
+    assert_eq!(g.world().completed_animation_waits.len(), 1);
+    assert!(!g.world().completed_animation_waits[0].1);
+}
 
 /// RegisterForAnimationEvent "registers this form to receive the specified
 /// animation event from the specified object", so PlayAnimation on the

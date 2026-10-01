@@ -272,15 +272,11 @@ fn version_fifteen_migrates_authored_loose_items_and_rejects_truncated_new_exten
     w.reference(id(LOOSE)).unwrap();
     let hash = w.state_hash();
     let mut bytes = legacy::without_ref_sections(&mut w, &[id(LOOSE)]);
-    // CONTEXT: One entry: table count, FormID, stack count and three typed extras.
-    let extension = 4 + 6 + 4 + 4 + (1 + 4 + 1 + 1 + 6) + 2 * (1 + 4 + 1 + 4);
-    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. LOOSE's own empty save-section table is
-    // stripped above, since it sits mid stream in the refs list rather than
-    // at this tail.
-    bytes.truncate(bytes.len() - extension - 22);
+    let mut probe = bytes.clone();
+    let tail = legacy::truncate_to_version(&mut probe, 25, |candidate| {
+        world(3).load_state(candidate).is_ok()
+    });
+    bytes.truncate(bytes.len() - tail);
     let mut loaded = world(3);
     assert!(loaded.load_state(&bytes).is_err());
     bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
@@ -304,13 +300,22 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
         assert_eq!(w.state_hash(), hash);
     }
     let mut corrupt = bytes.clone();
-    // The extra 6 bytes are detection's now-unconditional empty pool count
-    // (4 bytes) and the world-level save-section table version 37 added
-    // (2 bytes). This is a same-version round trip, so no section table
-    // needs stripping, only the flipped byte's position shifted by 6.
-    let mut without_world_sections = corrupt.clone();
-    legacy::strip_world_sections(&mut without_world_sections);
-    let last = without_world_sections.len() - 21;
+    let charge = w
+        .reference_ref(id(LOOSE))
+        .unwrap()
+        .item
+        .as_ref()
+        .unwrap()
+        .extras()
+        .iter()
+        .find(|extra| extra.kind == 40)
+        .unwrap();
+    let Field::FloatBits(charge_bits) = charge.fields[0] else {
+        panic!("charge is float bits")
+    };
+    let mut marker = vec![40, 1, 0, 0, 0, 3];
+    marker.extend_from_slice(&charge_bits.to_le_bytes());
+    let last = legacy::unique_offset(&corrupt, &marker) + marker.len() - std::mem::size_of::<u32>();
     corrupt[last] ^= 1;
     let mut changed = world(1);
     changed.load_state(&corrupt).unwrap();
@@ -450,12 +455,9 @@ fn legacy_contained_identity_does_not_recreate_its_authored_loose_item() {
             &[id(FIRST)]
         };
         let mut bytes = legacy::without_ref_sections(&mut w, refs);
-        // The extra 6 bytes beyond the old 20 are detection's now-
-        // unconditional empty pool count (4 bytes) and the world-level
-        // save-section table version 37 added (2 bytes), both always
-        // present at the tail regardless of the simulated version.
-        bytes.truncate(bytes.len() - 26);
-        bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
+        legacy::truncate_to_version(&mut bytes, 25, |candidate| {
+            world(1).load_state(candidate).is_ok()
+        });
         let mut loaded = world(1);
         loaded.load_state(&bytes).unwrap();
         assert!(loaded.reference_ref(id(LOOSE)).unwrap().item.is_none());

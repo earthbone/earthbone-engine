@@ -164,6 +164,15 @@ fn clip_key(name: &str) -> String {
     name.to_lowercase().replace('\\', "/")
 }
 
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
 impl ClipLibrary {
     pub fn new() -> ClipLibrary {
         ClipLibrary::default()
@@ -393,6 +402,10 @@ enum Target {
     SpeedSamplerGoalSpeed,
     /// Output: the active sampler's sampled speed.
     SpeedSamplerSpeedOut,
+    /// Input bindings and output binding for `BSInterpValueModifier`.
+    InterpFrom,
+    InterpTo,
+    InterpOutput,
 }
 
 impl Target {
@@ -411,6 +424,7 @@ impl Target {
                 | Target::DampingVector
                 | Target::TimeStep
                 | Target::SpeedSamplerSpeedOut
+                | Target::InterpOutput
         )
     }
 }
@@ -433,6 +447,32 @@ struct ActiveTransition {
     elapsed: f32,
     duration: f32,
     curve: i8,
+    generator_transition: Option<GeneratorTransitionRuntime>,
+}
+
+enum ActiveEffect {
+    Blend(f32, i8),
+    Generator {
+        generator: NodeId,
+        blend_in_duration: f32,
+        blend_out_duration: f32,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GeneratorTransitionRuntime {
+    generator: NodeId,
+    blend_in_duration: f32,
+    blend_out_duration: f32,
+    elapsed: f32,
+    stage: GeneratorTransitionStage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneratorTransitionStage {
+    BlendIn,
+    Playing,
+    BlendOut,
 }
 
 #[derive(Debug, Clone)]
@@ -466,6 +506,9 @@ struct Runtime {
     delayed: Option<DelayedTransition>,
     intervals: Vec<IntervalState>,
     time_step: f32,
+    interp_source: Option<f32>,
+    interp_target: Option<f32>,
+    interp_result: Option<f32>,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -485,6 +528,12 @@ struct Runtime {
     timer_fired: bool,
     /// A shared modifier node can be visited more than once in one update.
     timer_frame: u64,
+    direct_at_heading: f32,
+    direct_at_pitch: f32,
+    direct_at_initialized: bool,
+    every_n_seen: u32,
+    every_n_interval: u32,
+    every_n_outputs: u64,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -495,6 +544,8 @@ struct Runtime {
     tween_start: Option<QsTransform>,
     tween_elapsed: f32,
     damping: Option<DampingRuntime>,
+    /// A target supplied by the host for `BSLimbIKModifier`.
+    limb_ik_target: Option<[f32; 3]>,
 }
 
 /// Mutable PID input, output and history for one damping modifier instance.
@@ -663,6 +714,58 @@ fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
 fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
+    }
+}
+
+fn every_n_interval(
+    id: NodeId,
+    outputs: u64,
+    authored_maximum: i8,
+    authored_minimum: i8,
+    randomize: bool,
+) -> u32 {
+    let maximum = u32::try_from(authored_maximum).unwrap_or(1).max(1);
+    if !randomize {
+        return maximum;
+    }
+    let minimum = u32::try_from(authored_minimum)
+        .unwrap_or(1)
+        .clamp(1, maximum);
+    let range = maximum - minimum + 1;
+    let seed = u64::try_from(id.0).unwrap_or(0) ^ outputs.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    let mut value = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^= value >> 31;
+    minimum + u32::try_from(value % u64::from(range)).unwrap_or(0)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn normalize(vector: [f32; 3]) -> Option<[f32; 3]> {
+    let length = dot(vector, vector).sqrt();
+    (length.is_finite() && length > f32::EPSILON)
+        .then(|| [vector[0] / length, vector[1] / length, vector[2] / length])
+}
+
+fn multiply_quaternions(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let result = [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ];
+    let length = result.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if length > f32::EPSILON && length.is_finite() {
+        result.map(|value| value / length)
+    } else {
+        b
     }
 }
 
@@ -904,6 +1007,9 @@ impl<'a> Interpreter<'a> {
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
+                ("source", None, NodeKind::InterpValue { .. }) => Some(Target::InterpFrom),
+                ("target", None, NodeKind::InterpValue { .. }) => Some(Target::InterpTo),
+                ("result", None, NodeKind::InterpValue { .. }) => Some(Target::InterpOutput),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
                 }
@@ -1091,7 +1197,7 @@ impl<'a> Interpreter<'a> {
             .is_some_and(|n| !n.transitions.is_empty())
     }
 
-    /// Number of blending effects currently retained by a state machine.
+    /// Number of transition effects currently retained by a state machine.
     pub fn active_transition_count(&self, machine: NodeId) -> usize {
         self.nodes
             .get(machine.0)
@@ -1141,6 +1247,20 @@ impl<'a> Interpreter<'a> {
         self.character_position = Some(position);
     }
 
+    /// Set the model-space cast target for a limb IK modifier. The host owns
+    /// the cast query because the HKX interpreter has no collision world.
+    pub fn set_limb_ik_target(&mut self, id: NodeId, target: Option<[f32; 3]>) -> bool {
+        let Some(node) = self.graph.nodes.get(id.0) else {
+            return false;
+        };
+        if !matches!(node.kind, NodeKind::LimbIk { .. }) {
+            return false;
+        }
+        self.nodes[id.0].limb_ik_target =
+            target.filter(|point| point.iter().all(|v| v.is_finite()));
+        true
+    }
+
     /// One frame: bindings, activation, events, generate, raised events.
     pub fn update(&mut self, dt: f32) -> &Output {
         self.frame += 1;
@@ -1158,8 +1278,10 @@ impl<'a> Interpreter<'a> {
             self.modifier_order.clear();
             let output = self.generate(root, dt);
             self.output = output;
+            self.update_i_state_managers();
             self.update_time_step_modifiers(dt);
             self.update_ragdoll_contact_modifiers();
+            self.update_interp_value_modifiers(dt);
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
                     break;
@@ -1224,6 +1346,67 @@ impl<'a> Interpreter<'a> {
             for event in emitted {
                 self.raise(event);
             }
+        }
+    }
+
+    /// Publish the value mapped to each active manager's current state.
+    fn update_i_state_managers(&mut self) {
+        for node in self.modifier_order.clone() {
+            if !self.nodes[node.0].active {
+                continue;
+            }
+            let NodeKind::IStateManager {
+                state_variable,
+                state_data,
+                ..
+            } = &self.graph.node(node).kind
+            else {
+                continue;
+            };
+            let variable = usize::try_from(*state_variable).ok();
+            let Some(variable) = variable.filter(|index| *index < self.variables.len()) else {
+                continue;
+            };
+            let value = state_data.iter().find_map(|entry| {
+                (self.nodes.get(entry.state_machine.0)?.current_state == Some(entry.state_id))
+                    .then_some(entry.state_to_set_as)
+            });
+            if let Some(value) = value {
+                self.variables.set_word(variable, value);
+            }
+        }
+    }
+
+    /// Advance active interpolation modifiers by their authored rate.
+    fn update_interp_value_modifiers(&mut self, dt: f32) {
+        for node in &self.modifier_order {
+            let NodeKind::InterpValue {
+                source: authored_source,
+                target: authored_target,
+                gain,
+                ..
+            } = &self.graph.node(*node).kind
+            else {
+                continue;
+            };
+            let runtime = &mut self.nodes[node.0];
+            if !runtime.active {
+                continue;
+            }
+            let source = runtime
+                .interp_source
+                .or(runtime.interp_result)
+                .unwrap_or(*authored_source);
+            let target = runtime.interp_target.unwrap_or(*authored_target);
+            let distance = target - source;
+            let step = gain.max(0.0) * dt.max(0.0);
+            runtime.interp_result = Some(if distance > 0.0 {
+                (source + step).min(target)
+            } else if distance < 0.0 {
+                (source - step).max(target)
+            } else {
+                target
+            });
         }
     }
 
@@ -1296,6 +1479,15 @@ impl<'a> Interpreter<'a> {
                         .set_real(b.variable, runtime.speed_sampler_speed_out);
                 }
             }
+            Target::InterpOutput => {
+                if let Some(result) = self
+                    .nodes
+                    .get(b.node.0)
+                    .and_then(|runtime| runtime.interp_result)
+                {
+                    self.variables.set_real(b.variable, result);
+                }
+            }
             Target::DampingValue => {
                 if let Some(damping) = self
                     .nodes
@@ -1353,6 +1545,8 @@ impl<'a> Interpreter<'a> {
                     rt.selected = usize::try_from(value as i32).ok();
                 }
                 Target::Enable => rt.enabled = Some(value != 0.0),
+                Target::InterpFrom => rt.interp_source = Some(value),
+                Target::InterpTo => rt.interp_target = Some(value),
                 Target::FalseToTrueEnable(slot) => rt.edge_enabled[slot] = Some(value != 0.0),
                 Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
@@ -1401,7 +1595,8 @@ impl<'a> Interpreter<'a> {
                 | Target::SpeedSamplerSpeedOut
                 | Target::DampingRawVector
                 | Target::DampingValue
-                | Target::DampingVector => {}
+                | Target::DampingVector
+                | Target::InterpOutput => {}
             }
         }
     }
@@ -1418,7 +1613,9 @@ impl<'a> Interpreter<'a> {
             | NodeKind::TimerModifier { enable, .. }
             | NodeKind::BsTimerModifier { enable, .. }
             | NodeKind::Tweener { enable, .. }
+            | NodeKind::EventOnDeactivateModifier { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
+            | NodeKind::InterpValue { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::ModifyOnce { enable, .. }
@@ -1429,6 +1626,11 @@ impl<'a> Interpreter<'a> {
             | NodeKind::SpeedSampler { enable, .. }
             | NodeKind::DampingModifier { enable, .. }
             | NodeKind::FootIkControls { enable, .. }
+            | NodeKind::EveryNEventsModifier { enable, .. }
+            | NodeKind::LookAtModifier { enable, .. }
+            | NodeKind::DirectAt { enable, .. }
+            | NodeKind::IStateManager { enable, .. }
+            | NodeKind::LimbIk { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1759,6 +1961,101 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    fn apply_direct_at(&mut self, id: NodeId, output: &mut Output, dt: f32) {
+        let NodeKind::DirectAt {
+            direct_at_target,
+            source_bone_index,
+            start_bone_index,
+            end_bone_index,
+            limit_heading_degrees,
+            limit_pitch_degrees,
+            offset_heading_degrees,
+            offset_pitch_degrees,
+            on_gain,
+            off_gain,
+            target_location,
+            direct_at_camera,
+            direct_at_camera_location,
+            current_heading_offset,
+            current_pitch_offset,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        if !self.nodes[id.0].active || output.weight <= 0.0 {
+            return;
+        }
+        if !self.nodes[id.0].direct_at_initialized {
+            self.nodes[id.0].direct_at_heading = *current_heading_offset;
+            self.nodes[id.0].direct_at_pitch = *current_pitch_offset;
+            self.nodes[id.0].direct_at_initialized = true;
+        }
+        let (heading, pitch, gain) = if *direct_at_target || *direct_at_camera {
+            let Ok(source) = usize::try_from(*source_bone_index) else {
+                return;
+            };
+            let Some(source) = output.pose.get(source) else {
+                return;
+            };
+            let target = if *direct_at_camera {
+                *direct_at_camera_location
+            } else {
+                [target_location[0], target_location[1], target_location[2]]
+            };
+            let delta = [
+                target[0] - source.translation[0],
+                target[1] - source.translation[1],
+                target[2] - source.translation[2],
+            ];
+            if !delta.iter().all(|v| v.is_finite()) {
+                return;
+            }
+            let horizontal = delta[0].hypot(delta[1]);
+            let mut heading = delta[0].atan2(delta[1]).to_degrees() + *offset_heading_degrees;
+            let mut pitch = delta[2].atan2(horizontal).to_degrees() + *offset_pitch_degrees;
+            if !heading.is_finite()
+                || !pitch.is_finite()
+                || !limit_heading_degrees.is_finite()
+                || !limit_pitch_degrees.is_finite()
+            {
+                return;
+            }
+            heading = heading.clamp(-limit_heading_degrees.abs(), limit_heading_degrees.abs());
+            pitch = pitch.clamp(-limit_pitch_degrees.abs(), limit_pitch_degrees.abs());
+            (heading, pitch, *on_gain)
+        } else {
+            (0.0, 0.0, *off_gain)
+        };
+        if !gain.is_finite() || !dt.is_finite() || dt < 0.0 {
+            return;
+        }
+        let fraction = (gain.max(0.0) * dt).clamp(0.0, 1.0);
+        let runtime = &mut self.nodes[id.0];
+        runtime.direct_at_heading += (heading - runtime.direct_at_heading) * fraction;
+        runtime.direct_at_pitch += (pitch - runtime.direct_at_pitch) * fraction;
+
+        let (Ok(start), Ok(end)) = (
+            usize::try_from(*start_bone_index),
+            usize::try_from(*end_bone_index),
+        ) else {
+            return;
+        };
+        if start > end || end >= output.pose.len() {
+            return;
+        }
+        let count = (end - start + 1) as f32;
+        let yaw = runtime.direct_at_heading.to_radians() / count;
+        let elevation = runtime.direct_at_pitch.to_radians() / count;
+        let delta_rotation = quat_mul(
+            [0.0, 0.0, (yaw * 0.5).sin(), (yaw * 0.5).cos()],
+            [(elevation * 0.5).sin(), 0.0, 0.0, (elevation * 0.5).cos()],
+        );
+        for bone in &mut output.pose[start..=end] {
+            bone.rotation = quat_mul(delta_rotation, bone.rotation);
+        }
+    }
+
     fn activate(&mut self, id: NodeId) {
         if self.nodes[id.0].active {
             return;
@@ -1766,6 +2063,23 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].active = true;
         let graph = self.graph;
         match &graph.node(id).kind {
+            NodeKind::EveryNEventsModifier {
+                number_of_events_before_send,
+                minimum_number_of_events_before_send,
+                randomize_number_of_events,
+                ..
+            } => {
+                let runtime = &mut self.nodes[id.0];
+                runtime.every_n_seen = 0;
+                runtime.every_n_outputs = 0;
+                runtime.every_n_interval = every_n_interval(
+                    id,
+                    0,
+                    *number_of_events_before_send,
+                    *minimum_number_of_events_before_send,
+                    *randomize_number_of_events,
+                );
+            }
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
             }
@@ -1872,7 +2186,10 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::PassByTargetTrigger { .. }
             | NodeKind::RagdollContactListener { .. }
@@ -1880,6 +2197,9 @@ impl<'a> Interpreter<'a> {
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
             | NodeKind::FootIkControls { .. }
+            | NodeKind::LookAtModifier { .. }
+            | NodeKind::IStateManager { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1909,6 +2229,9 @@ impl<'a> Interpreter<'a> {
                     let child_node = self.modifier_order[index];
                     self.update_modifier(child_node, 0.0);
                 }
+            }
+            if let NodeKind::EventOnDeactivateModifier { event, .. } = &node.kind {
+                self.raise(event.id);
             }
             if let NodeKind::StateMachine(sm) = &node.kind {
                 if let Some(current) = self.nodes[node_id.0].current_state {
@@ -2009,6 +2332,32 @@ impl<'a> Interpreter<'a> {
         let graph = self.graph;
         let node = graph.node(id);
         match &node.kind {
+            NodeKind::EveryNEventsModifier {
+                event_to_check_for,
+                event_to_send,
+                number_of_events_before_send,
+                minimum_number_of_events_before_send,
+                randomize_number_of_events,
+                ..
+            } => {
+                if ev.id == event_to_check_for.id && ev.id >= 0 {
+                    let runtime = &mut self.nodes[id.0];
+                    runtime.every_n_seen = runtime.every_n_seen.saturating_add(1);
+                    if runtime.every_n_seen >= runtime.every_n_interval {
+                        runtime.every_n_seen = 0;
+                        runtime.every_n_outputs = runtime.every_n_outputs.saturating_add(1);
+                        runtime.every_n_interval = every_n_interval(
+                            id,
+                            runtime.every_n_outputs,
+                            *number_of_events_before_send,
+                            *minimum_number_of_events_before_send,
+                            *randomize_number_of_events,
+                        );
+                        self.raise(event_to_send.id);
+                    }
+                }
+                false
+            }
             NodeKind::StateMachine(sm) => {
                 if self.machine_event(id, sm, ev) {
                     return true;
@@ -2036,9 +2385,15 @@ impl<'a> Interpreter<'a> {
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
         let mut out = Vec::new();
         for transition in &self.nodes[id.0].transitions {
-            for generator in [transition.from_generator, transition.to_generator]
-                .into_iter()
-                .flatten()
+            for generator in [
+                transition.from_generator,
+                transition.to_generator,
+                transition
+                    .generator_transition
+                    .map(|active| active.generator),
+            ]
+            .into_iter()
+            .flatten()
             {
                 if !out.contains(&generator) {
                     out.push(generator);
@@ -2217,13 +2572,25 @@ impl<'a> Interpreter<'a> {
                 // variable.
                 NodeKind::BlendingTransition(b) => {
                     let d = self.nodes[e.0].duration.unwrap_or(b.duration);
-                    Some((d, b.blend_curve))
+                    Some(ActiveEffect::Blend(d, b.blend_curve))
+                }
+                NodeKind::GeneratorTransition(effect) => {
+                    effect
+                        .transition_generator
+                        .map(|generator| ActiveEffect::Generator {
+                            generator,
+                            blend_in_duration: effect.blend_in_duration.max(0.0),
+                            blend_out_duration: effect.blend_out_duration.max(0.0),
+                        })
                 }
                 _ => None,
             })
-            .filter(|(d, _)| *d > 0.0);
+            .filter(|effect| match effect {
+                ActiveEffect::Blend(duration, _) => *duration > 0.0,
+                ActiveEffect::Generator { .. } => true,
+            });
         match effect {
-            Some((duration, curve))
+            Some(ActiveEffect::Blend(duration, curve))
                 if from_generator != to_generator && sm.max_simultaneous_transitions > 0 =>
             {
                 let capacity = sm.max_simultaneous_transitions as usize;
@@ -2239,6 +2606,39 @@ impl<'a> Interpreter<'a> {
                     elapsed: 0.0,
                     duration,
                     curve,
+                    generator_transition: None,
+                });
+            }
+            Some(ActiveEffect::Generator {
+                generator,
+                blend_in_duration,
+                blend_out_duration,
+            }) if from_generator != to_generator && sm.max_simultaneous_transitions > 0 => {
+                let capacity = sm.max_simultaneous_transitions as usize;
+                let length = self.nodes[id.0].transitions.len();
+                if length >= capacity {
+                    self.end_transitions(id, sm, length - capacity + 1);
+                }
+                self.activate(generator);
+                self.nodes[id.0].transitions.push(ActiveTransition {
+                    priority: info.priority,
+                    flags: info.flags,
+                    from_generator,
+                    to_generator,
+                    elapsed: 0.0,
+                    duration: 0.0,
+                    curve: 1,
+                    generator_transition: Some(GeneratorTransitionRuntime {
+                        generator,
+                        blend_in_duration,
+                        blend_out_duration,
+                        elapsed: 0.0,
+                        stage: if blend_in_duration > 0.0 {
+                            GeneratorTransitionStage::BlendIn
+                        } else {
+                            GeneratorTransitionStage::Playing
+                        },
+                    }),
                 });
             }
             _ => {
@@ -2313,9 +2713,10 @@ impl<'a> Interpreter<'a> {
                 generator,
             } => {
                 let start = self.modifier_order.len();
+                let modifier_start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
                     self.sync_modifier(*modifier);
-                    for index in start..self.modifier_order.len() {
+                    for index in modifier_start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node, dt);
                     }
@@ -2333,6 +2734,51 @@ impl<'a> Interpreter<'a> {
                         {
                             output.foot_ik_controls = Some(controls.clone());
                         }
+                    }
+                }
+                let applied_modifiers = self.modifier_order[modifier_start..].to_vec();
+                for modifier in applied_modifiers {
+                    if !self.nodes[modifier.0].active {
+                        continue;
+                    }
+                    match &self.graph.node(modifier).kind {
+                        NodeKind::LookAtModifier {
+                            bones,
+                            eye_bones,
+                            limit_angle_degrees,
+                            on_gain,
+                            use_bone_gains,
+                            target_location,
+                            look_at_target,
+                            look_at_camera,
+                            look_at_camera_location,
+                            ..
+                        } => {
+                            let target = if *look_at_target {
+                                Some([target_location[0], target_location[1], target_location[2]])
+                            } else if *look_at_camera {
+                                Some(*look_at_camera_location)
+                            } else {
+                                None
+                            };
+                            if let Some(target) = target {
+                                apply_look_at(
+                                    &mut output.pose,
+                                    bones.iter().chain(eye_bones),
+                                    target,
+                                    *limit_angle_degrees,
+                                    *on_gain,
+                                    *use_bone_gains,
+                                );
+                            }
+                        }
+                        NodeKind::DirectAt { .. } => {
+                            self.apply_direct_at(modifier, &mut output, dt);
+                        }
+                        NodeKind::LimbIk { .. } => {
+                            self.apply_limb_ik(modifier, &mut output);
+                        }
+                        _ => {}
                     }
                 }
                 output
@@ -2390,7 +2836,10 @@ impl<'a> Interpreter<'a> {
             | NodeKind::TimerModifier { .. }
             | NodeKind::BsTimerModifier { .. }
             | NodeKind::Tweener { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::ModifyOnce { .. }
@@ -2401,7 +2850,81 @@ impl<'a> Interpreter<'a> {
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
             | NodeKind::FootIkControls { .. }
+            | NodeKind::EveryNEventsModifier { .. }
+            | NodeKind::LookAtModifier { .. }
+            | NodeKind::IStateManager { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
+        }
+    }
+
+    /// Rotate the authored limb's local bone rotations toward the host cast
+    /// target. The whole correction is bounded by `limitAngleDegrees` and
+    /// scaled by gain. Other bones and translations remain unchanged.
+    fn apply_limb_ik(&self, id: NodeId, output: &mut Output) {
+        let node = &self.graph.nodes[id.0];
+        let NodeKind::LimbIk {
+            limit_angle_degrees,
+            start_bone_index,
+            end_bone_index,
+            gain,
+            ..
+        } = &node.kind
+        else {
+            return;
+        };
+        let Some(target) = self.nodes[id.0].limb_ik_target else {
+            return;
+        };
+        if !self.nodes[id.0].active || *gain == 0.0 || *limit_angle_degrees == 0.0 {
+            return;
+        }
+        let start = usize::try_from(*start_bone_index).unwrap_or(usize::MAX);
+        let end = usize::try_from(*end_bone_index).unwrap_or(usize::MAX);
+        let Some(pivot) = output.pose.get(start).map(|t| t.translation) else {
+            return;
+        };
+        let Some(endpoint) = output.pose.get(end).map(|t| t.translation) else {
+            return;
+        };
+        let from = [
+            endpoint[0] - pivot[0],
+            endpoint[1] - pivot[1],
+            endpoint[2] - pivot[2],
+        ];
+        let to = [
+            target[0] - pivot[0],
+            target[1] - pivot[1],
+            target[2] - pivot[2],
+        ];
+        let (Some(from), Some(to)) = (normalize(from), normalize(to)) else {
+            return;
+        };
+        let cosine = dot(from, to).clamp(-1.0, 1.0);
+        let axis = normalize(cross(from, to)).or_else(|| {
+            if cosine < 0.0 {
+                let basis = if from[0].abs() < 0.8 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                normalize(cross(from, basis))
+            } else {
+                None
+            }
+        });
+        let Some(axis) = axis else {
+            return;
+        };
+        let angle = (cosine.acos() * gain).min(limit_angle_degrees.to_radians());
+        if !angle.is_finite() || angle <= f32::EPSILON {
+            return;
+        }
+        let bone_count = (end - start + 1) as f32;
+        let (sin, cos) = (angle / bone_count * 0.5).sin_cos();
+        let correction = [axis[0] * sin, axis[1] * sin, axis[2] * sin, cos];
+        for transform in output.pose.iter_mut().take(end + 1).skip(start) {
+            transform.rotation = multiply_quaternions(correction, transform.rotation);
         }
     }
 
@@ -2518,7 +3041,11 @@ impl<'a> Interpreter<'a> {
             .and_then(|s| s.generator);
         if !self.nodes[id.0].transitions.is_empty() {
             for transition in &mut self.nodes[id.0].transitions {
-                transition.elapsed += dt;
+                if let Some(generator_transition) = &mut transition.generator_transition {
+                    generator_transition.elapsed += dt;
+                } else {
+                    transition.elapsed += dt;
+                }
             }
             let transitions = self.nodes[id.0].transitions.clone();
             let generators = self.active_generators_of_machine(id, sm);
@@ -2534,9 +3061,48 @@ impl<'a> Interpreter<'a> {
             };
             let mut output = sample(transitions[0].from_generator);
             let mut completed = 0;
+            let mut generator_transition_updates = Vec::new();
             for (index, transition) in transitions.iter().enumerate() {
                 let target = sample(transition.to_generator);
-                if transition.elapsed >= transition.duration {
+                if let Some(mut generator_transition) = transition.generator_transition {
+                    let transition_output = sample(Some(generator_transition.generator));
+                    match generator_transition.stage {
+                        GeneratorTransitionStage::BlendIn => {
+                            let alpha = (generator_transition.elapsed
+                                / generator_transition.blend_in_duration)
+                                .clamp(0.0, 1.0);
+                            output = blend_outputs(&output, &transition_output, alpha);
+                            if alpha >= 1.0 {
+                                generator_transition.stage = GeneratorTransitionStage::Playing;
+                                generator_transition.elapsed = 0.0;
+                            }
+                        }
+                        GeneratorTransitionStage::Playing => {
+                            output = transition_output;
+                            if self.nodes[generator_transition.generator.0].at_end {
+                                generator_transition.stage = GeneratorTransitionStage::BlendOut;
+                                generator_transition.elapsed = 0.0;
+                                if generator_transition.blend_out_duration == 0.0 {
+                                    output = target;
+                                    completed = index + 1;
+                                }
+                            }
+                        }
+                        GeneratorTransitionStage::BlendOut => {
+                            let alpha = (generator_transition.elapsed
+                                / generator_transition.blend_out_duration)
+                                .clamp(0.0, 1.0);
+                            output = blend_outputs(&transition_output, &target, alpha);
+                            if alpha >= 1.0 {
+                                output = target;
+                                completed = index + 1;
+                            }
+                        }
+                    }
+                    if completed <= index {
+                        generator_transition_updates.push((index, generator_transition));
+                    }
+                } else if transition.elapsed >= transition.duration {
                     output = target;
                     completed = index + 1;
                 } else {
@@ -2546,6 +3112,10 @@ impl<'a> Interpreter<'a> {
                     );
                     output = blend_outputs(&output, &target, alpha);
                 }
+            }
+            for (index, generator_transition) in generator_transition_updates {
+                self.nodes[id.0].transitions[index].generator_transition =
+                    Some(generator_transition);
             }
             if completed > 0 {
                 self.end_transitions(id, sm, completed);
@@ -2794,6 +3364,117 @@ fn blend_curve(curve: i8, t: f32) -> f32 {
 
 /// Blend two transforms: lerp translation and scale, nlerp rotation on
 /// the shorter arc.
+fn apply_look_at<'a>(
+    pose: &mut [QsTransform],
+    bones: impl Iterator<Item = &'a crate::behavior::LookAtBone>,
+    target: [f32; 3],
+    global_limit_degrees: f32,
+    global_gain: f32,
+    use_bone_gains: bool,
+) {
+    for bone in bones.filter(|bone| bone.enabled) {
+        let Ok(index) = usize::try_from(bone.index) else {
+            continue;
+        };
+        let Some(transform) = pose.get_mut(index) else {
+            continue;
+        };
+        let direction = [
+            target[0] - transform.translation[0],
+            target[1] - transform.translation[1],
+            target[2] - transform.translation[2],
+        ];
+        let Some(direction) = normalize3(direction) else {
+            continue;
+        };
+        let Some(forward) = normalize3(quat_rotate3(
+            transform.rotation,
+            [
+                bone.forward_axis[0],
+                bone.forward_axis[1],
+                bone.forward_axis[2],
+            ],
+        )) else {
+            continue;
+        };
+        let dot = dot3(forward, direction).clamp(-1.0, 1.0);
+        let angle = dot.acos();
+        if angle <= f32::EPSILON {
+            continue;
+        }
+        let limit = global_limit_degrees
+            .min(bone.limit_angle_degrees)
+            .max(0.0)
+            .to_radians();
+        let gain = if use_bone_gains {
+            bone.on_gain
+        } else {
+            global_gain
+        }
+        .clamp(0.0, 1.0);
+        let step = angle.min(limit) * gain;
+        if step <= f32::EPSILON {
+            continue;
+        }
+        let delta = rotation_between(forward, direction, step);
+        transform.rotation = quat_mul(delta, transform.rotation);
+        if let Some(rotation) = normalize_quaternion(transform.rotation) {
+            transform.rotation = rotation;
+        }
+    }
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn normalize3(vector: [f32; 3]) -> Option<[f32; 3]> {
+    let length = dot3(vector, vector).sqrt();
+    (length.is_finite() && length > f32::EPSILON)
+        .then(|| [vector[0] / length, vector[1] / length, vector[2] / length])
+}
+
+fn normalize_quaternion(q: [f32; 4]) -> Option<[f32; 4]> {
+    let length = q
+        .iter()
+        .map(|component| component * component)
+        .sum::<f32>()
+        .sqrt();
+    (length.is_finite() && length > f32::EPSILON).then(|| q.map(|component| component / length))
+}
+
+fn quat_rotate3(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+    let vector = [v[0], v[1], v[2], 0.0];
+    let conjugate = [-q[0], -q[1], -q[2], q[3]];
+    let result = quat_mul(quat_mul(q, vector), conjugate);
+    [result[0], result[1], result[2]]
+}
+
+fn rotation_between(from: [f32; 3], to: [f32; 3], angle: f32) -> [f32; 4] {
+    let mut axis = [
+        from[1] * to[2] - from[2] * to[1],
+        from[2] * to[0] - from[0] * to[2],
+        from[0] * to[1] - from[1] * to[0],
+    ];
+    if normalize3(axis).is_none() {
+        axis = if from[0].abs() < from[1].abs() && from[0].abs() < from[2].abs() {
+            [0.0, -from[2], from[1]]
+        } else if from[1].abs() < from[2].abs() {
+            [-from[2], 0.0, from[0]]
+        } else {
+            [-from[1], from[0], 0.0]
+        };
+    }
+    let axis = normalize3(axis).unwrap_or([0.0, 0.0, 1.0]);
+    let half = angle * 0.5;
+    [
+        axis[0] * half.sin(),
+        axis[1] * half.sin(),
+        axis[2] * half.sin(),
+        half.cos(),
+    ]
+}
+
 pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransform {
     let lerp = |x: f32, y: f32| x + (y - x) * alpha;
     let dot: f32 = a.rotation.iter().zip(&b.rotation).map(|(x, y)| x * y).sum();
@@ -2889,7 +3570,9 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
 mod tests {
     use super::*;
 
-    use crate::behavior::{Binding, ExpressionData, Node, VariableBindingSet, VariableValueSet};
+    use crate::behavior::{
+        Binding, ExpressionData, LookAtBone, Node, VariableBindingSet, VariableValueSet,
+    };
     use crate::spline::encode;
 
     fn pad4(bytes: &mut Vec<u8>) {
@@ -2943,6 +3626,188 @@ mod tests {
             extracted_motion: None,
         };
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
+
+    fn direct_at_test_graph(config: NodeKind) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "direct at".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: Some(NodeId(2)),
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSDirectAtModifier".into(),
+                    name: "direct".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: config,
+                },
+                Node {
+                    id: NodeId(2),
+                    offset: 2,
+                    class: "hkbClipGenerator".into(),
+                    name: "pose".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator {
+                        animation_name: "modifier-pose".into(),
+                        ..Default::default()
+                    }),
+                },
+            ],
+        }
+    }
+
+    fn direct_at_config() -> NodeKind {
+        NodeKind::DirectAt {
+            enable: true,
+            direct_at_target: true,
+            source_bone_index: 0,
+            start_bone_index: 1,
+            end_bone_index: 2,
+            limit_heading_degrees: 30.0,
+            limit_pitch_degrees: 20.0,
+            offset_heading_degrees: 5.0,
+            offset_pitch_degrees: -5.0,
+            on_gain: 100.0,
+            off_gain: 100.0,
+            target_location: [10.0, 0.0, 10.0, 0.0],
+            user_info: 0,
+            direct_at_camera: false,
+            direct_at_camera_location: [0.0; 3],
+            active: false,
+            current_heading_offset: 0.0,
+            current_pitch_offset: 0.0,
+        }
+    }
+
+    fn direct_at_fixture(config: NodeKind) -> (BehaviorGraph, ClipLibrary) {
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        (direct_at_test_graph(config), clips)
+    }
+
+    #[test]
+    fn anm_25_direct_at_rotates_the_declared_chain_with_heading_and_pitch_limits() {
+        let (graph, clips) = direct_at_fixture(direct_at_config());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        let pose = &vm.output().pose;
+        assert_eq!(
+            pose[0].translation[0], 4.0,
+            "the source pose remains intact"
+        );
+        assert_eq!(pose[1].translation, QsTransform::IDENTITY.translation);
+        assert_eq!(pose[1].scale, QsTransform::IDENTITY.scale);
+        let (yaw, pitch) = (7.5f32.to_radians(), 5.0f32.to_radians());
+        let expected = [
+            pitch.sin() * yaw.cos(),
+            pitch.sin() * yaw.sin(),
+            pitch.cos() * yaw.sin(),
+            pitch.cos() * yaw.cos(),
+        ];
+        for (actual, expected) in pose[1].rotation.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+        assert_eq!(
+            pose[1].rotation, pose[2].rotation,
+            "the declared chain shares the rotation"
+        );
+        assert_eq!(
+            pose[3].rotation,
+            QsTransform::IDENTITY.rotation,
+            "bones outside the chain stay unchanged"
+        );
+    }
+
+    #[test]
+    fn anm_25_direct_at_gain_smooths_target_and_releases_when_target_is_off() {
+        let mut config = direct_at_config();
+        if let NodeKind::DirectAt { on_gain, .. } = &mut config {
+            *on_gain = 0.5;
+        }
+        let (graph, clips) = direct_at_fixture(config);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        let half_gain = vm.output().pose[1].rotation;
+        assert!(
+            half_gain[2] > 0.06 && half_gain[2] < 0.07,
+            "gain moves halfway to the limited angle: {half_gain:?}"
+        );
+
+        let mut released = direct_at_config();
+        if let NodeKind::DirectAt {
+            direct_at_target,
+            direct_at_camera,
+            ..
+        } = &mut released
+        {
+            *direct_at_target = false;
+            *direct_at_camera = false;
+        }
+        let (graph, clips) = direct_at_fixture(released);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.nodes[1].direct_at_heading = 30.0;
+        vm.nodes[1].direct_at_pitch = 20.0;
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_25_direct_at_camera_enable_and_bad_chain_follow_declared_fields() {
+        let mut config = direct_at_config();
+        if let NodeKind::DirectAt {
+            direct_at_camera,
+            direct_at_target,
+            direct_at_camera_location,
+            target_location,
+            ..
+        } = &mut config
+        {
+            *direct_at_camera = true;
+            *direct_at_target = false;
+            *direct_at_camera_location = [0.0, 10.0, 0.0];
+            *target_location = [10.0, 0.0, 10.0, 0.0];
+        }
+        let (graph, clips) = direct_at_fixture(config);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert!(
+            vm.output().pose[1].rotation[2] < 0.0,
+            "camera target takes precedence over the authored location"
+        );
+
+        let mut bad_chain = direct_at_config();
+        if let NodeKind::DirectAt { end_bone_index, .. } = &mut bad_chain {
+            *end_bone_index = 99;
+        }
+        let (graph, clips) = direct_at_fixture(bad_chain);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
+
+        let mut disabled = direct_at_config();
+        if let NodeKind::DirectAt { enable, .. } = &mut disabled {
+            *enable = false;
+        }
+        let (graph, clips) = direct_at_fixture(disabled);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
     }
 
     /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
@@ -3132,6 +3997,124 @@ mod tests {
                 },
             ],
         }
+    }
+
+    fn interp_value_graph(source: f32, target: f32, gain: f32) -> BehaviorGraph {
+        let binding = |member_path: &str, variable_index| Binding {
+            member_path: member_path.into(),
+            variable_index,
+            bit_index: -1,
+            binding_type: 0,
+        };
+        BehaviorGraph {
+            name: "interp value".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["Value".into(), "Target".into()],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    };
+                    2
+                ],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSInterpValueModifier".into(),
+                    name: "interpolation".into(),
+                    user_data: 0,
+                    bindings: Some(VariableBindingSet {
+                        bindings: vec![
+                            binding("source", 0),
+                            binding("target", 1),
+                            binding("result", 0),
+                        ],
+                        index_of_binding_to_enable: -1,
+                    }),
+                    kind: NodeKind::InterpValue {
+                        enable: true,
+                        source,
+                        target,
+                        result: source,
+                        gain,
+                    },
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anm_30_interpolates_by_authored_rate_and_frame_delta() {
+        let graph = interp_value_graph(1.0, 5.0, 2.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 1.0);
+        vm.variables.set_real(1, 5.0);
+
+        vm.update(0.5);
+
+        assert_eq!(vm.variables.real(0), Some(2.0));
+    }
+
+    #[test]
+    fn anm_30_uses_authored_source_and_target_when_unbound() {
+        let mut graph = interp_value_graph(1.0, 5.0, 2.0);
+        graph.nodes[1]
+            .bindings
+            .as_mut()
+            .unwrap()
+            .bindings
+            .retain(|binding| binding.member_path == "result");
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.5);
+        assert_eq!(vm.variables.real(0), Some(2.0));
+        vm.update(0.5);
+        assert_eq!(vm.variables.real(0), Some(3.0));
+    }
+
+    #[test]
+    fn anm_30_clamps_upward_interpolation_at_its_target() {
+        let graph = interp_value_graph(1.0, 1.5, 2.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 1.0);
+        vm.variables.set_real(1, 1.5);
+
+        vm.update(0.5);
+
+        assert_eq!(vm.variables.real(0), Some(1.5));
+    }
+
+    #[test]
+    fn anm_30_interpolates_downward_and_clamps_at_its_target() {
+        let graph = interp_value_graph(4.0, 2.0, 3.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 4.0);
+        vm.variables.set_real(1, 2.0);
+
+        vm.update(1.0);
+
+        assert_eq!(vm.variables.real(0), Some(2.0));
     }
 
     fn nested_time_step_graph() -> BehaviorGraph {
@@ -3568,6 +4551,55 @@ mod tests {
         }
     }
 
+    fn look_at_graph(
+        enable: bool,
+        bones: Vec<LookAtBone>,
+        eye_bones: Vec<LookAtBone>,
+        global_limit_degrees: f32,
+    ) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "look at".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSLookAtModifier".into(),
+                    name: "look".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::LookAtModifier {
+                        enable,
+                        bones,
+                        eye_bones,
+                        limit_angle_degrees: global_limit_degrees,
+                        on_gain: 1.0,
+                        off_gain: 0.0,
+                        use_bone_gains: false,
+                        target_location: [0.0, 10.0, 0.0, 0.0],
+                        look_at_target: true,
+                        look_at_camera: false,
+                        look_at_camera_location: [0.0; 3],
+                    },
+                },
+            ],
+        }
+    }
+
     #[test]
     fn anm_39_changing_scalar_input_follows_the_authored_damping_curve() {
         let graph = damping_graph(2.0, 0.0, 0.0);
@@ -3649,6 +4681,77 @@ mod tests {
         assert_eq!(vm.variables.real(1), Some(0.0));
         vm.update(0.25);
         assert!(vm.variables.real(1).is_some_and(f32::is_finite));
+    }
+
+    fn look_bone(index: i16, enabled: bool, limit_angle_degrees: f32) -> LookAtBone {
+        LookAtBone {
+            index,
+            forward_axis: [0.0, 0.0, 1.0, 0.0],
+            limit_angle_degrees,
+            on_gain: 1.0,
+            off_gain: 0.0,
+            enabled,
+        }
+    }
+
+    fn look_at_vm<'a>(
+        graph: &'a BehaviorGraph,
+        clips: &'a ClipLibrary,
+        pose: Vec<QsTransform>,
+    ) -> Interpreter<'a> {
+        Interpreter::new(graph, clips, pose)
+    }
+
+    #[test]
+    fn anm_32_rotates_only_enabled_authored_look_at_bones() {
+        let graph = look_at_graph(
+            true,
+            vec![look_bone(0, true, 45.0), look_bone(1, false, 45.0)],
+            vec![look_bone(2, true, 45.0)],
+            45.0,
+        );
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        let output = vm.update(1.0 / 60.0);
+
+        assert!(output.pose[0].rotation[0].abs() > 0.1);
+        assert_eq!(output.pose[1].rotation, QsTransform::IDENTITY.rotation);
+        assert!(output.pose[2].rotation[0].abs() > 0.1);
+        assert_eq!(output.pose[3].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_32_uses_the_smaller_global_and_bone_angle_limit() {
+        let graph = look_at_graph(true, vec![look_bone(0, true, 10.0)], Vec::new(), 30.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+        let forward = quat_rotate3(output.pose[0].rotation, [0.0, 0.0, 1.0]);
+        let angle = forward[1].atan2(forward[2]).to_degrees();
+
+        assert!((angle - 10.0).abs() < 0.01, "{angle}");
+    }
+
+    #[test]
+    fn anm_32_respects_the_global_limit_when_the_bone_limit_is_larger() {
+        let graph = look_at_graph(true, vec![look_bone(0, true, 40.0)], Vec::new(), 15.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+        let forward = quat_rotate3(output.pose[0].rotation, [0.0, 0.0, 1.0]);
+        let angle = forward[1].atan2(forward[2]).to_degrees();
+
+        assert!((angle - 15.0).abs() < 0.01, "{angle}");
+    }
+
+    #[test]
+    fn anm_32_disabled_modifier_leaves_every_bone_unchanged() {
+        let graph = look_at_graph(false, vec![look_bone(0, true, 45.0)], Vec::new(), 45.0);
+        let clips = ClipLibrary::new();
+        let mut vm = look_at_vm(&graph, &clips, vec![QsTransform::IDENTITY]);
+        let output = vm.update(1.0 / 60.0);
+
+        assert_eq!(output.pose[0], QsTransform::IDENTITY);
     }
 
     #[test]

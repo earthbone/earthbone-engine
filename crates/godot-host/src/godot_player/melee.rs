@@ -283,7 +283,15 @@ impl PlayerNode {
         let actors = shared.contact_actors();
         let living: Vec<_> = actors
             .into_iter()
-            .filter(|actor| shared.actor(actor.actor).is_none_or(|state| !state.dead))
+            .filter(|actor| {
+                shared.actor(actor.actor).is_none_or(|state| {
+                    !crate::ragdoll::actor_uses_ragdoll(
+                        state.dead,
+                        state.unconscious,
+                        state.ragdoll_forced,
+                    )
+                })
+            })
             .collect();
         self.actor_bodies.sync(space, &living);
         true

@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;
@@ -43,6 +44,7 @@ pub mod inventory;
 pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
@@ -875,6 +877,26 @@ impl Game {
         threads
     }
 
+    /// Updates trigger membership after an actor movement step and runs the
+    /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
+    pub fn update_trigger_actor_position(
+        &mut self,
+        actor: GlobalFormId,
+        cell: Option<GlobalFormId>,
+        from: [f32; 3],
+        to: [f32; 3],
+    ) {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().update_trigger_actor_position(
+            actor,
+            cell,
+            from,
+            to,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+    }
+
     /// Resume mapped quest story events whose handlers are loaded.
     ///
     /// Saved `SCPT` contexts resume through `OnStoryScript`. Their mapped
@@ -950,6 +972,9 @@ impl Game {
             let before = w.clock.game_days;
             w.advance_clock(real_seconds);
             w.tick_image_space(real_seconds);
+            w.tick_translations(real_seconds, &mut |name, class| {
+                vm.create_object_of(name, class)
+            });
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
@@ -961,6 +986,32 @@ impl Game {
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+        }
+        if !menu_mode {
+            let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
+            for (actor, target) in activations {
+                self.activate(target, actor);
+            }
+        }
+        if !menu_mode {
+            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            for (speaker, listener, topic) in greetings {
+                if self.begin_dialogue(speaker, listener).is_err() {
+                    continue;
+                }
+                crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
+                if self.choose_dialogue(topic).is_err() {
+                    self.close_dialogue();
+                }
+            }
+        }
+        if !menu_mode {
+            let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
+            for (speaker, listener) in starts {
+                if self.begin_dialogue(speaker, listener).is_ok() {
+                    crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
+                }
+            }
         }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
@@ -1079,7 +1130,27 @@ impl Game {
                 }
             }
         }
+        let completed = std::mem::take(&mut self.world.borrow_mut().completed_animation_waits);
+        for (latent, result) in completed {
+            self.vm.resolve_latent(latent, Value::Bool(result));
+        }
         n
+    }
+
+    /// Report one event emitted by a reference's behavior graph to Papyrus
+    /// listeners and any `WaitForAnimationEvent` calls.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        self.world
+            .borrow_mut()
+            .animation_event(source, name, &mut |script, class| {
+                vm.create_object_of(script, class)
+            });
+    }
+
+    /// Complete waits false when the reference's behavior graph unloads.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.world.borrow_mut().animation_graph_unloaded(source);
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
