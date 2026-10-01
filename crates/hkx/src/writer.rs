@@ -43,6 +43,7 @@ const SIGNATURES: &[(&str, u32)] = &[
     ("hkbModifierGenerator", 0x1f81fae6),
     ("hkbModifierList", 0xa4180ca1),
     ("BSGetTimeStepModifier", 0xbda33bfe),
+    ("BSSpeedSamplerModifier", 0xd297fda9),
     ("BSLimbIKModifier", 0x8ea971e5),
     ("hkbCharacterData", 0x300d6808),
     ("hkbCharacterStringData", 0x655b42bc),

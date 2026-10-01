@@ -196,6 +196,8 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         None => h.u8(0),
     }
     h.i32(s.destruction_stage);
+    h.bool(s.no_favor_allowed);
+    h.bool(s.destruction_cleared);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -676,6 +678,25 @@ impl World {
         let form_lists = h.finish();
 
         let mut h = StateHasher::new();
+        h.len(self.pending_story_events.len());
+        for event in &self.pending_story_events {
+            h.u32(event.id);
+            h.bytes(&event.code);
+            h.len(event.parameters.len());
+            for parameter in &event.parameters {
+                match parameter {
+                    crate::quest::state::StoryParameter::Reference { kind, reference } => {
+                        h.u8(0);
+                        h.u32(*kind);
+                        opt_form(&mut h, *reference);
+                    }
+                    crate::quest::state::StoryParameter::Integer(value) => {
+                        h.u8(1);
+                        h.u32(*value);
+                    }
+                }
+            }
+        }
         h.len(self.pending.len());
         for p in &self.pending {
             match p {
@@ -794,7 +815,41 @@ impl World {
             h.u64(latent.0);
             h.bool(*result);
         }
+        h.len(self.animation_requests.len());
+        for request in &self.animation_requests {
+            form(&mut h, request.target);
+            h.str(&request.animation);
+        }
+        h.len(self.animation_waits.len());
+        for wait in &self.animation_waits {
+            form(&mut h, wait.target);
+            h.str(&wait.event);
+            h.u64(wait.latent.0);
+        }
+        h.len(self.animation_host_notices.len());
+        for notice in &self.animation_host_notices {
+            match notice {
+                super::AnimationHostNotice::Event { source, name } => {
+                    h.u8(0);
+                    form(&mut h, *source);
+                    h.str(name);
+                }
+                super::AnimationHostNotice::Unloaded { target } => {
+                    h.u8(1);
+                    form(&mut h, *target);
+                }
+            }
+        }
+        h.len(self.animation_completions.len());
+        for completion in &self.animation_completions {
+            h.u64(completion.latent.0);
+            h.bool(completion.succeeded);
+        }
         h.bool(self.player_controls);
+        for enabled in self.player_control_flags {
+            h.bool(enabled);
+        }
+        h.i32(self.player_control_pov_type);
         let output = h.finish();
 
         let mut h = StateHasher::new();
@@ -906,6 +961,9 @@ impl World {
             self.fast_travel,
             self.player_ai_driven,
             self.in_chargen,
+            self.chargen_disable_saving,
+            self.chargen_disable_waiting,
+            self.chargen_show_controls_disabled_message,
             self.beast_form,
         ] {
             h.bool(flag);
@@ -956,6 +1014,21 @@ impl World {
                 super::magic::SpellCastKind::Concentration => 1,
             });
         }
+        h.len(self.visual_effects.len());
+        h.u64(self.next_visual_effect);
+        for instance in self.visual_effects.values() {
+            h.u64(instance.id.0);
+            form(&mut h, instance.effect);
+            form(&mut h, instance.target);
+            match instance.remaining {
+                None => h.u8(0),
+                Some(seconds) => {
+                    h.u8(1);
+                    h.f64(seconds);
+                }
+            }
+            opt_form(&mut h, instance.facing);
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
@@ -964,6 +1037,7 @@ impl World {
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
         for (id, effects) in &self.brewed_potions {
@@ -985,6 +1059,7 @@ impl World {
         // directly rather than through the sorting helper the `HashMap` fields
         // need.
         let mut h = StateHasher::new();
+        h.u64(self.player_character_id());
         h.len(self.mod_data.added_keywords.len());
         for (id, kws) in &self.mod_data.added_keywords {
             form(&mut h, *id);
@@ -1348,6 +1423,15 @@ mod tests {
         moves("fast_travel", flags, |w| w.fast_travel = false);
         moves("player_ai_driven", flags, |w| w.player_ai_driven = true);
         moves("in_chargen", flags, |w| w.in_chargen = true);
+        moves("chargen_disable_saving", flags, |w| {
+            w.chargen_disable_saving = true;
+        });
+        moves("chargen_disable_waiting", flags, |w| {
+            w.chargen_disable_waiting = true;
+        });
+        moves("chargen_show_controls_disabled_message", flags, |w| {
+            w.chargen_show_controls_disabled_message = true;
+        });
         moves("beast_form", flags, |w| w.beast_form = true);
         moves("words_taught", flags, |w| {
             w.words_taught.insert(id(9));

@@ -4,7 +4,7 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
 use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
@@ -246,7 +246,7 @@ fn sentence_days(bounty: i32) -> u32 {
 pub(crate) fn write_days_in_jail(
     actor: &super::ActorState,
     writer: &mut Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+    _pool: &mut ArrayPool,
 ) {
     writer.u32(actor.days_in_jail);
 }
@@ -255,7 +255,7 @@ pub(crate) fn write_days_in_jail(
 pub(crate) fn read_days_in_jail(
     actor: &mut super::ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     actor.days_in_jail = reader.u32()?;
     Ok(())
