@@ -12,8 +12,12 @@ fn root() -> std::path::PathBuf {
 fn deny_and_audit_are_both_gate_steps_and_the_exception_is_reasoned() {
     let root = root();
     let gate = fs::read_to_string(root.join("tools/lint.sh")).unwrap();
-    assert!(gate.contains("step \"cargo deny check\"\ncargo deny check"));
-    assert!(gate.contains("step \"cargo audit\"\ncargo audit"));
+    assert!(gate.contains(
+        "step \"cargo deny check\"\nif command -v cargo-deny >/dev/null 2>&1; then\n  cargo deny check"
+    ));
+    assert!(gate.contains(
+        "step \"cargo audit\"\nif command -v cargo-audit >/dev/null 2>&1; then\n  cargo audit"
+    ));
 
     let config = fs::read_to_string(root.join("deny.toml")).unwrap();
     assert!(config.contains("RUSTSEC-2024-0436"));

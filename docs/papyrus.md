@@ -93,7 +93,7 @@ Champollion executable. Differences are written per script to
 `SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
 When either environment variable is unset, the corpus test skips. The assembly
 fields follow Champollion's `AsmCoder` output in
-`engine-refs/Champollion/Decompiler/AsmCoder.cpp`; the test uses the decoder as
+`engine-refs/Champollion/Decompiler/AsmCoder.cpp`. The test uses the decoder as
 an external tool and does not port its implementation.
 
 ## VM design

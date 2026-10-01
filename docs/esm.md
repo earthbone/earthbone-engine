@@ -224,8 +224,8 @@ truncated entries, and all five installed masters.
   REFR under Tamriel resolves and every REFR base is in the table.
 - `tests/tst_09_xedit_dump.rs`: compares an xEdit record/subrecord manifest with
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
-  tab-separated: `RECORD`, signature, and hexadecimal FormID start each record;
-  following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
+  tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
+  Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
   repeated-field ordinal, and hexadecimal bytes. Counts, record identities, and every
   subrecord payload are compared. Differences are printed by category and cause the
   gated test to fail. Malformed rows also fail with their line number. xEdit's
