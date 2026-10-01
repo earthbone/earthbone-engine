@@ -40,7 +40,6 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     super::magic::REANIMATE_SECTION,
     Section { name: "DLG-09", write: write_scene_runtime, read: read_scene_runtime },
-    Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
