@@ -55,3 +55,19 @@ fn hst_17_host_sitting_rotation_offsets_third_person_camera() {
         "camera did not rotate around actor: {eye:?}"
     );
 }
+
+#[test]
+fn scr_30_host_applies_game_camera_target_and_geometry_controls() {
+    let actor = GlobalFormId {
+        file: 3,
+        object: 0x4321,
+    };
+    let mut state = CameraHostState::default();
+    state.apply(CameraControls {
+        target: Some(actor),
+        first_person_geometry: false,
+        ..CameraControls::default()
+    });
+    assert_eq!(state.target(), Some(actor));
+    assert!(!state.first_person_geometry_visible());
+}

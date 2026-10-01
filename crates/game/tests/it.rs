@@ -843,10 +843,32 @@ mod scr_08_adversarial;
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_24_adversarial.rs"]
+mod scr_24_adversarial;
+#[path = "scr_24_effect_shader.rs"]
+mod scr_24_effect_shader;
+#[path = "scr_25_adversarial.rs"]
+mod scr_25_adversarial;
+#[path = "scr_26_adversarial.rs"]
+mod scr_26_adversarial;
+#[path = "scr_27_adversarial.rs"]
+mod scr_27_adversarial;
+#[path = "scr_28_adversarial.rs"]
+mod scr_28_adversarial;
 #[path = "scr_29_adversarial.rs"]
 mod scr_29_adversarial;
 #[path = "scr_29_game_native_contracts.rs"]
 mod scr_29_game_native_contracts;
+#[path = "scr_30_adversarial.rs"]
+mod scr_30_adversarial;
+#[path = "scr_30_game_natives.rs"]
+mod scr_30_game_natives;
+#[path = "scr_31_adversarial.rs"]
+mod scr_31_adversarial;
+#[path = "scr_32_adversarial.rs"]
+mod scr_32_adversarial;
+#[path = "scr_32_game_queries.rs"]
+mod scr_32_game_queries;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
 #[path = "scr_43_adversarial.rs"]
@@ -899,6 +921,26 @@ mod scr_72_adversarial;
 mod scr_73_adversarial;
 #[path = "scr_73_native_contract_audit.rs"]
 mod scr_73_native_contract_audit;
+#[path = "scr_59_adversarial.rs"]
+mod scr_59_adversarial;
+#[path = "scr_60_adversarial.rs"]
+mod scr_60_adversarial;
+#[path = "scr_61_adversarial.rs"]
+mod scr_61_adversarial;
+#[path = "scr_61_native_contracts.rs"]
+mod scr_61_native_contracts;
+#[path = "scr_62_adversarial.rs"]
+mod scr_62_adversarial;
+#[path = "scr_63_adversarial.rs"]
+mod scr_63_adversarial;
+#[path = "scr_63_contracts.rs"]
+mod scr_63_contracts;
+#[path = "scr_64_adversarial.rs"]
+mod scr_64_adversarial;
+#[path = "scr_65_adversarial.rs"]
+mod scr_65_adversarial;
+#[path = "scr_66_adversarial.rs"]
+mod scr_66_adversarial;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 #[path = "shm_12_live_world.rs"]

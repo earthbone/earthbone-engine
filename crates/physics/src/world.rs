@@ -444,11 +444,12 @@ impl SimpleWorld {
             }
         }
 
-        // CONTEXT: Limit floor following to one probe's descent. A deeper
-        // contact must be reached by falling, while step_up settles its lift.
+        // CONTEXT: Follow a riser down without reversing the requested walk
+        // to reach a lower surface beyond a rounded obstacle.
         if was_ground && !ground && vel.z <= 0.0 {
             if let Some(snapped) = self
                 .snap_down(pos, &s, height)
+                .filter(|snapped| (*snapped - start).dot(wanted) >= 0.0)
                 .filter(|snapped| start.z - snapped.z <= s.radius * 0.25)
             {
                 pos = snapped;

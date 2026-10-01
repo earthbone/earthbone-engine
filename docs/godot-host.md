@@ -95,12 +95,16 @@ The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
 model field and the NAM0 chargen TRI path.
 
-morph values. It is a menu summary, not rendered character appearance.
-
 `godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
 record and sex button, and confirms through the connected Control callbacks.
 Run it with `SKYRIM_DATA` set and the extension loaded in
 `target/godot-check`.
+
+`Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
+the actor form. Valid trainers also reach the UI-16 presenter through its
+pending request. The host opens the training menu once and consumes the typed
+request without presenting it again. Camera-target and first-person geometry
+requests are applied through the transient camera controls.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
@@ -1375,6 +1379,11 @@ gives: the simulation's authority stays in the engine so a headless run and a re
 cannot drift. The third person boom raycasts against that same world and pulls in short of
 whatever it hits, keeping `collision_padding` clear, so the camera cannot end up inside a
 wall. Activating casts from the eye along the full look direction, pitch included.
+When shared gameplay is active, `PlayerNode` copies this full Skyrim-space
+look direction into `World` before script ticks so `Game.IsPlayerSungazing`
+uses the active camera orientation. `Game.ShakeCamera` requests are drained
+after each game tick and applied through the player `Camera3D` horizontal and
+vertical offsets until their requested duration expires.
 
 ### Untested here
 
@@ -2421,6 +2430,16 @@ The methods compile in the full feature gate. Synthetic Rust tests execute
 the shared Game file APIs, corruption recovery and interrupted rotation.
 Interactive Godot resource installation after recovery remains untested.
 
+Papyrus `Game.RequestSave` and `Game.RequestAutoSave` write verified native
+generations below `user://saves/manual` and `user://saves/automatic`, retaining
+up to three per directory. The host creates the selected directory when the
+request runs and reports write failures to Godot's error log. `Game.ForceFirstPerson`
+and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
+`Game.FadeOutGame` uses the existing screen overlay, applies the requested
+delay and duration, and chooses black or white from its black-fade flag.
+Negative or non-finite timing values are rejected by the Game native and
+logged. These operations run after the VM tick that enqueued them.
+
 ## Native menu framework
 
 The HUD uses one CanvasLayer with three ProgressBars and a compass Label.
@@ -2719,6 +2738,16 @@ The lifetime sources and tested timing policies are documented in
 [game.md](game.md#image-space-modifier-lifetimes-mag-25). Authored IMAD curves
 remain in their winning records. MAG-71 owns their evaluation and visible
 post-processing through the host stack, including renderer resource cleanup.
+
+## Effect shader playback snapshot, SCR-24
+
+`effect_shader::EffectShaderStack` copies active EFSH and target identities
+with each remaining duration from the shared World. PlayerNode syncs this
+snapshot after gameplay startup and each gameplay tick, clears it when the
+data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
+array. It allocates no scene node or server resource. The host does not yet
+render EFSH authored textures, color keys or particles on reference geometry.
+See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space renderer prerequisites, MAG-71
 
@@ -3387,6 +3416,11 @@ sequence first enters the main menu, stores the requested name as the active
 sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
 returns that name or an empty string when none is active. A plain return clears
 any active sequence. Starting a new game leaves the main menu state.
+
+The SCR-31 host tests call both globals through Papyrus, check their transient
+requests, and apply those requests to the same menu state used by the host.
+`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
+preserves the requested sequence name.
 
 Open gaps, none closed by this row:
 

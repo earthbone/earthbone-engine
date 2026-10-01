@@ -889,8 +889,7 @@ fn perk_points_add_and_clamp_at_255() {
 }
 
 /// GetWarmthRating "Obtains the total warmth rating for the actor" is zero
-/// without the survival plugin, and the sun positions are zero without a sky
-/// model. They are registered so the DLC scripts calling them run on.
+/// without the survival plugin. SCR-26 supplies the sky functions.
 #[test]
 fn the_systems_without_an_engine_answer_quietly() {
     let mut g = game();
@@ -899,14 +898,95 @@ fn the_systems_without_an_engine_answer_quietly() {
         call(&mut g, &vampire, "GetWarmthRating", &[]),
         Value::Float(0.0)
     );
-    for name in ["GetSunPositionX", "GetSunPositionY", "GetSunPositionZ"] {
-        assert_eq!(call_global(&mut g, "Game", name, &[]), Value::Float(0.0));
-    }
     call_global(&mut g, "Game", "SendWereWolfTransformation", &[]);
     call(&mut g, &vampire, "ClearExtraArrows", &[]);
     let player = obj(&mut g, "PlayerRef");
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-26: sun queries read calendar and player state, gaze uses the host
+/// camera direction, and ShakeCamera queues the CK-defined effect parameters.
+#[test]
+fn scr_26_game_sky_and_camera_bindings() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let position: Vec<f32> = ["GetSunPositionX", "GetSunPositionY", "GetSunPositionZ"]
+        .into_iter()
+        .map(|name| match call_global(&mut g, "Game", name, &[]) {
+            Value::Float(value) => value,
+            other => panic!("{name} returned {other:?}"),
+        })
+        .collect();
+    assert!(position.iter().all(|value| value.is_finite()));
+    assert!(position.iter().any(|value| value.abs() > 1.0));
+    let expected = g.world().sun_position();
+    for (actual, expected) in position.iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.01);
+    }
+    g.world_mut().clock.game_days += 0.25;
+    let noon_x = call_global(&mut g, "Game", "GetSunPositionX", &[]).as_float();
+    assert!((noon_x - position[0]).abs() > 1.0);
+
+    let sun = g.world().sun_position();
+    let player_id = form(&g, "PlayerRef");
+    let origin = [0.0; 3];
+    let mut look = [sun[0] - origin[0], sun[1] - origin[1], sun[2] - origin[2]];
+    let length = (look.iter().map(|value| value * value).sum::<f32>()).sqrt();
+    for value in &mut look {
+        *value /= length;
+    }
+    g.world_mut().camera_look = look;
+    assert_eq!(
+        call_global(&mut g, "Game", "IsPlayerSungazing", &[]),
+        Value::Bool(true)
+    );
+    g.world_mut().camera_look = [0.0, 1.0, 0.0];
+    assert_eq!(
+        call_global(&mut g, "Game", "IsPlayerSungazing", &[]),
+        Value::Bool(false)
+    );
+
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[player.clone(), Value::Float(1.5), Value::Float(0.7)],
+    );
+    let shakes = g.world().camera_shakes.clone();
+    assert_eq!(shakes.len(), 1);
+    assert_eq!(shakes[0].source, form(&g, "PlayerRef"));
+    assert_eq!(shakes[0].strength, 1.0);
+    assert_eq!(shakes[0].duration, 0.7);
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(0.25)],
+    );
+    assert_eq!(g.world().camera_shakes.len(), 2);
+    assert_eq!(g.world().camera_shakes[1].source, player_id);
+    assert!((g.world().camera_shakes[1].strength - 0.25).abs() < f32::EPSILON);
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::Int(1), Value::Float(0.5), Value::Float(0.5)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(f32::NAN), Value::Float(0.5)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(0.5), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().camera_shakes.len(), 2);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -1109,23 +1189,14 @@ fn place_actor_at_me_makes_one_actor() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// The shader, effect and music calls the DLC scripts make most often are
-/// registered and quiet, so a vanilla flow runs past them rather than
-/// stopping on an unresolved call.
+/// VisualEffect and music calls the DLC scripts make most often remain quiet
+/// stubs. EffectShader playback is covered by the SCR-24 contract tests.
 #[test]
 fn the_effect_systems_take_their_calls_quietly() {
     let mut g = game();
-    let shader = obj(&mut g, "BloodShader");
     let effect = obj(&mut g, "VampireChangeFX");
     let music = obj(&mut g, "SoulCairnMusic");
     let vampire = obj(&mut g, "VampireRef");
-    call(
-        &mut g,
-        &shader,
-        "Play",
-        &[vampire.clone(), Value::Float(2.0)],
-    );
-    call(&mut g, &shader, "Stop", &[vampire.clone()]);
     call(
         &mut g,
         &effect,
@@ -1144,10 +1215,10 @@ fn the_effect_systems_take_their_calls_quietly() {
 
 /// GetOwningQuest on a quest-owned fragment script. A scene names its parent
 /// quest in PNAM and a package its owner quest in QNAM, which is what the
-/// 1,815 DLC call sites are asking for. A topic info takes its quest from
-/// the DIAL above it and answers None until the dialogue view lands.
+/// 1,815 DLC call sites are asking for. A topic info follows its dialogue
+/// group to the DIAL that owns it.
 #[test]
-fn fragment_scripts_find_their_owning_quest() {
+fn scr_62_scene_and_package_find_their_owning_quest() {
     let mut g = game();
     let scene = obj(&mut g, "FeedScene");
     let package = obj(&mut g, "HuntPackage");

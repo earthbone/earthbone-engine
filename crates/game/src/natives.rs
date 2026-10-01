@@ -199,16 +199,17 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    effect_shader(vm, world);
     weapon(vm, world);
     weather(vm, world);
-    let stubs = stubs(vm, world);
+    let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
 }
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 375;
+pub const NATIVE_COUNT: usize = 381;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -293,9 +294,15 @@ fn form(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Form", "GetFormID", |world, call, me| i(
         world.runtime_id(me) as i32
     ));
-    method!(vm, w, "Form", "GetName", |world, call, me| s(&world
-        .name_of(me)
-        .unwrap_or_default()));
+    method!(vm, w, "Form", "GetName", |world, call, me| {
+        if world
+            .tag_of(me)
+            .is_some_and(|tag| matches!(tag.as_bytes(), b"ACHR" | b"REFR"))
+        {
+            return s("");
+        }
+        s(&world.name_of(me).unwrap_or_default())
+    });
     method!(vm, w, "Form", "GetType", |world, call, me| i(
         world.type_code(me)
     ));
@@ -2023,8 +2030,13 @@ fn alias(vm: &mut Vm, w: &Shared) {
         });
     }
     alias_method!(vm, w, "ForceRefTo", |world, call, quest, alias| {
-        let target = world.form_arg(&call.arg(0));
-        world.force_alias(quest, alias, target);
+        if let Some(target) = world.form_arg(&call.arg(0)).filter(|target| {
+            world
+                .tag_of(*target)
+                .is_some_and(|tag| matches!(tag.as_bytes(), b"REFR" | b"ACHR"))
+        }) {
+            world.force_alias(quest, alias, Some(target));
+        }
         none()
     });
     alias_method_on!(
@@ -2098,6 +2110,32 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = w.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+    }
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let Some(trainer) = world.form_arg(&call.arg(0)).filter(|id| {
+            world
+                .reference(*id)
+                .is_some_and(|reference| reference.is_actor)
+        }) else {
+            return none();
+        };
+        world.menu_requests.push(MenuRequest::Training(trainer));
+        world.request_training_menu(trainer);
+        none()
+    });
     global!(vm, w, "Game", "SetCameraTarget", |world, call| {
         let target = world.form_arg(&call.arg(0));
         if let Some(target) = target.filter(|id| {
@@ -2115,16 +2153,6 @@ fn game(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Game", "SetSittingRotation", |world, call| {
         world.camera_controls.sitting_rotation_degrees = call.arg(0).as_float();
-        none()
-    });
-    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
-        let trainer = match call.arg(0) {
-            Value::Object(object) => world.form_of(object),
-            _ => None,
-        };
-        if let Some(trainer) = trainer {
-            world.request_training_menu(trainer);
-        }
         none()
     });
     global!(vm, w, "Game", "AdvanceSkill", |world, call| {
@@ -2172,11 +2200,83 @@ fn game(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Game", "ClearPrison", |world, _call| {
         world.clear_prison();
+        let player = world.player();
+        if let Some(actor) = world.actor(player) {
+            actor.arrested = false;
+        }
         none()
     });
-    for name in ["GetForm", "GetFormEx"] {
+    global!(vm, w, "Game", "FadeOutGame", |world, call| {
+        let seconds_before_fade = call.arg(2).as_float();
+        let fade_duration = call.arg(3).as_float();
+        if !seconds_before_fade.is_finite()
+            || !fade_duration.is_finite()
+            || seconds_before_fade < 0.0
+            || fade_duration < 0.0
+        {
+            call.log.push(
+                call.time,
+                "Game.FadeOutGame: fade timings must be finite and non-negative".to_string(),
+            );
+            return none();
+        }
+        world.host_requests.push(HostRequest::FadeOutGame {
+            fading_out: call.arg(0).as_bool(),
+            black: call.arg(1).as_bool(),
+            seconds_before_fade,
+            fade_duration,
+        });
+        none()
+    });
+    global!(vm, w, "Game", "RequestSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: false });
+        none()
+    });
+    global!(vm, w, "Game", "RequestAutoSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: true });
+        none()
+    });
+    global!(vm, w, "Game", "ForceFirstPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraFirstPerson);
+        none()
+    });
+    global!(vm, w, "Game", "ForceThirdPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraThirdPerson);
+        none()
+    });
+    for name in ["GetForm", "GetFormEx", "GetFormEx2"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
+            form_value(world, call, id)
+        });
+    }
+    for (name, actors_only, random) in [
+        ("FindClosestActor", true, false),
+        ("FindRandomActor", true, true),
+        ("FindClosestReferenceOfType", false, false),
+        ("FindRandomReferenceOfType", false, true),
+    ] {
+        global!(vm, w, "Game", name, |world, call| {
+            let base = if actors_only {
+                None
+            } else {
+                let Some(base) = world.form_arg(&call.arg(0)) else {
+                    return none();
+                };
+                Some(base)
+            };
+            let offset = usize::from(!actors_only);
+            let center = [
+                call.arg(offset).as_float(),
+                call.arg(offset + 1).as_float(),
+                call.arg(offset + 2).as_float(),
+            ];
+            let radius = call.arg(offset + 3).as_float();
+            let id = world.find_reference_of_base(base, center, radius, actors_only, random);
             form_value(world, call, id)
         });
     }
@@ -2184,12 +2284,30 @@ fn game(vm: &mut Vm, w: &Shared) {
         let id = world.form_from_file(call.arg(0).as_int() as u32, &text(&call.arg(1)));
         form_value(world, call, id)
     });
-    global!(vm, w, "Game", "EnablePlayerControls", |world, _call| {
-        world.player_controls = true;
+    global!(vm, w, "Game", "EnablePlayerControls", |world, call| {
+        let defaults = [true; 8];
+        for (index, enabled) in world.player_control_flags.iter_mut().enumerate() {
+            if call.args.get(index).map_or(defaults[index], Value::as_bool) {
+                *enabled = true;
+            }
+        }
+        if call.args.get(2).is_none_or(Value::as_bool) {
+            world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
+        }
+        world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
         none()
     });
-    global!(vm, w, "Game", "DisablePlayerControls", |world, _call| {
-        world.player_controls = false;
+    global!(vm, w, "Game", "DisablePlayerControls", |world, call| {
+        let defaults = [true, true, false, false, false, true, true, false];
+        for (index, enabled) in world.player_control_flags.iter_mut().enumerate() {
+            if call.args.get(index).map_or(defaults[index], Value::as_bool) {
+                *enabled = false;
+            }
+        }
+        if call.args.get(2).is_some_and(Value::as_bool) {
+            world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
+        }
+        world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
         none()
     });
     global!(vm, w, "Game", "GetGameSettingFloat", |world, call| {
@@ -2210,6 +2328,39 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetRealHoursPassed", |world, _call| f(
         (world.clock.real_seconds / 3600.0) as f32
     ));
+    for (name, axis) in [
+        ("GetSunPositionX", 0),
+        ("GetSunPositionY", 1),
+        ("GetSunPositionZ", 2),
+    ] {
+        global!(vm, w, "Game", name, |world, _call| f(
+            world.sun_position()[axis]
+        ));
+    }
+    global!(vm, w, "Game", "IsPlayerSungazing", |world, _call| {
+        b(world.player_is_sungazing())
+    });
+    global!(vm, w, "Game", "ShakeCamera", |world, call| {
+        let player = world.player();
+        let source = match call.args.first() {
+            None | Some(Value::None) => Some(player),
+            Some(Value::Object(object)) => world.form_of(*object),
+            _ => None,
+        };
+        if let Some(source) = source {
+            let strength = call.args.get(1).map_or(0.5, Value::as_float);
+            let duration = call.args.get(2).map_or(0.0, Value::as_float);
+            if duration == 0.0 {
+                let setting = world
+                    .game_setting("fCameraShakeDuration")
+                    .map_or(0.25, |v| v.as_float());
+                world.shake_camera(source, strength, setting);
+            } else {
+                world.shake_camera(source, strength, duration);
+            }
+        }
+        none()
+    });
     global!(vm, w, "Game", "IncrementStat", |world, call| {
         let amount = call.args.get(1).map_or(1, Value::as_int);
         world.increment_stat(&text(&call.arg(0)), amount);
@@ -2232,7 +2383,9 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "SetInChargen", |world, call| {
-        world.in_chargen = call.args.first().is_none_or(Value::as_bool);
+        world.chargen_disable_saving = call.args.first().is_some_and(Value::as_bool);
+        world.chargen_disable_waiting = call.args.get(1).is_some_and(Value::as_bool);
+        world.chargen_show_controls_disabled_message = call.args.get(2).is_some_and(Value::as_bool);
         none()
     });
     global!(vm, w, "Game", "SetBeastForm", |world, call| {
@@ -2505,11 +2658,7 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
             .map_or(-1, |p| p as i32))
     });
     method!(vm, w, "FormList", "AddForm", |world, call, me| {
-        if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Some(l) = world.form_list(me) {
-                l.push(item);
-            }
-        }
+        world.add_form_list_entry(me, world.form_arg(&call.arg(0)));
         none()
     });
 }
@@ -2564,26 +2713,52 @@ fn leveled(vm: &mut Vm, w: &Shared) {
                 })
                 .map_or(0, i32::from))
         });
-        method!(vm, w, class, "GetNthCount", |world, call, me| {
+        if class != "LeveledSpell" {
+            method!(vm, w, class, "GetNthCount", |world, call, me| {
+                let idx = usize::try_from(call.arg(0).as_int()).ok();
+                i(idx
+                    .and_then(|k| {
+                        world
+                            .leveled_list(me)
+                            .and_then(|l| l.entries.get(k).map(|e| e.count))
+                    })
+                    .map_or(0, i32::from))
+            });
+        }
+        method!(vm, w, class, "SetNthLevel", |world, call, me| {
             let idx = usize::try_from(call.arg(0).as_int()).ok();
-            i(idx
-                .and_then(|k| {
-                    world
-                        .leveled_list(me)
-                        .and_then(|l| l.entries.get(k).map(|e| e.count))
-                })
-                .map_or(0, i32::from))
+            let raw_level = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
+            let level = raw_level.min(u32::from(u16::MAX)) as u16;
+            if let Some(entry) =
+                idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
+            {
+                entry.level = level;
+            }
+            none()
         });
         method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
             .leveled_list(me)
             .map_or(0, |l| i32::from(l.chance_none))));
         method!(vm, w, class, "SetChanceNone", |world, call, me| {
-            let chance = u8::try_from(call.arg(0).as_int().clamp(0, 100)).unwrap_or(0);
+            let chance = u8::try_from(call.arg(0).as_int().rem_euclid(256)).unwrap_or(0);
             if let Some(l) = world.leveled_list(me) {
                 l.chance_none = chance;
             }
             none()
         });
+        if class != "LeveledSpell" {
+            method!(vm, w, class, "SetNthCount", |world, call, me| {
+                let idx = usize::try_from(call.arg(0).as_int()).ok();
+                let raw_count = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
+                let count = raw_count.min(u32::from(u16::MAX)) as u16;
+                if let Some(entry) =
+                    idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
+                {
+                    entry.count = count;
+                }
+                none()
+            });
+        }
     }
 }
 
@@ -2626,8 +2801,8 @@ fn location(vm: &mut Vm, w: &Shared) {
         let filter = world.form_arg(&call.arg(1));
         b(world.locations_share_parent(me, other, filter))
     });
-    // IsSameLocation(akOther, akFilter = None): the same location, or with
-    // a filter keyword, two locations under one parent that carries it.
+    // IsSameLocation also accepts a keyworded parent/child pair, as the
+    // shipped Location.psc wrapper specifies.
     method!(vm, w, "Location", "IsSameLocation", |world, call, me| {
         let Some(other) = world.form_arg(&call.arg(0)) else {
             return b(false);
@@ -2635,8 +2810,15 @@ fn location(vm: &mut Vm, w: &Shared) {
         if other == me {
             return b(true);
         }
-        let filter = world.form_arg(&call.arg(1));
-        b(filter.is_some() && world.locations_share_parent(me, other, filter))
+        let Some(filter) = world.form_arg(&call.arg(1)) else {
+            return b(false);
+        };
+        let common = world.locations_share_parent(me, other, Some(filter));
+        let other_matches_parent =
+            world.keywords(other).contains(&filter) && world.location_is_child(other, me);
+        let self_matches_parent =
+            world.keywords(me).contains(&filter) && world.location_is_child(me, other);
+        b(common || other_matches_parent || self_matches_parent)
     });
 }
 
@@ -2677,6 +2859,20 @@ fn faction(vm: &mut Vm, w: &Shared) {
         if let Some(other) = world.form_arg(&call.arg(0)) {
             if let Some(f) = world.faction(me) {
                 f.reactions.insert(other, value);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "ModReaction", |world, call, me| {
+        let amount = call.arg(1).as_int();
+        if let Some(other) = world.form_arg(&call.arg(0)) {
+            if let Some(f) = world.faction(me) {
+                let reaction = f
+                    .reactions
+                    .get(&other)
+                    .copied()
+                    .unwrap_or(reaction::NEUTRAL);
+                f.reactions.insert(other, reaction.saturating_add(amount));
             }
         }
         none()
@@ -2940,8 +3136,8 @@ fn cell_owner_tag_matches(actual: Option<soe_esm::Tag>, expected: soe_esm::Tag) 
 }
 
 fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
-    // Show: a message box when the DNAM flag says so, a notification
-    // otherwise. The button index is 0 since nobody clicks here.
+    // Show queues a message box or notification. Without a selected button,
+    // notifications report -1 while queued message boxes report button 0.
     method!(vm, w, "Message", "Show", |world, call, me| {
         let body = world
             .description_of(me)
@@ -2954,10 +3150,11 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             .is_some_and(|f| f & 1 != 0);
         if boxed {
             world.message_boxes.push(body);
+            i(0)
         } else {
             world.notifications.push(body);
+            i(-1)
         }
-        i(0)
     });
     method!(vm, w, "Message", "ShowAsHelpMessage", |world, call, me| {
         let body = world
@@ -2993,36 +3190,6 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             return i(0);
         };
         i(world.play_sound(me, source))
-    });
-    method!(vm, w, "EffectShader", "Play", |world, call, me| {
-        let Some(target) = world.form_arg(&call.arg(0)) else {
-            return none();
-        };
-        let Some(tag) = world.tag_of(me) else {
-            return none();
-        };
-        let target_tag = world.tag_of(target);
-        if tag != soe_esm::Tag::new(b"EFSH")
-            || !matches!(target_tag, Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
-        {
-            return none();
-        }
-        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
-        if !duration.is_nan() {
-            world.effect_shader(me, target, duration, true);
-        }
-        none()
-    });
-    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
-        let Some(target) = world.form_arg(&call.arg(0)) else {
-            return none();
-        };
-        if world.tag_of(me) == Some(soe_esm::Tag::new(b"EFSH"))
-            && matches!(world.tag_of(target), Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
-        {
-            world.effect_shader(me, target, 0.0, false);
-        }
-        none()
     });
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
@@ -3120,6 +3287,48 @@ fn image_space(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+}
+
+/// Shipped EffectShader calls retain target and duration in the shared world.
+fn effect_shader(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "EffectShader", "Play", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Play: target must be a placed reference",
+            );
+            return none();
+        };
+        let duration = match call.args.get(1) {
+            None | Some(Value::None) => -1.0,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            Some(_) => {
+                call.log
+                    .push(call.time, "EffectShader.Play: duration must be numeric");
+                return none();
+            }
+        };
+        if let Err(error) = world.play_effect_shader(me, target, duration) {
+            call.log
+                .push(call.time, format!("EffectShader.Play: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Stop: target must be a placed reference",
+            );
+            return none();
+        };
+        if let Err(error) = world.stop_effect_shader(me, target) {
+            call.log
+                .push(call.time, format!("EffectShader.Stop: {error}"));
+        }
+        none()
+    });
 }
 
 fn weapon(vm: &mut Vm, w: &Shared) {
@@ -3882,23 +4091,8 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm, world: &Shared) -> usize {
+fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
-    for (name, request) in [
-        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
-        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
-    ] {
-        let shared = world.clone();
-        vm.natives.register_global(
-            "Game",
-            name,
-            Box::new(move |_| {
-                shared.borrow_mut().menu_requests.push(request);
-                none()
-            }),
-        );
-        n += 1;
-    }
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsRunning", false),
@@ -3913,8 +4107,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
         ("Keyword", "SendStoryEventAndWait", false),
-        ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -3969,13 +4161,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "GetEquippedShield"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
-        ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "UnequipAll"),
@@ -3984,6 +4174,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
+        // The remaining music and particle systems do not have runtime owners.
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
@@ -4002,12 +4193,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     }
     // No warmth system (the survival plugin is not loaded) and no sun to
     // take a position from.
-    let floats: &[(&str, &str, f32)] = &[
-        ("Actor", "GetWarmthRating", 0.0),
-        ("Game", "GetSunPositionX", 0.0),
-        ("Game", "GetSunPositionY", 0.0),
-        ("Game", "GetSunPositionZ", 0.0),
-    ];
+    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
     for (class, name, value) in floats {
         let global = *class == "Game";
         let v = *value;
@@ -4020,23 +4206,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let globals_none: &[(&str, &str)] = &[
-        ("Game", "ShakeCamera"),
-        // Werewolf crime and sun gazing are crime and weather systems not
-        // implemented by the runtime yet.
+        // Werewolf crime, jail time and sun-gaze image space are not implemented.
         ("Game", "SendWereWolfTransformation"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
-        ("Game", "FadeOutGame"),
-        ("Game", "RequestSave"),
-        ("Game", "RequestAutoSave"),
-        ("Game", "ForceFirstPerson"),
-        ("Game", "ForceThirdPerson"),
-        ("Game", "FindClosestActor"),
-        ("Game", "FindRandomActor"),
-        ("Game", "FindClosestReferenceOfType"),
-        ("Game", "FindRandomReferenceOfType"),
-        ("Game", "GetFormEx2"),
         ("Debug", "QuitGame"),
         ("Debug", "CenterOnCell"),
         ("Debug", "CloseUserLog"),
@@ -4265,6 +4439,173 @@ mod tests {
         register(&mut vm, &shared);
         assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
         assert!(vm.natives.has_global("game", "getplayergrabbedref"));
+    }
+
+    #[test]
+    fn scr_60_registry_inventory_matches_formlist_and_game_contracts() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        for name in ["GetSize", "GetAt", "HasForm", "Find", "AddForm"] {
+            assert!(vm.natives.has_method("FormList", name), "FormList.{name}");
+        }
+
+        let implemented = [
+            "GetPlayer",
+            "GetForm",
+            "GetFormEx",
+            "GetFormFromFile",
+            "EnablePlayerControls",
+            "DisablePlayerControls",
+            "GetGameSettingFloat",
+            "GetGameSettingInt",
+            "GetGameSettingString",
+            "SetGameSettingFloat",
+            "SetGameSettingInt",
+            "SetGameSettingBool",
+            "SetGameSettingString",
+            "GetRealHoursPassed",
+            "IncrementStat",
+            "QueryStat",
+            "IsFastTravelEnabled",
+            "EnableFastTravel",
+            "SetPlayerAIDriven",
+            "SetInChargen",
+            "SetBeastForm",
+            "TeachWord",
+            "UnlockWord",
+            "IsWordUnlocked",
+            "AddAchievement",
+            "GetPlayersLastRiddenHorse",
+            "AddPerkPoints",
+            "GetDialogueTarget",
+        ];
+        for name in implemented {
+            assert!(vm.natives.has_global("Game", name), "Game.{name}");
+        }
+
+        let stubbed = [
+            "IsPlayerSungazing",
+            "GetSunPositionX",
+            "GetSunPositionY",
+            "GetSunPositionZ",
+            "ShakeCamera",
+            "SendWereWolfTransformation",
+            "ServeTime",
+            "ClearPrison",
+            "SetSunGazeImageSpaceModifier",
+            "ShakeController",
+            "FadeOutGame",
+            "RequestSave",
+            "RequestAutoSave",
+            "ForceFirstPerson",
+            "ForceThirdPerson",
+            "SetHudCartMode",
+            "ShowRaceMenu",
+            "TriggerScreenBlood",
+            "PlayBink",
+            "AdvanceSkill",
+            "PrecacheCharGen",
+            "PrecacheCharGenClear",
+            "ShowTrainingMenu",
+            "ShowFirstPersonGeometry",
+            "SetCameraTarget",
+            "QuitToMainMenu",
+            "SetSittingRotation",
+            "StartTitleSequence",
+            "GetCurrentCrosshairRef",
+            "GetPlayerGrabbedRef",
+            "FindClosestActor",
+            "FindRandomActor",
+            "FindClosestReferenceOfType",
+            "FindRandomReferenceOfType",
+            "GetFormEx2",
+        ];
+        for name in stubbed {
+            assert!(vm.natives.has_global("Game", name), "Game.{name}");
+        }
+    }
+
+    #[test]
+    fn scr_60_contract_fixes_name_existing_backlog_owners() {
+        let backlog = include_str!("../../../BACKLOG.csv");
+        let audit = include_str!("../../../docs/game.md");
+        for row in [
+            "SCR-26", "SCR-27", "SCR-28", "SCR-29", "SCR-30", "SCR-31", "SCR-32",
+        ] {
+            assert!(backlog.contains(&format!("\"{row}\"")), "missing {row}");
+            assert!(audit.contains(&format!("- {row}:")), "unassigned {row}");
+        }
+        assert!(audit.contains("assigned to SCR-60"));
+    }
+
+    #[test]
+    fn scr_62_registry_contains_every_audited_binding() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+        for class in ["Alias", "Scene", "Package", "TopicInfo"] {
+            assert!(
+                vm.natives.has_method(class, "GetOwningQuest"),
+                "missing {class}.GetOwningQuest"
+            );
+        }
+        for name in ["GetValue", "GetValueInt", "SetValue", "SetValueInt", "Mod"] {
+            assert!(
+                vm.natives.has_method("GlobalVariable", name),
+                "missing GlobalVariable.{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn scr_66_location_alias_bindings_match_ck_pages() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+        let candidates = ["GetLocation", "ForceLocationTo", "Clear", "GetID"];
+        let inventory: Vec<_> = candidates
+            .into_iter()
+            .filter(|name| vm.natives.has_method("LocationAlias", name))
+            .collect();
+        assert_eq!(
+            inventory,
+            ["GetLocation", "ForceLocationTo"],
+            "LocationAlias direct bindings must match the CK contract"
+        );
+        assert!(
+            vm.natives.has_method("Alias", "GetID"),
+            "GetID is inherited from Alias, not registered on LocationAlias"
+        );
+    }
+
+    #[test]
+    fn scr_66_message_bindings_match_ck_pages() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let methods = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
+        let method_inventory: Vec<_> = methods
+            .into_iter()
+            .filter(|name| vm.natives.has_method("Message", name))
+            .collect();
+        assert_eq!(
+            method_inventory,
+            ["Show", "ShowAsHelpMessage"],
+            "Message instance bindings must match the CK contract"
+        );
+        let globals = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
+        let global_inventory: Vec<_> = globals
+            .into_iter()
+            .filter(|name| vm.natives.has_global("Message", name))
+            .collect();
+        assert_eq!(
+            global_inventory,
+            ["ResetHelpMessage"],
+            "Message global bindings must match the CK contract"
+        );
     }
 
     #[test]
