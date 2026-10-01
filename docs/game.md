@@ -795,6 +795,7 @@ tripod renderer yet, so the two display requests currently record their
 state without changing visuals. `PlayerMoveToAndWait` also moves synchronously
 and does not suspend the Papyrus stack while the host attaches the destination
 cell.
+
 ## ForceRefTo and Form contract audit
 
 The SCR-59 inventory checks the registered `Form` methods against the local
