@@ -661,18 +661,40 @@ mod mag_37_open;
 mod mag_38_adversarial;
 #[path = "mag_39_summon_adversarial.rs"]
 mod mag_39_summon_adversarial;
+#[path = "mag_40_adversarial.rs"]
+mod mag_40_adversarial;
+#[path = "mag_40_detect_life.rs"]
+mod mag_40_detect_life;
 #[path = "mag_41_adversarial.rs"]
 mod mag_41_adversarial;
 #[path = "mag_41_breaker_adversarial.rs"]
 mod mag_41_breaker_adversarial;
 #[path = "mag_41_breaker_extra_adversarial.rs"]
 mod mag_41_breaker_extra_adversarial;
+#[path = "mag_42_adversarial.rs"]
+mod mag_42_adversarial;
+#[path = "mag_43_adversarial.rs"]
+mod mag_43_adversarial;
+#[path = "mag_43_reanimate.rs"]
+mod mag_43_reanimate;
+#[path = "mag_44_adversarial.rs"]
+mod mag_44_adversarial;
+#[path = "mag_44_soul_trap.rs"]
+mod mag_44_soul_trap;
 #[path = "mag_45_adversarial.rs"]
 mod mag_45_adversarial;
 #[path = "mag_45_turn_undead.rs"]
 mod mag_45_turn_undead;
+#[path = "mag_46_adversarial.rs"]
+mod mag_46_adversarial;
+#[path = "mag_46_guide.rs"]
+mod mag_46_guide;
+#[path = "mag_47_adversarial.rs"]
+mod mag_47_adversarial;
 #[path = "mag_48_adversarial.rs"]
 mod mag_48_adversarial;
+#[path = "mag_49_adversarial.rs"]
+mod mag_49_adversarial;
 #[path = "mag_50_adversarial.rs"]
 mod mag_50_adversarial;
 #[path = "mag_50_cure_poison.rs"]
