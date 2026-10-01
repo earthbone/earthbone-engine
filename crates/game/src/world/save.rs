@@ -1783,6 +1783,8 @@ fn read_ref_state_with_table(
         destroyed,
         destruction_health: None,
         destruction_stage: -1,
+        no_favor_allowed: false,
+        destruction_cleared: false,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
