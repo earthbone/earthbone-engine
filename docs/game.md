@@ -1843,14 +1843,32 @@ property that is empty at start.
 A third pass took the two biggest remaining groups. `GetOwningQuest` on
 `Scene` and `Package` reads the record: a scene names its parent quest in
 `PNAM`, a package its owner quest in `QNAM`, which is what 1,815 DLC call
-sites were asking for. `TopicInfo.GetOwningQuest` answers None, because an
-info takes its quest from the `DIAL` above it and the record view cannot
-reach a parent group yet. The `ActiveMagicEffect` registration set went in
-next: an active effect is not a `Form`, so the registrations the registry
-holds on `Form` were out of its reach, and since they key off the calling
-object rather than a form the same behaviour registers cleanly on the effect
-class. The later active-effect implementation below supplies its getters and
-`Dispel` using a separate object for each effect application.
+sites were asking for. `TopicInfo.GetOwningQuest` follows the INFO's dialogue
+group to its DIAL and reads that topic's owning quest. The
+`ActiveMagicEffect` registration set went in next: an active effect is not a
+`Form`, so the registrations the registry holds on `Form` were out of its
+reach, and since they key off the calling object rather than a form the same
+behaviour registers cleanly on the effect class. The later active-effect
+implementation below supplies its getters and `Dispel` using a separate
+object for each effect application.
+
+### SCR-62 native contract audit
+
+The native registry contains `GetOwningQuest` methods for `Alias`, `Scene`,
+`Package` and `TopicInfo`. `Alias` returns the quest that owns the alias.
+`Scene` resolves `PNAM`, `Package` resolves `QNAM`, and `TopicInfo` follows
+its dialogue group to the owning `DIAL` quest. CK's Alias page documents the
+alias contract. The fragment class method pages are absent from the local
+CK corpus, so their record relationships are checked against the records
+read by `World::owning_quest` and synthetic tests.
+
+The five `GlobalVariable` methods are `GetValue`, `GetValueInt`, `SetValue`,
+`SetValueInt` and `Mod`. They read and write the shared world global value.
+The CK class page lists their signatures and behavior, and its `GetValue`
+page documents the float getter. The shipped `GlobalVariable.psc` supplies
+the integer casts and describes `Mod` as the thread-safe update path. The
+registry and native tests cover all nine bindings and the getter, setter,
+cast and modification behavior.
 
 172 declared natives are still unregistered, 56 of them called from a DLC
 script, the largest single group being the rest of `ActiveMagicEffect` and
