@@ -56,11 +56,15 @@ pub mod godot_combat;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
+pub mod godot_particle;
+#[cfg(feature = "godot")]
 pub mod godot_physics;
 #[cfg(feature = "godot")]
 pub mod godot_player;
 #[cfg(feature = "godot")]
 pub mod godot_ragdoll;
+#[cfg(feature = "godot")]
+pub mod godot_tether;
 #[cfg(feature = "godot")]
 mod godot_world;
 

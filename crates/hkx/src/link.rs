@@ -409,12 +409,23 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *activate_event_id = map.event(*activate_event_id);
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
+        NodeKind::IStateManager {
+            state_variable,
+            state_data,
+            ..
+        } => {
+            *state_variable = map.variable(*state_variable);
+            for entry in state_data {
+                entry.state_machine = shift(entry.state_machine, offset);
+            }
+        }
         NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
         NodeKind::EventsFromRangeModifier { ranges, .. } => {
             for (_, range) in ranges {
                 remap_event_property(&mut range.event, map);
             }
         }
+        NodeKind::EventOnDeactivateModifier { event, .. } => remap_event_property(event, map),
         NodeKind::FalseToTrueModifier { slots, .. } => {
             for slot in slots {
                 remap_event_property(&mut slot.event, map);
@@ -427,13 +438,25 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 expression.assignment_event_index = map.event(expression.assignment_event_index);
             }
         }
+        NodeKind::EveryNEventsModifier {
+            event_to_check_for,
+            event_to_send,
+            ..
+        } => {
+            remap_event_property(event_to_check_for, map);
+            remap_event_property(event_to_send, map);
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
         | NodeKind::GetTimeStepModifier { .. }
+        | NodeKind::DirectAt { .. }
+        | NodeKind::InterpValue { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::RotateCharacterModifier { .. }
+        | NodeKind::LookAtModifier { .. }
+        | NodeKind::LimbIk { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }

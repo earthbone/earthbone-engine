@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::packfile::{root_variant_of, Obj};
-use crate::{Packfile, Result};
+use crate::{Error, Packfile, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
@@ -612,6 +612,14 @@ pub struct ExpressionData {
     pub event_mode: i8,
 }
 
+/// A state-to-`iState` mapping carried by `BSIStateManagerModifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IStateData {
+    pub state_machine: NodeId,
+    pub state_id: i32,
+    pub state_to_set_as: i32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -697,11 +705,26 @@ pub enum NodeKind {
         lower_bound: f32,
         ranges: Vec<(f32, EventRange)>,
     },
+    /// `BSEventOnDeactivateModifier`: raises its authored event when the
+    /// active modifier transitions to inactive.
+    EventOnDeactivateModifier {
+        enable: bool,
+        event: EventProperty,
+    },
     /// `BSGetTimeStepModifier`: writes the current graph update interval to
     /// its `timeStep` output binding.
     GetTimeStepModifier {
         enable: bool,
         time_step: f32,
+    },
+    /// `BSInterpValueModifier`: moves the bound source toward target at gain
+    /// units per second and publishes the result.
+    InterpValue {
+        enable: bool,
+        source: f32,
+        target: f32,
+        result: f32,
+        gain: f32,
     },
     /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
     /// variable to and an invert bit. Skyrim uses it to turn parts of a
@@ -715,6 +738,16 @@ pub enum NodeKind {
     FalseToTrueModifier {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
+    },
+    /// `BSEventEveryNEventsModifier`: raises its output after matching inputs
+    /// reach the authored interval.
+    EveryNEventsModifier {
+        enable: bool,
+        event_to_check_for: EventProperty,
+        event_to_send: EventProperty,
+        number_of_events_before_send: i8,
+        minimum_number_of_events_before_send: i8,
+        randomize_number_of_events: bool,
     },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
@@ -735,12 +768,76 @@ pub enum NodeKind {
         speed_multiplier: f32,
         axis_of_rotation: [f32; 4],
     },
+    /// `BSLookAtModifier`: rotates its authored bones toward the target.
+    LookAtModifier {
+        enable: bool,
+        bones: Vec<LookAtBone>,
+        eye_bones: Vec<LookAtBone>,
+        limit_angle_degrees: f32,
+        on_gain: f32,
+        off_gain: f32,
+        use_bone_gains: bool,
+        target_location: [f32; 4],
+        look_at_target: bool,
+        look_at_camera: bool,
+        look_at_camera_location: [f32; 3],
+    },
+    /// `BSDirectAtModifier`: aim the declared bone chain toward a target.
+    DirectAt {
+        enable: bool,
+        direct_at_target: bool,
+        source_bone_index: i16,
+        start_bone_index: i16,
+        end_bone_index: i16,
+        limit_heading_degrees: f32,
+        limit_pitch_degrees: f32,
+        offset_heading_degrees: f32,
+        offset_pitch_degrees: f32,
+        on_gain: f32,
+        off_gain: f32,
+        target_location: [f32; 4],
+        user_info: u32,
+        direct_at_camera: bool,
+        direct_at_camera_location: [f32; 3],
+        active: bool,
+        current_heading_offset: f32,
+        current_pitch_offset: f32,
+    },
+    /// `BSIStateManagerModifier`: publishes the mapped value for the current
+    /// state of one of its referenced state machines.
+    IStateManager {
+        enable: bool,
+        state_variable: i32,
+        state_data: Vec<IStateData>,
+    },
+    /// `BSLimbIKModifier`: solve the authored limb toward a host-supplied
+    /// model-space target, bounded by its authored angular limit.
+    LimbIk {
+        enable: bool,
+        limit_angle_degrees: f32,
+        start_bone_index: i16,
+        end_bone_index: i16,
+        gain: f32,
+        bone_radius: f32,
+        cast_offset: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
     },
     /// A generator class this crate has no fields for.
     Unknown,
+}
+
+/// An authored bone target and angular limit for `BSLookAtModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LookAtBone {
+    pub index: i16,
+    pub forward_axis: [f32; 4],
+    pub limit_angle_degrees: f32,
+    pub on_gain: f32,
+    pub off_gain: f32,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -805,6 +902,9 @@ impl Node {
                 out.extend(*offset_clip_generator);
             }
             NodeKind::EventDrivenModifier { modifier, .. } => out.extend(*modifier),
+            NodeKind::IStateManager { state_data, .. } => {
+                out.extend(state_data.iter().map(|entry| entry.state_machine));
+            }
             // Only after linking. An unlinked reference has no child, which
             // is why an unlinked graph leaves the state it guards silent.
             NodeKind::BehaviorReference { resolved, .. } => out.extend(*resolved),
@@ -812,12 +912,18 @@ impl Node {
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
             | NodeKind::EventsFromRangeModifier { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::EveryNEventsModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::RotateCharacterModifier { .. }
+            | NodeKind::LookAtModifier { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1269,9 +1375,44 @@ impl<'a> Loader<'a> {
                     ranges,
                 }
             }
+            "BSEventOnDeactivateModifier" => NodeKind::EventOnDeactivateModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                event: EventProperty::read(o, o.layout_offset(44, 80))?,
+            },
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
+            },
+            "BSDirectAtModifier" => NodeKind::DirectAt {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                direct_at_target: o.bool(o.layout_offset(44, 80))?,
+                source_bone_index: o.i16(o.layout_offset(46, 82))?,
+                start_bone_index: o.i16(o.layout_offset(48, 84))?,
+                end_bone_index: o.i16(o.layout_offset(50, 86))?,
+                limit_heading_degrees: o.f32(o.layout_offset(52, 88))?,
+                limit_pitch_degrees: o.f32(o.layout_offset(56, 92))?,
+                offset_heading_degrees: o.f32(o.layout_offset(60, 96))?,
+                offset_pitch_degrees: o.f32(o.layout_offset(64, 100))?,
+                on_gain: o.f32(o.layout_offset(68, 104))?,
+                off_gain: o.f32(o.layout_offset(72, 108))?,
+                target_location: o.vec4(o.layout_offset(80, 112))?,
+                user_info: o.u32(o.layout_offset(96, 128))?,
+                direct_at_camera: o.bool(o.layout_offset(100, 132))?,
+                direct_at_camera_location: [
+                    o.f32(o.layout_offset(104, 136))?,
+                    o.f32(o.layout_offset(108, 140))?,
+                    o.f32(o.layout_offset(112, 144))?,
+                ],
+                active: o.bool(o.layout_offset(116, 148))?,
+                current_heading_offset: o.f32(o.layout_offset(120, 152))?,
+                current_pitch_offset: o.f32(o.layout_offset(124, 156))?,
+            },
+            "BSInterpValueModifier" => NodeKind::InterpValue {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                source: o.f32(o.layout_offset(44, 80))?,
+                target: o.f32(o.layout_offset(48, 84))?,
+                result: o.f32(o.layout_offset(52, 88))?,
+                gain: o.f32(o.layout_offset(56, 92))?,
             },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
@@ -1308,6 +1449,14 @@ impl<'a> Loader<'a> {
                     ],
                 }
             }
+            "BSEventEveryNEventsModifier" => NodeKind::EveryNEventsModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                event_to_check_for: EventProperty::read(o, o.layout_offset(44, 80))?,
+                event_to_send: EventProperty::read(o, o.layout_offset(52, 96))?,
+                number_of_events_before_send: o.i8(o.layout_offset(60, 112))?,
+                minimum_number_of_events_before_send: o.i8(o.layout_offset(61, 113))?,
+                randomize_number_of_events: o.bool(o.layout_offset(62, 114))?,
+            },
 
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
@@ -1346,6 +1495,93 @@ impl<'a> Loader<'a> {
                 speed_multiplier: o.f32(o.layout_offset(48, 84))?,
                 axis_of_rotation: o.vec4(o.layout_offset(64, 96))?,
             },
+            "BSLookAtModifier" => {
+                let read_bones = |offset: u32| -> Result<Vec<LookAtBone>> {
+                    o.array_structs(offset, 64)?
+                        .into_iter()
+                        .map(|bone| {
+                            Ok(LookAtBone {
+                                index: bone.i16(0)?,
+                                forward_axis: bone.vec4(16)?,
+                                limit_angle_degrees: bone.f32(32)?,
+                                on_gain: bone.f32(36)?,
+                                off_gain: bone.f32(40)?,
+                                enabled: bone.bool(44)?,
+                            })
+                        })
+                        .collect()
+                };
+                NodeKind::LookAtModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    bones: read_bones(o.layout_offset(48, 88))?,
+                    eye_bones: read_bones(o.layout_offset(60, 104))?,
+                    limit_angle_degrees: o.f32(o.layout_offset(72, 120))?,
+                    on_gain: o.f32(o.layout_offset(84, 132))?,
+                    off_gain: o.f32(o.layout_offset(88, 136))?,
+                    use_bone_gains: o.bool(o.layout_offset(92, 140))?,
+                    target_location: o.vec4(o.layout_offset(96, 144))?,
+                    look_at_target: o.bool(o.layout_offset(44, 80))?,
+                    look_at_camera: o.bool(o.layout_offset(124, 184))?,
+                    look_at_camera_location: [
+                        o.f32(o.layout_offset(128, 188))?,
+                        o.f32(o.layout_offset(132, 192))?,
+                        o.f32(o.layout_offset(136, 196))?,
+                    ],
+                }
+            }
+            "BSIStateManagerModifier" => {
+                let mut state_data = Vec::new();
+                for entry in o.array_structs(o.layout_offset(48, 88), o.layout_offset(12, 16))? {
+                    let Some(state_machine) = self.opt_id(entry.ptr(0)?) else {
+                        continue;
+                    };
+                    state_data.push(IStateData {
+                        state_machine,
+                        state_id: entry.i32(entry.layout_offset(4, 8))?,
+                        state_to_set_as: entry.i32(entry.layout_offset(8, 12))?,
+                    });
+                }
+                NodeKind::IStateManager {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    state_variable: o.i32(o.layout_offset(44, 80))?,
+                    state_data,
+                }
+            }
+            "BSLimbIKModifier" => {
+                let read_finite = |offset| {
+                    let value = o.f32(offset)?;
+                    if value.is_finite() {
+                        Ok(value)
+                    } else {
+                        Err(Error::Unsupported(
+                            "non-finite BSLimbIKModifier field".into(),
+                        ))
+                    }
+                };
+                let limit_angle_degrees = read_finite(o.layout_offset(44, 80))?;
+                let start_bone_index = o.i16(o.layout_offset(52, 88))?;
+                let end_bone_index = o.i16(o.layout_offset(54, 90))?;
+                let gain = read_finite(o.layout_offset(56, 92))?;
+                let bone_radius = read_finite(o.layout_offset(60, 96))?;
+                let cast_offset = read_finite(o.layout_offset(64, 100))?;
+                if limit_angle_degrees < 0.0
+                    || gain < 0.0
+                    || bone_radius < 0.0
+                    || start_bone_index < 0
+                    || end_bone_index <= start_bone_index
+                {
+                    return Err(Error::Unsupported("invalid BSLimbIKModifier fields".into()));
+                }
+                NodeKind::LimbIk {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    limit_angle_degrees,
+                    start_bone_index,
+                    end_bone_index,
+                    gain,
+                    bone_radius,
+                    cast_offset,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
@@ -1510,6 +1746,168 @@ mod tests {
         b.set_i32(wt, 52, 0);
         b.set_u16(wt, 66, transition_flags::IS_GLOBAL_WILDCARD);
         b.finish()
+    }
+
+    #[test]
+    fn anm_25_direct_at_decodes_authored_fields() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let values = b.object("hkbVariableValueSet", 64);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.ptr(data, 112, values);
+
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let direct = b.object("BSDirectAtModifier", 224);
+        let clip = b.object("hkbClipGenerator", 272);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, direct);
+        b.ptr(wrapper, 80, clip);
+        b.set_bool(direct, 72, true);
+        b.set_bool(direct, 80, true);
+        b.set_i16(direct, 82, 4);
+        b.set_i16(direct, 84, 5);
+        b.set_i16(direct, 86, 7);
+        b.set_f32(direct, 88, 55.0);
+        b.set_f32(direct, 92, 35.0);
+        b.set_f32(direct, 96, 3.0);
+        b.set_f32(direct, 100, -2.0);
+        b.set_f32(direct, 104, 8.0);
+        b.set_f32(direct, 108, 6.0);
+        b.set_f32(direct, 112, 1.0);
+        b.set_f32(direct, 116, 2.0);
+        b.set_f32(direct, 120, 3.0);
+        b.set_f32(direct, 124, 4.0);
+        b.set_u32(direct, 128, 0x1234);
+        b.set_bool(direct, 132, true);
+        b.set_f32(direct, 136, 9.0);
+        b.set_f32(direct, 140, 8.0);
+        b.set_f32(direct, 144, 7.0);
+        b.set_bool(direct, 148, true);
+        b.set_f32(direct, 152, 11.0);
+        b.set_f32(direct, 156, -12.0);
+        let pf = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let direct = graph.node(NodeId(1));
+        let NodeKind::DirectAt {
+            enable,
+            direct_at_target,
+            source_bone_index,
+            start_bone_index,
+            end_bone_index,
+            limit_heading_degrees,
+            limit_pitch_degrees,
+            offset_heading_degrees,
+            offset_pitch_degrees,
+            on_gain,
+            off_gain,
+            target_location,
+            user_info,
+            direct_at_camera,
+            direct_at_camera_location,
+            active,
+            current_heading_offset,
+            current_pitch_offset,
+        } = direct.kind
+        else {
+            panic!("expected direct-at modifier, got {:?}", direct.kind);
+        };
+        assert!(enable && direct_at_target && direct_at_camera);
+        assert_eq!(
+            (source_bone_index, start_bone_index, end_bone_index),
+            (4, 5, 7)
+        );
+        assert_eq!((limit_heading_degrees, limit_pitch_degrees), (55.0, 35.0));
+        assert_eq!((offset_heading_degrees, offset_pitch_degrees), (3.0, -2.0));
+        assert_eq!((on_gain, off_gain), (8.0, 6.0));
+        assert_eq!(target_location, [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(user_info, 0x1234);
+        assert_eq!(direct_at_camera_location, [9.0, 8.0, 7.0]);
+        assert!(active);
+        assert_eq!(
+            (current_heading_offset, current_pitch_offset),
+            (11.0, -12.0)
+        );
+    }
+
+    #[test]
+    fn anm_30_decodes_authored_interpolation_values_and_bindings() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let infos = b.array_structs(data, 32, 6, 2);
+        b.set_i8(infos, 4, 4);
+        b.set_i8(infos + 6, 4, 4);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.array_strings(strings, 48, &["Value", "Target"]);
+
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let modifier = b.object("BSInterpValueModifier", 104);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, modifier);
+        b.string(modifier, 56, "Interpolate");
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, 1.25);
+        b.set_f32(modifier, 84, 5.5);
+        b.set_f32(modifier, 88, 2.0);
+        b.set_f32(modifier, 92, 3.0);
+        b.set_f32(modifier, 96, 42.0);
+        let binding_set = b.object("hkbVariableBindingSet", 40);
+        b.ptr(modifier, 16, binding_set);
+        let bindings = b.array_structs(binding_set, 16, 40, 3);
+        for (index, (path, variable)) in [("source", 0), ("target", 1), ("result", 0)]
+            .into_iter()
+            .enumerate()
+        {
+            let binding = bindings + u32::try_from(index).unwrap() * 40;
+            b.string(binding, 0, path);
+            b.set_i32(binding, 28, variable);
+        }
+        b.set_i32(binding_set, 32, -1);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let NodeKind::InterpValue {
+            enable,
+            source,
+            target,
+            result,
+            gain,
+        } = &graph.node(NodeId(1)).kind
+        else {
+            panic!(
+                "expected interpolation modifier, got {:?}",
+                graph.node(NodeId(1)).kind
+            );
+        };
+        assert!(enable);
+        assert_eq!((*source, *target, *result, *gain), (1.25, 5.5, 2.0, 3.0));
+        assert_eq!(
+            graph
+                .node(NodeId(1))
+                .bindings
+                .as_ref()
+                .unwrap()
+                .bindings
+                .iter()
+                .map(|binding| binding.member_path.as_str())
+                .collect::<Vec<_>>(),
+            ["source", "target", "result"]
+        );
     }
 
     #[test]

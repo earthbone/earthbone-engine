@@ -13,6 +13,11 @@ use std::path::PathBuf;
 use soe_esm::records::race::Race;
 use soe_esm::{tag, LoadOrder, Plugin};
 
+#[cfg(all(feature = "rhubarb", feature = "xwma-ffmpeg"))]
+// Set before the first corpus run. Both generated tracks must cover the
+// decoded source duration to within this bound.
+const AUD_10_MAX_TRACK_DURATION_ERROR_SECONDS: f64 = 0.05;
+
 fn data_dir() -> Option<PathBuf> {
     std::env::var_os("SKYRIM_DATA").map(PathBuf::from)
 }
@@ -208,6 +213,111 @@ fn real_voice_lines_turn_into_mouth_shapes() {
         .map(|(_, c)| *c)
         .sum();
     assert!(talking > 0, "every cue was the rest position");
+}
+
+/// Uses a stable subset of Skyrim.esm INFO responses and their matching voice
+/// files. INFO IDs sort the corpus, so archive iteration order cannot change it.
+#[cfg(all(feature = "rhubarb", feature = "xwma-ffmpeg"))]
+#[test]
+fn aud_10_info_text_hints_keep_viseme_tracks_aligned_to_the_voice_duration() {
+    use soe_audio::viseme::VisemeSource;
+    use soe_audio::wma::Ffmpeg;
+    use soe_audio::{Fuz, Xwma};
+    use soe_esm::records::gameplay::DialogueInfo;
+    use soe_esm::records::Text;
+
+    let Some(archive) = voice_archive() else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let Some(order) = base_order() else { return };
+    let decoder = Ffmpeg::new();
+    if !decoder.available() {
+        eprintln!("skipping: the ffmpeg binary is not on the path");
+        return;
+    }
+    let Some(source) = rhubarb() else { return };
+
+    let mut voice_files = std::collections::BTreeMap::new();
+    for name in archive.files() {
+        let Some(stem) = name
+            .rsplit(['\\', '/'])
+            .next()
+            .and_then(|file| file.strip_suffix(".fuz"))
+        else {
+            continue;
+        };
+        let mut fields = stem.rsplit('_');
+        let Some(response_number) = fields.next().and_then(|field| field.parse::<u8>().ok()) else {
+            continue;
+        };
+        let Some(info_id) = fields
+            .next()
+            .and_then(|field| u32::from_str_radix(field, 16).ok())
+        else {
+            continue;
+        };
+        voice_files
+            .entry((info_id, response_number))
+            .or_insert_with(|| name.clone());
+    }
+
+    let mut corpus = Vec::new();
+    for (_, record) in order.winners_of(soe_esm::Tag::new(b"INFO")) {
+        let Ok(info) = DialogueInfo::from_record(record, false) else {
+            continue;
+        };
+        for response in info.responses {
+            if !matches!(&response.text, Some(Text::Plain(text)) if !text.trim().is_empty()) {
+                continue;
+            }
+            let Some(name) = voice_files.get(&(info.form_id, response.number)) else {
+                continue;
+            };
+            corpus.push((info.form_id, response.number, name.clone(), response));
+        }
+    }
+    corpus.sort_by_key(|entry| (entry.0, entry.1));
+    corpus.truncate(8);
+    assert_eq!(
+        corpus.len(),
+        8,
+        "the fixed INFO corpus needs eight voice lines"
+    );
+
+    let mut hinted_error = 0.0;
+    let mut unhinted_error = 0.0;
+    for (_, _, name, response) in &corpus {
+        let bytes = archive.read(name).expect("a corpus voice reads");
+        let fuz = Fuz::split(&bytes).expect("a corpus FUZ splits");
+        let xwma = Xwma::parse(fuz.audio).expect("a corpus xWMA parses");
+        let pcm = soe_audio::wma::decode_with(&decoder, &xwma).expect("a corpus voice decodes");
+        let expected_duration = pcm.duration_seconds();
+        let hinted = source
+            .visemes_for_response(&pcm, response)
+            .unwrap_or_else(|error| panic!("{name} with INFO text: {error}"));
+        let unhinted = source
+            .visemes(&pcm, None)
+            .unwrap_or_else(|error| panic!("{name} without INFO text: {error}"));
+        let hinted_delta = (hinted.duration - expected_duration).abs();
+        let unhinted_delta = (unhinted.duration - expected_duration).abs();
+        assert!(
+            hinted_delta <= AUD_10_MAX_TRACK_DURATION_ERROR_SECONDS,
+            "{name} hinted duration error {hinted_delta:.3}s exceeds the predeclared {AUD_10_MAX_TRACK_DURATION_ERROR_SECONDS:.3}s bound"
+        );
+        assert!(
+            unhinted_delta <= AUD_10_MAX_TRACK_DURATION_ERROR_SECONDS,
+            "{name} unhinted duration error {unhinted_delta:.3}s exceeds the predeclared {AUD_10_MAX_TRACK_DURATION_ERROR_SECONDS:.3}s bound"
+        );
+        hinted_error += hinted_delta;
+        unhinted_error += unhinted_delta;
+    }
+    eprintln!(
+        "AUD-10 absolute duration error over {} INFO lines: hinted {:.4}s, unhinted {:.4}s",
+        corpus.len(),
+        hinted_error / corpus.len() as f64,
+        unhinted_error / corpus.len() as f64
+    );
 }
 
 /// The case the vanilla pipeline cannot do at all.
