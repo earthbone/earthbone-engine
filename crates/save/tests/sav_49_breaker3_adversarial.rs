@@ -18,7 +18,10 @@ fn sav_49_change_type_length_width_bits_preserve_woop_and_mgef_dispatch() {
                 data: payload.to_vec(),
             };
 
-            assert_eq!(change.record_type(), if kind == 34 { "WOOP" } else { "MGEF" });
+            assert_eq!(
+                change.record_type(),
+                if kind == 34 { "WOOP" } else { "MGEF" }
+            );
             let typed = if kind == 34 {
                 change.word_of_power_change().unwrap().unwrap()
             } else {
