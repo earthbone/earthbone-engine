@@ -521,6 +521,15 @@ record-derived bleedout threshold. A quiet stub returns the idle value the game
 gives when nothing is going on, so vanilla scripts can continue when their
 owning system has no behavior yet.
 
+The SCR-61 registry audit found four `GetID` and `GetName` method bindings.
+`Form.GetName` returns the form's name-column text, `Quest.GetID` returns its
+EditorID, and `Alias.GetID` and `Alias.GetName` return the alias's numeric ID
+and unique name. These match the CK pages `GetName - Form`, `Quest Script`,
+and `Alias Script`. Form.GetName returns an empty string for actor and
+object-reference instances, as the CK page specifies. Regression coverage is
+in `tests/scr_61_native_contracts.rs`. The Form page identifies `GetName` as
+an SKSE member.
+
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |

@@ -290,9 +290,15 @@ fn form(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Form", "GetFormID", |world, call, me| i(
         world.runtime_id(me) as i32
     ));
-    method!(vm, w, "Form", "GetName", |world, call, me| s(&world
-        .name_of(me)
-        .unwrap_or_default()));
+    method!(vm, w, "Form", "GetName", |world, call, me| {
+        if world
+            .tag_of(me)
+            .is_some_and(|tag| matches!(tag.as_bytes(), b"ACHR" | b"REFR"))
+        {
+            return s("");
+        }
+        s(&world.name_of(me).unwrap_or_default())
+    });
     method!(vm, w, "Form", "GetType", |world, call, me| i(
         world.type_code(me)
     ));
