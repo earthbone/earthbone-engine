@@ -565,12 +565,16 @@ mod mag_13_actor_abilities;
 mod mag_13_adversarial;
 #[path = "mag_14_adversarial.rs"]
 mod mag_14_adversarial;
+#[path = "mag_14_breaker_adversarial.rs"]
+mod mag_14_breaker_adversarial;
 #[path = "mag_14_effect_shader.rs"]
 mod mag_14_effect_shader;
 #[path = "mag_16_adversarial.rs"]
 mod mag_16_adversarial;
 #[path = "mag_17_adversarial.rs"]
 mod mag_17_adversarial;
+#[path = "mag_17_breaker_adversarial.rs"]
+mod mag_17_breaker_adversarial;
 #[path = "mag_18_adversarial.rs"]
 mod mag_18_adversarial;
 #[path = "mag_20_adversarial.rs"]
