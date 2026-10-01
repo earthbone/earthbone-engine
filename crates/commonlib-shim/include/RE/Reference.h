@@ -2,6 +2,7 @@
 #pragma once
 #include "RE/Math.h"
 #include "RE/Form.h"
+#include "RE/WorldTypes.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -25,7 +26,12 @@ enum class WEAPON_STATE : std::uint32_t {
     kSheathed = 0, kWantToDraw = 1, kDrawing = 2,
     kDrawn = 3, kWantToSheathe = 4, kSheathing = 5
 };
-struct Unsupported { const char* operation; };
+struct Unsupported {
+    const char* operation;
+    std::optional<UnsupportedHook> hook;
+    Unsupported(const char* operation) : operation(operation), hook(std::nullopt) {}
+    Unsupported(UnsupportedHook hook) : operation(nullptr), hook(hook) {}
+};
 struct TESObjectREFRPtr {
     std::optional<ObjectRefHandle> handle;
     bool is_null() const noexcept { return !handle.has_value(); }

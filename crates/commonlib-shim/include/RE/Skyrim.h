@@ -5,6 +5,7 @@
 #include "RE/Magic.h"
 #include "RE/WorldTypes.h"
 #include "RE/World.h"
+#include "RE/Conditions.h"
 #include "RE/Events.h"
 #include "RE/Utility.h"
 #include "RE/VirtualMachine.h"

@@ -936,6 +936,12 @@ cannot be read from the runtime yet. The CK `GetFlyingState` page defines
 states 0 to 4, but that contract alone does not provide the missing runtime
 state.
 
+The MIT CommonLib shim exposes these fields through `CONDITION_ITEM_DATA` and
+delegates condition calls through `ConditionRuntime`. `Game` implements that
+boundary by resolving supplied runtime handles and running the condition
+against its current world and Papyrus VM. Condition copy hooks return an
+explicit unsupported-hook error.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches

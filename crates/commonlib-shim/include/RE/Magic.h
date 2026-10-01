@@ -1,14 +1,13 @@
 // Generated from the SHM-13 MIT runtime contract. Do not edit.
 #pragma once
 #include "RE/Form.h"
+#include "RE/Reference.h"
 #include "RE/WorldTypes.h"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 
 namespace RE {
-struct Unsupported { UnsupportedHook hook; };
-
 class MagicFavorites {
 public:
     virtual ~MagicFavorites() = default;
