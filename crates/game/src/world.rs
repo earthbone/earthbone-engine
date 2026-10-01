@@ -68,6 +68,7 @@ mod inventory_restore;
 mod knockback;
 mod spell_hand;
 mod weapon_hands;
+pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
@@ -127,6 +128,7 @@ pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
 pub use visual_effects::{VisualEffectError, VisualEffectId, VisualEffectInstance};
+pub use weather::WeatherRequest;
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -777,6 +779,7 @@ pub struct World {
     pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
+    pub(crate) weather: weather::WeatherState,
 }
 
 /// An impulse queued by a Papyrus reference native for a host actor.
@@ -951,6 +954,7 @@ impl World {
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),
             detection_events: Vec::new(),
+            weather: weather::WeatherState::default(),
         }
     }
 

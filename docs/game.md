@@ -556,7 +556,8 @@ owning system has no behavior yet.
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
-| Weather, Scroll | | SetActive, Cast |
+| Weather | SetActive | |
+| Scroll | | Cast |
 | Weapon | Fire | |
 
 Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
@@ -623,6 +624,11 @@ Their CK contracts are described by
   finite duration expires on an unpaused game tick. The optional facing
   reference is retained. `VisualEffect.Stop` removes every matching instance
   on its target. Rendering the RFCT art object is not connected yet.
+- `Weather.SetActive` stores the selected `WTHR` form and its optional override
+  and acceleration flags in `World::weather_request`. Both flags default to
+  false. A non-weather receiver logs an error and leaves the previous request
+  unchanged. This transient request is not saved, and no host sky currently
+  consumes it to render weather.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -5025,9 +5031,9 @@ sunrise, day, sunset and night. The game and host currently have no consumer
 for these selected base values. MAG-72 must resolve winning records through
 their owning load-order namespace and expose the resulting shared base state.
 Its weather input is an explicitly selected weather and time blend.
-Autonomous climate selection, weather scheduling and Papyrus weather natives
-are outside that row. SCR-54 needs the owning weather API before binding
-`Weather.SetActive`, which is still a quiet stub.
+Autonomous climate selection and weather scheduling are outside that row.
+SCR-54 now exposes the selected `WTHR` and transition flags through the shared
+weather request API; host sky rendering remains outside the native binding.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation

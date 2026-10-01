@@ -200,6 +200,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     active_magic(vm, world);
     image_space(vm, world);
     weapon(vm, world);
+    weather(vm, world);
     let stubs = stubs(vm, world);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -207,7 +208,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 374;
+pub const NATIVE_COUNT: usize = 375;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -3102,6 +3103,19 @@ fn weapon(vm: &mut Vm, w: &Shared) {
     });
 }
 
+/// Weather requests are retained by the world for the host sky implementation.
+fn weather(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Weather", "SetActive", |world, call, me| {
+        let override_weather = call.args.first().is_some_and(Value::as_bool);
+        let accelerate = call.args.get(1).is_some_and(Value::as_bool);
+        if let Err(error) = world.set_active_weather(me, override_weather, accelerate) {
+            call.log
+                .push(call.time, format!("Weather.SetActive: {error}"));
+        }
+        none()
+    });
+}
+
 /// CK active-effect identity, queries and dispelling contracts.
 fn active_magic(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
@@ -3939,7 +3953,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("MusicType", "Add"),
         ("MusicType", "Remove"),
         ("Topic", "Add"),
-        ("Weather", "SetActive"),
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
