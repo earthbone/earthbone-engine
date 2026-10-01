@@ -1420,6 +1420,9 @@ impl World {
         self.player = player;
         self.player_level = player_level;
         self.loaded_cell = loaded_cell;
+        self.streamed_cells.clear();
+        self.loaded_3d_references.clear();
+        self.attached_cells.clear();
         self.rng = rng;
         self.clock = GameClock {
             real_seconds,

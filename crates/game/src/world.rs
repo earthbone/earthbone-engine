@@ -663,6 +663,10 @@ pub struct World {
     /// References whose host cell has loaded 3D. Rebuilt from cell streaming
     /// transitions and not saved, like `streamed_cells`.
     loaded_3d_references: std::collections::HashSet<GlobalFormId>,
+    /// Cells attached to the runtime world, distinct from prefetched cells.
+    attached_cells: std::collections::HashSet<GlobalFormId>,
+    /// Cells marked by `Cell.Reset`, consumed the next time they are loaded.
+    pub(crate) pending_cell_resets: std::collections::BTreeSet<GlobalFormId>,
     /// A cell whose detach events have fired and whose references are still
     /// resident, waiting for [`World::settle_unload`].
     ///
@@ -872,6 +876,8 @@ impl World {
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
             loaded_3d_references: std::collections::HashSet::new(),
+            attached_cells: std::collections::HashSet::new(),
+            pending_cell_resets: std::collections::BTreeSet::new(),
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,

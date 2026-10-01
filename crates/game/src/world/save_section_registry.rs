@@ -41,6 +41,11 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
     Section { name: "DLG-19", write: write_scene_action_progress, read: read_scene_action_progress },
+    Section {
+        name: "SCR-19",
+        write: World::write_pending_cell_resets,
+        read: World::read_pending_cell_resets,
+    },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 

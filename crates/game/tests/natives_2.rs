@@ -1543,6 +1543,51 @@ fn ownership_is_typed_by_the_owner_record() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// Cell.IsAttached reports current streamed residency. Cell.Reset marks the
+/// cell for a record-backed temporary-reference rebuild at its next load.
+#[test]
+fn scr_19_cell_is_attached_tracks_cell_residency() {
+    let mut g = game();
+    let cell = obj(&mut g, "InnCell");
+    let id = g.form("InnCell").unwrap();
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().prefetch_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().load_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(true));
+    g.world_mut().unload_cell(id);
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_19_cell_reset_restores_temporary_references_on_next_load() {
+    let mut g = game();
+    let cell = obj(&mut g, "InnCell");
+    let marker = obj(&mut g, "MarkerRef");
+    let cell_id = g.form("InnCell").unwrap();
+    let marker_id = g.form("MarkerRef").unwrap();
+    g.world_mut().load_cell(cell_id);
+    call(&mut g, &marker, "Disable", &[]);
+    assert!(!g.world_mut().reference(marker_id).unwrap().enabled);
+    assert_eq!(call(&mut g, &cell, "Reset", &[]), Value::None);
+    let saved = g.world_mut().save_state();
+    g.world_mut().load_state(&saved).unwrap();
+    assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
+    g.world_mut().unload_cell(cell_id);
+    g.world_mut().load_cell(cell_id);
+    assert!(g.world_mut().reference(marker_id).unwrap().enabled);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_19_cell_reset_rejects_non_cell_forms() {
+    let g = game();
+    let marker_id = g.form("MarkerRef").unwrap();
+    let err = g.world_mut().reset_cell(marker_id).unwrap_err();
+    assert!(err.to_string().contains("invalid cell reset target"));
+}
+
 /// AddToMap "adds this reference (which must be a map marker) to the
 /// player's map, optionally making it available for fast-travel",
 /// EnableFastTravel flips that, SetDestroyed sets the destroyed flag,

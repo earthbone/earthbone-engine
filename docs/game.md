@@ -537,7 +537,7 @@ owning system has no behavior yet.
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
-| Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
+| Cell | IsInterior, IsAttached, Reset, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
 
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
@@ -645,6 +645,11 @@ Their CK contracts are described by
   visibility state, and `Game.SetSittingRotation` stores the camera offset in
   degrees. These presentation controls are transient and are not saved.
 - Inventories start from the base record's `CNTO` list.
+- `Cell.IsAttached` reads whether host streaming currently holds the cell.
+  `Cell.Reset` queues a record-backed rebuild of its temporary references for
+  the next cell load. The pending cell ids are saved in the `SCR-19` world
+  section and validated as live CELL forms when read. Prefetch does not attach
+  a cell, and host attachment state is rebuilt after loading a save.
 - Actor values keep base, permanent, temporary and damage components in one
   store. Set changes base, Mod changes permanent, Force adjusts permanent
   to reach the requested current value, Damage subtracts from the damage
