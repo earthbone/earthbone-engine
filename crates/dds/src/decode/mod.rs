@@ -3,9 +3,11 @@
 //! Decoders from each format to RGBA8. Block decoders produce a 4 by 4 tile
 //! that `write_block` clips into the image, so widths and heights that are
 //! not multiples of four work the way the hardware treats them.
+//! The BC6H decoder uses bcdec_rs, a safe Rust port of bcdec.
 
 mod bc1;
 mod bc4;
+mod bc6;
 mod bc7;
 mod tables;
 mod uncompressed;
@@ -53,6 +55,7 @@ pub fn decode_slice(format: Format, width: u32, height: u32, data: &[u8]) -> Res
                         Format::Bc3 => bc1::decode_bc3(src, &mut block),
                         Format::Bc4 { signed } => bc4::decode_bc4(src, signed, &mut block),
                         Format::Bc5 { signed } => bc4::decode_bc5(src, signed, &mut block),
+                        Format::Bc6h { signed } => bc6::decode(src, signed, &mut block),
                         Format::Bc7 => bc7::decode(src, &mut block),
                         Format::Uncompressed(_) => unreachable!(),
                     }

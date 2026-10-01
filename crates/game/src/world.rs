@@ -268,6 +268,7 @@ pub struct ActorState {
     pub dead: bool,
     pub in_combat: bool,
     pub teammate: bool,
+    pub can_do_favors: bool,
     pub ghost: bool,
     pub essential: bool,
     pub protected: bool,
@@ -327,6 +328,8 @@ pub struct ActorState {
     pub relationships: BTreeMap<GlobalFormId, i32>,
     pub combat_target: Option<GlobalFormId>,
     pub crime_faction: Option<GlobalFormId>,
+    /// Whether this actor is currently trespassing, for the CK `IsTrespassing` query.
+    pub trespassing: bool,
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub killer: Option<GlobalFormId>,
@@ -371,6 +374,11 @@ pub struct ActorState {
     /// Compared against `World::clock.real_seconds`, the lazy expiry
     /// `ai::AiState::wait_until` also uses, see `World::is_staggered`.
     pub stagger_end_time: Option<f64>,
+    /// Magnitude passed to the shared stagger lifecycle by the latest hit or
+    /// magic effect.
+    pub stagger_magnitude: f64,
+    /// Form that supplied the latest stagger direction.
+    pub stagger_direction: Option<GlobalFormId>,
     /// Perpetrators this actor has witnessed committing a crime against a
     /// faction that tracks crime. The bounty itself lives on
     /// `FactionState`, this is the actor's own memory of who it saw do it.
@@ -511,10 +519,14 @@ pub struct LosListener {
 }
 
 /// Runtime position and completed action slots for one playing scene.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SceneRunState {
     pub phase: u32,
     pub completed_actions: BTreeSet<u32>,
+    pub started_actions: BTreeSet<u32>,
+    pub timer_deadlines: BTreeMap<u32, f64>,
+    pub prior_packages: BTreeMap<GlobalFormId, Option<GlobalFormId>>,
+    pub prior_aliases: BTreeMap<GlobalFormId, Option<(GlobalFormId, u32)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -580,6 +592,11 @@ pub enum Pending {
         object: ObjectId,
         effect: GlobalFormId,
     },
+    /// Attach the winning base object's VMAD scripts to a placed reference.
+    BindReference {
+        object: ObjectId,
+        base: GlobalFormId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -619,6 +636,7 @@ pub struct World {
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
     actors: HashMap<GlobalFormId, ActorState>,
+    pub(crate) follower_services: BTreeMap<GlobalFormId, crate::services::FollowerServiceState>,
     quests: HashMap<GlobalFormId, QuestState>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
@@ -737,6 +755,7 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    pub(crate) cloak_effects: BTreeMap<magic::EffectId, magic::CloakState>,
     pub(crate) next_effect: u64,
     pub(crate) spell_casts_in_progress: BTreeMap<GlobalFormId, magic::SpellCast>,
     pub(crate) vampire_lord_forms: BTreeMap<magic::EffectId, magic::VampireLordForm>,
@@ -838,6 +857,7 @@ impl World {
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),
+            follower_services: BTreeMap::new(),
             quests: HashMap::new(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
@@ -912,6 +932,7 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            cloak_effects: BTreeMap::new(),
             next_effect: 1,
             spell_casts_in_progress: BTreeMap::new(),
             vampire_lord_forms: BTreeMap::new(),
