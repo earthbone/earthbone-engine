@@ -698,6 +698,7 @@ pub struct World {
     pub message_boxes: Vec<String>,
     /// Screenshot paths requested by Papyrus for the host to capture.
     pub screenshot_requests: Vec<String>,
+    help_message_events: BTreeSet<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
@@ -892,6 +893,7 @@ impl World {
             menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             screenshot_requests: Vec::new(),
+            help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
             player_controls: true,

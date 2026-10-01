@@ -3019,7 +3019,15 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             .description_of(me)
             .or_else(|| world.name_of(me))
             .unwrap_or_default();
-        world.notifications.push(body);
+        world.show_help_message(&text(&call.arg(0)), body);
+        none()
+    });
+    method!(vm, w, "Message", "ResetHelpMessage", |world, call, _me| {
+        world.reset_help_message(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Message", "ResetHelpMessage", |world, call| {
+        world.reset_help_message(&text(&call.arg(0)));
         none()
     });
     for name in ["Start", "ForceStart"] {
@@ -3929,7 +3937,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
-        ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "UnequipAll"),
@@ -3984,7 +3991,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         // implemented by the runtime yet.
         ("Game", "SendWereWolfTransformation"),
         ("Game", "SetSunGazeImageSpaceModifier"),
-        ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
         ("Game", "FadeOutGame"),
         ("Game", "RequestSave"),

@@ -539,7 +539,7 @@ owning system has no behavior yet.
 | Keyword | GetString, SendStoryEvent, SendStoryEventAndWait | |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
-| Message | Show, ShowAsHelpMessage | ResetHelpMessage |
+| Message | Show, ShowAsHelpMessage, ResetHelpMessage | |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
@@ -704,7 +704,11 @@ Their CK contracts are described by
   reference completes the wait with false. Waiting latent IDs and completed
   results are stored in the world `ANM-58` save section.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. A scene starts at
+  other in the notification queue, and returns button 0. `ShowAsHelpMessage`
+  queues one notification for each nonempty input-event name until reset.
+  `ResetHelpMessage` accepts the event name in method and global calls and
+  clears that event's shown status. Help-message duration, repetition limits,
+  and input-event integration are not implemented. A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers
