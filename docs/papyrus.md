@@ -132,6 +132,10 @@ recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
 `defer()` to allocate a latent id.
 
+`NativeRegistry::method_bindings` and `global_bindings` return sorted,
+lowercase `(class, name)` pairs for registered bindings. The game crate uses
+these read-only views to audit native contracts.
+
 **Base classes.** `create_object_of(name, class)` gives an object a class
 with no script attached, and `NativeCall::create_object` does the same from
 inside a native. Method lookup falls through the attached scripts to that

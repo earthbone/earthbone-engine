@@ -373,6 +373,34 @@ impl NativeRegistry {
     pub fn has_global(&self, class: &str, name: &str) -> bool {
         self.globals.contains_key(&Self::key(class, name))
     }
+
+    /// Return registered method bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    #[must_use]
+    pub fn method_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.methods.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
+    }
+
+    /// Return registered global bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    #[must_use]
+    pub fn global_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.globals.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
+    }
 }
 
 /// A loaded script with its functions shared behind `Rc` so frames can hold

@@ -2032,6 +2032,15 @@ fn alias(vm: &mut Vm, w: &Shared) {
         b(world.force_alias(quest, alias, target))
     });
     alias_method!(vm, w, "Clear", |world, call, quest, alias| {
+        let optional = world
+            .quest_state(quest)
+            .and_then(|state| state.def.alias(alias))
+            .is_some_and(|definition| definition.flags & crate::quest::alias_flags::OPTIONAL != 0);
+        if !optional {
+            call.log
+                .push(call.time, "ReferenceAlias.Clear: alias is not optional");
+            return none();
+        }
         world.force_alias(quest, alias, None);
         none()
     });
