@@ -2248,12 +2248,18 @@ reported actor contact. `mag_02_projectile_contact.rs` checks that repeated
 contact signal delivery for one projectile dispatches only once and that
 freeing it releases the guard. Flight creation and movement are not covered.
 
-`cast_location_spell(spell_file, spell_object, x, y, z)` sends the selected
-Skyrim world position to `World::cast_spell_at_location`. The player's static
-physics world raycasts from the player feet to the point. Missing physics data
-or any geometry hit rejects the cast before the world applies effects. The
-world checks the authored SPIT range and centers each effect's area at the
-selected point.
+`selected_location_position()` returns the first static geometry hit along the
+camera look ray in Godot metres. `cast_location_spell_at_look(spell_file,
+spell_object)` sends that same hit point to the shared cast path. The explicit
+`cast_location_spell(spell_file, spell_object, x, y, z)` entry point accepts a
+Skyrim world position. Both check the segment from the player's eye to the
+point, allowing a hit at the endpoint and rejecting an earlier obstruction.
+Missing physics data rejects the cast. The world checks the authored SPIT
+range and centers each effect's area at the selected point.
+
+`godot/mag_17_location_selection_test.gd` loads the installed Bannered Mare,
+checks that the live camera ray selects loaded geometry, and casts the vanilla
+Fire Rune at that selected surface through the host callback.
 
 Pose-derived segments come from two new entry points.
 `melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
