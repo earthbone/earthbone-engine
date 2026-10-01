@@ -93,6 +93,102 @@ pub struct FlightRequest {
     pub range: f32,
     /// AMMO base damage.
     pub damage: f32,
+    /// Whether an arrow of this ammunition can be recovered from an impact.
+    pub recoverable: bool,
+}
+
+/// One straight segment of a gravity-affected projectile's path, in Skyrim units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlightSegment {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
+}
+
+/// Transient deterministic motion state for one released projectile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlightMotion {
+    position: [f32; 3],
+    velocity: [f32; 3],
+    gravity: f32,
+    range: f32,
+    travelled: f32,
+    active: bool,
+}
+
+impl FlightMotion {
+    /// Create motion from a validated record-backed release request.
+    #[must_use]
+    pub fn new(request: FlightRequest) -> Self {
+        let velocity = request.direction.map(|axis| axis * request.speed);
+        Self {
+            position: request.origin,
+            velocity,
+            gravity: request.gravity,
+            range: request.range,
+            travelled: 0.0,
+            active: true,
+        }
+    }
+
+    /// Advance by a fixed time step and return the segment to query for contact.
+    /// Gravity uses Skyrim's 70 units per metre coordinate scale.
+    ///
+    /// # Errors
+    /// The time step or resulting position is invalid or overflows.
+    pub fn advance(&mut self, delta_seconds: f32) -> Result<Option<FlightSegment>, Error> {
+        if !delta_seconds.is_finite() || delta_seconds < 0.0 {
+            return Err(Error::Number);
+        }
+        if !self.active || delta_seconds == 0.0 {
+            return Ok(None);
+        }
+        let from = self.position;
+        let mut to = std::array::from_fn(|axis| from[axis] + self.velocity[axis] * delta_seconds);
+        to[2] -= 0.5 * 9.81 * 70.0 * self.gravity * delta_seconds * delta_seconds;
+        let displacement = std::array::from_fn::<_, 3, _>(|axis| to[axis] - from[axis]);
+        let distance = displacement
+            .iter()
+            .map(|axis| axis * axis)
+            .sum::<f32>()
+            .sqrt();
+        if !distance.is_finite() || !to.iter().all(|axis| axis.is_finite()) {
+            return Err(Error::Number);
+        }
+        let remaining = (self.range - self.travelled).max(0.0);
+        if distance >= remaining {
+            let fraction = if distance == 0.0 {
+                0.0
+            } else {
+                remaining / distance
+            };
+            to = std::array::from_fn(|axis| from[axis] + displacement[axis] * fraction);
+            self.travelled = self.range;
+            self.active = false;
+        } else {
+            self.travelled += distance;
+        }
+        self.velocity[2] -= 9.81 * 70.0 * self.gravity * delta_seconds;
+        self.position = to;
+        Ok(Some(FlightSegment { from, to }))
+    }
+
+    /// Current position in Skyrim units.
+    #[must_use]
+    pub const fn position(&self) -> [f32; 3] {
+        self.position
+    }
+
+    /// Whether this projectile can continue moving.
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Stop at a contact point supplied by the host query.
+    pub fn stop_at(&mut self, position: [f32; 3]) {
+        self.position = position;
+        self.active = false;
+    }
 }
 
 /// Components of one applied physical hit, before any later script effects.
@@ -127,6 +223,9 @@ pub struct HitResult {
     /// Always false for a bash or an unarmed contact. See docs/combat.md
     /// CMB-25.
     pub poisoned: bool,
+    /// The attacker was sneaking and the target had not entered Combat
+    /// awareness of that attacker. Reports OnHit's `abSneakAttack` value.
+    pub sneak_attacked: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -11,7 +11,7 @@
 //!    each file's master list into `GlobalFormId`s, and a form table where
 //!    the last file to carry a record wins.
 //! 3. `records`: typed views of CELL, REFR, WRLD, LAND, NAVM and STAT built
-//!    from a record on demand.
+//!    from a record on demand, including NPC face metadata.
 //! 4. `cell_index`: cell to placed objects, land and navmeshes, and
 //!    worldspace grid to cell, built once from the winning placements.
 //! 5. `dirty`: per plugin, what xEdit's cleaning would touch, counted.

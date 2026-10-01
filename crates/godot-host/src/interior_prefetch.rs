@@ -296,6 +296,7 @@ mod tests {
                 world: soe_physics::SimpleWorld::new(),
                 stats: CollisionStats::default(),
                 references: std::collections::HashMap::default(),
+                placed: Vec::new(),
             },
         }
     }

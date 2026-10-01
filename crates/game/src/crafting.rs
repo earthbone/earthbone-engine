@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! COBJ creation transactions from xEdit/UESP layouts and skymp CraftService.
+//! COBJ creation and ENCH disenchant transactions from xEdit and UESP layouts.
 //! Bench WBDT selects creation versus improvement. Inventory events follow CK.
 //! Tempering applies COBJ improvement recipes to exact item instances.
 //! CraftItem event arguments follow CK Quest_Script. Bench WBDT selects
@@ -48,6 +48,8 @@ pub enum Error {
         needed: i32,
         available: i32,
     },
+    #[error("crafting skill progression: {0}")]
+    Progression(String),
     #[error("item {0} cannot be tempered")]
     TemperItem(GlobalFormId),
     #[error("recipe {0} does not describe one temperable item")]
@@ -97,12 +99,141 @@ pub struct TemperOutcome {
     pub quality: f32,
 }
 
+/// The effects learned and exact item consumed by disenchanting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisenchantOutcome {
+    pub item: GlobalFormId,
+    pub enchantment: GlobalFormId,
+    pub learned_effects: Vec<GlobalFormId>,
+}
+
+/// A rejected disenchant leaves learned effects, inventory and events unchanged.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum DisenchantError {
+    #[error("actor {0} is missing, disabled, dead or unconscious")]
+    Actor(GlobalFormId),
+    #[error("item {0} is not a disenchantable weapon or armor")]
+    Item(GlobalFormId),
+    #[error("selected item has no eligible enchantment")]
+    Ineligible,
+    #[error("enchantment {0} is malformed or has unsupported effects")]
+    Enchantment(GlobalFormId),
+    #[error("inventory selection: {0}")]
+    Inventory(#[from] crate::inventory::Error),
+}
+
 struct Prepared {
     outcome: Outcome,
     inventory: crate::inventory::Inventory,
+    smithing_use: Option<f32>,
 }
 
 impl Game {
+    /// Learn unknown magic effects from one selected item and consume that item.
+    ///
+    /// # Errors
+    /// Invalid actor, item instance, enchantment record or inventory selection.
+    pub fn disenchant(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        source: crate::inventory::StackSource,
+    ) -> Result<DisenchantOutcome, DisenchantError> {
+        let mut world = self.world.borrow_mut();
+        if world
+            .reference(actor)
+            .is_none_or(|reference| !reference.enabled || reference.deleted)
+            || world
+                .actor(actor)
+                .is_none_or(|state| state.dead || state.unconscious)
+        {
+            return Err(DisenchantError::Actor(actor));
+        }
+        let Some(item_record) = world
+            .record(item)
+            .filter(|record| {
+                !record.is_deleted() && matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP")
+            })
+            .cloned()
+        else {
+            return Err(DisenchantError::Item(item));
+        };
+        if let Some(keyword) = world.form("MagicDisallowEnchanting") {
+            if world.has_keyword(item, keyword) {
+                return Err(DisenchantError::Ineligible);
+            }
+        }
+
+        let selected = world.select_item(actor, item, source, 1)?;
+        let selected_stack = world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory
+            .selected_stack(&selected)?;
+        let instance_enchantment = match selected_stack.and_then(|stack| stack.extra(155)) {
+            None => None,
+            Some(extra) => match extra.fields.as_slice() {
+                [crate::inventory::Field::Form(Some(enchantment)), crate::inventory::Field::Short(_)] => {
+                    Some(*enchantment)
+                }
+                _ => return Err(DisenchantError::Ineligible),
+            },
+        };
+        let enchantment = instance_enchantment.or_else(|| {
+            item_record
+                .find(Tag(*b"EITM"))
+                .filter(|bytes| bytes.len() == 4)
+                .and_then(|bytes| {
+                    world.resolve_from(item, u32::from_le_bytes(bytes.try_into().ok()?))
+                })
+        });
+        let enchantment = enchantment.ok_or(DisenchantError::Ineligible)?;
+        let record = world
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == Tag(*b"ENCH"))
+            .ok_or(DisenchantError::Enchantment(enchantment))?;
+        let (kind, raw_effects) =
+            disenchant_effects(record).ok_or(DisenchantError::Enchantment(enchantment))?;
+        if kind != 6 {
+            return Err(DisenchantError::Ineligible);
+        }
+        let mut effects = Vec::with_capacity(raw_effects.len());
+        for raw in raw_effects {
+            let effect = world
+                .resolve_from(enchantment, raw)
+                .filter(|id| world.tag_of(*id) == Some(Tag(*b"MGEF")))
+                .ok_or(DisenchantError::Enchantment(enchantment))?;
+            if !effects.contains(&effect) && !world.learned_enchantment_effects.contains(&effect) {
+                effects.push(effect);
+            }
+        }
+        if effects.is_empty() {
+            return Err(DisenchantError::Ineligible);
+        }
+
+        let mut inventory = world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory
+            .clone();
+        inventory.take_selected(&selected)?;
+        world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory = inventory;
+        world
+            .learned_enchantment_effects
+            .extend(effects.iter().copied());
+        let vm = &mut self.vm;
+        let alloc = &mut |name: &str, class: &str| vm.create_object_of(name, class);
+        world.inventory_event(actor, item, -1, None, alloc);
+        Ok(DisenchantOutcome {
+            item,
+            enchantment,
+            learned_effects: effects,
+        })
+    }
+
     /// Improve one weapon or armor instance at the matching smithing bench.
     ///
     /// The target item's COBJ ingredient is selected as one exact instance.
@@ -549,8 +680,13 @@ impl Game {
         recipe: GlobalFormId,
     ) -> Result<Outcome, Error> {
         let prepared = self.prepare_craft(actor, bench, recipe)?;
-        let vm = &mut self.vm;
         let mut world = self.world.borrow_mut();
+        if let Some(magnitude) = prepared.smithing_use {
+            world
+                .advance_skill(actor, "smithing", magnitude)
+                .map_err(|error| Error::Progression(error.to_string()))?;
+        }
+        let vm = &mut self.vm;
         let holder = world.reference(actor).ok_or(Error::Actor(actor))?;
         holder.inventory = prepared.inventory;
         let alloc = &mut |name: &str, class: &str| vm.create_object_of(name, class);
@@ -612,6 +748,9 @@ impl Game {
             .filter(|raw| *raw != 0)
             .ok_or(Error::Recipe(recipe_id))?;
         let keyword = conditions::resolve(&world, recipe_id, keyword, Some(*b"KYWD"))?;
+        let smithing = world
+            .editor_id(keyword)
+            .is_some_and(|id| id.to_ascii_lowercase().starts_with("craftingsmithing"));
         validate_bench(&mut world, bench, keyword)?;
         let context = conditions::Context {
             owner: recipe_id,
@@ -662,6 +801,11 @@ impl Game {
             inventory.take(item, needed);
         }
         inventory.add(created, count).map_err(|_| Error::Quantity)?;
+        let smithing_use = if smithing {
+            smithing_skill_use(&world, created, count)
+        } else {
+            None
+        };
         Ok(Prepared {
             outcome: Outcome {
                 recipe: recipe_id,
@@ -670,6 +814,7 @@ impl Game {
                 count,
             },
             inventory,
+            smithing_use,
         })
     }
 }
@@ -749,6 +894,29 @@ fn validate_alchemy_bench(world: &mut World, bench: GlobalFormId) -> Result<(), 
         return Err(Error::Bench(bench));
     }
     Ok(())
+}
+
+/// Return the skill-use magnitude for the created output stack when its record
+/// exposes a value used by the vanilla Smithing formula.
+fn smithing_skill_use(world: &World, output: GlobalFormId, count: i32) -> Option<f32> {
+    let record = world.record(output)?;
+    let (value, signed) = match record.tag.as_bytes() {
+        b"ALCH" => (record.find(Tag(*b"ENIT"))?.get(..4)?, true),
+        b"AMMO" => (record.find(Tag(*b"DATA"))?.get(12..16)?, false),
+        b"ARMO" | b"INGR" | b"KEYM" | b"MISC" => (record.find(Tag(*b"DATA"))?.get(..4)?, true),
+        b"SLGM" | b"SCRL" | b"WEAP" => (record.find(Tag(*b"DATA"))?.get(..4)?, false),
+        b"BOOK" => (record.find(Tag(*b"DATA"))?.get(8..12)?, false),
+        _ => return None,
+    };
+    let value = if signed {
+        i32::from_le_bytes(value.try_into().ok()?).max(0) as f64
+    } else {
+        u32::from_le_bytes(value.try_into().ok()?) as f64
+    };
+    let per_item = 3.0 * value.powf(0.65) + 25.0;
+    let total = per_item * f64::from(count);
+    let magnitude = total as f32;
+    magnitude.is_finite().then_some(magnitude)
 }
 
 fn inventory_form(world: &World, id: GlobalFormId) -> bool {
@@ -832,4 +1000,31 @@ fn validate_bench(
         return Err(Error::Bench(bench));
     }
     Ok(())
+}
+
+fn disenchant_effects(record: &Record) -> Option<(u32, Vec<u32>)> {
+    let enit = record.find(Tag(*b"ENIT"))?;
+    if !matches!(enit.len(), 32 | 36) {
+        return None;
+    }
+    let kind = u32::from_le_bytes(enit.get(20..24)?.try_into().ok()?);
+    let mut effects = Vec::new();
+    let mut pending = false;
+    for subrecord in &record.subrecords {
+        match subrecord.tag.as_bytes() {
+            b"EFID" if !pending && subrecord.data.len() == 4 => {
+                effects.push(u32::from_le_bytes(
+                    subrecord.data.as_slice().try_into().ok()?,
+                ));
+                pending = true;
+            }
+            b"EFIT" if pending && subrecord.data.len() == 12 => pending = false,
+            b"EFID" | b"EFIT" => return None,
+            _ => {}
+        }
+    }
+    if pending || effects.is_empty() {
+        return None;
+    }
+    Some((kind, effects))
 }

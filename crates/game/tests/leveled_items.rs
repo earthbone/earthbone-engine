@@ -559,6 +559,8 @@ fn special_loot_chance_none_and_use_all_bypass_level_draws() {
 #[test]
 fn special_loot_live_settings_and_saved_rng_reproduce_future_rolls() {
     let mut world = world(vec![list(LIST, 10, 0, &[(1, A, 1), (20, B, 1)])]);
+    let player = world.player();
+    world.actor(player).unwrap().level = 20;
     world.player_level = 20;
     world.settings.insert(
         "fspeciallootweighting".into(),
@@ -567,6 +569,7 @@ fn special_loot_live_settings_and_saved_rng_reproduce_future_rolls() {
     let before = world.save_state();
     let expected = world.roll_leveled_items(id(LIST), 10, 100).unwrap();
     world.load_state(&before).unwrap();
+    assert_eq!(world.player_level, 20);
     assert_eq!(
         world.roll_leveled_items(id(LIST), 10, 100).unwrap(),
         expected
