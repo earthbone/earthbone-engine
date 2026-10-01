@@ -30,8 +30,35 @@ fn mod_04_user_priority_moves_author_submod_ahead_of_competitor() {
     );
 
     let scanned = AnimationMod::scan(root.path()).unwrap();
-    assert_eq!(scanned.sub_mods[0].name, "Author");
-    assert_eq!(scanned.sub_mods[0].priority, 10);
+    let selected = scanned.select_submod(|_| true).unwrap();
+    assert_eq!(selected.name, "Author");
+    assert_eq!(selected.priority, 10);
+    assert_eq!(selected.directory.file_name().unwrap(), "Author");
+}
+
+#[test]
+fn mod_04_user_disabled_override_excludes_the_submod_from_selection() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        "OAR/Pack/Author/config.json",
+        r#"{"name":"Author","priority":4}"#,
+    );
+    write(
+        root.path(),
+        "OAR/Pack/Author/user.json",
+        r#"{"priority":10,"disabled":true}"#,
+    );
+    write(
+        root.path(),
+        "OAR/Pack/Other/config.json",
+        r#"{"name":"Other","priority":8}"#,
+    );
+
+    let scanned = AnimationMod::scan(root.path()).unwrap();
+    let selected = scanned.select_submod(|_| true).unwrap();
+    assert_eq!(selected.name, "Other");
+    assert_eq!(selected.priority, 8);
 }
 
 #[test]

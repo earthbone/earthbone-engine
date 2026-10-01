@@ -652,6 +652,9 @@ impl Game {
         let order = world.order();
 
         for sub_mod in &self.oar_submods {
+            if sub_mod.disabled {
+                continue;
+            }
             if !sub_mod.condition_groups.iter().all(|group| {
                 group
                     .iter()

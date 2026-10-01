@@ -45,11 +45,13 @@ pub struct Condition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubMod {
     pub directory: PathBuf,
-    /// From `name`, or the directory name when absent.
+    /// The author name in the modern layout, or directory priority in legacy.
     pub name: String,
     /// Higher wins. Required in the modern layout, and the directory name in
     /// the legacy one.
     pub priority: i32,
+    /// Whether the submod is disabled by its selected JSON data file.
+    pub disabled: bool,
     pub conditions: Vec<Condition>,
     /// Conditions in each group are ORed. The groups themselves are ANDed.
     pub condition_groups: Vec<Vec<Condition>>,
@@ -78,6 +80,23 @@ impl AnimationMod {
         walk(root.as_ref(), 0, &mut sub_mods)?;
         sub_mods.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
         Ok(Self { sub_mods })
+    }
+
+    /// Return the highest-priority enabled submod accepted by `matches`.
+    ///
+    /// The caller evaluates conditions because OAR conditions can be
+    /// registered by other plugins. Equal priorities retain scan order.
+    pub fn select_submod(&self, mut matches: impl FnMut(&SubMod) -> bool) -> Option<&SubMod> {
+        self.sub_mods
+            .iter()
+            .filter(|submod| !submod.disabled && matches(submod))
+            .fold(None, |selected: Option<&SubMod>, candidate| {
+                if selected.is_none_or(|current| candidate.priority > current.priority) {
+                    Some(candidate)
+                } else {
+                    selected
+                }
+            })
     }
 }
 
@@ -127,7 +146,8 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
     let name = author_obj
         .get("name")
         .and_then(serde_json::Value::as_str)
-        .map_or_else(|| directory_name(dir), ToString::to_string);
+        .ok_or_else(|| Error::json(config, "no name"))?
+        .to_string();
 
     let user = dir.join("user.json");
     let (data_path, data_doc) = if user.is_file() {
@@ -154,6 +174,11 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
         .and_then(|value| i32::try_from(value).ok())
         .ok_or_else(|| Error::json(data_path, "no valid priority"))?;
 
+    let disabled = data_obj
+        .get("disabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
     let conditions = data_obj
         .get("conditions")
         .and_then(serde_json::Value::as_array)
@@ -168,6 +193,7 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
         directory: dir.to_path_buf(),
         name,
         priority,
+        disabled,
         conditions,
         condition_groups,
         legacy: false,
@@ -227,6 +253,10 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
             .and_then(serde_json::Value::as_i64)
             .and_then(|value| i32::try_from(value).ok())
             .ok_or_else(|| Error::json(&user, "no valid priority"))?;
+        let disabled = obj
+            .get("disabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let conditions = obj
             .get("conditions")
             .and_then(serde_json::Value::as_array)
@@ -236,6 +266,7 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
             directory: dir.to_path_buf(),
             name: priority.to_string(),
             priority,
+            disabled,
             conditions,
             condition_groups,
             legacy: true,
@@ -285,6 +316,7 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
         directory: dir.to_path_buf(),
         name,
         priority,
+        disabled: false,
         conditions,
         condition_groups,
         legacy: true,
@@ -366,11 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_name_falls_back_to_the_directory() {
+    fn a_modern_submod_requires_an_author_name() {
         let tmp = tempfile::tempdir().expect("tempdir");
         write(tmp.path(), "Mod/Sprint/config.json", r#"{"priority":1}"#);
-        let m = AnimationMod::scan(tmp.path()).expect("scan");
-        assert_eq!(m.sub_mods[0].name, "Sprint");
+        assert!(AnimationMod::scan(tmp.path()).is_err());
     }
 
     #[test]
@@ -403,8 +434,16 @@ mod tests {
     #[test]
     fn submods_come_back_highest_priority_first() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        write(tmp.path(), "M/A/config.json", r#"{"priority":1}"#);
-        write(tmp.path(), "M/B/config.json", r#"{"priority":9}"#);
+        write(
+            tmp.path(),
+            "M/A/config.json",
+            r#"{"name":"A","priority":1}"#,
+        );
+        write(
+            tmp.path(),
+            "M/B/config.json",
+            r#"{"name":"B","priority":9}"#,
+        );
         let m = AnimationMod::scan(tmp.path()).expect("scan");
         assert_eq!(m.sub_mods[0].priority, 9);
         assert_eq!(m.sub_mods[1].priority, 1);
@@ -545,7 +584,7 @@ mod tests {
         write(
             tmp.path(),
             "OpenAnimationReplacer/M/S/config.json",
-            r#"{"priority":5}"#,
+            r#"{"name":"S","priority":5}"#,
         );
         write(
             tmp.path(),

@@ -111,12 +111,17 @@ plugin-registered condition types do not select a replacement. JSON condition
 arrays are ANDed. Legacy `OR` blocks are kept as groups, alternatives within a
 group are ORed, and separate groups are ANDed.
 
-For a modern submod, `user.json` replaces its priority and condition list. The
-author `config.json` still supplies the required name. The priority in either
-data file must fit an `i32`, since it orders the scanned submods. A legacy
+For a modern submod, `config.json` must supply its name. A sibling `user.json`
+replaces the submod's data, including its required priority, conditions and
+optional disabled flag, while retaining the name from `config.json`. The
+priority must fit an `i32`, since it orders the scanned submods. A legacy
 numbered directory with `_conditions.txt` accepts `user.json` as an OAR
-override, using its priority and condition list instead of the directory number
-and text conditions. The scan sorts both layouts by the resulting priority.
+override, using its priority, conditions and optional disabled flag instead of
+the directory number and text conditions. `AnimationMod::select_submod`
+returns the highest-priority enabled submod accepted by a caller-provided
+condition matcher. Equal priorities retain scan order. The condition matcher
+remains outside this crate because OAR condition types can be registered by
+other plugins.
 
 ## Conflicts resolve by file name
 
@@ -163,6 +168,8 @@ yet, and this test does not run the rule through `soe-game`.
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
+| `tests/mod_04_adversarial.rs` | 3 | A user priority override changes selection, disabled overrides exclude submods, and user conditions replace author conditions |
+| `tests/mod_04_breaker_adversarial.rs` | 4 | Negative and maximum priorities select correctly, missing user priority does not fall back, and out of range priority is rejected |
 
 ## Not done
 
@@ -191,7 +198,7 @@ That is a current limitation, not a claim of matching SPID's actor lifecycle.
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
-| OAR | Parsed submods are retained by `Game` and selected by actor condition and priority | Runtime animation playback will consume the selected paths |
+| OAR | Parsed submods are retained by `Game`; callers can select the highest-priority enabled submod matching actor conditions | Runtime animation playback will consume the selected paths |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
 into the same list `World::keywords` returns for a record's own `KWDA`, so
@@ -199,6 +206,11 @@ into the same list `World::keywords` returns for a record's own `KWDA`, so
 from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
+
+`AnimationMod::select_submod` selects among parsed OAR submods using a caller's
+condition matcher and skips disabled submods. `Game::select_oar_animation`
+binds supported conditions to actor records and returns a matching clip path.
+Automatic animation playback does not yet consume that path.
 
 Distribution is keyed by `NPC_` base rather than applied to loaded actors,
 because an actor's state is built from its base on first use. A reference that
