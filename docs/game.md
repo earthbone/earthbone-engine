@@ -4072,9 +4072,9 @@ actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
 load pass resolves distributions by NPC base. Deterministic SPID rules are
 evaluated as each actor is built, with the seed combining the parsed entry
-value, host-supplied save character ID and actor runtime FormID. The host sets
-this input with `World::set_player_character_id`. It is runtime metadata and
-is not serialized by the engine.
+value, save character ID and actor runtime FormID. A host can set this input
+with `World::set_player_character_id`. It is runtime metadata and is not
+serialized by the engine.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.

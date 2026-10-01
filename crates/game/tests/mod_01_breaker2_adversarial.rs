@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc::{self, Config, Stats}, Game};
+use soe_game::{
+    npc::{self, Config, Stats},
+    Game,
+};
 use std::{fs, path::PathBuf};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -18,10 +21,8 @@ struct DataDir(PathBuf);
 
 impl DataDir {
     fn new(chance: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "mod01-breaker2-{}-{chance}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("mod01-breaker2-{}-{chance}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         fs::write(
@@ -66,7 +67,7 @@ fn game() -> Game {
 
 #[test]
 fn mod_01_save_character_id_keeps_all_64_bits() {
-    let mut game = game();
+    let game = game();
     for character_id in [0, 0x2A73_F01A, u64::MAX] {
         game.world_mut().set_player_character_id(character_id);
         assert_eq!(game.world_mut().player_character_id(), character_id);

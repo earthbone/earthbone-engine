@@ -258,12 +258,11 @@ A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the
 record-backed NPC base before distribution. A rule that fails one of those
 filters is ignored. A `starts-dead` filter remains skipped and counted in
-`skipped_unsupported_filter`, because it belongs to a placed actor and this
-startup path applies distributions per NPC base. MOD-01's per-actor lifecycle
-work is not present in this worktree, so different placed actors using one
-base cannot receive different filter results or deterministic chance results.
-The checks use SPID's `LookupFilters.cpp` and `LookupNPC.cpp` behavior for
-level and traits, with the record fields available to this engine.
+`skipped_unsupported_filter`, because it belongs to a placed actor and the
+supported filter path reads NPC base data. Deterministic chance is evaluated
+per placed actor when its state is built. The checks use SPID's
+`LookupFilters.cpp` and `LookupNPC.cpp` behavior for level and traits, with the
+record fields available to this engine.
 
 ### Measured
 
