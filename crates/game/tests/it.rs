@@ -853,6 +853,32 @@ mod scr_39_current_scene;
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
 mod scr_43_quest_transition_natives;
+#[path = "scr_51_adversarial.rs"]
+mod scr_51_adversarial;
+#[path = "scr_51_utility_budgets.rs"]
+mod scr_51_utility_budgets;
+#[path = "scr_52_adversarial.rs"]
+mod scr_52_adversarial;
+#[path = "scr_52_visual_effects.rs"]
+mod scr_52_visual_effects;
+#[path = "scr_53_adversarial.rs"]
+mod scr_53_adversarial;
+#[path = "scr_53_weapon_fire.rs"]
+mod scr_53_weapon_fire;
+#[path = "scr_54_adversarial.rs"]
+mod scr_54_adversarial;
+#[path = "scr_54_weather_set_active.rs"]
+mod scr_54_weather_set_active;
+#[path = "scr_55_adversarial.rs"]
+mod scr_55_adversarial;
+#[path = "scr_56_adversarial.rs"]
+mod scr_56_adversarial;
+#[path = "scr_57_adversarial.rs"]
+mod scr_57_adversarial;
+#[path = "scr_57_native_contract_audit.rs"]
+mod scr_57_native_contract_audit;
+#[path = "scr_58_adversarial.rs"]
+mod scr_58_adversarial;
 #[path = "scr_59_adversarial.rs"]
 mod scr_59_adversarial;
 #[path = "scr_60_adversarial.rs"]

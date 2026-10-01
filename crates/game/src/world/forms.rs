@@ -413,6 +413,22 @@ impl World {
         self.factions.get_mut(&id)
     }
 
+    /// Whether `other` appears in the shared crime faction list linked by
+    /// this faction's `CRGR` subrecord.
+    pub fn faction_in_crime_group(&mut self, faction: GlobalFormId, other: GlobalFormId) -> bool {
+        let Some(group) = self
+            .record(faction)
+            .filter(|record| record.tag == T(b"FACT"))
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(le_u32)
+            .and_then(|raw| self.resolve_from(faction, raw))
+        else {
+            return false;
+        };
+        self.form_list(group)
+            .is_some_and(|members| members.contains(&other))
+    }
+
     /// `FACT.CRVA`, the bounty table `record_witnessed_crime` prices a
     /// crime against. Read straight from the winning record on every call:
     /// unlike `crime_gold_violent`, it never changes at runtime, so caching

@@ -46,6 +46,7 @@ const GUARD: u32 = 0x90B;
 const GUARD_BASE: u32 = 0x90C;
 const OUTFIT: u32 = 0x90D;
 const THIEVES: u32 = 0x90E;
+const SHARED_CRIME_GROUP: u32 = 0x9A0;
 const RAGS: u32 = 0x90F;
 const LOOT_LIST: u32 = 0x910;
 const GOLD: u32 = 0x911;
@@ -158,12 +159,18 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"FACT"), GUARDS)
             .zsub(EDID, "GuardsFaction")
             .sub(T(b"XNAM"), xnam(THIEVES, 2))
-            .sub(T(b"DATA"), le(0x40)),
+            .sub(T(b"DATA"), le(0x40))
+            .sub(T(b"CRGR"), le(SHARED_CRIME_GROUP)),
     );
     p.push_top(
         Record::new(T(b"FACT"), THIEVES)
             .zsub(EDID, "ThievesFaction")
             .sub(T(b"DATA"), le(0)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), SHARED_CRIME_GROUP)
+            .zsub(EDID, "SharedCrimeGroup")
+            .sub(T(b"LNAM"), le(THIEVES)),
     );
     p.push_top(Record::new(T(b"OTFT"), OUTFIT).zsub(EDID, "GuardOutfit"));
     p.push_top(Record::new(T(b"OTFT"), RAGS).zsub(EDID, "Rags"));
@@ -1474,13 +1481,54 @@ fn faction_relations_write_both_directions() {
         call(&mut g, &guards, "GetReaction", &[thieves]),
         Value::Int(1)
     );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Faction.IsFactionInCrimeGroup checks its argument against FACT.CRGR's
+/// FLST members, independent of the faction's Track Crime flag.
+#[test]
+fn scr_58_faction_crime_group_uses_the_other_faction_argument() {
+    let mut g = game();
+    let guards_id = g.form("GuardsFaction").unwrap();
+    let thieves_id = g.form("ThievesFaction").unwrap();
+    let group_id = soe_esm::GlobalFormId {
+        file: guards_id.file,
+        object: SHARED_CRIME_GROUP,
+    };
     assert_eq!(
-        call(&mut g, &guards, "IsFactionInCrimeGroup", &[]),
+        g.world()
+            .record(guards_id)
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(|bytes| (bytes.len() >= 4)
+                .then(|| u32::from_le_bytes(bytes[..4].try_into().unwrap()))),
+        Some(SHARED_CRIME_GROUP)
+    );
+    assert_eq!(
+        g.world().resolve_from(guards_id, SHARED_CRIME_GROUP),
+        Some(group_id)
+    );
+    assert_eq!(
+        g.world_mut().form_list(group_id).unwrap().as_slice(),
+        &[thieves_id]
+    );
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    let marker = obj(&mut g, "MarkerRef");
+
+    assert_eq!(
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[thieves.clone()]),
         Value::Bool(true)
     );
-    let thieves = obj(&mut g, "ThievesFaction");
     assert_eq!(
-        call(&mut g, &thieves, "IsFactionInCrimeGroup", &[]),
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[guards.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[marker]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "IsFactionInCrimeGroup", &[guards]),
         Value::Bool(false)
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
