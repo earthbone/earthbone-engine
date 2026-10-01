@@ -1841,6 +1841,15 @@ replaced. Programmatically loaded scripts have unknown source fingerprints.
 Each world and VM blob remains length-prefixed. The caller loads definitions
 before restoring into a game that has not been bound or started.
 
+The provenance test `tests/sav_56_provenance.rs` checks that a same-name
+replacement changes the plugin or script fingerprint while a plugin slot move
+leaves its content fingerprint unchanged. This extends the local save-format
+precedent: OpenMW's `apps/openmw/mwstate/statemanagerimp.cpp` writes active
+content file names and maps saved content indices on load, while the vanilla
+ESS plugin table records plugin names and regular/light membership without
+content fingerprints. The native envelope records the load-order slot and
+loaded definition fingerprints so these cases remain distinguishable.
+
 `Game::preflight_dependencies` compares native save provenance with the
 current load order and scripts. Its deterministic findings identify missing
 or added plugins and scripts, plugin kind or slot changes, changed
