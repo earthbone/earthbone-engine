@@ -71,6 +71,7 @@ mod inventory_restore;
 mod knockback;
 mod spell_hand;
 mod weapon_hands;
+pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
@@ -123,6 +124,7 @@ pub mod training;
 mod transition;
 mod trigger;
 pub use reference_translation::{RefTranslation, TranslationPath};
+mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use dialogue_scene_restore::DialogueSceneRestoreReport;
@@ -131,6 +133,8 @@ pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use visual_effects::{VisualEffectError, VisualEffectId, VisualEffectInstance};
+pub use weather::WeatherRequest;
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -781,6 +785,9 @@ pub struct World {
     /// A transient reference held by one Telekinesis concentration cast.
     /// Physics handles are host-owned, so this state is never serialized.
     pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
+    pub(crate) visual_effects:
+        BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
+    pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Active shader particle geometries derived from winning SPGD records.
     pub(crate) shader_particles: shader_particles::ShaderParticleState,
@@ -790,6 +797,7 @@ pub struct World {
     pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
+    pub(crate) weather: weather::WeatherState,
 }
 
 /// An impulse queued by a Papyrus reference native for a host actor.
@@ -964,12 +972,15 @@ impl World {
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,
             telekinesis_grab: None,
+            visual_effects: BTreeMap::new(),
+            next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             shader_particles: shader_particles::ShaderParticleState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),
             detection_events: Vec::new(),
+            weather: weather::WeatherState::default(),
         }
     }
 

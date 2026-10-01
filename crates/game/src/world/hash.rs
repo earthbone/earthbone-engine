@@ -956,6 +956,21 @@ impl World {
                 super::magic::SpellCastKind::Concentration => 1,
             });
         }
+        h.len(self.visual_effects.len());
+        h.u64(self.next_visual_effect);
+        for instance in self.visual_effects.values() {
+            h.u64(instance.id.0);
+            form(&mut h, instance.effect);
+            form(&mut h, instance.target);
+            match instance.remaining {
+                None => h.u8(0),
+                Some(seconds) => {
+                    h.u8(1);
+                    h.f64(seconds);
+                }
+            }
+            opt_form(&mut h, instance.facing);
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);

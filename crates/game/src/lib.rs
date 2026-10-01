@@ -1098,6 +1098,9 @@ impl Game {
                 vm.create_object_of(name, class)
             });
             w.tick_shader_particles(real_seconds);
+            if let Err(error) = w.tick_visual_effects(real_seconds) {
+                vm.log.push(vm.time(), error.to_string());
+            }
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
