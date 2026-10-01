@@ -80,6 +80,7 @@ mod npc_restore;
 mod objects;
 mod outfits;
 mod package_navmesh_restore;
+pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
@@ -766,6 +767,8 @@ pub struct World {
     /// Physics handles are host-owned, so this state is never serialized.
     pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
+    /// Active shader particle geometries derived from winning SPGD records.
+    pub(crate) shader_particles: shader_particles::ShaderParticleState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
     pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
@@ -940,6 +943,7 @@ impl World {
             concentration_cast: None,
             telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
+            shader_particles: shader_particles::ShaderParticleState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),

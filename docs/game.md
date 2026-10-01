@@ -557,7 +557,7 @@ owning system has no behavior yet.
 | EffectShader | Play, Stop | |
 | VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
-| ShaderParticleGeometry | | Apply, Remove |
+| ShaderParticleGeometry | Apply, Remove | |
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
@@ -596,6 +596,19 @@ remains a quiet stub because the actor model has no current flight state.
 Their CK contracts are described by
 `HasLOS_-_Actor`, `PathToReference_-_Actor` and `IsFlying_-_Actor` in the local
 `ck-wiki` corpus.
+
+- `ShaderParticleGeometry.Apply(fadeSeconds)` validates the winning, non-deleted
+  `SPGD` record and starts or restarts its transient layer. `Remove(fadeSeconds)`
+  removes it immediately or fades it out. `World::shader_particle_layers`
+  exposes decoded geometry fields and the current fade strength in form order.
+  Both methods reject malformed record data and non-finite or negative fade
+  values before changing the active set. Game ticks advance the fades. These
+  effects are transient and are not saved. The CK corpus has no named pages for
+  these two methods. The DATA and ICON layout follows xEdit's
+  `wbRecord(SPGD)`, UESP's `SPGD.wikitext`, Mutagen's Skyrim SPGD schema, and
+  CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
+  identifies both functions and their float arguments. The host does not yet
+  consume the layer snapshot or render particle geometry.
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest
