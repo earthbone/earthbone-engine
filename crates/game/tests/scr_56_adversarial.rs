@@ -2,11 +2,13 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use std::{cell::RefCell, rc::Rc};
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
+use soe_game::{natives, Game, World};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
-use soe_papyrus::Value;
+use soe_papyrus::{Value, Vm};
 
 #[test]
 fn cell_owner_contract_inventory_covers_ck_typed_setters_and_clear_alias() {
@@ -21,6 +23,71 @@ fn cell_owner_contract_inventory_covers_ck_typed_setters_and_clear_alias() {
     assert!(audit.contains("SetActorOwner_-_Cell.wikitext"));
     assert!(audit.contains("Cell.psc"));
     assert!(audit.contains("errors for a non-optional alias"));
+}
+
+#[test]
+fn cell_and_clear_audit_covers_every_registered_binding() {
+    let mut vm = Vm::new();
+    let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+    natives::register(&mut vm, &world);
+
+    let mut registered: Vec<_> = vm
+        .natives
+        .method_bindings()
+        .filter(|(class, name)| *class == "cell" || *name == "clear")
+        .collect();
+    registered.sort_unstable();
+    assert_eq!(
+        registered,
+        [
+            ("alias", "clear"),
+            ("cell", "getactorowner"),
+            ("cell", "getfactionowner"),
+            ("cell", "isattached"),
+            ("cell", "isinterior"),
+            ("cell", "reset"),
+            ("cell", "setactorowner"),
+            ("cell", "setfactionowner"),
+            ("cell", "setpublic"),
+        ]
+    );
+    assert!(vm
+        .natives
+        .global_bindings()
+        .all(|(class, name)| class != "cell" && name != "clear"));
+
+    let audit = include_str!("../../../docs/reference-audit.md");
+    for binding in [
+        "Cell.GetActorOwner",
+        "Cell.GetFactionOwner",
+        "Cell.IsInterior",
+        "Cell.IsAttached",
+        "Cell.Reset",
+        "Cell.SetActorOwner",
+        "Cell.SetFactionOwner",
+        "Cell.SetPublic",
+        "Alias.Clear",
+    ] {
+        assert!(audit.contains(&format!("`{binding}`")), "missing {binding}");
+    }
+    for source in [
+        "GetActorOwner_-_Cell.wikitext",
+        "Cell_Script.wikitext",
+        "SetActorOwner_-_Cell.wikitext",
+        "Clear_-_ReferenceAlias.wikitext",
+    ] {
+        assert!(audit.contains(source), "missing source {source}");
+    }
+    assert!(audit.contains("SCR-19 owns the live attachment query"));
+    assert!(audit.contains("SCR-19 owns cell reset behavior"));
+    assert!(audit.contains("SCR-68 owns both gaps"));
+    let backlog = include_str!("../../../BACKLOG.csv");
+    for row in ["SCR-19", "SCR-68"] {
+        assert!(
+            backlog.contains(&format!("\"{row}\"")),
+            "missing owner row {row}"
+        );
+    }
 }
 
 #[test]

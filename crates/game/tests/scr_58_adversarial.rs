@@ -32,14 +32,28 @@ fn faction_and_force_ref_if_empty_have_registry_derived_contract_comparisons() {
         "ModReaction",
     ];
     assert!(audit.contains("Faction and ForceRefIfEmpty native contracts, SCR-58"));
+    assert!(audit.contains("Faction_Script.wikitext"));
+    assert!(audit.contains("ReferenceAlias_Script.wikitext"));
     for name in faction_methods {
-        assert!(
-            audit.contains(&format!("`Faction.{name}`")),
-            "missing CK comparison for Faction.{name}"
+        let prefix = format!("| `Faction.{name}` |");
+        let row = audit
+            .lines()
+            .find(|line| line.starts_with(&prefix))
+            .expect("missing CK comparison row");
+        assert_eq!(
+            row.matches('|').count(),
+            4,
+            "incomplete comparison row: {row}"
         );
     }
-    assert!(audit.contains("`ReferenceAlias.ForceRefIfEmpty`"));
+    let alias_row = audit
+        .lines()
+        .find(|line| line.starts_with("| `ReferenceAlias.ForceRefIfEmpty` |"))
+        .expect("missing CK comparison for ReferenceAlias.ForceRefIfEmpty");
+    assert_eq!(alias_row.matches('|').count(), 4);
     assert!(audit.contains("SCR-59 owns reference-type validation"));
+    let backlog = include_str!("../../../BACKLOG.csv");
+    assert!(backlog.contains("\"SCR-59\""));
 }
 
 #[test]

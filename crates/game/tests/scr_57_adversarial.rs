@@ -40,4 +40,7 @@ fn debug_and_effect_shader_audit_has_a_contract_and_disposition_for_each_binding
     }
     assert!(audit.contains("SCR-24 owns Papyrus behavior"));
     assert!(audit.contains("MAG-14 owns host shader lifetime and rendering"));
+    let backlog = include_str!("../../../BACKLOG.csv");
+    assert!(backlog.contains("\"SCR-24\""));
+    assert!(backlog.contains("\"MAG-14\""));
 }
