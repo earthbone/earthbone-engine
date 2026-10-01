@@ -325,14 +325,19 @@ so the host never draws one and never has to test for it.
 triangle and byte totals when the caller supplies a `StreamCost` for each candidate cell.
 Costs may be measured or estimated. Loads stay nearest first, and a cell that does not fit
 either remaining limit is deferred while later smaller cells may be selected. A zero limit
-is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply mesh
-budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, which
-callers can use to calculate or estimate costs. The walking player path measures
-prepared surface arrays and calls `update_with_budget` when its exported
-`exterior_triangle_budget` or `exterior_byte_budget` is positive. The limits
-apply to selected mesh uploads. Preparation may decode more candidates on that
-tick so a smaller later cell can fit. Zero on both exported settings leaves
-the earlier cell-count behavior.
+is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply render
+budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, and
+`PreparedCell::stream_cost` adds payload bytes for textures its materials will use. It counts
+a texture path once within a cell, including every cubemap face, while shared paths in
+different candidate cells are counted again as a conservative estimate. The walking player
+path calls `update_with_budget` when its exported `exterior_triangle_budget` or
+`exterior_byte_budget` is positive. The limits apply to selected mesh and texture uploads.
+Preparation may decode more candidates on that tick so a smaller later cell can fit. Zero on
+both exported settings leaves the earlier cell-count behavior.
+
+The nearest-first planning follows the cell ordering in OpenMW's
+`apps/openmw/mwworld/scene.cpp` `sortCellsToLoad`. The host keeps its deterministic
+distance ordering and adds the per-tick work caps described above.
 
 `CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
 blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
