@@ -5,11 +5,10 @@ use soe_game::world::World;
 
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
-/// Strips the exclusive dialogue branch version 24 added, the stagger end
-/// time version 29 added, the witnessed crime set version 31 added, the hand
-/// spell fields version 32 added and the movement flags version 36 added, so
-/// fixtures built against any older header see none of those fields' bytes.
-/// Also strips the named save-section table
+/// Strips the exclusive dialogue branch version 24 added, the stagger end time
+/// version 29 added, the witnessed crime set version 31 added and the hand
+/// spell fields version 32 added, as well as the post-version-33 AI section.
+/// It also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too. It also reduces world-level section payloads
@@ -254,6 +253,13 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     }
     normalize_world_sections(&mut bytes);
     bytes
+}
+
+/// Strip the post-version-33 AI section and the paired reference sections
+/// while retaining the actor fields used by version 28 and later fixtures.
+#[allow(dead_code)]
+pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
+    without_ref_sections(world, actors)
 }
 
 /// Strip the named save-section table version 37 appends to a standalone
