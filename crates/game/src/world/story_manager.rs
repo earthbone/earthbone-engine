@@ -160,7 +160,7 @@ impl World {
                 } => Some(*id),
                 _ => None,
             })
-            .unwrap_or(self.player());
+            .unwrap_or_else(|| self.player());
         let event_roots: Vec<_> = nodes
             .iter()
             .filter(|node| node.tag == T(b"SMEN") && node.event == Some(code))
