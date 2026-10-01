@@ -165,6 +165,16 @@ pub enum Handle {
     ActiveEffect(magic::EffectId),
 }
 
+/// A host action requested by a Papyrus Debug native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugHostRequest {
+    Quit,
+    CenterOnCell {
+        cell: GlobalFormId,
+        latent: Option<LatentId>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RefState {
     pub base: Option<GlobalFormId>,
@@ -705,6 +715,10 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Open Papyrus user logs and the lines written to each during this run.
+    pub user_logs: BTreeMap<String, Vec<String>>,
+    /// One-shot requests for the host, which owns process and cell streaming.
+    pub debug_host_requests: Vec<DebugHostRequest>,
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
@@ -900,6 +914,8 @@ impl World {
             screenshot_requests: Vec::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            user_logs: BTreeMap::new(),
+            debug_host_requests: Vec::new(),
             player_controls: true,
             camera_controls: CameraControls::default(),
             ini: HashMap::new(),

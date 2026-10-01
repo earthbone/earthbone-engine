@@ -293,17 +293,42 @@ The signatures and short behavior descriptions come from the local
 functions are absent. Skill effects use the record-backed AVIF and GMST path
 documented in [progression](progression.md).
 
-**Shared reference placement.** The host reads world state out and never
-writes it back. `World::ref_placement` (in `world/refs.rs`) is the read-only
+**World reads out, host never writes back.** `World::ref_placement` (in
+`world/refs.rs`) is the read-only
 view a host uses to keep its own rendering and collision resources in step
 with a reference's runtime state: current position, rotation, scale and enable,
 in the small, `Copy` `RefPlacement` struct, not the mutable `RefState` a native
 or VM path uses to change that state. It returns `None` for a reference never
 instantiated, whose record-authored placement is still current. A deleted
-reference remains present with `visible: false` so the host can release its
-resources. The host side of this contract, and the split it takes between
-collision and rendering change detection, is documented in
+reference remains present with `visible: false` at its last placement so the
+host can release its resources. The host side of this contract, and the split
+it takes between collision and rendering change detection, is documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
+
+### Debug natives, SCR-20
+
+`Debug.OpenUserLog(name)` creates one transient named log and returns false for
+an empty or already-open name. `CloseUserLog(name)` removes it and is a no-op
+when it is absent. `TraceUser(name, text, severity)` appends the formatted text
+to an open named log and the Papyrus log, and returns whether that log was
+open. User logs are runtime diagnostics and are not included in SOEW saves.
+
+`Debug.CenterOnCell(name)` resolves a CELL editor id and queues a host request
+to move the player to that cell's origin. `CenterOnCellAndWait(name)` queues
+the same request and suspends its Papyrus thread until the host installs the
+destination, then returns 0. An unknown cell logs an error and queues no
+request. `Debug.QuitGame()` queues a host request to quit the Godot scene tree.
+The Game crate does not perform rendering, cell-resource loading or process
+shutdown itself.
+
+The local CK source is `ck-wiki/Debug_Script.wikitext`, which documents the
+global names, signatures and summaries, and
+`ck-wiki/CenterOnCell_-_Debug.wikitext`, which documents the cell argument and
+notes the vanilla function can freeze. Separate named pages for the other
+four functions were absent from this corpus. SCR-20 tests cover native
+arguments, duplicate and missing names, queued host effects and latent
+completion. This host path does not reproduce the freeze note.
+
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an
@@ -533,7 +558,7 @@ owning system has no behavior yet.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
-| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
+| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait | SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
