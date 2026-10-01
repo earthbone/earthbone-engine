@@ -317,6 +317,8 @@ pub struct ActorState {
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
+    /// CK knowable forms whose `Known` flag is set for the player.
+    pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
     /// Explicit weapon slots. The equipment set retains armor and spell membership.
     pub left_weapon: Option<GlobalFormId>,
@@ -341,9 +343,14 @@ pub struct ActorState {
     pub running: bool,
     /// Whether the actor is currently riding a mount.
     pub riding_mount: bool,
+    /// Whether another actor is currently riding this actor.
+    pub being_ridden: bool,
     pub weapon_drawn: bool,
     /// The host movement driver's current sprint state, re-signaled after load.
     pub sprinting: bool,
+    /// Whether the live movement driver currently has the actor in flight.
+    /// This is transient and must be signaled from runtime movement.
+    pub flying: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
     /// re-signals it from the live graph after load, through
@@ -372,6 +379,8 @@ pub struct ActorState {
     pub graph_ints: BTreeMap<String, i32>,
     /// `SetAllowFlying`, the Dawnguard dragon riding flag.
     pub allow_flying: bool,
+    /// Live flying state reported by actor movement, using CK states 0 to 4.
+    pub flying_state: Option<u8>,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
     /// The furniture reference and zero-based marker currently reserved by
@@ -541,6 +550,34 @@ pub struct AnimationWaiter {
     pub latent: LatentId,
 }
 
+/// A named event to send to one placed reference's animation graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationRequest {
+    pub target: GlobalFormId,
+    pub animation: String,
+}
+
+/// Result waiting for the game loop to resolve in the Papyrus VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationCompletion {
+    pub latent: LatentId,
+    pub succeeded: bool,
+}
+
+/// One ordered notification from a host animation visual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnimationHostNotice {
+    Event { source: GlobalFormId, name: String },
+    Unloaded { target: GlobalFormId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnimationWait {
+    pub target: GlobalFormId,
+    pub event: String,
+    pub latent: LatentId,
+}
+
 /// A line-of-sight registration. `single` is a one-shot gain or lost
 /// registration, `gain` says which of the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -677,6 +714,7 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    created_base_records: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     unresolved_records:
         BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
@@ -750,6 +788,8 @@ pub struct World {
     pub host_requests: Vec<HostRequest>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
+    /// Script events submitted by Papyrus and waiting for Story Manager routing.
+    pub(crate) pending_story_events: Vec<crate::quest::state::StoryEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     /// Recoverable errors raised by void Papyrus Game natives.
@@ -763,6 +803,13 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Requests awaiting delivery to a host animation graph.
+    pub animation_requests: Vec<AnimationRequest>,
+    pub(crate) animation_waits: Vec<AnimationWait>,
+    /// Ordered events and unloads reported by host animation visuals.
+    pub animation_host_notices: Vec<AnimationHostNotice>,
+    /// Completed latent calls awaiting the game loop.
+    pub animation_completions: Vec<AnimationCompletion>,
     /// Open Papyrus user logs and the lines written to each during this run.
     pub user_logs: BTreeMap<String, Vec<String>>,
     /// One-shot requests for the host, which owns process and cell streaming.
@@ -1025,6 +1072,7 @@ impl World {
             critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
+            created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
@@ -1068,6 +1116,7 @@ impl World {
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
+            pending_story_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             native_errors: Vec::new(),
@@ -1077,6 +1126,10 @@ impl World {
             help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            animation_requests: Vec::new(),
+            animation_waits: Vec::new(),
+            animation_host_notices: Vec::new(),
+            animation_completions: Vec::new(),
             user_logs: BTreeMap::new(),
             debug_host_requests: Vec::new(),
             player_control_flags: [true; 8],

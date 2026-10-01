@@ -59,6 +59,50 @@ impl DialogueMouth {
     }
 }
 
+/// The active dialogue voice slot and its playback-synchronized mouth track.
+#[derive(Default)]
+pub struct DialogueVoice {
+    slot: Option<usize>,
+    mouth: DialogueMouth,
+}
+
+impl DialogueVoice {
+    /// Attach a decoded track to a voice slot when playback starts.
+    pub fn start(&mut self, slot: usize, track: Option<LipWeightTrack>, duration: f64) {
+        self.mouth.start(track, duration);
+        self.slot = Some(slot);
+    }
+
+    /// Update the mouth from the active player's current playback state.
+    pub fn update(&mut self, slot: usize, playing: bool, seconds: f64) {
+        if self.slot != Some(slot) {
+            return;
+        }
+        if playing {
+            self.mouth.sample(seconds);
+        } else {
+            self.clear();
+        }
+    }
+
+    /// Stop the tracked voice and restore neutral mouth weights.
+    pub fn stop(&mut self, slot: usize) {
+        if self.slot == Some(slot) {
+            self.clear();
+        }
+    }
+
+    /// Current mouth weights in the LIP target order.
+    pub fn weights(&self) -> &[f32] {
+        self.mouth.weights()
+    }
+
+    fn clear(&mut self) {
+        self.mouth.clear();
+        self.slot = None;
+    }
+}
+
 /// A resolved voice file and the speaker's position in Godot metres.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VoiceAsset {

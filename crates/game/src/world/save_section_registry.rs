@@ -25,6 +25,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
+    Section { name: "SAV-17", write: write_created_bases, read: read_created_bases },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
     Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
@@ -135,6 +136,18 @@ fn read_player_level(
     Ok(())
 }
 
+fn write_created_bases(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::reference_restore::write_created_base_section(world, writer);
+}
+
+fn read_created_bases(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::reference_restore::read_created_base_section(world, reader)
+}
+
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     World::write_base_object_section(world, writer);
 }
@@ -209,6 +222,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
+    Section { name: "AI-67", write: write_being_ridden, read: read_being_ridden },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
@@ -219,6 +233,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
+    Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
 ];
 
 fn write_stagger_metadata(
@@ -243,6 +258,19 @@ fn read_stagger_metadata(
     }
     state.stagger_magnitude = magnitude;
     state.stagger_direction = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
+fn write_being_ridden(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(state.being_ridden);
+}
+
+fn read_being_ridden(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    state.being_ridden = reader.bool()?;
     Ok(())
 }
 
@@ -317,20 +345,40 @@ fn read_werewolf_transform(
     super::magic::read_werewolf_transform(state, reader)
 }
 
-fn write_trespassing(
-    state: &ActorState,
-    writer: &mut soe_papyrus::vm::state::Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
+fn write_trespassing(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.bool(state.trespassing);
 }
 
 fn read_trespassing(
     state: &mut ActorState,
-    reader: &mut super::save::FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), soe_papyrus::VmError> {
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
     state.trespassing = reader.bool()?;
+    Ok(())
+}
+
+fn write_known_magic_effects(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(state.known_forms.len());
+    for form in &state.known_forms {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_known_magic_effects(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "AI-76 known form count exceeds remaining bytes".into(),
+        ));
+    }
+    for _ in 0..count {
+        state.known_forms.insert(super::save::read_form_id(reader)?);
+    }
     Ok(())
 }
 

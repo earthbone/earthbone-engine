@@ -53,6 +53,15 @@ pub struct GodotCollisionStats {
     pub skipped: usize,
 }
 
+pub(crate) fn is_opened_door(world: &soe_game::World, reference: GlobalFormId) -> bool {
+    world.reference_ref(reference).is_some_and(|state| {
+        state.opened
+            && state
+                .base
+                .is_some_and(|base| world.tag_of(base) == Some(soe_esm::Tag::new(b"DOOR")))
+    })
+}
+
 /// One collider's live server state, grouped so a reference's body and
 /// shapes can be freed and rebuilt together when it moves. `reference` and
 /// `original` are `None` for a body [`add_statics`] created, which has no
@@ -191,6 +200,11 @@ impl CellBodies {
             }
         }
         applied
+    }
+
+    #[must_use]
+    pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
+        self.grabbed_reference
     }
 
     /// Every live body's RID, in insertion order. Diagnostic callers may
@@ -357,12 +371,13 @@ impl CellBodies {
                 continue;
             };
             let target_iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, target_iso);
+            let visible = target.visible && !is_opened_door(world, reference);
+            let key = (visible, target_iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if !target.visible {
+            if !visible {
                 server.body_set_space(entry.body, Rid::Invalid);
                 continue;
             }
@@ -403,12 +418,13 @@ impl CellBodies {
                 continue;
             };
             let iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, iso);
+            let visible = target.visible && !is_opened_door(world, entry.reference);
+            let key = (visible, iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if target.visible {
+            if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
                     for shape in entry.shapes.drain(..) {

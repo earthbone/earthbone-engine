@@ -88,15 +88,15 @@ with 4 to 1024 finite positions becomes a static `bhkRigidBodyT` carrying a
 Source positions are Skyrim game units, and the shape encoder divides them by
 `UNITS_PER_METER`. `shape::collect` converts them back when reading the block
 graph. The generated block graph is a standalone `NifFile` model with local
-references. A complete NIF byte writer is not part of this API.
+references. `NifFile::to_bytes` writes this Skyrim SE graph, and the bytes can
+be parsed again before `shape::collect` loads the collision into physics.
 
 The block layout follows nifly's `bhkConvexVerticesShape::Sync` and
 `bhkRigidBody::Sync` in `engine-refs/nifly/src/bhk.cpp`, with field offsets
-cross-checked against `bhk::decode` and `tests/synthetic.rs`. The repository's
-PyNifly source named by EDT-17 was not present in `engine-refs`. The EDT-04
-drafts that would supply the imported-mesh writer are also absent from this
-worktree. This implementation accepts the imported positions directly and
-returns a block graph for that later writer to merge and rebase.
+cross-checked against `bhk::decode` and `tests/synthetic.rs`. The NIF byte
+writer supports the generated node and opaque Havok blocks. It does not merge
+the graph into an existing mesh NIF. The repository's PyNifly source named by
+EDT-17 was not present in `engine-refs`.
 
 ## What the shipped files taught the crate
 

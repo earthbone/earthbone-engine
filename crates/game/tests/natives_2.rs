@@ -2738,16 +2738,18 @@ fn anm_58_wait_registration_survives_world_save_load() {
 }
 
 /// RegisterForAnimationEvent "registers this form to receive the specified
-/// animation event from the specified object", so PlayAnimation on the
-/// sender reaches OnAnimationEvent(akSource, asEventName) on the
-/// listener, and UnregisterForAnimationEvent stops it.
+/// animation event from the specified object". Host graph reports reach
+/// OnAnimationEvent(akSource, asEventName) on the listener, and
+/// UnregisterForAnimationEvent stops delivery.
 #[test]
 fn animation_events_reach_registered_listeners() {
     let mut g = game();
     g.start();
     let marker = obj(&mut g, "MarkerRef");
     let guard = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
     call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    g.report_animation_event(source, "IdleHit");
     assert!(!g.traces().iter().any(|t| t == "IdleHit"));
     assert_eq!(
         call(
@@ -2759,6 +2761,8 @@ fn animation_events_reach_registered_listeners() {
         Value::Bool(true)
     );
     call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    assert!(!g.traces().iter().any(|t| t == "IdleHit"));
+    g.report_animation_event(source, "IdleHit");
     assert!(
         g.traces().iter().any(|t| t == "IdleHit"),
         "{:?}",
@@ -2770,6 +2774,7 @@ fn animation_events_reach_registered_listeners() {
         "PlayAnimation",
         &[Value::string("IdleOther")],
     );
+    g.report_animation_event(source, "IdleOther");
     assert!(!g.traces().iter().any(|t| t == "IdleOther"));
     call(
         &mut g,
@@ -2778,6 +2783,7 @@ fn animation_events_reach_registered_listeners() {
         &[guard.clone(), Value::string("IdleHit")],
     );
     call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    g.report_animation_event(source, "IdleHit");
     assert_eq!(g.traces().iter().filter(|t| *t == "IdleHit").count(), 1);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
