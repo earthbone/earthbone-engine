@@ -2629,11 +2629,15 @@ resolved Skyrim position, authored compass lock flag and a visibility value
 derived from the objective's displayed state and the target reference's
 enabled and deleted state. Target CTDA conditions are evaluated against the
 current Game and VM, and a target is omitted when its conditions are false or
-cannot be evaluated. The presenter reads the shared world and adds no saved
-state. QSTA layout rules come from `uesp-modfileformat/QUST.wikitext` and
-`TES5Edit/Core/wbDefinitionsTES5.pas`.
-No Godot map control currently consumes these markers, so their on-screen
-display and spatial projection remain unverified.
+cannot be evaluated. The native map surface is opened from the quest journal.
+It plots marker XY positions north-up on a Godot Control and hides markers
+whose presenter visibility is false. The surface refreshes when its resolved
+marker data changes. The presenter reads the shared world and adds no saved
+state. QUST target rules follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `uesp-modfileformat/QUST.wikitext` and
+the CK `Quest_Script.wikitext` objective display semantics. Location marker
+resolution follows `uesp-modfileformat/LCTN.wikitext`, where `MNAM` identifies
+the world-location marker reference.
 
 The lockpicking presenter (UI-08) opens when player activation reaches a
 locked, non-key-only reference and the player has a lockpick but no matching
