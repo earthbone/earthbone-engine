@@ -4,7 +4,8 @@
 use soe_save::{book_note_key_flags as flags, ChangeForm, RefId};
 use std::path::{Path, PathBuf};
 
-const CORPUS: &str = "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
+const CORPUS: &str =
+    "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
 
 fn form(kind: u8, change_flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
@@ -53,7 +54,10 @@ fn collect(path: &Path, output: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         if path.is_dir() {
             collect(&path, output);
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+        {
             output.push(path);
         }
     }

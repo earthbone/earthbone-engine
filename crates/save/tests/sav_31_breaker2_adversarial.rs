@@ -4,7 +4,8 @@
 use soe_save::{ChangeForm, RefId};
 use std::path::{Path, PathBuf};
 
-const CORPUS: &str = "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
+const CORPUS: &str =
+    "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
 
 fn form(kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
@@ -19,7 +20,9 @@ fn form(kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
 
 #[test]
 fn sav_31_breaker_combined_named_and_unnamed_flags_roundtrip() {
-    for (kind, record_type, speaker) in [(10, "ACTI", false), (11, "TACT", true), (15, "DOOR", false)] {
+    for (kind, record_type, speaker) in
+        [(10, "ACTI", false), (11, "TACT", true), (15, "DOOR", false)]
+    {
         let flags = 0xA520_0007 | if speaker { 1 << 23 } else { 0 };
         let bytes = [0x81, 0x92, 0xA3, 0xB4, 0xC5, 0xD6];
         let change = form(kind, flags, bytes.to_vec());
@@ -43,10 +46,13 @@ fn sav_31_breaker_rejects_each_partial_form_flags_prefix() {
     for kind in [10, 11, 15] {
         for len in 0..6 {
             let change = form(kind, 1, vec![0xA5; len]);
-            assert!(matches!(
-                change.activator_change(),
-                Err(soe_save::Error::Truncated { .. })
-            ), "kind={kind} len={len}");
+            assert!(
+                matches!(
+                    change.activator_change(),
+                    Err(soe_save::Error::Truncated { .. })
+                ),
+                "kind={kind} len={len}"
+            );
         }
     }
 }
@@ -63,7 +69,10 @@ fn collect(path: &Path, output: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         if path.is_dir() {
             collect(&path, output);
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+        {
             output.push(path);
         }
     }
@@ -86,7 +95,10 @@ fn sav_31_breaker_external_corpus_accounts_all_matching_forms() {
                 continue;
             };
             let decoded = change.activator_change().unwrap().unwrap();
-            assert_eq!(decoded.change_flags(change.record_type()).unwrap(), change.change_flags);
+            assert_eq!(
+                decoded.change_flags(change.record_type()).unwrap(),
+                change.change_flags
+            );
             assert_eq!(decoded.data_bytes(), change.payload().unwrap().as_ref());
             counts[index] += 1;
         }
