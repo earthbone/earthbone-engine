@@ -188,6 +188,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
     Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
+    Section { name: "AI-67", write: write_being_ridden, read: read_being_ridden },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
@@ -221,6 +222,16 @@ fn read_stagger_metadata(
     }
     state.stagger_magnitude = magnitude;
     state.stagger_direction = super::save::read_opt_form_id(reader)?;
+fn write_being_ridden(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(state.being_ridden);
+}
+
+fn read_being_ridden(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    state.being_ridden = reader.bool()?;
     Ok(())
 }
 

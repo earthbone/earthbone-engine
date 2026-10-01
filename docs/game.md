@@ -2467,10 +2467,18 @@ the UESP Skyrim Smithing crafting section.
 
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
-`IsBeingRidden_-_Actor.wikitext`. The remaining requested CK pages are absent.
-GetGraphVariableInt (675) reads a named integer in the actor's live graph state,
-case-insensitively, and reports missing names and non-actor subjects. Its
-integer state is transient host input and is not saved.
+`IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
+query. `IsBeingRidden` (714) reads `ActorState::being_ridden`; the named
+`AI-67` actor save section retains that flag. A host or gameplay path must set
+the flag when another actor mounts this actor. GetGraphVariableInt (675) reads
+a named integer in the actor's live graph state, case-insensitively, and
+reports missing names and non-actor subjects. Its integer state is transient
+host input and is not saved.
+`IsInFurnitureState` (644), `GetPathingCurrentSpeedAngle` (684), and
+`IsOnFlyingMount` (730) remain unavailable. xEdit supplies their condition
+parameter types, but the local CK corpus has no usable result contract for
+these condition functions, and the current world has no matching animation,
+axis-angle or flying-mount state.
 The skymp evaluator's unknown-function success and unresolved target mapping
 were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
