@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 const RE_FORM: &str = r"// Generated from crates/commonlib-shim/src/form.rs. Do not edit.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -55,6 +56,12 @@ public:
     virtual std::vector<FormId> keywords() const { return {}; }
 };
 
+struct FileInfo {
+    std::string name;
+    std::optional<std::uint8_t> regular_index;
+    std::optional<std::uint16_t> light_index;
+    bool is_light() const noexcept { return light_index.has_value(); }
+};
 class DataHandler {
 public:
     virtual ~DataHandler() = default;
@@ -62,7 +69,10 @@ public:
     virtual const Form* lookup_by_editor_id(const std::string& editor_id) const = 0;
     virtual std::vector<FormId> forms_of_type(FormType kind) const = 0;
     virtual std::vector<std::string> files() const = 0;
+    virtual std::optional<FileInfo> file(std::size_t index) const = 0;
 };
+using TESDataHandler = DataHandler;
+using TESFile = FileInfo;
 } // namespace RE
 ";
 
@@ -89,6 +99,15 @@ struct ActorValue {
 inline const ActorValue ActorValue::HEALTH{24};
 inline const ActorValue ActorValue::MAGICKA{25};
 inline const ActorValue ActorValue::STAMINA{26};
+enum class WEAPON_STATE : std::uint32_t {
+    kSheathed = 0, kWantToDraw = 1, kDrawing = 2,
+    kDrawn = 3, kWantToSheathe = 4, kSheathing = 5
+};
+struct Unsupported { const char* operation; };
+struct TESObjectREFRPtr {
+    std::optional<ObjectRefHandle> handle;
+    bool is_null() const noexcept { return !handle.has_value(); }
+};
 
 class ObjectRef {
 public:
@@ -101,17 +120,19 @@ public:
     virtual std::optional<FormId> parent_cell() const = 0;
     virtual bool is_disabled() const = 0;
     virtual bool is_deleted() const = 0;
-    virtual void set_base(FormId base) = 0;
+    virtual Unsupported set_base(FormId base) = 0;
 };
+using TESObjectREFR = ObjectRef;
 
 class Actor : public ObjectRef {
 public:
     virtual ActorHandle actor_handle() const = 0;
     virtual float actor_value(ActorValue av) const = 0;
-    virtual void set_actor_value(ActorValue av, float value) = 0;
+    virtual Unsupported set_actor_value(ActorValue av, float value) = 0;
     virtual FormId race() const = 0;
     virtual bool is_dead() const = 0;
     virtual bool is_player() const = 0;
+    virtual WEAPON_STATE weapon_state() const = 0;
     virtual bool add_spell(FormId spell) = 0;
     virtual bool add_perk(FormId perk) = 0;
     virtual bool add_item(FormId item, std::uint32_t count) = 0;

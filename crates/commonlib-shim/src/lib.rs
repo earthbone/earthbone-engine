@@ -24,3 +24,6 @@ pub mod util;
 pub mod vm;
 pub mod world;
 pub mod world_types;
+
+pub use form::FileInfo;
+pub use refr::{ObjectRefPtr, Unsupported, WeaponState};
