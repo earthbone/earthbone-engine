@@ -313,8 +313,8 @@ current time-driven sun position in Skyrim units, using a 100,000-unit orbit
 with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
 is relative to the player's current placement. `Game.IsPlayerSungazing`
 compares the host camera direction with the sun direction and returns true
-within one degree. `Game.ShakeCamera` queues a transient request for the host;
-its source defaults to the player, strength defaults to 0.5 and clamps to 0
+within one degree. `Game.ShakeCamera` queues a transient request for the host.
+Its source defaults to the player, strength defaults to 0.5 and clamps to 0
 through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
 fallback. Invalid source types, non-finite values and negative durations do
 not queue an effect. These camera requests are transient and are not saved.
@@ -328,7 +328,7 @@ step with a reference's runtime position, rotation, scale and enable state. It
 returns `None` for a reference never instantiated, whose record-authored
 placement is still current. A deleted reference remains present with
 `visible: false` so the host can release its resources. Host physics may write
-finite poses through `World::set_host_ref_pose`; other host presentation reads
+finite poses through `World::set_host_ref_pose`. Other host presentation reads
 placement without mutating it. The host contract and its split between
 collision and rendering change detection are documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
