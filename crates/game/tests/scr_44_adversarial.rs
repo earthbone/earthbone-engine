@@ -72,10 +72,10 @@ fn scr_44_inactive_scene_never_reports_actions_complete() {
 }
 #[test]
 fn scr_44_completion_requires_authored_action_id_not_slot_number() {
-    let mut g = game();
+    let g = game();
     let mut alloc = |_: &str, _: &str| ObjectId(1);
     assert!(g.world_mut().start_scene(id(0x800), &mut alloc));
     assert!(g.world_mut().complete_scene_action(id(0x800), 0));
-    assert_eq!(g.world().scene_action_complete(id(0x800), 0), false);
-    assert_eq!(g.world().scene_action_complete(id(0x800), 55), true);
+    assert!(!g.world().scene_action_complete(id(0x800), 0));
+    assert!(g.world().scene_action_complete(id(0x800), 55));
 }

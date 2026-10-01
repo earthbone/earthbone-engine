@@ -30,7 +30,7 @@ fn scr_48_known_topic_set_is_idempotent_across_repeated_add_and_save_load() {
     p.groups.push(top);
     let mut order = LoadOrder::new();
     order.add("D.esm", p).unwrap();
-    let mut g = Game::new(order);
+    let g = Game::new(order);
     g.world_mut().add_dialogue_topic(id(0x900)).unwrap();
     g.world_mut().add_dialogue_topic(id(0x900)).unwrap();
     let saved = g.world().save_state();

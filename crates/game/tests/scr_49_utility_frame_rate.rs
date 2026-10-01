@@ -113,16 +113,16 @@ fn scr_49_frame_rate_capture_lifecycle_controls_average_and_errors() {
         Value::Float(0.0)
     );
     assert!(has_log(&game, "has no captured frames"));
-    assert_eq!(
-        call_global(&mut game, "GetMinFrameRate", &[]),
-        Value::Float(0.0)
-    );
-    assert!(has_log(&game, "GetMinFrameRate has no captured frames"));
-    assert_eq!(
-        call_global(&mut game, "GetMaxFrameRate", &[]),
-        Value::Float(0.0)
-    );
-    assert!(has_log(&game, "GetMaxFrameRate has no captured frames"));
+    assert_eq!(call_global(&mut game, "GetMinFrameRate", &[]), Value::None);
+    assert!(has_log(
+        &game,
+        "Utility.GetMinFrameRate: beta frame-rate capture is unavailable"
+    ));
+    assert_eq!(call_global(&mut game, "GetMaxFrameRate", &[]), Value::None);
+    assert!(has_log(
+        &game,
+        "Utility.GetMaxFrameRate: beta frame-rate capture is unavailable"
+    ));
 
     assert_eq!(
         call_global(&mut game, "StartFrameRateCapture", &[]),
