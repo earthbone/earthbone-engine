@@ -151,10 +151,7 @@ fn ui_13_color_cancel_and_mismatched_accept_preserve_value() {
     assert!(page.cancel_color_dialog(id));
     assert!(!page.cancel_color_dialog(id));
     assert_eq!(page.rows()[0].kind, OptionKind::Color { value: 0x123456 });
-    assert_eq!(
-        calls.borrow().as_slice(),
-        &[vec![Value::Int(id as i32)]]
-    );
+    assert_eq!(calls.borrow().as_slice(), &[vec![Value::Int(id as i32)]]);
 }
 
 #[test]

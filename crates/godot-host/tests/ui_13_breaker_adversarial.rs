@@ -131,7 +131,12 @@ fn ui_13_color_callback_uses_page_option_id_and_cancel_keeps_signed_color() {
     assert_eq!(id, 3 * 0x100);
     assert!(page.open_color_dialog(&mut game, SCRIPT, id));
     assert!(page.cancel_color_dialog(id));
-    assert_eq!(page.rows()[0].kind, OptionKind::Color { value: i32::MIN + 7 });
+    assert_eq!(
+        page.rows()[0].kind,
+        OptionKind::Color {
+            value: i32::MIN + 7
+        }
+    );
     assert_eq!(calls.borrow().as_slice(), &[vec![Value::Int(id as i32)]]);
     assert!(!page.accept_color(&mut game, SCRIPT, id, 99));
     assert_eq!(calls.borrow().len(), 1);
@@ -156,5 +161,30 @@ fn ui_13_color_accept_requires_a_fresh_open_after_cancel() {
             vec![Value::Int(id as i32), Value::Int(0xabcdef)],
         ]
     );
+    assert_eq!(page.rows()[0].kind, OptionKind::Color { value: 0x123456 });
+}
+
+#[test]
+fn ui_13_color_open_supplies_skyui_start_and_default_parameters() {
+    let (mut game, calls) = game_with_probe();
+    let mut page = ConfigPage::new(0);
+    let id = page.add_color("Tint", 0x123456, 0).unwrap();
+
+    assert!(page.open_color_dialog(&mut game, SCRIPT, id));
+    assert_eq!(
+        page.color_dialog(),
+        Some(soe_godot_host::mcm_menu::ColorDialog {
+            option_id: id,
+            start_color: -1,
+            default_color: -1,
+        })
+    );
+    assert!(page.set_color_dialog_start_color(0x234567));
+    assert!(page.set_color_dialog_default_color(0x345678));
+    assert_eq!(page.color_dialog().unwrap().start_color, 0x234567);
+    assert_eq!(page.color_dialog().unwrap().default_color, 0x345678);
+    assert!(page.cancel_color_dialog(id));
+    assert!(!page.set_color_dialog_start_color(0x456789));
+    assert_eq!(calls.borrow().as_slice(), &[vec![Value::Int(id as i32)]]);
     assert_eq!(page.rows()[0].kind, OptionKind::Color { value: 0x123456 });
 }

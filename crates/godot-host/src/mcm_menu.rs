@@ -22,7 +22,11 @@ const PAGE_CAPACITY: usize = 128;
 enum ActiveDialog {
     Slider(u32),
     Menu(u32),
-    Color(u32),
+    Color {
+        id: u32,
+        start_color: i32,
+        default_color: i32,
+    },
 }
 
 /// One key conflict reported through SkyUI's key-map callback.
@@ -177,6 +181,14 @@ pub struct MenuDialog {
     pub start_index: usize,
     pub default_index: usize,
     pub options: Vec<String>,
+}
+
+/// Color picker parameters supplied while a config handles its open callback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorDialog {
+    pub option_id: u32,
+    pub start_color: i32,
+    pub default_color: i32,
 }
 
 impl OptionRow {
@@ -596,8 +608,48 @@ impl ConfigPage {
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
+        self.active_dialog = Some(ActiveDialog::Color {
+            id,
+            start_color: -1,
+            default_color: -1,
+        });
         game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
-        self.active_dialog = Some(ActiveDialog::Color(id));
+        true
+    }
+
+    /// Return the active color dialog's current parameters.
+    #[must_use]
+    pub fn color_dialog(&self) -> Option<ColorDialog> {
+        let Some(ActiveDialog::Color {
+            id,
+            start_color,
+            default_color,
+        }) = self.active_dialog
+        else {
+            return None;
+        };
+        Some(ColorDialog {
+            option_id: id,
+            start_color,
+            default_color,
+        })
+    }
+
+    /// Set the color picker's start color during the open callback.
+    pub fn set_color_dialog_start_color(&mut self, color: i32) -> bool {
+        let Some(ActiveDialog::Color { start_color, .. }) = &mut self.active_dialog else {
+            return false;
+        };
+        *start_color = color;
+        true
+    }
+
+    /// Set the color picker's default color during the open callback.
+    pub fn set_color_dialog_default_color(&mut self, color: i32) -> bool {
+        let Some(ActiveDialog::Color { default_color, .. }) = &mut self.active_dialog else {
+            return false;
+        };
+        *default_color = color;
         true
     }
 
@@ -609,7 +661,7 @@ impl ConfigPage {
         id: u32,
         color: i32,
     ) -> bool {
-        if self.active_dialog != Some(ActiveDialog::Color(id))
+        if !matches!(self.active_dialog, Some(ActiveDialog::Color { id: open_id, .. }) if open_id == id)
             || !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
         {
             return false;
@@ -628,7 +680,8 @@ impl ConfigPage {
 
     /// Cancel the open color dialog without changing the option value or sending an accept event.
     pub fn cancel_color_dialog(&mut self, id: u32) -> bool {
-        if self.active_dialog != Some(ActiveDialog::Color(id)) {
+        if !matches!(self.active_dialog, Some(ActiveDialog::Color { id: open_id, .. }) if open_id == id)
+        {
             return false;
         }
         self.active_dialog = None;
