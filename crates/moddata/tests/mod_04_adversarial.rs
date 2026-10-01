@@ -74,3 +74,23 @@ fn mod_04_user_conditions_replace_config_even_when_user_conditions_are_missing()
     let scanned = AnimationMod::scan(root.path()).unwrap();
     assert_eq!(scanned.sub_mods[0].conditions.len(), 0);
 }
+
+#[test]
+fn mod_04_empty_animation_folder_keeps_the_submod_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let relative = "OAR/Pack/Author";
+    write(
+        root.path(),
+        &format!("{relative}/config.json"),
+        r#"{"name":"Author","priority":4}"#,
+    );
+    write(
+        root.path(),
+        &format!("{relative}/user.json"),
+        r#"{"priority":8,"overrideAnimationsFolder":""}"#,
+    );
+
+    let scanned = AnimationMod::scan(root.path()).unwrap();
+    let submod = scanned.sub_mods.first().unwrap();
+    assert_eq!(submod.animation_directory, root.path().join(relative));
+}

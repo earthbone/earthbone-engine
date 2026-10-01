@@ -121,7 +121,9 @@ the directory number and text conditions. `AnimationMod::select_submod`
 returns the highest-priority enabled submod accepted by a caller-provided
 condition matcher. Equal priorities retain scan order. The condition matcher
 remains outside this crate because OAR condition types can be registered by
-other plugins.
+other plugins. `overrideAnimationsFolder` selects a sibling directory as the
+submod's animation source. If that directory is missing, the submod is skipped,
+matching `Parsing.cpp`.
 
 ## Conflicts resolve by file name
 
@@ -168,8 +170,9 @@ yet, and this test does not run the rule through `soe-game`.
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
-| `tests/mod_04_adversarial.rs` | 3 | A user priority override changes selection, disabled overrides exclude submods, and user conditions replace author conditions |
+| `tests/mod_04_adversarial.rs` | 4 | A user priority override changes selection, disabled overrides exclude submods, user conditions replace author conditions, and an empty animation folder keeps the submod path |
 | `tests/mod_04_breaker_adversarial.rs` | 4 | Negative and maximum priorities select correctly, missing user priority does not fall back, and out of range priority is rejected |
+| `game/tests/mod_04_breaker_2_adversarial.rs` | 2 | User priority selects the game clip and `overrideAnimationsFolder` supplies it from a sibling directory |
 
 ## Not done
 

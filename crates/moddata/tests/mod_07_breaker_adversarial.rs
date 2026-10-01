@@ -23,7 +23,10 @@ fn mod_07_real_qualified_keyword_does_not_bind_to_same_id_in_another_plugin() {
     unrelated.push_top(Record::new(KYWD, 0x12db).zsub(tag::EDID, "SoSRevealing"));
     let mut order = LoadOrder::new();
     order
-        .add("Unrelated.esm", Plugin::parse(&unrelated.to_bytes()).unwrap())
+        .add(
+            "Unrelated.esm",
+            Plugin::parse(&unrelated.to_bytes()).unwrap(),
+        )
         .unwrap();
 
     assert!(

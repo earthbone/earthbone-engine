@@ -45,6 +45,8 @@ pub struct Condition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubMod {
     pub directory: PathBuf,
+    /// Directory searched for clips, which can be a sibling override folder.
+    pub animation_directory: PathBuf,
     /// The author name in the modern layout, or directory priority in legacy.
     pub name: String,
     /// Higher wins. Required in the modern layout, and the directory name in
@@ -188,9 +190,11 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
                 .collect()
         });
     let condition_groups = conditions.iter().cloned().map(|c| vec![c]).collect();
+    let animation_directory = animation_directory(dir, data_obj, data_path)?;
 
     Ok(SubMod {
         directory: dir.to_path_buf(),
+        animation_directory,
         name,
         priority,
         disabled,
@@ -203,6 +207,30 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
 fn read_json(path: &Path) -> Result<serde_json::Value> {
     let text = std::fs::read_to_string(path).map_err(|e| Error::io(path, e))?;
     serde_json::from_str(&text).map_err(|e| Error::json(path, e.to_string()))
+}
+
+fn animation_directory(
+    dir: &Path,
+    data: &serde_json::Map<String, serde_json::Value>,
+    data_path: &Path,
+) -> Result<PathBuf> {
+    let Some(folder) = data
+        .get("overrideAnimationsFolder")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(dir.to_path_buf());
+    };
+    if folder.is_empty() {
+        return Ok(dir.to_path_buf());
+    }
+    let override_directory = dir.parent().unwrap_or(dir).join(folder);
+    if !override_directory.is_dir() {
+        return Err(Error::json(
+            data_path,
+            "override animations folder is not a directory",
+        ));
+    }
+    Ok(override_directory)
 }
 
 fn read_condition(value: &serde_json::Value) -> Option<Condition> {
@@ -262,8 +290,10 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
             .and_then(serde_json::Value::as_array)
             .map_or_else(Vec::new, |a| a.iter().filter_map(read_condition).collect());
         let condition_groups = conditions.iter().cloned().map(|c| vec![c]).collect();
+        let animation_directory = animation_directory(dir, obj, &user)?;
         return Ok(Some(SubMod {
             directory: dir.to_path_buf(),
+            animation_directory,
             name: priority.to_string(),
             priority,
             disabled,
@@ -314,6 +344,7 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
     let conditions = condition_groups.iter().flatten().cloned().collect();
     Ok(Some(SubMod {
         directory: dir.to_path_buf(),
+        animation_directory: dir.to_path_buf(),
         name,
         priority,
         disabled: false,

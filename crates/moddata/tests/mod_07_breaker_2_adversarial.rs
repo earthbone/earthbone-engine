@@ -26,7 +26,10 @@ fn mod_07_real_kid_rule_resolves_only_inside_its_named_plugin() {
     source.push_top(Record::new(KYWD, 0x12db).zsub(tag::EDID, "zadNG_SoSRevealing"));
     let mut order = LoadOrder::new();
     order
-        .add("Unrelated.esm", Plugin::parse(&unrelated.to_bytes()).unwrap())
+        .add(
+            "Unrelated.esm",
+            Plugin::parse(&unrelated.to_bytes()).unwrap(),
+        )
         .unwrap();
     order
         .add(

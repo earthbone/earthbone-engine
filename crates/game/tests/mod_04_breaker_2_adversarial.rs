@@ -5,6 +5,9 @@ use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plu
 use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 const BASE: u32 = 0x800;
 const CELL: u32 = 0x801;
@@ -14,7 +17,11 @@ struct Fixture(PathBuf);
 
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("soe-mod-04-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "soe-mod-04-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -87,7 +94,9 @@ fn submod(fixture: &Fixture, name: &str, priority: i32) -> PathBuf {
     let directory = format!("meshes/actors/character/animations/OpenAnimationReplacer/Test/{name}");
     fixture.write(
         &format!("{directory}/config.json"),
-        &format!(r#"{{"name":"{name}","priority":{priority},"conditions":[{{"condition":"IsFemale"}}]}}"#),
+        &format!(
+            r#"{{"name":"{name}","priority":{priority},"conditions":[{{"condition":"IsFemale"}}]}}"#
+        ),
     );
     fixture.write(&format!("{directory}/walk.hkx"), "synthetic HKX path");
     fixture.0.join(directory)
