@@ -769,6 +769,13 @@ accepts a mask only for the observed Skyrim SE tuple of ESS header version 12,
 form version 78 and change-form version 78. Other tuples with a mask fail
 before reference state is inserted.
 
+`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks
+that neither word changes the loader's enable or persistence values for the
+accepted tuple, including after engine save/load. This establishes the current
+implementation contract only. It is not independent evidence of Skyrim's
+operation, and the accepted tuple is the only mask-bearing version tuple in
+the surveyed corpus.
+
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
 16-bit Mask Set unk010. It supplies record flag labels, but no application
