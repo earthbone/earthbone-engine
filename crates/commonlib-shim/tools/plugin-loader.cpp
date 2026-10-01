@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <SKSE/Plugin.h>
+#include <cstring>
 #include <dlfcn.h>
 #include <iostream>
 #include <string_view>
@@ -18,38 +19,45 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const auto* manifest = static_cast<const SKSE::SoePluginManifest*>(dlsym(library, "SOEPlugin_Manifest"));
-    const auto load = reinterpret_cast<SKSE::SoePluginLoad>(dlsym(library, "SOEPlugin_Load"));
-    if (!manifest || !load) {
-        std::cerr << "load error: missing SOEPlugin_Manifest or SOEPlugin_Load\n";
+    const auto query = reinterpret_cast<bool (*)(SKSE::QueryInterface*, SKSE::PluginInfo*)>(
+        dlsym(library, "SKSEPlugin_Query"));
+    const auto load = reinterpret_cast<bool (*)(const SKSE::LoadInterface*)>(
+        dlsym(library, "SKSEPlugin_Load"));
+    const auto* version = static_cast<const SKSE::PluginVersionData*>(
+        dlsym(library, "SKSEPlugin_Version"));
+    if (!query || !load || !version) {
+        std::cerr << "load error: missing SKSEPlugin_Query, SKSEPlugin_Load or SKSEPlugin_Version\n";
         dlclose(library);
         return 1;
     }
-    if (manifest->abi_version != SKSE::SOE_PLUGIN_ABI_VERSION || !manifest->name ||
-        (manifest->unsupported_hook_count != 0 && !manifest->unsupported_hooks)) {
-        std::cerr << "load error: invalid plugin manifest\n";
+    if (version->dataVersion != SKSE::PluginVersionData::kVersion ||
+        version->pluginName[0] == '\0' ||
+        !std::memchr(version->pluginName, '\0', sizeof(version->pluginName))) {
+        std::cerr << "load error: invalid SKSE plugin version data\n";
         dlclose(library);
         return 1;
-    }
-    for (std::size_t index = 0; index < manifest->unsupported_hook_count; ++index) {
-        const char* hook = manifest->unsupported_hooks[index];
-        if (!hook || std::string_view(hook).empty()) {
-            std::cerr << "load error: unnamed unsupported hook\n";
-            dlclose(library);
-            return 1;
-        }
     }
 
-    std::cout << "plugin: " << manifest->name << '\n';
-    for (std::size_t index = 0; index < manifest->unsupported_hook_count; ++index) {
-        std::cout << "unsupported hook: " << manifest->unsupported_hooks[index] << '\n';
+    SKSE::PluginInfo info{};
+    if (!query(nullptr, &info)) {
+        std::cerr << "load error: plugin query rejected this runtime\n";
+        dlclose(library);
+        return 1;
     }
-    if (!load()) {
+    if (info.infoVersion != SKSE::PluginInfo::kVersion || !info.name ||
+        std::string_view(info.name).empty()) {
+        std::cerr << "load error: plugin query returned invalid plugin info\n";
+        dlclose(library);
+        return 1;
+    }
+
+    std::cout << "plugin: " << info.name << " v" << info.version << '\n';
+    if (!load(nullptr)) {
         std::cerr << "load error: plugin entry point returned false\n";
         dlclose(library);
         return 1;
     }
-    std::cout << "loaded: " << manifest->name << '\n';
+    std::cout << "loaded: " << info.name << '\n';
     dlclose(library);
     return 0;
 }
