@@ -10,9 +10,10 @@ mod common;
 
 use common::{graph, Root};
 use soe_hkx::animation::SplineCompressedAnimation;
-use soe_hkx::behavior::{BehaviorGraph, NodeId, NodeKind};
+use soe_hkx::behavior::{BehaviorGraph, BoneSwitchChild, EventProperty, Node, NodeId, NodeKind};
 use soe_hkx::interp::{Clip, ClipLibrary, Event, Interpreter};
 use soe_hkx::spline::encode;
+use soe_hkx::writer::PackfileBuilder;
 use soe_hkx::{Packfile, QsTransform};
 
 const FRAMES: usize = 31;
@@ -105,8 +106,219 @@ fn load(root: &Root) -> BehaviorGraph {
     BehaviorGraph::from_packfile(&pf).unwrap()
 }
 
+fn offset_graph() -> BehaviorGraph {
+    let mut builder = PackfileBuilder::new();
+    let container = builder.object("hkRootLevelContainer", 16);
+    let graph = builder.object("hkbBehaviorGraph", 304);
+    let variant = builder.array_structs(container, 0, 24, 1);
+    builder.string(variant, 0, "hkbBehaviorGraph");
+    builder.string(variant, 8, "hkbBehaviorGraph");
+    builder.ptr(variant, 16, graph);
+    let data = builder.object("hkbBehaviorGraphData", 128);
+    let strings = builder.object("hkbBehaviorGraphStringData", 80);
+    let values = builder.object("hkbVariableValueSet", 64);
+    builder.ptr(graph, 136, data);
+    builder.ptr(data, 120, strings);
+    builder.ptr(data, 112, values);
+    builder.array_strings(strings, 48, &["Offset"]);
+    let info = builder.array_structs(data, 32, 6, 1);
+    builder.set_i8(info, 4, 4);
+    builder.array_i32(values, 16, &[0.0f32.to_bits() as i32]);
+
+    let base = builder.object("hkbClipGenerator", 272);
+    builder.string(base, 56, "Base");
+    builder.string(base, 72, "base");
+    builder.set_f32(base, 100, 1.0);
+    builder.set_i8(base, 114, 1);
+    let offset = builder.object("hkbClipGenerator", 272);
+    builder.string(offset, 56, "Offset");
+    builder.string(offset, 72, "offset");
+    builder.set_f32(offset, 100, 1.0);
+    builder.set_i8(offset, 114, 1);
+
+    let offset_generator = builder.object("BSOffsetAnimationGenerator", 176);
+    builder.string(offset_generator, 56, "OffsetGenerator");
+    builder.ptr(graph, 128, offset_generator);
+    builder.ptr(offset_generator, 80, base);
+    builder.ptr(offset_generator, 96, offset);
+    builder.set_f32(offset_generator, 108, 0.0);
+    builder.set_f32(offset_generator, 112, 1.0);
+    let bindings = builder.object("hkbVariableBindingSet", 40);
+    builder.ptr(offset_generator, 16, bindings);
+    let binding = builder.array_structs(bindings, 16, 40, 1);
+    builder.string(binding, 0, "fOffsetVariable");
+    builder.set_i32(binding, 28, 0);
+    builder.set_i32(bindings, 32, -1);
+
+    let bytes = builder.finish();
+    let packfile = Packfile::parse(&bytes).unwrap();
+    BehaviorGraph::from_packfile(&packfile).unwrap()
+}
+
+fn rigid_body_ragdoll_graph(enable: bool) -> BehaviorGraph {
+    use soe_hkx::writer::PackfileBuilder;
+
+    let mut b = PackfileBuilder::new();
+    let container = b.object("hkRootLevelContainer", 16);
+    let graph = b.object("hkbBehaviorGraph", 304);
+    let variant = b.array_structs(container, 0, 24, 1);
+    b.string(variant, 0, "hkbBehaviorGraph");
+    b.string(variant, 8, "hkbBehaviorGraph");
+    b.ptr(variant, 16, graph);
+    b.string(graph, 56, "ANM-46");
+
+    let data = b.object("hkbBehaviorGraphData", 128);
+    let strings = b.object("hkbBehaviorGraphStringData", 80);
+    let values = b.object("hkbVariableValueSet", 64);
+    b.ptr(graph, 136, data);
+    b.ptr(data, 120, strings);
+    b.ptr(data, 112, values);
+    b.array_strings(strings, 16, &[]);
+    b.array_strings(strings, 48, &[]);
+    b.array_u32(data, 64, &[]);
+    b.array_i32(values, 16, &[]);
+
+    let wrapper = b.object("hkbModifierGenerator", 88);
+    let modifier = b.object("hkbRigidBodyRagdollControlsModifier", 160);
+    let bones = b.object("hkbBoneIndexArray", 64);
+    b.ptr(graph, 128, wrapper);
+    b.string(wrapper, 56, "ControlsWrapper");
+    b.ptr(wrapper, 72, modifier);
+    b.string(modifier, 56, "RigidBodyControls");
+    b.set_bool(modifier, 72, enable);
+    for (index, value) in [
+        0.1, 0.2, 0.3, 0.4, 0.5, 6.0, 7.0, 0.8, 9.0, 10.0, 11.0, 12.0,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        b.set_f32(modifier, 80 + u32::try_from(index * 4).unwrap(), value);
+    }
+    b.set_f32(modifier, 128, 0.75);
+    b.array_i16(bones, 48, &[1, 5, 12]);
+    b.ptr(modifier, 144, bones);
+
+    let pf = Packfile::parse(&b.finish()).unwrap();
+    BehaviorGraph::from_packfile(&pf).unwrap()
+}
+
+fn rigid_body_ragdoll_blender_graph() -> BehaviorGraph {
+    use soe_hkx::writer::PackfileBuilder;
+
+    let mut b = PackfileBuilder::new();
+    let container = b.object("hkRootLevelContainer", 16);
+    let graph = b.object("hkbBehaviorGraph", 304);
+    let variant = b.array_structs(container, 0, 24, 1);
+    b.string(variant, 0, "hkbBehaviorGraph");
+    b.string(variant, 8, "hkbBehaviorGraph");
+    b.ptr(variant, 16, graph);
+    b.string(graph, 56, "ANM-46 blender");
+
+    let data = b.object("hkbBehaviorGraphData", 128);
+    let strings = b.object("hkbBehaviorGraphStringData", 80);
+    let values = b.object("hkbVariableValueSet", 64);
+    b.ptr(graph, 136, data);
+    b.ptr(data, 120, strings);
+    b.ptr(data, 112, values);
+    b.array_strings(strings, 16, &[]);
+    b.array_strings(strings, 48, &[]);
+    b.array_u32(data, 64, &[]);
+    b.array_i32(values, 16, &[]);
+
+    let blender = b.object("hkbBlenderGenerator", 112);
+    b.ptr(graph, 128, blender);
+    b.string(blender, 56, "ControlBlender");
+    b.set_i16(blender, 88, -1);
+    let children = [
+        b.object("hkbBlenderGeneratorChild", 72),
+        b.object("hkbBlenderGeneratorChild", 72),
+    ];
+    for (index, ((child, child_weight), value)) in children
+        .into_iter()
+        .zip([1.0, 3.0])
+        .zip([2.0, 4.0])
+        .enumerate()
+    {
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let modifier = b.object("hkbRigidBodyRagdollControlsModifier", 160);
+        b.ptr(child, 48, wrapper);
+        b.set_f32(child, 64, child_weight);
+        b.string(wrapper, 56, &format!("Wrapper{index}"));
+        b.ptr(wrapper, 72, modifier);
+        b.string(modifier, 56, &format!("Controls{index}"));
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, value);
+    }
+    b.array_ptrs(blender, 96, &children);
+
+    let pf = Packfile::parse(&b.finish()).unwrap();
+    BehaviorGraph::from_packfile(&pf).unwrap()
+}
+
 fn clip_named(g: &BehaviorGraph, name: &str) -> NodeId {
     g.find_by_name(name).unwrap().id
+}
+
+fn cyclic_blend_graph() -> BehaviorGraph {
+    let mut graph = load(&Root::Blender { parametric: true });
+    let blender_generator = graph.root.expect("blender root");
+    let wrapper = NodeId(graph.nodes.len());
+    graph.nodes.push(Node {
+        id: wrapper,
+        offset: 0,
+        class: "BSCyclicBlendTransitionGenerator".into(),
+        name: "CyclicBlend".into(),
+        user_data: 0,
+        bindings: None,
+        kind: NodeKind::CyclicBlendTransition {
+            blender_generator: Some(blender_generator),
+            event_to_freeze_blend_value: EventProperty {
+                id: 10,
+                has_payload: false,
+            },
+            event_to_cross_blend: EventProperty {
+                id: 11,
+                has_payload: false,
+            },
+            blend_parameter: 0.0,
+            transition_duration: 0.5,
+            blend_curve: 2,
+        },
+    });
+    graph.root = Some(wrapper);
+    graph
+}
+
+#[test]
+fn anm_18_bound_offset_samples_the_offset_clip_over_the_base_pose() {
+    let graph = offset_graph();
+    let mut clips = ClipLibrary::new();
+    clips.insert(linear_clip("base", 10.0, 30.0));
+    clips.insert(linear_clip("offset", 2.0, 6.0));
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    assert!(vm.variables.set_by_name("Offset", 0.5));
+
+    let output = vm.update(0.5);
+
+    assert!(close(output.pose[1].translation[0], 22.0));
+    assert_eq!(vm.bound_count(), 1);
+    assert_eq!(vm.active_clips().len(), 2);
+}
+
+#[test]
+fn anm_18_offset_range_clamps_values_at_both_ends() {
+    for (value, expected) in [(-1.0, 20.0), (2.0, 24.0)] {
+        let graph = offset_graph();
+        let mut clips = ClipLibrary::new();
+        clips.insert(linear_clip("base", 10.0, 30.0));
+        clips.insert(linear_clip("offset", 2.0, 6.0));
+        let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+        assert!(vm.variables.set_by_name("Offset", value));
+
+        let output = vm.update(0.5);
+
+        assert!(close(output.pose[1].translation[0], expected));
+    }
 }
 
 #[test]
@@ -117,6 +329,86 @@ fn the_sampler_and_the_clip_agree_on_the_ramp() {
     assert!(close(sampled_x(&lib, "mt_idle", 1.0), 20.0));
     assert!(close(sampled_x(&lib, "MT_WALKFORWARD", 0.25), 105.0));
     assert_eq!(lib.get("mt_idle").unwrap().track_to_bone(), &[1]);
+}
+
+#[test]
+fn anm_46_authored_rigid_body_controls_reach_output_with_declared_values() {
+    let graph = rigid_body_ragdoll_graph(true);
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    let output = vm.update(1.0 / 60.0);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 1);
+    let controls = &output.rigid_body_ragdoll_controls[0];
+    assert_eq!(
+        controls.control_data,
+        [0.1, 0.2, 0.3, 0.4, 0.5, 6.0, 7.0, 0.8, 9.0, 10.0, 11.0, 12.0]
+    );
+    assert_eq!(controls.duration_to_blend, 0.75);
+    assert_eq!(controls.bones.as_deref(), Some(&[1, 5, 12][..]));
+    assert_eq!(controls.weight, 1.0);
+}
+
+#[test]
+fn anm_46_disabled_rigid_body_controls_do_not_reach_output() {
+    let graph = rigid_body_ragdoll_graph(false);
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    assert!(vm.update(1.0 / 60.0).rigid_body_ragdoll_controls.is_empty());
+}
+
+#[test]
+fn anm_46_transition_weights_scale_rigid_body_controls() {
+    use soe_hkx::interp::{blend_outputs, Output, RigidBodyRagdollControlOutput};
+    let mut from = Output {
+        pose: reference_pose(),
+        world_from_model: QsTransform::IDENTITY,
+        foot_ik_controls: None,
+        bone_weights: vec![0.0; 2],
+        weight: 0.0,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: vec![RigidBodyRagdollControlOutput {
+            control_data: [1.0; 12],
+            duration_to_blend: 0.5,
+            bones: None,
+            weight: 1.0,
+        }],
+    };
+    let to = Output {
+        pose: reference_pose(),
+        world_from_model: QsTransform::IDENTITY,
+        foot_ik_controls: None,
+        bone_weights: vec![0.0; 2],
+        weight: 0.0,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: vec![RigidBodyRagdollControlOutput {
+            control_data: [2.0; 12],
+            duration_to_blend: 1.0,
+            bones: Some(vec![3]),
+            weight: 1.0,
+        }],
+    };
+    from.rigid_body_ragdoll_controls[0].weight = 0.25;
+    let output = blend_outputs(&from, &to, 0.4);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 2);
+    assert_eq!(output.rigid_body_ragdoll_controls[0].weight, 0.15);
+    assert_eq!(output.rigid_body_ragdoll_controls[1].weight, 0.4);
+}
+
+#[test]
+fn anm_46_blender_weights_scale_rigid_body_controls() {
+    let graph = rigid_body_ragdoll_blender_graph();
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    let output = vm.update(1.0 / 60.0);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 2);
+    assert_eq!(
+        output
+            .rigid_body_ragdoll_controls
+            .iter()
+            .map(|control| control.weight)
+            .collect::<Vec<_>>(),
+        [0.25, 0.75]
+    );
 }
 
 #[test]
@@ -209,6 +501,39 @@ fn idle_plays_then_a_trigger_starts_the_walk_blend() {
 }
 
 #[test]
+fn anm_19_selected_bone_child_overlays_only_its_authored_bones() {
+    let mut g = load(&Root::Machine);
+    let idle = clip_named(&g, "IdleClip");
+    let walk = clip_named(&g, "WalkClip");
+    let root = g.root.unwrap();
+    g.nodes[root.0].kind = NodeKind::BoneSwitch {
+        default_generator: Some(walk),
+        children: vec![BoneSwitchChild {
+            generator: Some(idle),
+            bone_weights: Some(vec![0.0, 1.0]),
+        }],
+    };
+    let lib = library();
+    let untouched = QsTransform {
+        translation: [0.0, 0.0, 60.0, 0.0],
+        ..QsTransform::IDENTITY
+    };
+    let mut vm = Interpreter::new(&g, &lib, vec![QsTransform::IDENTITY, untouched]);
+
+    let out = vm.update(DT);
+    assert_eq!(out.pose[0], QsTransform::IDENTITY, "unmasked bone changed");
+    assert!(
+        close(out.pose[1].translation[0], sampled_x(&lib, "mt_idle", DT)),
+        "masked bone did not use the child generator: {:?}",
+        out.pose[1]
+    );
+    assert_eq!(
+        out.pose[1].translation[2], 0.0,
+        "masked bone kept default pose"
+    );
+}
+
+#[test]
 fn a_bound_playback_speed_scales_the_walk() {
     let g = load(&Root::Machine);
     let lib = library();
@@ -262,6 +587,74 @@ fn a_blender_mixes_children_by_normalized_weight() {
     );
     assert!(close(out.weight, 1.0));
     assert_eq!(vm.active_clips().len(), 2);
+}
+
+#[test]
+fn anm_21_freeze_event_holds_the_current_blend_parameter() {
+    let graph = cyclic_blend_graph();
+    let clips = library();
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    let root = graph.root.unwrap();
+    vm.variables.set_by_name("Speed", 1.0);
+    vm.update(DT);
+    vm.send_event(10);
+    vm.update(DT);
+    vm.variables.set_by_name("Speed", 0.0);
+    let output = vm.update(DT);
+    let walk = graph.node(graph.root.unwrap()).children()[0];
+    let walk = graph.node(walk).children()[1];
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            sampled_x(&clips, "mt_walkforward", vm.clip_time(walk).unwrap())
+        ),
+        "freeze keeps the parameter at the walk child"
+    );
+    assert!(vm.is_active(root));
+}
+
+#[test]
+fn anm_21_cross_blend_uses_authored_duration_and_curve() {
+    let graph = cyclic_blend_graph();
+    let clips = library();
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    let blender = graph.node(graph.root.unwrap()).children()[0];
+    vm.variables.set_by_name("Speed", 1.0);
+    vm.update(DT);
+    vm.send_event(10);
+    vm.update(DT);
+    vm.variables.set_by_name("Speed", 0.0);
+    vm.update(DT);
+    vm.send_event(11);
+    vm.update(DT);
+    let output = vm.update(0.125).clone();
+    let idle = graph.node(blender).children()[0];
+    let walk = graph.node(blender).children()[1];
+    let idle_time = vm.clip_time(idle).unwrap();
+    let walk_time = vm.clip_time(walk).unwrap();
+    let idle_value = sampled_x(&clips, "mt_idle", idle_time);
+    let walk_value = sampled_x(&clips, "mt_walkforward", walk_time);
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            idle_value * 0.75 + walk_value * 0.25
+        ),
+        "curve 2 reaches its authored 0.75 weight at half of the 0.5 s duration"
+    );
+    for _ in 0..2 {
+        vm.update(0.125);
+    }
+    let output = vm.output();
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            sampled_x(&clips, "mt_idle", vm.clip_time(idle).unwrap())
+        ),
+        "the authored duration completes the blend after 0.5 s: output {}, idle {}, walk {:?}",
+        output.pose[1].translation[0],
+        sampled_x(&clips, "mt_idle", vm.clip_time(idle).unwrap()),
+        vm.clip_time(walk)
+    );
 }
 
 #[test]
@@ -349,6 +742,46 @@ fn anm_04_masked_blend_changes_only_authored_bones() {
 }
 
 #[test]
+fn anm_53_bound_pointer_variable_changes_blender_bone_mask_live() {
+    let bytes = common::graph_with_bound_mask(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [Some(&[1.0, 0.0]), Some(&[0.0, 1.0])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let blender = graph.node(graph.root.unwrap()).clone();
+    let NodeKind::Blender(blender) = blender.kind else {
+        panic!("fixture root must be a blender");
+    };
+    let first_mask = blender.children[0].bone_weights_pointer.unwrap();
+    let second_mask = blender.children[1].bone_weights_pointer.unwrap();
+
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    assert_eq!(vm.bound_count(), 2, "{:?}", vm.unsupported().unbound);
+    assert_eq!(vm.variables.pointer(0), Some(Some(first_mask)));
+    let first = vm.update(DT).clone();
+    assert!(close(
+        first.pose[1].translation[0],
+        sampled_x(&lib, "mt_walkforward", DT)
+    ));
+    assert_eq!(first.bone_weights, [0.25, 0.75]);
+
+    assert!(vm.variables.set_pointer(0, Some(second_mask)));
+    assert!(!vm.variables.set_pointer(1, Some(second_mask)));
+    let changed = vm.update(DT).clone();
+    assert_eq!(changed.pose[0], reference_pose()[0]);
+    assert!(close(
+        changed.pose[1].translation[0],
+        0.25 * sampled_x(&lib, "mt_idle", 2.0 * DT)
+            + 0.75 * sampled_x(&lib, "mt_walkforward", 2.0 * DT)
+    ));
+    assert_eq!(changed.bone_weights, [0.0, 1.0]);
+}
+
+#[test]
 fn masked_out_and_unspecified_bones_keep_reference_pose() {
     let bytes = common::graph_with_masks(
         &Root::Blender { parametric: false },
@@ -409,8 +842,12 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
             };
             2
         ],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![1.0, 0.0],
         weight: 1.0,
+        foot_ik_controls: None,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let b = Output {
         pose: vec![
@@ -420,8 +857,12 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
             };
             2
         ],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![0.0, 1.0],
         weight: 1.0,
+        foot_ik_controls: None,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let output = blend_outputs(&a, &b, 0.5);
     assert_eq!(output.pose[0].translation[0], 10.0);
@@ -466,13 +907,21 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
             translation: [10.0, 0.0, 0.0, 0.0],
             ..QsTransform::IDENTITY
         }],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![1.0],
         weight: 1.0,
+        foot_ik_controls: None,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let to = Output {
         pose: vec![QsTransform::IDENTITY],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![0.0],
         weight: 1.0,
+        foot_ik_controls: None,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     assert_eq!(blend_outputs(&from, &to, 0.0), from);
     assert_eq!(blend_outputs(&from, &to, 1.0), to);
@@ -480,7 +929,6 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
 
 #[test]
 fn nonempty_bone_mask_without_payload_is_rejected() {
-    use soe_hkx::writer::PackfileBuilder;
     let mut builder = PackfileBuilder::new();
     let mask = builder.object("hkbBoneWeightArray", 64);
     builder.set_i32(mask, 56, 1);
