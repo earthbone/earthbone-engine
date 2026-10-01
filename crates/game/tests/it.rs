@@ -297,6 +297,10 @@ mod cmb_10_quality_adversarial;
 mod cmb_14_stagger;
 #[path = "cmb_15_adversarial.rs"]
 mod cmb_15_adversarial;
+#[path = "cmb_15_breaker2_adversarial.rs"]
+mod cmb_15_breaker2_adversarial;
+#[path = "cmb_15_breaker_adversarial.rs"]
+mod cmb_15_breaker_adversarial;
 #[path = "cmb_17_adversarial.rs"]
 mod cmb_17_adversarial;
 #[path = "cmb_17_combat_engagement.rs"]
