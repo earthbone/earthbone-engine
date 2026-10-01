@@ -1603,10 +1603,7 @@ impl World {
             }
             _ => return Err(MagicError::Unsupported("location delivery")),
         };
-        if self.reference(source).is_none()
-            || (definition.data.delivery != 4 && self.actor(target).is_none())
-            || (definition.data.delivery == 4 && self.reference(target).is_none())
-        {
+        if self.reference(source).is_none() || self.reference(target).is_none() {
             return Err(MagicError::Target);
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
