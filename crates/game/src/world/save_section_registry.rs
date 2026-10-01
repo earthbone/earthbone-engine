@@ -76,6 +76,18 @@ fn read_expression_override(
     World::read_expression_override(actor, reader)
 }
 
+fn write_scr_12(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_scr_12(actor, writer);
+}
+
+fn read_scr_12(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_12(actor, reader)
+}
+
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::super::progression::write_character_progression(actor, writer);
 }
@@ -197,6 +209,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
+    Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
 ];
 
 fn write_stagger_metadata(

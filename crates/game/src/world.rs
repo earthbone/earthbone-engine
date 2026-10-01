@@ -390,6 +390,8 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+    /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
+    pub head_tracking: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

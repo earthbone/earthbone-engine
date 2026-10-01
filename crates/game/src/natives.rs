@@ -1328,6 +1328,13 @@ fn actor(vm: &mut Vm, w: &Shared) {
         world.set_actor_essential(me, call.arg(0).as_bool());
         none()
     });
+    method!(vm, w, "Actor", "SetHeadTracking", |world, call, me| {
+        let enabled = call.args.first().is_none_or(Value::as_bool);
+        if let Err(error) = world.set_head_tracking(me, enabled) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -3852,7 +3859,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
-        ("Actor", "SetHeadTracking"),
+        ("Actor", "ShowGiftMenu"),
         ("Actor", "ShowBarterMenu"),
         ("Actor", "OpenInventory"),
         ("Actor", "SendTrespassAlarm"),

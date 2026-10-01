@@ -541,6 +541,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
     }
+    match a.head_tracking {
+        None => h.u32(0),
+        Some(false) => h.u32(1),
+        Some(true) => h.u32(2),
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

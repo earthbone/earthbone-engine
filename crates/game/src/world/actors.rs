@@ -46,6 +46,59 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Set the actor's head-tracking flag.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor.
+    pub fn set_head_tracking(&mut self, id: GlobalFormId, enabled: bool) -> Result<(), String> {
+        let actor = self
+            .actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?;
+        actor.head_tracking = Some(enabled);
+        Ok(())
+    }
+
+    /// Whether head tracking is enabled, using the CK default when unset.
+    #[must_use]
+    pub fn head_tracking(&mut self, id: GlobalFormId) -> Option<bool> {
+        self.actor(id)
+            .map(|actor| actor.head_tracking.unwrap_or(true))
+    }
+
+    pub(super) fn write_scr_12(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+        match actor.head_tracking {
+            None => writer.u8(0),
+            Some(enabled) => {
+                writer.u8(1);
+                writer.u8(u8::from(enabled));
+            }
+        }
+    }
+
+    pub(super) fn read_scr_12(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), soe_papyrus::VmError> {
+        actor.head_tracking = match reader.u8()? {
+            0 => None,
+            1 => match reader.u8()? {
+                0 => Some(false),
+                1 => Some(true),
+                _ => {
+                    return Err(soe_papyrus::VmError::State(
+                        "invalid SCR-12 head tracking value".into(),
+                    ))
+                }
+            },
+            _ => {
+                return Err(soe_papyrus::VmError::State(
+                    "invalid SCR-12 head tracking flag".into(),
+                ))
+            }
+        };
+        Ok(())
+    }
+
     /// Set a CK expression override on an actor.
     ///
     /// # Errors
