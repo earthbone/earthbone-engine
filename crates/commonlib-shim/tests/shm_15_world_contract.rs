@@ -20,7 +20,7 @@ fn shm_15_cpp_world_contract_compiles_and_runs() {
 struct Fixture final : RE::TES {
     std::optional<RE::Setting> setting(const std::string& name) const override {
         return RE::Setting{name,
-            RE::SettingValue{RE::SettingValue::Type::Float, false, 0, 3.5F, {}}};
+            RE::SettingValue{RE::SettingValue::Kind::Float, false, 0, 3.5F, {}}};
     }
     RE::Sky sky() const override { return {18.25F}; }
     std::optional<RE::ReanimateEffect> reanimate_effect(std::uint64_t id) const override {
@@ -40,7 +40,7 @@ struct Fixture final : RE::TES {
 int main() {
     Fixture world;
     const auto setting = world.setting("fTest");
-    assert(setting && setting->name == "fTest" && setting->value.real == 3.5F);
+    assert(setting && setting->name == "fTest" && setting->value.float_value == 3.5F);
     assert(world.sky().hour == 18.25F);
     assert(world.reanimate_effect(4)->target.value == 3);
     assert(!world.reanimate_effect(5));
