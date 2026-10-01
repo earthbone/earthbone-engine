@@ -83,6 +83,43 @@ impl Tree {
         }
     }
 
+    fn hover_parameters(&self, branch: &Branch) -> Option<f32> {
+        let height = branch.inputs.iter().find_map(|&index| {
+            self.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(height)) if height.is_finite() => Some(height),
+                    _ => None,
+                }
+            })
+        })?;
+        self.location(branch).map(|_| height)
+    }
+
+    fn orbit_parameters(&self, branch: &Branch) -> Option<f32> {
+        let values = branch
+            .inputs
+            .iter()
+            .filter_map(|&index| {
+                self.chain.iter().find_map(|(_, package)| {
+                    match package.input(index as i8).map(|input| input.value) {
+                        Some(DataValue::Float(value)) => Some(value),
+                        _ => None,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let [inner, outer, height] = values.as_slice() else {
+            return None;
+        };
+        (inner.is_finite()
+            && outer.is_finite()
+            && height.is_finite()
+            && *inner >= 0.0
+            && *outer >= *inner)
+            .then_some(*height)
+            .filter(|_| self.location(branch).is_some())
+    }
+
     fn simultaneous_wait(
         &self,
         parent: usize,
@@ -170,10 +207,180 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
+        Some("hover") => Procedure::Hover,
+        Some("follow") => Procedure::Follow,
+        Some("escort") => Procedure::Escort,
+        Some("orbit") => Procedure::Orbit { height: 0.0 },
+        Some("forcegreet") => Procedure::ForceGreet,
+        Some("dialogueactivate") => Procedure::DialogueActivate,
+        Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
+        Some("activate") => Procedure::Activate,
+        Some("find") => Procedure::Find,
+        Some("holdposition") => Procedure::HoldPosition,
         Some("shout") => Procedure::Shout,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
+}
+
+pub(super) fn follow_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, crate::package::Target, f32, f32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let target_input = branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target)),
+                _ => None,
+            }
+        })
+    })?;
+    let radii: Vec<f32> = branch
+        .inputs
+        .iter()
+        .filter_map(|&index| {
+            tree.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(value)) => Some(value),
+                    _ => None,
+                }
+            })
+        })
+        .collect();
+    let catch_up_radius = radii.first().copied().unwrap_or(20.0);
+    let follow_radius = radii.get(1).copied().unwrap_or(5.0);
+    if !catch_up_radius.is_finite()
+        || !follow_radius.is_finite()
+        || catch_up_radius < follow_radius
+        || follow_radius < 0.0
+    {
+        return None;
+    }
+    Some((
+        target_input.0,
+        target_input.1,
+        catch_up_radius,
+        follow_radius,
+    ))
+}
+
+pub(super) fn escort_target(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, crate::package::Target, i32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target, target.count)),
+                _ => None,
+            }
+        })
+    })
+}
+
+pub(super) fn orbit_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, LocationData, f32, f32, f32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let (owner, location) = tree.location(branch)?;
+    let values = branch
+        .inputs
+        .iter()
+        .filter_map(|&index| {
+            tree.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(value)) => Some(value),
+                    _ => None,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let [inner, outer, height] = values.as_slice() else {
+        return None;
+    };
+    if !inner.is_finite()
+        || !outer.is_finite()
+        || !height.is_finite()
+        || *inner < 0.0
+        || *outer < *inner
+    {
+        return None;
+    }
+    Some((owner, location, *inner, *outer, *height))
+}
+
+pub(super) fn force_greet_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<((GlobalFormId, crate::package::Target), GlobalFormId)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let mut target = None;
+    let mut topic = None;
+    for &index in &branch.inputs {
+        for (owner, package) in &tree.chain {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target_data)) if target.is_none() => {
+                    target = Some((*owner, target_data.target));
+                }
+                Some(DataValue::Topic(crate::package::Topic::Dialogue(raw))) if topic.is_none() => {
+                    topic = world
+                        .resolve_from(*owner, raw)
+                        .filter(|id| world.tag_of(*id) == Some(soe_esm::Tag::new(b"DIAL")));
+                }
+                _ => {}
+            }
+        }
+    }
+    Some((target?, topic?))
+}
+
+pub(super) fn activate_target(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, crate::package::Target)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target)),
+                _ => None,
+            }
+        })
+    })
+}
+
+type FindTarget = (
+    GlobalFormId,
+    crate::package::Target,
+    Option<(GlobalFormId, LocationData)>,
+);
+
+pub(super) fn find_target(world: &World, ai: &AiState) -> Option<FindTarget> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let target = branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target)),
+                _ => None,
+            }
+        })
+    })?;
+    Some((target.0, target.1, tree.location(branch)))
 }
 
 /// Static first procedure for tooling. Random choices have no static first leaf.
@@ -197,6 +404,11 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
                 || Procedure::Unsupported("Wait inputs".into()),
                 |(_, stop_movement)| Procedure::Wait { stop_movement },
             ),
+            Procedure::Hover => tree.hover_parameters(branch).map_or_else(
+                || Procedure::Unsupported("Hover inputs, AI-31".into()),
+                |_| Procedure::Hover,
+            ),
+            Procedure::Follow => Procedure::Follow,
             other => other,
         };
         return (
@@ -310,6 +522,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
                         ai,
                         Procedure::Wait { stop_movement },
                         None,
+                        None,
                     );
                     ai.wait_until = deadline;
                 }
@@ -335,6 +548,8 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
         }
         state.active = true;
         let mut chosen = procedure(branch);
+        let mut location = tree.location(branch);
+        let mut hover_height = None;
         let mut wait_until = None;
         if matches!(chosen, Procedure::Wait { .. }) {
             match tree.wait_parameters(branch) {
@@ -347,8 +562,21 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
                 _ => chosen = Procedure::Unsupported("Wait inputs or clock".into()),
             }
         }
+        if chosen == Procedure::Hover {
+            match tree.hover_parameters(branch) {
+                Some(height) => hover_height = Some(height),
+                None => chosen = Procedure::Unsupported("Hover inputs, AI-31".into()),
+            }
+        }
+        if matches!(chosen, Procedure::Orbit { .. }) {
+            match tree.orbit_parameters(branch) {
+                Some(height) => chosen = Procedure::Orbit { height },
+                None => chosen = Procedure::Unsupported("Orbit inputs, AI-25".into()),
+            }
+        }
         let is_patrol = chosen == Procedure::Patrol;
-        super::begin_procedure(world, actor, ai, chosen, tree.location(branch));
+        ai.tree = Some(state.clone());
+        super::begin_procedure(world, actor, ai, chosen, location.take(), hover_height);
         if is_patrol {
             super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
         }

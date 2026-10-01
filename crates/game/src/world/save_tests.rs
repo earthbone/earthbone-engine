@@ -390,14 +390,21 @@ fn rich_world(namespace: u16) -> World {
     world
 }
 
+fn remove_actor_sections(bytes: &mut Vec<u8>, actor: &ActorState) {
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, actor, ACTOR_SECTIONS);
+    let sections_at = bytes.len() - sections.out.len();
+    bytes.truncate(sections_at);
+}
+
 /// Save `world` the way a version 23 engine would, without the exclusive
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
-/// the hand spell fields that version 32 added, the summon actor link that
-/// version 33 added, the command owner field from version 37, the record
-/// metadata byte from version 35, and movement flags from version 36. Each is
-/// set to a unique sentinel so its serialized bytes can be located exactly,
-/// then cut back out.
+/// the hand spell fields that version 32 added, and the summon actor link
+/// that version 33 added, plus the record metadata byte from version 35.
+/// The AI state added after version 33 is stored in a named actor section.
+/// Each removed field is set to a unique sentinel so its serialized bytes
+/// can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -844,11 +851,29 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
         object: 0x5678,
     });
     actor.graph_floats.insert("speed".into(), 1.5);
+    let bed_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xC000_1000,
+    };
+    let found_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xC100_1000,
+    };
+    actor.ai.bed = Some(bed_sentinel);
+    actor.ai.force_greet_started = true;
+    actor.ai.activate_started = true;
+    actor.ai.found_reference = Some(found_sentinel);
+    actor.ai.dialogue_activate_started = true;
     actor.swimming = true;
     actor.running = false;
     actor.riding_mount = true;
     let mut writer = Writer::new();
     write_actor_state(&mut writer, &actor);
+    remove_actor_sections(&mut writer.out, &actor);
+    actor.ai.force_greet_started = false;
+    actor.ai.activate_started = false;
+    actor.ai.found_reference = None;
+    actor.ai.dialogue_activate_started = false;
     let marker = [1, 0, 0, 3, 0x19, 0, 0];
     let offset = writer
         .out
@@ -877,10 +902,6 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
     actor.swimming = false;
     actor.running = false;
     actor.riding_mount = false;
-    let mut sections = Writer::new();
-    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
-    writer.out.truncate(writer.out.len() - sections.out.len());
-
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
     let restored = read_actor_state(&mut reader, 23).unwrap();
@@ -889,15 +910,12 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
 
 #[test]
 fn no_section_name_repeats_within_or_across_the_three_registries() {
-    fn names<T>(sections: &[save_sections::Section<T>]) -> Vec<&'static str> {
-        sections.iter().fold(Vec::new(), |mut names, section| {
-            names.push(section.name);
-            names
-        })
-    }
-    let mut all = names(WORLD_SECTIONS);
-    all.extend(names(ACTOR_SECTIONS));
-    all.extend(names(REF_SECTIONS));
+    let all: Vec<_> = WORLD_SECTIONS
+        .iter()
+        .map(|section| section.name)
+        .chain(ACTOR_SECTIONS.iter().map(|section| section.name))
+        .chain(REF_SECTIONS.iter().map(|section| section.name))
+        .collect();
     let mut sorted = all.clone();
     sorted.sort_unstable();
     sorted.dedup();
