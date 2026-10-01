@@ -16,9 +16,7 @@ fn edt_02_repeated_queries_keep_winning_ids_and_page_boundaries_stable() {
     let mut base = Plugin::new(FileHeader::default());
     for index in 0..405 {
         let editor_id = format!("Form{index:03}");
-        base.push_top(
-            Record::new(Tag(*b"STAT"), 0x800 + index).zsub(Tag(*b"EDID"), &editor_id),
-        );
+        base.push_top(Record::new(Tag(*b"STAT"), 0x800 + index).zsub(Tag(*b"EDID"), &editor_id));
     }
     let patch = Plugin::new(FileHeader {
         masters: vec!["Base.esm".to_string()],
@@ -35,8 +33,18 @@ fn edt_02_repeated_queries_keep_winning_ids_and_page_boundaries_stable() {
         .search_forms(Some(Tag(*b"STAT")), "form")
         .collect::<Vec<_>>();
     let first_page = first.iter().take(200).copied().collect::<Vec<_>>();
-    let second_page = first.iter().skip(200).take(200).copied().collect::<Vec<_>>();
-    let third_page = first.iter().skip(400).take(200).copied().collect::<Vec<_>>();
+    let second_page = first
+        .iter()
+        .skip(200)
+        .take(200)
+        .copied()
+        .collect::<Vec<_>>();
+    let third_page = first
+        .iter()
+        .skip(400)
+        .take(200)
+        .copied()
+        .collect::<Vec<_>>();
 
     assert_eq!(first, repeat);
     assert_eq!(first.len(), 405);
@@ -61,9 +69,18 @@ fn edt_02_unmatched_or_invalid_signatures_do_not_leak_other_record_types() {
     fs::write(&path, plugin.to_bytes()).unwrap();
     let document = EditorDocument::open(&[path], "Only.esp").unwrap();
 
-    assert_eq!(document.search_forms(Some(Tag(*b"STAT")), "stone").count(), 1);
-    assert_eq!(document.search_forms(Some(Tag(*b"MISC")), "stone").count(), 1);
-    assert!(document.search_forms(Some(Tag(*b"NAVM")), "stone").next().is_none());
+    assert_eq!(
+        document.search_forms(Some(Tag(*b"STAT")), "stone").count(),
+        1
+    );
+    assert_eq!(
+        document.search_forms(Some(Tag(*b"MISC")), "stone").count(),
+        1
+    );
+    assert!(document
+        .search_forms(Some(Tag(*b"NAVM")), "stone")
+        .next()
+        .is_none());
     assert_eq!(document.search_forms(None, "stone").count(), 2);
 }
 
@@ -75,8 +92,19 @@ fn edt_02_empty_query_includes_missing_editor_ids_but_text_query_does_not() {
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x800));
     fs::write(&path, plugin.to_bytes()).unwrap();
     let document = EditorDocument::open(&[path], "MissingId.esp").unwrap();
-    let id = GlobalFormId { file: 0, object: 0x800 };
+    let id = GlobalFormId {
+        file: 0,
+        object: 0x800,
+    };
 
-    assert_eq!(document.search_forms(Some(Tag(*b"STAT")), "").collect::<Vec<_>>(), vec![id]);
-    assert!(document.search_forms(Some(Tag(*b"STAT")), "missing").next().is_none());
+    assert_eq!(
+        document
+            .search_forms(Some(Tag(*b"STAT")), "")
+            .collect::<Vec<_>>(),
+        vec![id]
+    );
+    assert!(document
+        .search_forms(Some(Tag(*b"STAT")), "missing")
+        .next()
+        .is_none());
 }

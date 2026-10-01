@@ -85,7 +85,10 @@ fn edt_06_addition_beyond_signed_triangle_capacity_is_rejected_atomically() {
         .add_navmesh_triangle(FORM, [0, 1, 2], 0, 0)
         .is_err());
     assert_eq!(document.active_plugin(), &before);
-    assert_eq!(read_geometry(&document).triangles.len(), i16::MAX as usize + 1);
+    assert_eq!(
+        read_geometry(&document).triangles.len(),
+        i16::MAX as usize + 1
+    );
     assert!(!document.undo().unwrap());
     let _ = fs::remove_file(plugin_path);
 }
@@ -112,11 +115,8 @@ fn edt_06_deletion_at_each_end_preserves_valid_signed_references_after_reload() 
 
     document.save(&plugin_path).unwrap();
     let saved = Plugin::parse(&fs::read(&plugin_path).unwrap()).unwrap();
-    let round_trip = Geometry::parse(
-        Tag(*b"NAVM"),
-        saved.records[0].find(Tag(*b"NVNM")).unwrap(),
-    )
-    .unwrap();
+    let round_trip =
+        Geometry::parse(Tag(*b"NAVM"), saved.records[0].find(Tag(*b"NVNM")).unwrap()).unwrap();
     assert_eq!(round_trip, changed);
     let _ = fs::remove_file(plugin_path);
 }
