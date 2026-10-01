@@ -1225,6 +1225,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
             }
         }
     });
+    method!(vm, w, "Actor", "IsCommandedActor", |world, _call, me| b(
+        world.is_commanded_actor(me)
+    ));
+    method!(vm, w, "Actor", "IsOnMount", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.riding_mount)));
+    method!(vm, w, "Actor", "IsTrespassing", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.trespassing)));
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -3839,9 +3848,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
-        ("Actor", "IsCommandedActor", false),
-        ("Actor", "IsOnMount", false),
-        ("Actor", "IsTrespassing", false),
         ("Actor", "HasLOS", true),
         ("Actor", "PathToReference", true),
         ("Quest", "IsStarting", false),

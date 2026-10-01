@@ -4,12 +4,13 @@
 //! SCR-09 Actor queries backed by race and shared detection state.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::detection::{DetectionLevel, Error as DetectionError, Motion, Observation};
+use soe_game::detection::{DetectionLevel, Error as DetectionError};
+pub(super) use soe_game::detection::{Motion, Observation};
 use soe_game::Game;
 use soe_papyrus::asm::{b, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::CallMethod, Value};
 
-fn id(object: u32) -> GlobalFormId {
+pub(super) fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
@@ -72,7 +73,7 @@ fn detection_records() -> Vec<Record> {
     records
 }
 
-fn fixture() -> Game {
+pub(super) fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(race(0x800, true));
     plugin.push_top(race(0x801, false));
@@ -90,7 +91,12 @@ fn fixture() -> Game {
     Game::new(order)
 }
 
-fn actor_bool(game: &mut Game, actor: GlobalFormId, method: &str, args: &[Value]) -> bool {
+pub(super) fn actor_bool(
+    game: &mut Game,
+    actor: GlobalFormId,
+    method: &str,
+    args: &[Value],
+) -> bool {
     let class = format!("Scr09{method}");
     let function = format!("Run{method}");
     let mut code = vec![s(method), ident("self"), ident("result")];

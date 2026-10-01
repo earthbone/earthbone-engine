@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-include!("scr_09_actor_queries.rs");
+#[path = "scr_09_actor_queries.rs"]
+mod actor_queries;
+
+use actor_queries::{actor_bool, fixture, id, Motion, Observation};
 
 #[test]
 fn scr_09_detection_query_is_observer_specific_and_missing_actor_is_an_error() {
-    let mut game = fixture();
+    let game = fixture();
     let observation = Observation {
         observer: id(0x901),
         target: id(0x900),
@@ -31,4 +34,21 @@ fn scr_09_detection_query_is_observer_specific_and_missing_actor_is_an_error() {
         .world()
         .is_actor_detected_by(id(0x902), id(0x901))
         .is_err());
+}
+
+#[test]
+fn scr_09_actor_state_queries_read_shared_mount_crime_and_command_state() {
+    let mut game = fixture();
+    assert!(!actor_bool(&mut game, id(0x900), "IsCommandedActor", &[]));
+    assert!(!actor_bool(&mut game, id(0x900), "IsOnMount", &[]));
+    assert!(!actor_bool(&mut game, id(0x900), "IsTrespassing", &[]));
+
+    {
+        let mut world = game.world_mut();
+        let actor = world.actor(id(0x900)).unwrap();
+        actor.riding_mount = true;
+        actor.trespassing = true;
+    }
+    assert!(actor_bool(&mut game, id(0x900), "IsOnMount", &[]));
+    assert!(actor_bool(&mut game, id(0x900), "IsTrespassing", &[]));
 }
