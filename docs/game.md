@@ -111,11 +111,13 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
   `.pex` it answers under `scripts/`, so an install that ships its scripts
-  packed rather than loose still has something for `bind` to attach. `bind`
-  attaches every script the load order names and fills its properties, `start`
-  also starts the quests flagged Start Game Enabled, `tick` advances time,
-  `activate` and `send_event` do what a player or the engine would, `pump`
-  drains what natives queued.
+  packed rather than loose still has something for the binder to attach.
+  `bind` attaches scripts on non-reference forms. Placed-reference scripts
+  attach when their cell is loaded and the VM is pumped, with `bind_cell`
+  available for a specific cell. Missing PEX files are returned in the
+  `BindReport` for the cell. `start` also starts quests flagged Start Game
+  Enabled, `tick` advances time, `activate` and `send_event` do what a player
+  or the engine would, and `pump` drains what natives queued.
 
 ## Design
 
@@ -2039,10 +2041,13 @@ the appearance empty.
 - `SetStage` does not display the log entry or play the quest sound.
 - Missing localized entries come back as `<string N>`. Selected-language
   string tables now load through the VFS, as described below.
-- `bind` attaches every script in the load order at start. The game does this
-  lazily per cell. On the five base masters this is tens of thousands of
-  instances, timed at 0.2 seconds against the installed game (2026-09-17),
-  not a performance concern.
+- `bind` attaches non-reference scripts at start. Placed references attach
+  from the cell index when their cell is loaded. `Game::run_until_idle` binds
+  the focused cell before running queued VM work. The CK `OnCellAttach` page
+  says the event fires for disabled references and precedes `OnCellLoad`.
+  Cell scripts are bound after the `World` transition has queued its events,
+  so this binding step does not synthesize cell events for references that
+  did not already have VM objects.
 - No native has been checked against its CK wiki page yet, see above.
 
 ## Cell transitions (2026-09-18, branch `transitions`)
@@ -3237,7 +3242,8 @@ reevaluation cadence.
 
 Each application gets an `EffectId` and a distinct `ActiveMagicEffect` VM object.
 MGEF scripts are attached when an effect is applied, rather than attached to the
-MGEF form at startup. VMAD properties use the winning MGEF's plugin context.
+MGEF form at startup. `bind` reports missing MGEF PEX files without creating an
+effect object or attaching its scripts. VMAD properties use the winning MGEF's plugin context.
 The queue binds the scripts before sending `OnEffectStart`, and expiry or dispel
 sends `OnEffectFinish`. The getters return the base MGEF, target actor and caster
 while the application is live. Finish handlers may observe absent native state,
