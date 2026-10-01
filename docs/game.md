@@ -2886,6 +2886,7 @@ the live application and finish path reused here. Synthetic
 `mag_48_*` tests cover target selection, restoration of control, and the
 ingestible path. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case.
+
 ### Demoralize, MAG-30
 
 Direct Demoralize effects use the active-effect lifecycle to lower the target's
