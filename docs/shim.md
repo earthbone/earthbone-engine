@@ -189,6 +189,18 @@ read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
 implements for those values. Missing optional values mean the reference has no
 such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
 supported by this engine.
+`World::shim_reference_extras` supplies the game adapter for those five views.
+It borrows the world, reads XLIB, XLIG and map-marker fields through current
+records, and includes live marker names and visibility flags. Incoming links
+are derived from loaded reference state. Missing links are targets absent
+from the form table, rather than merely unloaded references. Derived link
+arrays are sorted and retained only for the lifetime of the world borrow.
+This does not import additional ESS reference extras or expose mutation hooks.
+Field identities follow the local CommonLibSSE-NG-alandtse headers
+`include/RE/E/ExtraLeveledItemBase.h`, `ExtraLightData.h`,
+`ExtraLinkedRefChildren.h`, `ExtraMapMarker.h` and `ExtraMissingLinkedRefIDs.h`.
+Record layouts follow local xEdit `Core/wbDefinitionsTES5.pas` REFR definitions.
+The existing record table supplies these fields without another parser.
 `RE/ExtraData.h` also declares the SHM-10 views for `ExtraMissingRefIDs`,
 `ExtraNorthRotation`, `ExtraOutfitItem`, `ExtraPoison` and `ExtraTeleport`.
 The value field names and types were checked against the alandtse CommonLib

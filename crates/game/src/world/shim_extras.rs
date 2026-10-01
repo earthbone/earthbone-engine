@@ -4,14 +4,120 @@
 //!
 //! Value identities follow the local CommonLibSSE-NG `include/RE/E` headers.
 
-use super::World;
+use super::{le_f32, le_u32, text, World, T};
 use crate::inventory::Field;
 use soe_commonlib_shim::extra_data::{
     DoorTeleportData, ReferenceExtra, ReferenceExtraData, ReferenceExtraKind,
 };
 use soe_commonlib_shim::form::FormId;
 use soe_commonlib_shim::ni::NiPoint3;
-use soe_commonlib_shim::refr::ObjectRefHandle;
+use soe_commonlib_shim::refr::{
+    ExtraLeveledItemBase, ExtraLightData, ExtraMapMarker, LinkedRefChild, MissingLinkedRefId,
+    ObjectRefHandle, ReferenceExtraData as ReferenceExtraView,
+};
+use soe_esm::GlobalFormId;
+
+/// Borrowed reference view. Derived link arrays cannot outlive the world borrow.
+pub struct ReferenceExtrasView<'a> {
+    world: &'a World,
+    reference: GlobalFormId,
+    children: Vec<LinkedRefChild>,
+    missing: Vec<MissingLinkedRefId>,
+}
+
+impl World {
+    /// Read reference extras from current records and loaded reference state.
+    /// Returns no view for a reference that is not loaded.
+    pub fn shim_reference_extras(
+        &self,
+        reference: GlobalFormId,
+    ) -> Option<ReferenceExtrasView<'_>> {
+        let state = self.refs.get(&reference)?;
+        let mut children = Vec::new();
+        for (child, state) in &self.refs {
+            for (keyword, target) in &state.linked {
+                if *target == reference {
+                    children.push(LinkedRefChild {
+                        keyword: FormId(keyword.map_or(0, |id| self.runtime_id(id))),
+                        reference: ObjectRefHandle(self.runtime_id(*child)),
+                    });
+                }
+            }
+        }
+        children.sort_by_key(|entry| (entry.reference.0, entry.keyword.0));
+        let mut missing: Vec<_> = state
+            .linked
+            .iter()
+            .filter(|(_, target)| !self.exists(*target))
+            .map(|(keyword, target)| MissingLinkedRefId {
+                keyword: FormId(keyword.map_or(0, |id| self.runtime_id(id))),
+                linked_reference: FormId(self.runtime_id(*target)),
+            })
+            .collect();
+        missing.sort_by_key(|entry| (entry.keyword.0, entry.linked_reference.0));
+        Some(ReferenceExtrasView {
+            world: self,
+            reference,
+            children,
+            missing,
+        })
+    }
+}
+
+impl ReferenceExtraView for ReferenceExtrasView<'_> {
+    fn leveled_item_base(&self) -> Option<ExtraLeveledItemBase> {
+        let record = self.world.record(self.reference)?;
+        let raw = le_u32(record.find(T(b"XLIB"))?)?;
+        let id = self.world.resolve_from(self.reference, raw)?;
+        Some(ExtraLeveledItemBase {
+            leveled_item: FormId(self.world.runtime_id(id)),
+        })
+    }
+
+    fn light_data(&self) -> Option<ExtraLightData> {
+        let bytes = self.world.record(self.reference)?.find(T(b"XLIG"))?;
+        if !matches!(bytes.len(), 16 | 20) {
+            return None;
+        }
+        Some(ExtraLightData {
+            fov: le_f32(bytes),
+            fade: le_f32(&bytes[4..]),
+            end_distance_cap: le_f32(&bytes[8..]),
+            shadow_depth_bias: le_f32(&bytes[12..]),
+            unknown: bytes.get(16).copied().unwrap_or(0),
+        })
+    }
+
+    fn linked_ref_children(&self) -> &[LinkedRefChild] {
+        &self.children
+    }
+
+    fn map_marker(&self) -> Option<ExtraMapMarker> {
+        let record = self.world.record(self.reference)?;
+        record.find(T(b"XMRK"))?;
+        let state = self.world.refs.get(&self.reference)?;
+        let flags = *record.find(T(b"FNAM"))?.first()?;
+        let marker_type = u16::from(*record.find(T(b"TNAM"))?.first()?);
+        let name = if let Some(name) = &state.display_name {
+            name.clone()
+        } else {
+            let name = text(
+                record.find(T(b"FULL"))?,
+                self.world.record_text_localized(self.reference, T(b"FULL")),
+            );
+            self.world.resolve_text(self.reference, T(b"FULL"), &name)
+        };
+        Some(ExtraMapMarker {
+            name,
+            flags: flags | u8::from(state.on_map) | (u8::from(state.fast_travel) << 1),
+            marker_type,
+        })
+    }
+
+    fn missing_linked_ref_ids(&self) -> &[MissingLinkedRefId] {
+        &self.missing
+    }
+}
 
 impl ReferenceExtraData for World {
     fn extra(
