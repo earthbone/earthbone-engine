@@ -505,6 +505,8 @@ mod hst_04_deleted_reference_sync_adversarial;
 mod hst_04_placement_sync_check;
 #[path = "hst_09_furniture.rs"]
 mod hst_09_furniture;
+#[path = "hst_10_breaker_adversarial.rs"]
+mod hst_10_breaker_adversarial;
 #[path = "hst_11_adversarial.rs"]
 mod hst_11_adversarial;
 #[path = "hst_11_sleep.rs"]
