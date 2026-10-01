@@ -826,6 +826,40 @@ Their CK contracts are described by
   false until the task completes. SOEW version 37 retains those tasks in the
   `SAV-10` world section.
 
+### Scene and scroll native contracts, SCR-69
+
+The registry inventory is `Scene.Start`, `Scene.ForceStart`, `Scene.Stop`,
+`Scene.IsPlaying`, `Scene.GetOwningQuest`, `Scene.IsActionComplete`, and
+`Scroll.Cast`. The local vanilla `Scene.psc` and `Scroll.psc` declare all seven
+method signatures and summarize their contracts. The matching CK named function
+pages are absent from the local corpus. CK's `GetOwningQuest - Alias` page
+confirms the return type and owning-quest meaning for aliases, while it does not
+document the Scene method. The available `GetCurrentScene - ObjectReference`
+CK page is for a different binding.
+
+`Scene.Start` starts a valid, inactive scene and sends `OnBegin`; its record
+must have phase bounds the current runtime accepts. `Scene.Stop` ends a running
+scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
+`Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
+quest field. These behaviors match the local PSC summaries.
+
+`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
+action list, following the existing scene action state and the vanilla scenes
+that reuse authored action numbers. It reports whether that slot completed in
+the current run. Negative and unknown slots return false. The previous
+constant-false stub is now backed by the same completed slot set that gates
+phase advancement.
+
+`Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
+must also end scenes running on references in the forced scene. Actor action
+ownership is not yet dispatched, so DLG-18 and DLG-19 own the scene action
+dispatch needed before that conflict behavior can be implemented.
+`Scroll.Cast` remains a quiet stub. Its PSC contract takes a source and an
+optional target and performs a scroll cast. MAG-18 owns scroll casting and
+selected inventory instance consumption. The `scr_69_` tests call each listed
+binding through Papyrus dispatch and verify `IsActionComplete` before and after
+the action slot is marked complete.
+
 ## Tests
 
 Installed integration tests use `tests/common/installed.rs`. Each test
