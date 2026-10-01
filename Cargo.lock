@@ -1465,6 +1465,7 @@ dependencies = [
  "soe-audio",
  "soe-bsa",
  "soe-dds",
+ "soe-editor",
  "soe-esm",
  "soe-game",
  "soe-hkx",

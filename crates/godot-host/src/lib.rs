@@ -59,6 +59,8 @@ pub mod godot_audio;
 #[cfg(feature = "godot")]
 pub mod godot_combat;
 #[cfg(feature = "godot")]
+pub mod godot_forms;
+#[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
 pub mod godot_particle;

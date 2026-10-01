@@ -202,7 +202,9 @@ does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
 order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
 `SKI_ConfigManager.psc` sources.
 The tests assemble equivalent lifecycle methods in Papyrus bytecode. They do
-not execute an unmodified SkyUI script, so full script compatibility is
+not execute an unmodified SkyUI script. `ui_05_original_skyui_source_defines_lifecycle_order`
+checks the original source when `SOE_SKYUI_CONFIG_BASE` names its
+`SKI_ConfigBase.psc` path. Full compatibility with the compiled script remains
 unverified.
 
 ### Furniture activation, HST-09
@@ -2603,11 +2605,17 @@ are unknown. Each finding identifies whether it affects world or VM state.
 The method reads the save envelope and does not mutate the game.
 
 `Game::preflight_vanilla_dependencies` compares ESS plugin names and Papyrus
-script names from definitions, instances, references, active frames, queued
-messages and suspended calls with the current definitions. It reports missing
-plugins and scripts, regular/light kind changes and unknown provenance for
-each saved plugin or script because ESS stores no content fingerprints. A
-malformed Papyrus block returns an error. Findings have a stable ordering.
+script names from definitions, inherited parent definitions, instances,
+references, active frames, queued messages and suspended calls with the current
+definitions. It reports missing plugins and scripts, regular/light kind
+changes and unknown provenance for each saved plugin or script because ESS
+stores no content fingerprints. A malformed Papyrus block returns an error.
+Findings have a stable ordering.
+The field boundary follows UESP `Save_File_Format.wikitext` and FallrimTools
+`PluginInfo.java` and `papyrus/Script.java`, which expose saved plugin and
+script identities without content fingerprints. `tests/sav_57_preflight.rs`
+checks native and synthetic ESS differences, byte-preserving preflight, and a
+`SKYRIM_DATA`-gated survey using installed masters and a loaded PEX script.
 
 `Game::write_file` serializes and validates native state before replacing an
 existing file. `Game::write_state_file` accepts previously serialized bytes and
@@ -4905,9 +4913,11 @@ the shared appearance view described below. SPID `Skin` distributions are
 selected before the NPC's direct skin and the race fallback when assembling an
 actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
-distribution is keyed by the NPC base and comes from the current load-time
-mod-data pass. Per-actor SPID lifecycle and deterministic seeding remain
-unsupported.
+load pass resolves distributions by NPC base. Deterministic SPID rules are
+evaluated as each actor is built, with the seed combining the parsed entry
+value, save character ID and actor runtime FormID. A host can set this input
+with `World::set_player_character_id`. It is runtime metadata and is not
+serialized by the engine.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.
@@ -5044,11 +5054,16 @@ the lock and inventory unchanged. A successful turn unlocks through `set_locked`
 A miss removes one pick through the notified inventory transaction. The host
 then runs ordinary activation after success. The sweet spot is derived from
 the reference FormID. XLOC level narrows the angle window and Lockpicking skill
-increases it, with a two-degree minimum. CK lock pages and xEdit's XLOC layout
-define lock-level ranges, not the menu's angular rule, so the angle behavior
-is runtime policy. The `ui_08` tests cover opening after a successful turn,
-pick consumption after a failed turn and the key-only lock restriction. No
-saved state was added.
+increases it, with a two-degree minimum. CK `GetLockLevel` defines 0 to 1 as
+Novice, 2 to 25 as Apprentice, 26 to 50 as Adept, 51 to 75 as Expert, 76 to
+254 as Master, and 255 as Requires Key. xEdit's `wbDefinitionsTES5.pas`
+defines XLOC as a level byte, three unused bytes, a KEYM link, a flags byte,
+three unused bytes and eight trailing unused bytes. The parser accepts the
+documented truncated forms of that structure. These sources define lock-level
+ranges and key-only locks, not the menu's angular rule, so the angle behavior
+is runtime policy. The `ui_08` tests cover successful unlock and subsequent
+activation, failed-turn pick consumption, key-only refusal, malformed XLOC,
+and invalid-angle preservation. No saved state was added.
 
 Vanilla minigame feel and timing, key-use messages, crime handling, reciprocal
 door lock synchronization and `Lock`'s abAsOwner public/private-cell effect
@@ -5077,14 +5092,17 @@ table and record-backed base queries. Their runtime state uses the existing
 SOEW reference encoding. See [save.md](save.md#reference-placements) for
 sources, validation and the limits of this intermediate reconstruction pass.
 
-For reference headers with the generic form-flags bit, the pass applies the
-`Mask Invert Flags` word to authored `INITIALLY_DISABLED` and `PERSISTENT`
-record bits with XOR. It accepts only ESS header version 12, form version 78
-and change-form version 78 when that mask is present. The second 16-bit word
-is retained in the report and does not affect these two runtime properties.
-The effective persistence value feeds cell-unload retention and
-encounter-zone reset decisions. SOEW version 37 stores it with each reference.
-Older SOEW states derive persistence from the current winning record.
+For reference headers with the generic form-flags bit, the pass retains both
+words in its report and leaves enable and persistence derived from the winning
+record. It accepts only ESS header version 12, form version 78 and change-form
+version 78 when that mask is present. The test
+`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks all
+four authored combinations, several values in both mask words, the persistence
+query and engine save/load. It describes this loader's current
+behavior, not an independently verified Skyrim save operation. The effective
+persistence value feeds cell-unload retention and encounter-zone reset
+decisions. SOEW version 37 stores it with each reference. Older SOEW states
+derive persistence from the current winning record.
 
 ## Inventory instances and ESS application, work in progress
 

@@ -681,6 +681,10 @@ mod magic;
 mod magic_archetypes;
 #[path = "mod_01_adversarial.rs"]
 mod mod_01_adversarial;
+#[path = "mod_01_breaker2_adversarial.rs"]
+mod mod_01_breaker2_adversarial;
+#[path = "mod_01_breaker_adversarial.rs"]
+mod mod_01_breaker_adversarial;
 #[path = "mod_02_adversarial.rs"]
 mod mod_02_adversarial;
 #[path = "mod_03_adversarial.rs"]
@@ -817,8 +821,16 @@ mod sav_48_adversarial;
 mod sav_50_adversarial;
 #[path = "sav_52_adversarial.rs"]
 mod sav_52_adversarial;
+#[path = "sav_54_adversarial.rs"]
+mod sav_54_adversarial;
+#[path = "sav_54_breaker_adversarial.rs"]
+mod sav_54_breaker_adversarial;
 #[path = "sav_56_provenance.rs"]
 mod sav_56_provenance;
+#[path = "sav_57_adversarial.rs"]
+mod sav_57_adversarial;
+#[path = "sav_57_breaker_adversarial.rs"]
+mod sav_57_breaker_adversarial;
 #[path = "sav_57_preflight.rs"]
 mod sav_57_preflight;
 #[path = "sav_58_adversarial.rs"]
@@ -1083,12 +1095,14 @@ mod tst_16_adversarial;
 mod tst_16_test_binary;
 #[path = "ui_03_magic_menu.rs"]
 mod ui_03_magic_menu;
-#[path = "ui_05_breaker_adversarial.rs"]
-mod ui_05_breaker_adversarial;
+#[path = "ui_05_adversarial.rs"]
+mod ui_05_adversarial;
 #[path = "ui_05_mcm.rs"]
 mod ui_05_mcm;
 #[path = "ui_07_character_traits.rs"]
 mod ui_07_character_traits;
+#[path = "ui_08_adversarial.rs"]
+mod ui_08_adversarial;
 #[path = "ui_08_breaker_adversarial.rs"]
 mod ui_08_breaker_adversarial;
 #[path = "ui_08_lockpicking.rs"]
