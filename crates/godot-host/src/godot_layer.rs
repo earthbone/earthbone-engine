@@ -99,6 +99,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Point lights for active magic effects that placed LIGH references.
+    runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -213,6 +215,38 @@ struct EffectShaderInstance {
     material: Gd<StandardMaterial3D>,
     remaining: Option<f32>,
     cell: Option<GlobalFormId>,
+}
+
+/// One runtime light attached to a RenderingServer scenario, without a node.
+struct RuntimeLight {
+    light: Rid,
+    instance: Rid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LightRenderData {
+    radius: f32,
+    color: [f32; 3],
+    negative: bool,
+}
+
+fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
+    if record.tag != soe_esm::Tag::new(b"LIGH") {
+        return None;
+    }
+    let data = record.find(soe_esm::Tag::new(b"DATA"))?;
+    if data.len() < 48 {
+        return None;
+    }
+    let radius = u32::from_le_bytes(data[4..8].try_into().ok()?) as f32;
+    if !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    Some(LightRenderData {
+        radius: radius * crate::units::METRES_PER_UNIT,
+        color: [data[8], data[9], data[10]].map(|channel| f32::from(channel) / 255.0),
+        negative: u32::from_le_bytes(data[12..16].try_into().ok()?) & (1 << 2) != 0,
+    })
 }
 
 impl Drop for CellStreamerNode {
@@ -346,6 +380,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -369,6 +404,7 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.clear_terrain_lod();
         self.collision.free();
         self.tethers.free();
@@ -625,6 +661,7 @@ impl CellStreamerNode {
             }
         }
         let mut server = RenderingServer::singleton();
+        self.sync_runtime_lights(world, &mut server);
         for instance in &mut self.instances {
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
@@ -684,6 +721,88 @@ impl CellStreamerNode {
 
     fn tether_endpoints(&self) -> Vec<GlobalFormId> {
         self.tethers.endpoints()
+    }
+
+    fn sync_runtime_lights(&mut self, world: &soe_game::World, server: &mut Gd<RenderingServer>) {
+        let mut active: Vec<_> = world
+            .active_effects()
+            .filter_map(|effect| effect.summoned)
+            .filter(|reference| {
+                world
+                    .reference_ref(*reference)
+                    .and_then(|reference| reference.base)
+                    .and_then(|base| world.record(base))
+                    .is_some_and(|record| light_render_data(record).is_some())
+            })
+            .collect();
+        active.sort_unstable();
+        let active: std::collections::HashSet<_> = active.into_iter().collect();
+        self.runtime_lights.retain(|reference, light| {
+            if active.contains(reference)
+                && world
+                    .ref_placement(*reference)
+                    .is_some_and(|placement| placement.visible)
+            {
+                return true;
+            }
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+            false
+        });
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        for reference in active {
+            let Some(placement) = world
+                .ref_placement(reference)
+                .filter(|placement| placement.visible)
+            else {
+                continue;
+            };
+            let Some(base) = world.reference_ref(reference).and_then(|value| value.base) else {
+                continue;
+            };
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY,
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(light) = self.runtime_lights.get(&reference) {
+                server.instance_set_transform(light.instance, transform);
+                continue;
+            }
+            let light = server.omni_light_create();
+            server.light_set_color(
+                light,
+                Color::from_rgb(render.color[0], render.color[1], render.color[2]),
+            );
+            server.light_set_param(
+                light,
+                godot::classes::rendering_server::LightParam::RANGE,
+                render.radius,
+            );
+            server.light_set_negative(light, render.negative);
+            let instance = server.instance_create2(light, scenario);
+            server.instance_set_transform(instance, transform);
+            self.runtime_lights
+                .insert(reference, RuntimeLight { light, instance });
+        }
+    }
+
+    fn free_runtime_lights(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, light) in self.runtime_lights.drain() {
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+        }
     }
 }
 
@@ -1682,6 +1801,7 @@ impl CellStreamerNode {
         self.free_instances();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
@@ -2487,6 +2607,38 @@ fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
     let sky = direction_to_skyrim(d);
     let moved = delta.apply_direction(Vec3::new(sky[0], sky[1], sky[2]));
     direction_to_godot([moved.x, moved.y, moved.z])
+}
+
+#[cfg(test)]
+mod mag_35_runtime_light_tests {
+    use super::light_render_data;
+    use soe_esm::{Record, Tag};
+
+    fn light_record(radius: u32, color: [u8; 3], flags: u32) -> Record {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        data[8..11].copy_from_slice(&color);
+        data[12..16].copy_from_slice(&flags.to_le_bytes());
+        Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), data)
+    }
+
+    #[test]
+    fn mag_35_runtime_light_uses_authored_radius_color_and_negative_flag() {
+        let data = light_render_data(&light_record(700, [255, 128, 0], 1 << 2))
+            .expect("valid authored light data");
+        assert!((data.radius - 700.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert_eq!(data.color, [1.0, 128.0 / 255.0, 0.0]);
+        assert!(data.negative);
+    }
+
+    #[test]
+    fn mag_35_runtime_light_ignores_wrong_record_short_data_and_zero_radius() {
+        let wrong = Record::new(Tag::new(b"STAT"), 1).sub(Tag::new(b"DATA"), vec![0; 48]);
+        let short = Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), vec![0; 16]);
+        assert!(light_render_data(&wrong).is_none());
+        assert!(light_render_data(&short).is_none());
+        assert!(light_render_data(&light_record(0, [1, 2, 3], 0)).is_none());
+    }
 }
 
 /// A `MultiMesh` sharing `group`'s local-space geometry across a
