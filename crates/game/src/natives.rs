@@ -4636,14 +4636,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Location", "IsLoaded", false),
-        ("Location", "HasRefType", false),
-        ("Scene", "IsActionComplete", false),
-        ("Keyword", "SendStoryEventAndWait", false),
-        ("ObjectReference", "IsFurnitureMarkerInUse", false),
-        ("Utility", "IsInMenuMode", false),
-        ("Cell", "IsAttached", true),
-        ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
@@ -4690,25 +4682,12 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetEquippedShield"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("Keyword", "SendStoryEvent"),
-        ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "StartCannibal"),
-        ("Actor", "ClearExtraArrows"),
         // Attached-arrow state is owned by the host renderer.
-        // The remaining music and particle systems do not have runtime owners.
-        ("ShaderParticleGeometry", "Apply"),
-        ("ShaderParticleGeometry", "Remove"),
-        ("MusicType", "Add"),
-        ("MusicType", "Remove"),
-        ("Topic", "Add"),
-        ("Scroll", "Cast"),
-        ("Actor", "DoCombatSpellApply"),
-        ("Actor", "MoveToPackageLocation"),
-        ("Actor", "WillIntimidateSucceed"),
-        ("Cell", "Reset"),
+        ("Actor", "ClearExtraArrows"),
     ];
     for (class, name) in methods_none {
         vm.natives
@@ -4734,24 +4713,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "SendWereWolfTransformation"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Game", "ShakeController"),
-        ("Utility", "CaptureFrameRate"),
-        ("Utility", "StartFrameRateCapture"),
-        ("Utility", "EndFrameRateCapture"),
-        ("Utility", "GetAverageFrameRate"),
-        ("Utility", "GetMinFrameRate"),
-        ("Utility", "GetMaxFrameRate"),
-        ("Utility", "GetCurrentMemory"),
-        ("Debug", "QuitGame"),
-        ("Debug", "CenterOnCell"),
-        ("Debug", "CloseUserLog"),
-        ("Debug", "SetGodMode"),
-        ("Debug", "ToggleAI"),
-        ("Debug", "ToggleCollisions"),
-        ("Debug", "DumpAliasData"),
-        ("Debug", "DebugChannelNotify"),
-        ("Debug", "SetFootIK"),
-        ("Debug", "ShowRefPosition"),
-        ("Debug", "MoveToCell"),
     ];
     for (class, name) in globals_none {
         vm.natives
