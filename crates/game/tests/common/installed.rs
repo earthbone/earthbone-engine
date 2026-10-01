@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Shared installed master load orders for integration test binaries.
+//! Shared installed master load orders for the single integration test binary.
 
 #![allow(dead_code, clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 

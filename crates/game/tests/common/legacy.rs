@@ -17,9 +17,6 @@ use soe_game::world::World;
 /// that reference's record too. It also reduces world-level section payloads
 /// to an empty table before measuring the legacy tail.
 ///
-/// This file is pulled into many test binaries through `#[path]`, and each
-/// binary compiles its own copy. Only some of them call this particular
-/// helper, so the others see it as unused under `-D warnings`.
 #[allow(dead_code)]
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
@@ -274,8 +271,6 @@ pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> V
 /// before truncating the rest of the buffer to an older header. Order does
 /// not matter, a table with no registered sections still round trips the state.
 ///
-/// Same cross-binary sharing as `without_exclusive_branches` above: only the
-/// binaries that fixture a bare reference call this one.
 #[allow(dead_code)]
 pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
@@ -404,11 +399,8 @@ pub fn world_section_growth(bytes: &[u8]) -> usize {
     bytes.len() - normalized.len()
 }
 
-#[path = "save_tail.rs"]
-mod save_tail;
-
 #[allow(unused_imports)]
-pub use save_tail::{truncate_to_version, version_tail_len};
+pub use crate::common::save_tail::{truncate_to_version, version_tail_len};
 
 #[allow(dead_code)]
 pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {

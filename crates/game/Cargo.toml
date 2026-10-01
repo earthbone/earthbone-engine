@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Runtime form table, the object model Papyrus sees, the first natives by vanilla call count, and the game clock that drives the VM"
+autotests = false
 
 [lib]
 name = "soe_game"
 path = "src/lib.rs"
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
 
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
