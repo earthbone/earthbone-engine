@@ -1096,6 +1096,45 @@ fn references_report_their_location() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// CK `MoveTo_-_ObjectReference.wikitext` defines the rotation default and
+/// the opt-out argument.
+#[test]
+fn scr_67_move_to_respects_match_rotation_and_default() {
+    let mut g = game();
+    g.start();
+    let mover_id = g.form("GoldReference").unwrap();
+    let target_id = g.form("OtherGoldReference").unwrap();
+    let mover = obj(&mut g, "GoldReference");
+    let target = obj(&mut g, "OtherGoldReference");
+    g.world_mut().reference(mover_id).unwrap().rotation = [0.1, 0.2, 0.3];
+    g.world_mut().reference(target_id).unwrap().rotation = [0.4, 0.5, 0.6];
+
+    call(&mut g, &mover, "MoveTo", &[target.clone()]);
+    assert_eq!(
+        g.world_mut().reference(mover_id).unwrap().rotation,
+        [0.4, 0.5, 0.6]
+    );
+
+    g.world_mut().reference(mover_id).unwrap().rotation = [0.1, 0.2, 0.3];
+    call(
+        &mut g,
+        &mover,
+        "MoveTo",
+        &[
+            target,
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Bool(false),
+        ],
+    );
+    assert_eq!(
+        g.world_mut().reference(mover_id).unwrap().rotation,
+        [0.1, 0.2, 0.3]
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// GetLocation on a location alias, ForceLocationTo fills it, Clear
 /// (declared on Alias) empties it.
 #[test]

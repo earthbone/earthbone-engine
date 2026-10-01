@@ -26,6 +26,58 @@ HavokLib ancestry, so it is not an independent codec oracle. HKX2's missing
 license must be resolved before code reuse. Do not execute bundled tools
 merely because the repository includes them.
 
+## Native contract audit, SCR-67
+
+The registry inventory comes from `game/src/natives.rs::register`, including
+the method registrations and the quiet-stub tables. The inventory test checks
+each direct `ObjectReference` method and both `MusicType` methods against the
+live `NativeRegistry`. Neither class has a direct global binding. Inherited
+`Form` methods are outside this class inventory.
+
+For each listed `ObjectReference` method, the corresponding
+`ck-wiki/<Function>_-_ObjectReference.wikitext` page was compared for its
+Papyrus signature, parameter order and defaults, return type and stated
+behavior. The class declaration is `ck-wiki/ObjectReference_Script.wikitext`.
+`MusicType.Add` and `MusicType.Remove` have no named function or class page in
+the local CK corpus. They are registered as methods and remain quiet stubs;
+their owning implementation work is SCR-37.
+
+| Registry method | CK contract comparison |
+|---|---|
+| Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled | The enable pages distinguish waiting and no-wait variants. The state queries return booleans. |
+| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded is a stub assigned to SCR-38. |
+| GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior | Form returns and interior-cell query match their CK pages. |
+| GetPositionX, GetPositionY, GetPositionZ, GetAngleX, GetAngleY, GetAngleZ | The six scalar getters match the axis and degree contracts. |
+| SetPosition, SetAngle | Both take three floats. SetAngle uses degrees at the Papyrus boundary. |
+| MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
+| Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
+| GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems does not yet honor quest-item retention. |
+| GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
+| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation returns a boolean. The three unavailable animation/wait systems are quiet stubs assigned to SCR-39 and SCR-41. |
+| GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
+| PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
+| AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
+| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs; destruction-stage behavior belongs to SCR-40. |
+| IgnoreFriendlyHits, IsIgnoringFriendlyHits | Setter and query match the documented boolean behavior. |
+| GetCurrentLocation, GetEditorLocation, IsInLocation | Reference location queries match their return types and child-location behavior. |
+| GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner | Owner methods match their typed form parameters and None returns. |
+| AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | These are void methods on references. Their matching alias declarations are separately registered on `ReferenceAlias`. |
+| SetAnimationVariableFloat, SetAnimationVariableInt, SetAnimationVariableBool | Each setter takes its typed value and returns None. |
+| GetAnimationVariableFloat, GetAnimationVariableInt, GetAnimationVariableBool | Each getter returns the matching scalar type. |
+| GetCurrentScene, IsFurnitureInUse, IsFurnitureMarkerInUse, GetTriggerObjectCount | Signatures match the class pages. Each is currently a quiet stub assigned to SCR-38 or SCR-39. |
+| SetMotionType, ApplyHavokImpulse, SetNoFavorAllowed, DamageObject, KnockAreaEffect, PushActorAway, InterruptCast | Their parameter contracts are documented, but implementations are quiet stubs assigned to SCR-39 or SCR-40. |
+| ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, CreateDetectionEvent, TranslateTo, SplineTranslateTo, StopTranslation, Reset | Their method bindings are quiet stubs assigned to SCR-41 or SCR-42. |
+
+The audit found two implementation discrepancies. `MoveTo` ignored
+`abMatchRotation`; SCR-67 fixes it, and the synthetic native-call test covers
+both the default and false value. `RemoveAllItems` currently clears every
+inventory entry even when `abRemoveQuestItems` is false. The inventory model
+does not preserve quest-item eligibility, so the owning fix needs an inventory
+contract row before it can be implemented. SCR-67 is restricted to the game
+crate and the backlog is explicitly unchanged, so this finding remains open
+and is the completion gap for this audit.
+
 ## Sources to use for current gaps and future systems
 
 | System and current entry point | Existing sources to use | What tes4skyrim or its references add | Boundary |
