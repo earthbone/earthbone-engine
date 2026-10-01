@@ -19,7 +19,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
+use godot::classes::{ArrayMesh, INode3D, Material, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
 use soe_game::combat::{Error as CombatError, Hand};
@@ -36,10 +36,19 @@ use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
 /// The archives a character reads from, in load order.
-const ARCHIVES: [&str; 3] = [
+const ARCHIVES: [&str; 12] = [
     "Skyrim - Meshes0.bsa",
     "Skyrim - Meshes1.bsa",
     "Skyrim - Animations.bsa",
+    "Skyrim - Textures0.bsa",
+    "Skyrim - Textures1.bsa",
+    "Skyrim - Textures2.bsa",
+    "Skyrim - Textures3.bsa",
+    "Skyrim - Textures4.bsa",
+    "Skyrim - Textures5.bsa",
+    "Skyrim - Textures6.bsa",
+    "Skyrim - Textures7.bsa",
+    "Skyrim - Textures8.bsa",
 ];
 
 fn to_transform3d(a: &Affine) -> Transform3D {
@@ -118,6 +127,7 @@ pub struct SkinnedActorNode {
     /// shapes naming different bones would read each other's transforms.
     shapes: Vec<ShapeRids>,
     meshes: Vec<Gd<ArrayMesh>>,
+    materials: Vec<Gd<Material>>,
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
@@ -141,6 +151,7 @@ impl INode3D for SkinnedActorNode {
             appearance: None,
             shapes: Vec::new(),
             meshes: Vec::new(),
+            materials: Vec::new(),
             model: Vec::new(),
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
@@ -273,13 +284,19 @@ impl SkinnedActorNode {
             for i in 0..bones {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
-            let mesh = array_mesh_from(&surface.arrays);
+            let mut mesh = array_mesh_from(&surface.arrays);
+            let material = crate::godot_layer::standard_material_from(
+                &surface.arrays.material,
+                &surface.textures,
+            );
+            mesh.surface_set_material(0, &material);
             let instance = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(instance, Transform3D::IDENTITY);
             server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
+            self.materials.push(material.upcast());
         }
     }
 
@@ -587,6 +604,7 @@ impl SkinnedActorNode {
             server.free_rid(shape.skeleton);
         }
         self.meshes.clear();
+        self.materials.clear();
     }
 }
 

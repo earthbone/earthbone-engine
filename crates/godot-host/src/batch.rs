@@ -141,6 +141,67 @@ pub struct BatchStats {
     pub triangles: usize,
 }
 
+/// Maximum number of the largest opaque source surfaces used for one cell's
+/// occluder. Sorting uses triangle count and preserves source order on ties.
+pub const CELL_OCCLUDER_SURFACES: usize = 4;
+
+/// Flatten the largest opaque source surfaces into one cell-local occluder
+/// mesh. MultiMesh candidates are transformed into the same Godot space as
+/// their rendered placement. Transparent and cutout surfaces cannot hide
+/// geometry behind their holes, so only fully opaque surfaces qualify.
+pub fn cell_occluder_mesh(surfaces: &[LoadedSurface]) -> (Vec<[f32; 3]>, Vec<i32>) {
+    let mut candidates: Vec<(usize, usize)> = surfaces
+        .iter()
+        .enumerate()
+        .filter(|(_, surface)| {
+            surface.arrays.material.alpha == AlphaMode::Opaque
+                && surface.arrays.triangle_count() > 0
+        })
+        .map(|(index, surface)| (index, surface.arrays.triangle_count()))
+        .collect();
+    candidates.sort_by(|(a_index, a_size), (b_index, b_size)| {
+        b_size.cmp(a_size).then_with(|| a_index.cmp(b_index))
+    });
+    candidates.truncate(CELL_OCCLUDER_SURFACES);
+
+    let vertex_count = candidates
+        .iter()
+        .map(|(index, _)| surfaces[*index].arrays.positions.len())
+        .sum();
+    let index_count = candidates
+        .iter()
+        .map(|(index, _)| surfaces[*index].arrays.indices.len())
+        .sum();
+    let mut vertices = Vec::with_capacity(vertex_count);
+    let mut indices = Vec::with_capacity(index_count);
+    for (index, _) in candidates {
+        let surface = &surfaces[index];
+        let base = vertices.len() as i32;
+        if let Some(transform) = surface.instance_transform {
+            for p in &surface.arrays.positions {
+                vertices.push([
+                    transform.basis[0][0] * p[0]
+                        + transform.basis[0][1] * p[1]
+                        + transform.basis[0][2] * p[2]
+                        + transform.origin.x,
+                    transform.basis[1][0] * p[0]
+                        + transform.basis[1][1] * p[1]
+                        + transform.basis[1][2] * p[2]
+                        + transform.origin.y,
+                    transform.basis[2][0] * p[0]
+                        + transform.basis[2][1] * p[1]
+                        + transform.basis[2][2] * p[2]
+                        + transform.origin.z,
+                ]);
+            }
+        } else {
+            vertices.extend_from_slice(&surface.arrays.positions);
+        }
+        indices.extend(surface.arrays.indices.iter().map(|i| i + base));
+    }
+    (vertices, indices)
+}
+
 /// Merge `surfaces` by [`BatchKey`], first-seen order. Skinned surfaces are
 /// never merged, each becomes its own batch, since their bone indices refer
 /// to their own skeleton.
@@ -367,6 +428,68 @@ mod tests {
             placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
+        }
+    }
+
+    fn repeated_triangle(offset: f32, triangles: usize) -> LoadedSurface {
+        let data = MeshData {
+            positions: vec![
+                [offset, 0.0, 0.0],
+                [offset + 1.0, 0.0, 0.0],
+                [offset, 1.0, 0.0],
+            ],
+            indices: (0..triangles).flat_map(|_| [0, 1, 2]).collect(),
+            ..MeshData::default()
+        };
+        LoadedSurface {
+            reference: GlobalFormId {
+                file: 0,
+                object: offset as u32,
+            },
+            arrays: build_surface(&data, MeshOptions::default()).unwrap(),
+            textures: SurfaceTextures::default(),
+            placement: soe_physics::Iso::IDENTITY,
+            instance_transform: None,
+            mesh_identity: None,
+        }
+    }
+
+    #[test]
+    fn rnd_07_cell_occluder_uses_the_largest_opaque_surfaces() {
+        let mut surfaces: Vec<_> = (1..=6)
+            .map(|triangles| repeated_triangle(triangles as f32 * 10.0, triangles))
+            .collect();
+        surfaces[5].arrays.material.alpha = AlphaMode::Cutout(128);
+
+        let (vertices, indices) = cell_occluder_mesh(&surfaces);
+
+        assert_eq!(vertices.len(), 12);
+        assert_eq!(indices.len(), (5 + 4 + 3 + 2) * 3);
+        let offsets: Vec<_> = vertices.iter().step_by(3).map(|p| p[0]).collect();
+        for (actual, units) in offsets.iter().zip([50.0, 40.0, 30.0, 20.0]) {
+            assert!((actual - units * crate::units::METRES_PER_UNIT).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn rnd_07_cell_occluder_applies_multimesh_placement() {
+        let mut surface = repeated_triangle(0.0, 1);
+        surface.instance_transform = Some(GodotTransform {
+            basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            origin: crate::units::GodotPos::new(7.0, 8.0, 9.0),
+        });
+
+        let (vertices, _) = cell_occluder_mesh(&[surface]);
+
+        let expected = [
+            [7.0, 8.0, 9.0],
+            [7.0 + crate::units::METRES_PER_UNIT, 8.0, 9.0],
+            [7.0, 8.0, 9.0 - crate::units::METRES_PER_UNIT],
+        ];
+        for (actual, expected) in vertices.iter().zip(expected) {
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-6);
+            }
         }
     }
 
