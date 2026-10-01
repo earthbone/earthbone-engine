@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
+use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
+    Opcode::{CallMethod, Return},
+    Value,
+};
+fn id(n: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object: n }
+}
+fn call(g: &mut Game, name: &str) {
+    let script = format!("Scr47Adv{name}");
+    let bytes = ScriptBuilder::new(&script, "Spell")
+        .function(
+            FunctionBuilder::new("Run", "None")
+                .global()
+                .param("spell", "Spell")
+                .local("r", "None")
+                .ins(CallMethod, vec![s(name), ident("spell"), ident("r")])
+                .ins(Return, vec![])
+                .build(),
+        )
+        .bytes();
+    g.load_script(&bytes).unwrap();
+    let form = Value::Object(g.object_of_form(id(0x800)));
+    let t = g.vm.call_global(&script, "Run", &[form]).unwrap();
+    assert!(g.run_until_idle(32));
+    assert_eq!(g.vm.thread_result(t), Some(Value::None));
+}
+#[test]
+fn scr_47_art_methods_validate_spell_and_leave_magic_unchanged() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"SPEL"), 0x800).sub(Tag(*b"SPIT"), vec![0; 36]));
+    let mut order = LoadOrder::new();
+    order.add("MissingSpell.esm", p).unwrap();
+    let mut g = Game::new(order);
+    let before = g.world().spell_casts.clone();
+    call(&mut g, "Preload");
+    call(&mut g, "Unload");
+    assert_eq!(g.world().spell_casts, before);
+    assert_eq!(g.world().active_effects().count(), 0);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|x| x.contains("Spell.Preload: spell art resource loading is unsupported")));
+    assert!(g
+        .traces()
+        .iter()
+        .any(|x| x.contains("Spell.Unload: spell art resource loading is unsupported")));
+}

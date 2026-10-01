@@ -230,6 +230,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     active_magic(vm, world);
     image_space(vm, world);
     music_type(vm, world);
+    shader_particle_geometry(vm, world);
     effect_shader(vm, world);
     weapon(vm, world);
     weather(vm, world);
@@ -2551,6 +2552,90 @@ fn debug(vm: &mut Vm, w: &Shared) {
 }
 
 fn utility(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Utility", "IsInMenuMode", |world, _call| b(
+        world.menu_mode
+    ));
+    global!(vm, w, "Utility", "CaptureFrameRate", |world, call| {
+        let Value::Int(frame_count) = call.arg(0) else {
+            call.log.push(
+                call.time,
+                "Utility.CaptureFrameRate requires an integer frame count",
+            );
+            return s("");
+        };
+        match world.frame_rate.capture_recent(frame_count) {
+            Ok(result) => s(&result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                s("")
+            }
+        }
+    });
+    global!(vm, w, "Utility", "StartFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.start() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "EndFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.end() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "GetAverageFrameRate", |world, call| {
+        match world.frame_rate.average() {
+            Ok(result) => f(result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                f(0.0)
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMinFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMinFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        match world.frame_rate.minimum() {
+            Ok(result) => f(result),
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMinFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMaxFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMaxFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        match world.frame_rate.maximum() {
+            Ok(result) => f(result),
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMaxFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
+            }
+        }
+    });
     global!(vm, w, "Utility", "RandomInt", |world, call| {
         let (min, max) = (
             call.args.first().map_or(0, Value::as_int),
@@ -2573,21 +2658,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
     ));
     vm.natives.register_global(
         "Utility",
-        "GetBudgetCount",
-        Box::new(|_| i(ENGINE_BUDGETS.len() as i32)),
-    );
-    vm.natives.register_global(
-        "Utility",
-        "GetBudgetName",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .map_or_else(|| s(""), |budget| s(budget.0))
-        }),
-    );
-    vm.natives.register_global(
-        "Utility",
         "GetCurrentBudget",
         Box::new(|call| {
             let index = call.arg(0).as_int();
@@ -2606,6 +2676,38 @@ fn utility(vm: &mut Vm, w: &Shared) {
                 .is_some_and(|budget| budget.2))
         }),
     );
+    // These queries depend on engine services that are not available in the
+    // shared World. Keep their unsupported state visible to Papyrus instead
+    // of returning the quiet `None` used by the old stub registrations.
+    for (name, arity, reason) in [
+        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
+        ("GetBudgetCount", 0, "memory tracking is unavailable"),
+        ("GetBudgetName", 1, "memory tracking is unavailable"),
+    ] {
+        let reason = reason.to_owned();
+        global!(vm, w, "Utility", name, |_world, call| {
+            if call.args.len() != arity {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.{name} expects {arity} argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return none();
+            }
+            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
+                );
+                return none();
+            }
+            call.log
+                .push(call.time, format!("error: Utility.{name}: {reason}"));
+            none()
+        });
+    }
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -3301,6 +3403,9 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
         .scenes
         .contains(&me)));
+    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| b(
+        world.scene_action_complete(me, call.arg(0).as_int())
+    ));
     method!(vm, w, "Sound", "Play", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return i(0);
@@ -3342,6 +3447,29 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Scroll", "Cast", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let target = world.form_arg(&call.arg(1));
+        world.spell_casts.push((me, source, target));
+        if let Err(error) = world.cast_scroll_from_record(me, source, target, alloc!(call)) {
+            call.log.push(call.time, format!("Scroll.Cast: {error}"));
+        }
+        none()
+    });
+    for name in ["Preload", "Unload"] {
+        method!(vm, w, "Spell", name, |world, call, me| {
+            match world.spell(me) {
+                Ok(_) => call.log.push(
+                    call.time,
+                    format!("Spell.{name}: spell art resource loading is unsupported"),
+                ),
+                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            }
+            none()
+        });
+    }
 }
 
 /// Shipped ImageSpaceModifier methods keep ordinary and crossfade lifetimes apart.
@@ -3411,6 +3539,37 @@ fn music_type(vm: &mut Vm, w: &Shared) {
             none()
         });
     }
+}
+
+/// Shipped ShaderParticleGeometry methods operate on the SPGD-backed host
+/// effect state. The float is the fade time in seconds.
+fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Apply",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Remove",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
 }
 /// Shipped EffectShader calls retain target and duration in the shared world.
 fn effect_shader(vm: &mut Vm, w: &Shared) {
@@ -4101,6 +4260,14 @@ fn dlc(vm: &mut Vm, w: &Shared) {
 /// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
 /// are what the DLC scripts reach for most after the base classes.
 fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Topic", "Add", |world, call, me| {
+        if let Err(error) = world.add_dialogue_topic(me) {
+            call.log
+                .push(call.time, format!("error: Topic.Add: {error}"));
+        }
+        none()
+    });
+
     // CONTEXT: INFO ownership follows its DIAL group, not previous-topic links.
     for class in ["Scene", "Package", "TopicInfo"] {
         method!(vm, w, class, "GetOwningQuest", |world, call, me| {
@@ -4226,8 +4393,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
         ("Cell", "IsAttached", true),
-        ("Scene", "IsActionComplete", false),
-        ("Utility", "IsInMenuMode", false),
+        ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
@@ -4277,8 +4443,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "SendPlayerToJail"),
         ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
-        ("Spell", "Preload"),
-        ("Spell", "Unload"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "UnequipAll"),
@@ -4287,11 +4451,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        // The remaining music and particle systems do not have runtime owners.
-        ("ShaderParticleGeometry", "Apply"),
-        ("ShaderParticleGeometry", "Remove"),
-        ("Topic", "Add"),
-        ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
@@ -4332,13 +4491,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
         ("Debug", "MoveToCell"),
-        ("Utility", "CaptureFrameRate"),
-        ("Utility", "StartFrameRateCapture"),
-        ("Utility", "EndFrameRateCapture"),
-        ("Utility", "GetAverageFrameRate"),
-        ("Utility", "GetMinFrameRate"),
-        ("Utility", "GetMaxFrameRate"),
-        ("Utility", "GetCurrentMemory"),
     ];
     for (class, name) in globals_none {
         vm.natives

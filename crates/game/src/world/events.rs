@@ -365,7 +365,7 @@ impl World {
 
     /// Whether a valid SCEN action slot has completed. A valid action on a
     /// stopped scene is not complete.
-    pub fn scene_action_complete(&self, id: GlobalFormId, action_slot: u32) -> Option<bool> {
+    pub fn scene_action_slot_complete(&self, id: GlobalFormId, action_slot: u32) -> Option<bool> {
         let record = self.record(id)?;
         let scene = Scene::from_record(record).ok()?;
         let slot = usize::try_from(action_slot).ok()?;
@@ -375,6 +375,35 @@ impl World {
                 .get(&id)
                 .is_some_and(|run| run.completed_actions.contains(&action_slot)),
         )
+    }
+
+    /// Return whether the action with the Papyrus action ID has completed.
+    ///
+    /// # Errors
+    ///
+    /// This query has no error result. Invalid, unknown and nonplaying actions
+    /// return `false`.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    #[must_use]
+    pub fn scene_action_complete(&self, id: GlobalFormId, action_id: i32) -> bool {
+        let Ok(action_id) = u32::try_from(action_id) else {
+            return false;
+        };
+        let Some(run) = self.scene_runs.get(&id) else {
+            return false;
+        };
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        scene.actions.iter().enumerate().any(|(slot, action)| {
+            action.index == Some(action_id) && run.completed_actions.contains(&(slot as u32))
+        })
     }
 
     /// Mark an action slot complete when it ends in the current phase.

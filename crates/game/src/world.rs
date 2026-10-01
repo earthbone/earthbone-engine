@@ -86,6 +86,8 @@ mod npc_restore;
 mod objects;
 mod outfits;
 mod package_navmesh_restore;
+mod performance;
+pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
@@ -656,6 +658,7 @@ pub struct World {
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
+    pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -721,6 +724,8 @@ pub struct World {
     pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
     pub clock: GameClock,
+    pub(crate) menu_mode: bool,
+    pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
@@ -823,6 +828,8 @@ pub struct World {
         BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
     pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    /// Active shader particle geometries derived from winning SPGD records.
+    pub(crate) shader_particles: shader_particles::ShaderParticleState,
     pub(crate) effect_shaders: effect_shader::EffectShaderState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -953,6 +960,8 @@ impl World {
             pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
+            menu_mode: false,
+            frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
@@ -1009,6 +1018,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
+            known_dialogue_topics: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
@@ -1022,6 +1032,7 @@ impl World {
             visual_effects: BTreeMap::new(),
             next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            shader_particles: shader_particles::ShaderParticleState::default(),
             effect_shaders: effect_shader::EffectShaderState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),

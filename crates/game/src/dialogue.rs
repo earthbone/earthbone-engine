@@ -20,7 +20,9 @@ use crate::{Game, World};
 mod index;
 mod state;
 pub(crate) use index::Index;
-pub(crate) use state::{read_dialogue, read_dialogue_repeats};
+pub(crate) use state::{
+    read_dialogue, read_dialogue_repeats, read_known_topics, write_known_topics,
+};
 
 /// Conversation cursor. Records remain authoritative for text and links.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +166,24 @@ pub enum Error {
 }
 
 impl World {
+    /// Add a valid dialogue topic to the set offered to the player.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic record is missing, deleted, malformed,
+    /// or has no owning quest.
+    pub fn add_dialogue_topic(&mut self, topic: GlobalFormId) -> Result<(), Error> {
+        let data = self.dialogue_topic(topic)?;
+        if self.record(topic).is_none_or(|record| record.is_deleted())
+            || data.quest.is_none()
+            || self.owning_quest(topic).is_none()
+        {
+            return Err(Error::Record(topic));
+        }
+        self.known_dialogue_topics.insert(topic);
+        Ok(())
+    }
+
     /// The owning DIAL comes from the winning INFO's TopicChildren group.
     pub fn dialogue_topic_of(&self, info: GlobalFormId) -> Option<GlobalFormId> {
         self.dialogue_index
@@ -699,6 +719,7 @@ impl Game {
         let mut topics = Vec::new();
         let mut blocking = Vec::new();
         let mut rejected = Vec::new();
+        let known_topics = self.world.borrow().known_dialogue_topics.clone();
         if let Some(id) = active_exclusive {
             let active_branch = { self.world.borrow().dialogue_branch(id) };
             match active_branch {
@@ -761,6 +782,13 @@ impl Game {
                 }
                 Ok(_) => {}
                 Err(error) => rejected.push((id, error.to_string())),
+            }
+        }
+        for topic in known_topics {
+            match self.dialogue_candidates(topic, session) {
+                Ok(candidates) if !candidates.infos.is_empty() => topics.push(topic),
+                Ok(_) => {}
+                Err(error) => rejected.push((topic, error.to_string())),
             }
         }
         if !blocking.is_empty() {
