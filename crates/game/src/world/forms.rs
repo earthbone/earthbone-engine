@@ -277,6 +277,74 @@ impl World {
         self.locations.get_mut(&id)
     }
 
+    /// Whether a location or one of its descendants belongs to the active cell.
+    #[must_use]
+    pub fn location_is_loaded(&self, id: GlobalFormId) -> bool {
+        if self.tag_of(id) != Some(T(b"LCTN")) {
+            return false;
+        }
+        let Some(cell) = self.loaded_cell else {
+            return false;
+        };
+        let loaded_location = self
+            .record(cell)
+            .filter(|record| record.tag == T(b"CELL"))
+            .and_then(|record| record.find(T(b"XLCN")))
+            .and_then(le_u32)
+            .filter(|raw| *raw != 0)
+            .and_then(|raw| self.resolve_from(cell, raw));
+        loaded_location.is_some_and(|loaded| loaded == id || self.location_is_child(id, loaded))
+    }
+
+    /// Whether a location record lists a placed reference with this ref type.
+    #[must_use]
+    pub fn location_has_ref_type(&self, id: GlobalFormId, ref_type: GlobalFormId) -> bool {
+        self.location_ref_type_entries(id)
+            .any(|(entry_type, _)| entry_type == ref_type)
+    }
+
+    /// Alive and dead actors linked to a location under a reference type.
+    #[must_use]
+    pub fn location_ref_type_counts(&self, id: GlobalFormId, ref_type: GlobalFormId) -> (i32, i32) {
+        let mut alive = 0;
+        let mut dead = 0;
+        for (entry_type, reference) in self.location_ref_type_entries(id) {
+            if entry_type != ref_type || self.tag_of(reference) != Some(T(b"ACHR")) {
+                continue;
+            }
+            if self.actor_ref(reference).is_some_and(|actor| actor.dead) {
+                dead += 1;
+            } else {
+                alive += 1;
+            }
+        }
+        (alive, dead)
+    }
+
+    fn location_ref_type_entries(
+        &self,
+        id: GlobalFormId,
+    ) -> impl Iterator<Item = (GlobalFormId, GlobalFormId)> + '_ {
+        let entries = self
+            .record(id)
+            .filter(|record| record.tag == T(b"LCTN"))
+            .into_iter()
+            .flat_map(|record| {
+                record
+                    .all(T(b"ACSR"))
+                    .chain(record.all(T(b"LCSR")))
+                    .filter(|data| data.len() == 16)
+            });
+        entries.filter_map(move |data| {
+            let ref_type = self.resolve_from(id, le_u32(data)?)?;
+            if self.tag_of(ref_type) != Some(T(b"LCRT")) {
+                return None;
+            }
+            let reference = self.resolve_from(id, le_u32(&data[4..])?)?;
+            Some((ref_type, reference))
+        })
+    }
+
     /// `PNAM` of an `LCTN`.
     pub fn location_parent(&self, id: GlobalFormId) -> Option<GlobalFormId> {
         let rref = self.order.winner_ref(id)?;

@@ -44,6 +44,7 @@ const MARKER: u32 = 0x909;
 const MARKER_BASE: u32 = 0x90A;
 const GUARD: u32 = 0x90B;
 const GUARD_BASE: u32 = 0x90C;
+const GUARD_REF_TYPE: u32 = 0xA31;
 const OUTFIT: u32 = 0x90D;
 const THIEVES: u32 = 0x90E;
 const RAGS: u32 = 0x90F;
@@ -126,6 +127,10 @@ fn location(id: u32, edid: &str, parent: Option<u32>) -> Record {
     }
 }
 
+fn location_ref_type_entry(ref_type: u32, reference: u32, cell: u32) -> Vec<u8> {
+    [le(ref_type), le(reference), le(cell), [0; 4]].concat()
+}
+
 fn interior(p: &mut Plugin, cell: Record, refs: Vec<Record>) -> Group {
     let id = cell.form_id;
     let cell = p.push_record(cell);
@@ -149,9 +154,13 @@ fn test_plugin() -> Plugin {
         ..Default::default()
     });
     p.push_top(Record::new(T(b"KYWD"), HOLD_KEYWORD).zsub(EDID, "LocTypeHold"));
+    p.push_top(Record::new(T(b"LCRT"), GUARD_REF_TYPE).zsub(EDID, "GuardRefType"));
     p.push_top(location(HOLD_LOC, "HoldLoc", None).sub(T(b"KWDA"), le(HOLD_KEYWORD)));
     p.push_top(location(TOWN_LOC, "TownLoc", Some(HOLD_LOC)));
-    p.push_top(location(INN_LOC, "InnLoc", Some(TOWN_LOC)));
+    p.push_top(location(INN_LOC, "InnLoc", Some(TOWN_LOC)).sub(
+        T(b"ACSR"),
+        location_ref_type_entry(GUARD_REF_TYPE, GUARD, INN_CELL),
+    ));
     p.push_top(location(OTHER_TOWN_LOC, "OtherTownLoc", Some(HOLD_LOC)));
     p.push_top(Record::new(T(b"PERK"), PERK).zsub(EDID, "TestPerk"));
     p.push_top(
@@ -1052,6 +1061,96 @@ fn locations_know_their_parents() {
     assert_eq!(call(&mut g, &inn, "IsCleared", &[]), Value::Bool(false));
     call(&mut g, &inn, "SetCleared", &[]);
     assert_eq!(call(&mut g, &inn, "IsCleared", &[]), Value::Bool(true));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Location.IsLoaded follows the active cell's XLCN, including its parent
+/// locations, and stays false for an unloaded or invalid location.
+#[test]
+fn scr_35_location_is_loaded_tracks_active_cell() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let town = obj(&mut g, "TownLoc");
+    let hold = obj(&mut g, "HoldLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+
+    assert_eq!(call(&mut g, &inn, "IsLoaded", &[]), Value::Bool(false));
+    let cell = g.form("InnCell").unwrap();
+    g.world_mut().load_cell(cell);
+    assert_eq!(call(&mut g, &inn, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &town, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &hold, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &other, "IsLoaded", &[]), Value::Bool(false));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Location.HasRefType reads the location's ACSR and LCSR entries and
+/// returns false for a different form type, absent type or wrong argument.
+#[test]
+fn scr_35_location_has_ref_type_reads_authored_entries() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let ref_type = obj(&mut g, "GuardRefType");
+    let absent = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[ref_type]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[absent.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[Value::None]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[absent]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// The count methods count linked ACHR references by LCRT and observe the
+/// runtime actor death flag. Invalid and unrelated form arguments return 0.
+#[test]
+fn scr_35_location_ref_type_counts_follow_actor_state() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let ref_type = obj(&mut g, "GuardRefType");
+    let keyword = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[ref_type.clone()]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[ref_type.clone()]),
+        Value::Int(0)
+    );
+    let guard = g.form("GuardRef").unwrap();
+    g.world_mut().actor(guard).unwrap().dead = true;
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[ref_type.clone()]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[ref_type]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[keyword.clone()]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[Value::None]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[keyword]),
+        Value::Int(0)
+    );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 

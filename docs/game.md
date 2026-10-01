@@ -671,6 +671,14 @@ Their CK contracts are described by
   `HasCommonParent` intersects the two ancestor chains and applies the filter
   keyword to the shared ancestor, `IsSameLocation` is identity or a filtered
   shared parent.
+- `Location.IsLoaded` follows the active cell's `XLCN`; the location and its
+  parent locations report loaded while that cell is active. `HasRefType`
+  checks the location's `ACSR` and `LCSR` entries. The alive and dead count
+  methods count matching `ACHR` entries and read each actor's runtime death
+  flag. Wrong or absent `LocationRefType` arguments return false or zero.
+  The LCTN array layout follows xEdit's `wbDefinitionsTES5.pas` and UESP's
+  `LCTN.wikitext`; signatures follow the shipped `Location.psc`. The CK
+  corpus has no Location-specific pages for these four native behaviors.
 - Faction reactions start from `XNAM` and are written in both directions by
   `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
   `ModCrimeGold` adds to the violent or non-violent bounty and to the infamy
