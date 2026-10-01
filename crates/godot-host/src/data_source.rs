@@ -375,6 +375,7 @@ fn parse_masters(
 
 impl DataSource {
     /// Load an EffectShader membrane texture through the source's shared DDS cache.
+    #[cfg(feature = "godot")]
     pub(crate) fn effect_shader_texture(&self, path: &str) -> Option<Arc<TextureData>> {
         self.textures.get_or_decode(&self.vfs, path)
     }
