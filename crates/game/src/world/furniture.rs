@@ -217,11 +217,15 @@ impl World {
             return None;
         }
         let record = self.record(base)?;
-        let active_markers = record
+        let flags = record
             .find(T(b"MNAM"))
             .filter(|data| data.len() >= 4)
-            .map(|data| u32::from_le_bytes([data[0], data[1], data[2], data[3]]) & 0x00ff_ffff)
+            .map(|data| u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
             .unwrap_or(0);
+        if flags & 0x0200_0000 != 0 {
+            return None;
+        }
+        let active_markers = flags & 0x00ff_ffff;
         let occupied: std::collections::BTreeSet<_> = self
             .actors
             .values()
@@ -232,6 +236,9 @@ impl World {
             .all(T(b"FNPR"))
             .enumerate()
             .find_map(|(index, data)| {
+                if data.len() != 4 {
+                    return None;
+                }
                 let raw = data.get(..2)?;
                 let kind = u16::from_le_bytes([raw[0], raw[1]]);
                 let marker = u16::try_from(index).ok()?;

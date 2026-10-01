@@ -1879,8 +1879,10 @@ Player activation of a FURN reference reserves an active Sit marker in the
 shared game state and moves the actor to the furniture reference transform.
 The player releases the reservation after moving more than 24 Skyrim units
 from that transform or changing cells. Activating the same furniture again
-also releases the reservation. The marker selection and saved actor state are
-described in [game.md](game.md#furniture-activation-hst-09).
+also releases the reservation. The strict distance boundary and cell-change
+release are covered by `hst_09_host_stands_after_movement_or_cell_change`.
+The marker selection and saved actor state are described in
+[game.md](game.md#furniture-activation-hst-09).
 
 ### Player sleep, HST-11
 
@@ -1920,17 +1922,22 @@ from the headless test.
 ## Lockpick activation requests (HST-03)
 
 When player activation reaches a locked, non-key-only reference without a
-matching key, `PlayerNode` retains its FormID as the pending lockpick target if
-the player carries a `Lockpick`. `pending_lockpick` exposes the target and
-authored lock level to an interaction UI. `resolve_pending_lockpick` applies
-the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
-deferred activation, while failure consumes a pick and leaves the reference
-locked. Keyed activation remains on the regular game path.
+matching key, `PlayerNode` opens its native lockpick panel if the player carries
+a `Lockpick`. The angle control submits attempts to the shared `Game`. A
+successful pick unlocks the reference and resumes ordinary activation. A
+failed attempt consumes a pick and leaves the panel available. Keyed activation
+remains on the regular game path.
 
-The UI-08 draft is absent from this worktree, so no lockpick minigame is
-presented and the player cannot resolve the pending request through the
-current host controls. The public host methods provide the handoff point. No
-Godot interaction test exercises that handoff yet.
+PlayerNode presents the current native lockpick panel when activation reaches
+this path. Its angle control and Turn lock button apply the attempt to the
+shared Game, then successful picks resume ordinary activation. The
+`hst_03_lockpick_handoff.gd` runtime test uses the synthetic
+`inventory_fixture` records to activate a keyless locked door, submit the
+record-derived successful angle, activate the unlocked door and reject a
+level 255 key-only door. Generate the fixture with
+`cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
+"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
+in the disposable Godot project used for host runtime tests.
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2735,17 +2742,20 @@ the CK `Quest_Script.wikitext` objective display semantics. Location marker
 resolution follows `uesp-modfileformat/LCTN.wikitext`, where `MNAM` identifies
 the world-location marker reference.
 
-The lockpicking presenter (UI-08) opens when player activation reaches a
-locked, non-key-only reference and the player has a lockpick but no matching
-key. Its angle slider and Turn lock button submit attempts to
-`Game::attempt_lockpick`. A miss consumes a pick and leaves the menu available
-for another angle. A successful turn closes the menu and activates the same
-reference through the ordinary Game path. The menu is presenter state only.
-CK Lock and GetLockLevel pages plus xEdit's XLOC definition establish lock
-state, level bands and the key-only level 255 case. The angle rule is the
-game crate policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
-Synthetic `ui_08` game tests cover both outcomes. The Godot control interaction
-has not been exercised in a running scene.
+The lockpicking presenter opens when player activation reaches a locked,
+non-key-only reference and the player has a lockpick but no matching key. Its
+angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
+A miss consumes a pick and leaves the menu available for another angle. A
+successful turn closes the menu and activates the same reference through the
+ordinary Game path. The menu is presenter state only. The
+`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
+synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
+xEdit's XLOC definition establish lock state, level bands and the key-only
+level 255 case. The angle rule is the game crate policy documented in
+[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
+tests cover both outcomes. The Godot control interaction has been exercised
+with the successful turn. Visual presentation and minigame feel remain
+unverified.
 
 ## Dialogue menu, DLG-10
 

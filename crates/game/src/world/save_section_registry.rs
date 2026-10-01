@@ -25,6 +25,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
+    Section { name: "SAV-17", write: write_created_bases, read: read_created_bases },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
     Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
@@ -133,6 +134,18 @@ fn read_player_level(
 ) -> Result<(), soe_papyrus::VmError> {
     world.player_level = reader.u32()?;
     Ok(())
+}
+
+fn write_created_bases(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::reference_restore::write_created_base_section(world, writer);
+}
+
+fn read_created_bases(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::reference_restore::read_created_base_section(world, reader)
 }
 
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {

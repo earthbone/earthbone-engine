@@ -210,16 +210,20 @@ unverified.
 ### Furniture activation, HST-09
 
 Activating a FURN reference selects the first unreserved Sit marker from its
-FNPR entries whose corresponding low MNAM bit is active. The actor reserves
-that marker and moves to the furniture reference transform. Activating the
-same furniture again, or calling `World::stand_from_furniture`, releases the
-reservation. `World::furniture_seat` exposes the actor's current furniture and
-marker, and `World::furniture_marker_in_use` reports active reservations.
-SOEW version 37 stores the furniture reference and marker with actor state.
-The FURN field layout follows local xEdit `wbRecord(FURN)` and
-`uesp-modfileformat/FURN.wikitext`. Marker types and the active MNAM mask come
-from those definitions. Marker transforms are not read from the furniture
-model by this path.
+four-byte FNPR entries whose corresponding low MNAM bit is active. A FURN
+record with the MNAM Disables Activation flag set cannot be reserved. Marker
+indices are zero-based, and only indices 0 through 23 have active MNAM bits.
+Malformed FNPR entries are skipped. The actor reserves that marker and moves
+to the furniture reference transform. Activating the same furniture again,
+or calling `World::stand_from_furniture`, releases the reservation.
+`World::furniture_seat` exposes the actor's current furniture and marker, and
+`World::furniture_marker_in_use` reports reservations, including ones not yet
+in animation. The actor's furniture reference and marker are stored in the
+HST-09 actor save section. The FURN field layout follows local xEdit
+`wbRecord(FURN)` and `uesp-modfileformat/FURN.wikitext`. Marker types and the
+active MNAM mask come from those definitions. The CK `IsFurnitureInUse` and
+`IsFurnitureMarkerInUse` pages define in-use checks to include reservations by
+default. Marker transforms are not read from the furniture model by this path.
 
 Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
 linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
@@ -251,9 +255,10 @@ actor. The host currently completes an eight-hour sleep on bed activation.
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `Game::restore_vanilla_world_and_vm` runs
 the supported restore passes in dependency order and restores the prior SOEG
-snapshot if any pass fails. The passes cover globals, NPC changes, reference
-placement, actor templates, inventories, reference extras, quests, lists and
-Papyrus execution. The individual world passes validate before applying their
+snapshot if any pass fails. The passes cover globals, NPC changes,
+CLAS/FACT/RELA record changes, reference placement, actor templates,
+inventories, reference extras, quests, lists and Papyrus execution. The
+individual world passes validate before applying their
 own changes. Saved reference-only objects are created using their saved
 runtime type. Instances whose signed
 `unknown` field is `-1` ignore their saved RefID and receive standalone VM
@@ -273,12 +278,14 @@ the FormID array and the four Created Objects tables before runtime placement
 can allocate another identity. Regular and light plugin IDs map by their saved
 owner names. Their masks follow Mutagen's `FormID.cs`, while the FormID array
 and Created Objects table order follow UESP's save format. The reservation
-keeps identities stable, but it does not materialize saved enchantment, potion
-or poison definitions as live records. Inventory restoration accepts a
-missing base identity listed in those tables, applies item deltas by saved
-identity and reports items without live records. Created Objects decoding
-follows UESP `Created_Objects` and skymp's reader and writer field order in
-`soe-save`.
+also materializes entries in those tables into the shared record lookup as
+dynamic `ENCH` or `ALCH` records before references are installed. Their saved
+effect forms are relocated through the saved plugin map. Fields absent from
+the ESS table remain zero, and the created records use the existing record
+fields are persisted in the `SAV-17` world section. Inventory restoration
+requires each holder base to have a live record, applies item deltas by saved
+identity and reports inventory items whose records are absent. Created Objects decoding follows UESP
+`Created_Objects` and skymp's reader and writer field order in `soe-save`.
 
 `World::restore_vanilla_record_changes` validates CLAS changes and atomically
 applies FACT and RELA fields to record overrides. FACT reaction records feed
@@ -2597,6 +2604,15 @@ replaced. Programmatically loaded scripts have unknown source fingerprints.
 Each world and VM blob remains length-prefixed. The caller loads definitions
 before restoring into a game that has not been bound or started.
 
+The provenance test `tests/sav_56_provenance.rs` checks that a same-name
+replacement changes the plugin or script fingerprint while a plugin slot move
+leaves its content fingerprint unchanged. This extends the local save-format
+precedent: OpenMW's `apps/openmw/mwstate/statemanagerimp.cpp` writes active
+content file names and maps saved content indices on load, while the vanilla
+ESS plugin table records plugin names and regular/light membership without
+content fingerprints. The native envelope records the load-order slot and
+loaded definition fingerprints so these cases remain distinguishable.
+
 `Game::preflight_dependencies` compares native save provenance with the
 current load order and scripts. Its deterministic findings identify missing
 or added plugins and scripts, plugin kind or slot changes, changed
@@ -3350,9 +3366,14 @@ each do-all quest node. The implementation reads record fields described in
 `../engine-refs`. This state is included in the quest part of the world
 determinism hash.
 
-`Game::send_story_event` is an explicit runtime API. Gameplay actions do not
-generally emit story events automatically. The AI-69 draft was not present in
-this worktree. Its condition functions `GetScriptVariable`, `GetQuestVariable`,
+`Game::send_story_event` is an explicit runtime API. Papyrus
+`Keyword.SendStoryEvent` queues a `SCPT` event with the keyword, location, two
+references and two integer arguments in CK order. The game scheduler routes it
+after the native returns. `SendStoryEventAndWait` routes the same event before
+returning whether a quest started.
+Gameplay actions do not generally emit story events automatically. The AI-69
+draft was not present in this worktree. Its condition functions
+`GetScriptVariable`, `GetQuestVariable`,
 `GetDestructionStage`, `IsInCriticalStage`, `GetEventData`,
 `GetIsCrashLandRequest` and `GetIsHastyLandRequest` remain a dependency of
 conditioned trees. Unsupported or unavailable predicates return a typed
@@ -3371,12 +3392,15 @@ through Story Manager quest selection, item instance state and host menus
 remain unfinished. The full requested execution scope is tracked in
 [execution-plan.md](execution-plan.md).
 
-`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCRP` event
+`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCPT` event
 with the keyword, location, two references and two integer arguments in CK
-order. The waiting native returns whether routing started a quest. These
-natives evaluate direct world conditions without Papyrus variable lookup.
-Conditions that require Papyrus state return a routing error, logged by the
-native, and the waiting native returns false.
+order, using reference kinds 1 for the keyword and 2 for the location.
+The event code follows local `uesp-modfileformat/SMEN.wikitext`, and the native
+return contract follows `ck-wiki/Keyword_Script.wikitext`. The waiting native
+evaluates direct world conditions without Papyrus variable lookup. Conditions
+that require Papyrus state return a routing error, and the waiting native
+logs it and returns false. Deferred routing errors retain the
+`Keyword.SendStoryEvent` caller name in the VM log.
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
@@ -5093,16 +5117,18 @@ SOEW reference encoding. See [save.md](save.md#reference-placements) for
 sources, validation and the limits of this intermediate reconstruction pass.
 
 For reference headers with the generic form-flags bit, the pass retains both
-words in its report and leaves enable and persistence derived from the winning
-record. It accepts only ESS header version 12, form version 78 and change-form
-version 78 when that mask is present. The test
-`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks all
-four authored combinations, several values in both mask words, the persistence
-query and engine save/load. It describes this loader's current
-behavior, not an independently verified Skyrim save operation. The effective
-persistence value feeds cell-unload retention and encounter-zone reset
-decisions. SOEW version 37 stores it with each reference. Older SOEW states
-derive persistence from the current winning record.
+mask words in its report and leaves enable and persistence derived from the
+winning record. It accepts only ESS header version 12, form version 78
+and change-form version 78 when that mask is present. The second 16-bit word
+does not affect these runtime properties.
+Deleted winning records remain disabled regardless of this mask.
+The effective persistence value feeds cell-unload retention and
+encounter-zone reset decisions. SOEW version 37 stores it with each reference.
+Older SOEW states derive persistence from the current winning record.
+The test `sav_54_reference_mask_words_leave_enable_and_persistence_authored`
+checks all four authored combinations, several values in both mask words, the
+persistence query and engine save/load. It describes this loader's current
+behavior, not an independently verified Skyrim save operation.
 
 ## Inventory instances and ESS application, work in progress
 

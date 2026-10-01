@@ -161,7 +161,7 @@ fn order(settings: Settings) -> LoadOrder {
             Record::new(T(b"FURN"), FURNITURE)
                 .zsub(T(b"EDID"), "PatrolFurniture")
                 .sub(T(b"MNAM"), 1u32.to_le_bytes())
-                .sub(T(b"FNPR"), 1u16.to_le_bytes()),
+                .sub(T(b"FNPR"), [1_u8, 0, 0, 0]),
         );
     }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));
@@ -386,7 +386,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut game = game(Settings::default());
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    let tail = legacy::truncate_to_version(&mut old, 22, |candidate| {
+    legacy::truncate_to_version(&mut old, 22, |candidate| {
         self::game(Settings::default())
             .world_mut()
             .load_state(candidate)
@@ -407,8 +407,6 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // CONTEXT: Measure on the valid pre-patrol save, since this cursor is unsupported in version 22.
-    old.truncate(old.len() - tail);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

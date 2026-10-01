@@ -105,13 +105,13 @@ fn keyword_story_event(
         |index: usize| StoryParameter::Integer(args.get(index).map_or(0, Value::as_int) as u32);
     StoryEvent {
         id: world.runtime_id(keyword),
-        code: *b"SCRP",
+        code: *b"SCPT",
         parameters: vec![
             StoryParameter::Reference {
-                kind: 2,
+                kind: 1,
                 reference: Some(keyword),
             },
-            reference(0, 4),
+            reference(0, 2),
             reference(1, 0),
             reference(2, 0),
             integer(3),
@@ -3004,15 +3004,8 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
         .unwrap_or_default()));
     method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
         let event = keyword_story_event(world, me, &call.args);
-        let mut alloc = |name: &str, class: &str| call.create_object(name, class);
-        match world.send_story_event_without_vm(&event, &mut alloc) {
-            Ok(_) => none(),
-            Err(error) => {
-                call.log
-                    .push(call.time, format!("Keyword.SendStoryEvent: {error}"));
-                none()
-            }
-        }
+        world.pending_story_events.push(event);
+        none()
     });
     method!(
         vm,

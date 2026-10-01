@@ -704,6 +704,7 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    created_base_records: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     unresolved_records:
         BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
@@ -777,6 +778,8 @@ pub struct World {
     pub host_requests: Vec<HostRequest>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
+    /// Script events submitted by Papyrus and waiting for Story Manager routing.
+    pub(crate) pending_story_events: Vec<crate::quest::state::StoryEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     /// Recoverable errors raised by void Papyrus Game natives.
@@ -1057,6 +1060,7 @@ impl World {
             critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
+            created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
@@ -1100,6 +1104,7 @@ impl World {
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
+            pending_story_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             native_errors: Vec::new(),
