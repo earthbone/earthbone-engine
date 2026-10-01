@@ -417,12 +417,19 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::DirectAt { .. }
         | NodeKind::InterpValue { .. }
+        | NodeKind::GetUpModifier { .. }
         | NodeKind::IsActiveModifier { .. }
+        | NodeKind::TwistModifier(_)
         | NodeKind::DecomposeVector { .. }
         | NodeKind::SpeedSampler { .. }
         | NodeKind::DampingModifier { .. }
         | NodeKind::LookAtModifier { .. }
         | NodeKind::LimbIk { .. }
+        | NodeKind::FootIk { .. }
+        | NodeKind::KeyframeBonesModifier { .. }
+        | NodeKind::PoweredRagdollControls { .. }
+        | NodeKind::RigidBodyRagdollControlsModifier { .. }
+        | NodeKind::TransformVector { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }
