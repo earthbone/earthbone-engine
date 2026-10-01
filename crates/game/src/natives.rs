@@ -20,7 +20,8 @@ use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
-    reaction, AnimationListener, Handle, HostRequest, LeveledEntry, LosListener, MenuRequest, World,
+    reaction, AnimationListener, BinkOptions, Handle, HostRequest, LeveledEntry, LosListener,
+    MenuRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -204,7 +205,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 371;
+pub const NATIVE_COUNT: usize = 373;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1128,6 +1129,39 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsInCombat", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.in_combat)));
+    method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
+        i32::from(world.actor(me).is_some_and(|a| a.in_combat))
+    ));
+    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(
+        if world.actor(me).is_some_and(|a| a.ai.sleeping) {
+            3
+        } else {
+            0
+        }
+    ));
+    method!(vm, w, "Actor", "HasLOS", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = world.reference(target).and_then(|reference| {
+            (reference.enabled && !reference.deleted).then_some(reference.position)
+        });
+        b(from.zip(to).is_some_and(|(from, to)| from == to))
+    });
+    method!(vm, w, "Actor", "PathToReference", |world, call, me| {
+        let speed = call.arg(1).as_float();
+        let target = world.form_arg(&call.arg(0));
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = target.and_then(|target| {
+            world.reference(target).and_then(|reference| {
+                (reference.enabled && !reference.deleted).then_some(reference.position)
+            })
+        });
+        b(speed.is_finite()
+            && (0.0..=1.0).contains(&speed)
+            && from.zip(to).is_some_and(|(from, to)| from == to))
+    });
     method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
         world.evaluate_package(me, alloc!(call));
         none()
@@ -1248,9 +1282,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         });
     }
-    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(world
-        .actor(me)
-        .is_some_and(|a| a.alerted)));
+    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsAlarmed", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsBleedingOut", |world, call, me| b(
+        world.actor_is_bleeding_out(me)
+    ));
     // StartSneaking toggles (the page's note), IsSneaking reads it.
     method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -1869,7 +1909,47 @@ fn game(vm: &mut Vm, w: &Shared) {
         let skill = text(&call.arg(0));
         let magnitude = call.arg(1).as_float();
         let player = world.player();
-        let _ = world.advance_skill(player, &skill, magnitude);
+        if let Err(error) = world.advance_skill(player, &skill, magnitude) {
+            world.report_native_error("Game.AdvanceSkill", error.to_string());
+        }
+        none()
+    });
+    global!(vm, w, "Game", "SetHudCartMode", |world, call| {
+        world.set_hud_cart_mode(call.arg(0).as_bool());
+        none()
+    });
+    global!(vm, w, "Game", "ShowRaceMenu", |world, _call| {
+        world.show_race_menu();
+        none()
+    });
+    global!(vm, w, "Game", "TriggerScreenBlood", |world, call| {
+        world.trigger_screen_blood(call.arg(0).as_int());
+        none()
+    });
+    global!(vm, w, "Game", "PlayBink", |world, call| {
+        let file_name = text(&call.arg(0));
+        if let Err(error) = world.play_bink(
+            &file_name,
+            BinkOptions {
+                interruptible: call.arg(1).as_bool(),
+                mute_audio: call.arg(2).as_bool(),
+                mute_music: call.arg(3).as_bool(),
+                letterbox: call.arg(4).as_bool(),
+            },
+        ) {
+            world.report_native_error("Game.PlayBink", error.to_string());
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ServeTime", |world, _call| {
+        let player = world.player();
+        if let Some(faction) = world.actor(player).and_then(|actor| actor.crime_faction) {
+            let _ = world.serve_jail_time(faction);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ClearPrison", |world, _call| {
+        world.clear_prison();
         none()
     });
     for name in ["GetForm", "GetFormEx"] {
@@ -3053,6 +3133,19 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
+    // The Hover package owns the only flight state implemented by the driver.
+    method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
+        i32::from(
+            world
+                .actor(me)
+                .is_some_and(|actor| actor.ai.procedure == crate::ai::Procedure::Hover)
+        ) * 3
+    ));
+    method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(
+            |actor| actor.ai.procedure == crate::ai::Procedure::Hover
+        )));
     // "Can this actor fly here?" Allowed to fly, and out under the sky.
     method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
         if !world.actor(me).is_some_and(|a| a.allow_flying) {
@@ -3451,16 +3544,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let mut n = 0;
-    let shared = world.clone();
-    vm.natives.register_global(
-        "Game",
-        "ShowRaceMenu",
-        Box::new(move |_| {
-            shared.borrow_mut().menu_requests.push(MenuRequest::Race);
-            none()
-        }),
-    );
-    n += 1;
     for (name, request) in [
         ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
         ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
@@ -3479,8 +3562,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
-        ("Actor", "IsAlarmed", false),
-        ("Actor", "IsBleedingOut", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
@@ -3489,16 +3570,13 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Actor", "HasLOS", true),
-        ("Actor", "PathToReference", true),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Flight and ragdoll execution are not implemented.
-        ("Actor", "IsFlying", false),
+        // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -3517,10 +3595,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let ints: &[(&str, &str, i32)] = &[
         ("ObjectReference", "GetTriggerObjectCount", 0),
         ("ObjectReference", "GetCurrentDestructionStage", 0),
-        ("Actor", "GetCombatState", 0),
-        ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
-        ("Actor", "GetFlyingState", 0),
         ("Location", "GetRefTypeAliveCount", 0),
         ("Location", "GetRefTypeDeadCount", 0),
     ];
@@ -3629,11 +3704,9 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     }
     let globals_none: &[(&str, &str)] = &[
         ("Game", "ShakeCamera"),
-        // Werewolf crime, jail time and sun gazing are crime and weather
-        // systems the engine has not written yet.
+        // Werewolf crime and sun gazing are crime and weather systems not
+        // implemented by the runtime yet.
         ("Game", "SendWereWolfTransformation"),
-        ("Game", "ServeTime"),
-        ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
@@ -3643,8 +3716,14 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
         ("Game", "SetHudCartMode"),
-        ("Game", "TriggerScreenBlood"),
-        ("Game", "PlayBink"),
+        ("Game", "ShowTrainingMenu"),
+        ("Game", "ShowFirstPersonGeometry"),
+        ("Game", "SetCameraTarget"),
+        ("Game", "QuitToMainMenu"),
+        ("Game", "SetSittingRotation"),
+        ("Game", "StartTitleSequence"),
+        ("Game", "GetCurrentCrosshairRef"),
+        ("Game", "GetPlayerGrabbedRef"),
         ("Game", "FindClosestActor"),
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),
