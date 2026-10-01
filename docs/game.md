@@ -2938,6 +2938,7 @@ Accumulate Magnitude page describing its rate formula. This implementation
 uses the named GMST directly. The source inventory is local
 `TES5Edit/Core/wbDefinitionsTES5.pas` and
 `uesp-modfileformat/MGEF.wikitext`.
+
 ### Demoralize, MAG-30
 
 Direct Demoralize effects use the active-effect lifecycle to lower the target's
@@ -3029,6 +3030,7 @@ checks calendar progression and completion of an ordinary Papyrus wait. The
 menu test checks that menu pause preserves world clocks, completes a Papyrus
 menu wait and leaves an ordinary wait asleep. Both use synthetic records, and
 the check names no vanilla records.
+
 ### Command Summoned, MAG-33
 
 Direct casts execute MGEF archetype 10 only for a reference spawned by a live
