@@ -62,7 +62,10 @@ fn every_observed_stacked_entry_roundtrips_and_keeps_its_following_boundary() {
         }
     }
     assert_eq!(found, 9, "observed Stacked count changed");
-    assert!(errors.is_empty(), "Stacked payloads must decode: {errors:?}");
+    assert!(
+        errors.is_empty(),
+        "Stacked payloads must decode: {errors:?}"
+    );
 }
 
 #[test]

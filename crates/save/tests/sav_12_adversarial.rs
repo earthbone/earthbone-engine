@@ -54,12 +54,11 @@ fn observed_sequence_payloads_round_trip_with_the_following_boundary() {
                         sequence_count += 1;
                     }
                 }
-                Ok(None) => {}
                 Err(error) if error.to_string().contains("procedure \"Sequence\"") => {
                     sequence_count += 1;
                     failures.push(format!("{} {:?}: {error}", path.display(), form.form));
                 }
-                Err(_) => {}
+                Ok(None) | Err(_) => {}
             }
         }
     }

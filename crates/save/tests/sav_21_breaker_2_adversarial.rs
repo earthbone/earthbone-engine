@@ -98,5 +98,8 @@ fn all_observed_stacked_payloads_reencode_and_preserve_the_following_boundary() 
         }
     }
     assert_eq!(found, 9, "observed Stacked count changed");
-    assert!(failures.is_empty(), "Stacked entries must decode: {failures:?}");
+    assert!(
+        failures.is_empty(),
+        "Stacked entries must decode: {failures:?}"
+    );
 }

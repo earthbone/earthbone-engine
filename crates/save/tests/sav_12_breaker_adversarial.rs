@@ -98,5 +98,8 @@ fn all_observed_sequence_payloads_reencode_and_preserve_the_following_boundary()
         }
     }
     assert_eq!(found, 72, "observed Sequence count changed");
-    assert!(failures.is_empty(), "Sequence entries must decode: {failures:?}");
+    assert!(
+        failures.is_empty(),
+        "Sequence entries must decode: {failures:?}"
+    );
 }
