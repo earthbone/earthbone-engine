@@ -3049,10 +3049,17 @@ is rejected during preparation before applying effects. Tests
 `mag_61_cast_spawns_authored_hazard_at_target_with_caster_owner` and
 `mag_61_expiry_disables_only_its_owned_hazard` cover placement and cleanup.
 
-The HAZD record also supplies radius and target interval, but hazard collision,
-periodic contact selection and contact spell application are not implemented.
-Save continuation uses the existing active-effect and dynamic-reference save
-paths, but no installed-save survey covers a live hazard.
+At each authored HAZD target interval, the runtime selects enabled, live actors
+inside the hazard radius and applies its linked spell, scaled by the spawning
+effect magnitude. The caster is excluded. Radius inheritance uses the spawning
+effect's area. This uses the world's placed-reference positions and does not
+create a host collision shape. Timed contact applications use the hazard
+reference as their source, so hazard expiry or dispel ends those applications
+along with the hazard. The active effect's elapsed time and dynamic reference
+use the existing save path. Tests
+`mag_61_hazard_periodically_applies_its_contact_spell_to_the_target` and
+`mag_61_hazard_expiry_ends_its_contact_effects` cover contact and cleanup.
+No installed-save survey covers a live hazard.
 
 ### Direct active-effect foundation
 

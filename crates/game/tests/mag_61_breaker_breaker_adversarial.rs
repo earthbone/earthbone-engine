@@ -22,7 +22,7 @@ fn put(data: &mut [u8], offset: usize, value: u32) {
     data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-fn fixture(malformed_hazard: bool) -> Game {
+fn fixture(malformed_hazard: bool, contact_duration: u32) -> Game {
     let mut magic_effect = vec![0; 152];
     put(&mut magic_effect, 8, HAZARD);
     put(&mut magic_effect, 64, 40);
@@ -54,7 +54,7 @@ fn fixture(malformed_hazard: bool) -> Game {
     put(&mut contact_spell_data, 20, 3);
     let mut contact_efit = 10.0f32.to_le_bytes().to_vec();
     contact_efit.extend_from_slice(&0u32.to_le_bytes());
-    contact_efit.extend_from_slice(&0u32.to_le_bytes());
+    contact_efit.extend_from_slice(&contact_duration.to_le_bytes());
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), BASE).sub(T(b"ACBS"), vec![0; 24]));
@@ -71,7 +71,11 @@ fn fixture(malformed_hazard: bool) -> Game {
     }
     let hazard = Record::new(T(b"HAZD"), HAZARD).sub(
         T(b"DATA"),
-        if malformed_hazard { vec![0; 39] } else { hazard_data },
+        if malformed_hazard {
+            vec![0; 39]
+        } else {
+            hazard_data
+        },
     );
     plugin.push_top(hazard);
     plugin.push_top(Record::new(T(b"MGEF"), EFFECT).sub(T(b"DATA"), magic_effect));
@@ -99,7 +103,9 @@ fn fixture(malformed_hazard: bool) -> Game {
     game
 }
 
-fn cast(game: &mut Game) -> Result<Vec<soe_game::world::magic::EffectId>, soe_game::world::magic::MagicError> {
+fn cast(
+    game: &mut Game,
+) -> Result<Vec<soe_game::world::magic::EffectId>, soe_game::world::magic::MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
         id(SPELL),
@@ -113,7 +119,7 @@ fn cast(game: &mut Game) -> Result<Vec<soe_game::world::magic::EffectId>, soe_ga
 
 #[test]
 fn mag_61_hazard_periodically_applies_its_contact_spell_to_the_target() {
-    let mut game = fixture(false);
+    let mut game = fixture(false, 0);
     cast(&mut game).unwrap();
     game.tick(0.26);
 
@@ -123,10 +129,36 @@ fn mag_61_hazard_periodically_applies_its_contact_spell_to_the_target() {
 
 #[test]
 fn mag_61_malformed_hazard_record_rejects_before_any_effect_or_world_mutation() {
-    let mut game = fixture(true);
+    let mut game = fixture(true, 0);
     let before = game.save_state().unwrap();
 
     assert!(cast(&mut game).is_err());
     assert_eq!(game.save_state().unwrap(), before);
     assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_61_hazard_expiry_ends_its_contact_effects() {
+    let mut game = fixture(false, 30);
+    let effect = cast(&mut game).unwrap()[0];
+    let hazard = game
+        .world()
+        .active_effects()
+        .find(|active| active.id == effect)
+        .unwrap()
+        .summoned
+        .unwrap();
+
+    game.tick(0.26);
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|active| active.source == hazard));
+
+    game.tick(2.74);
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|active| active.source == hazard));
+    assert!(game.world().reference_ref(hazard).unwrap().deleted);
 }

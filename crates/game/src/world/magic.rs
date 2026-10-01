@@ -2302,8 +2302,18 @@ impl World {
                     || hazard.radius < 0.0
                     || !hazard.lifetime.is_finite()
                     || hazard.lifetime < 0.0
+                    || !hazard.target_interval.is_finite()
+                    || hazard.target_interval <= 0.0
                 {
-                    return Err(MagicError::Unsupported("invalid hazard radius or lifetime"));
+                    return Err(MagicError::Unsupported(
+                        "invalid hazard radius, lifetime or target interval",
+                    ));
+                }
+                if hazard.spell != 0 {
+                    let contact_spell = self
+                        .resolve_from(base, hazard.spell)
+                        .ok_or(MagicError::Missing(base))?;
+                    self.spell(contact_spell)?;
                 }
                 Some(base)
             } else {
@@ -3188,6 +3198,20 @@ impl World {
         for cloak in self.cloak_effects.values_mut() {
             cloak.owned.retain(|owned| *owned != id);
         }
+        if let Some(hazard) = effect.summoned.filter(|_| {
+            self.magic_effect(effect.effect)
+                .is_ok_and(|base| base.data.archetype == 40)
+        }) {
+            let owned: Vec<_> = self
+                .active_effects
+                .values()
+                .filter(|child| child.source == hazard)
+                .map(|child| child.id)
+                .collect();
+            for child in owned {
+                self.dispel_effect(child, alloc);
+            }
+        }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
@@ -3368,6 +3392,18 @@ impl World {
                     }
                 }
                 effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+                if self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 40)
+                {
+                    if let Err(error) =
+                        self.tick_spawn_hazard(&effect, effect.elapsed - dt, effect.elapsed, alloc)
+                    {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
                 if reached_check {
                     effect.elapsed = effect.elapsed.round();
                 }
@@ -3408,6 +3444,72 @@ impl World {
             }
         }
         errors
+    }
+
+    fn tick_spawn_hazard(
+        &mut self,
+        effect: &ActiveEffect,
+        previous: f64,
+        current: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let base_effect = self.magic_effect(effect.effect)?;
+        let base = self
+            .resolve_from(effect.effect, base_effect.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let record = self.record(base).ok_or(MagicError::Missing(base))?;
+        let hazard = Hazard::from_record(record)?;
+        if hazard.spell == 0 {
+            return Ok(());
+        }
+        let contact_spell = self
+            .resolve_from(base, hazard.spell)
+            .ok_or(MagicError::Missing(base))?;
+        let hazard_ref = effect.summoned.ok_or(MagicError::Target)?;
+        let center = self
+            .reference_ref(hazard_ref)
+            .filter(|reference| reference.enabled && !reference.deleted)
+            .map(|reference| reference.position)
+            .ok_or(MagicError::Target)?;
+        let inherited_radius = if hazard.flags & hazard_data::flags::INHERIT_RADIUS != 0 {
+            self.magic_item_effect(effect.spell, effect.effect_index)
+                .map(|entry| entry.data.area as f32)
+                .unwrap_or(0.0)
+        } else {
+            hazard.radius
+        };
+        let interval = f64::from(hazard.target_interval);
+        let first = (previous / interval).floor() + 1.0;
+        let last = (current / interval).floor();
+        if !first.is_finite() || !last.is_finite() || last < first {
+            return Ok(());
+        }
+        if last - first > 255.0 {
+            return Err(MagicError::Unsupported("spawn hazard pulse limit"));
+        }
+        let owner = effect.caster.unwrap_or(effect.source);
+        for _ in 0..=(last - first) as usize {
+            let mut targets = self.area_targets_at_position(center, inherited_radius);
+            targets.retain(|target| {
+                *target != owner
+                    && self
+                        .actor(*target)
+                        .is_some_and(|actor| !actor.dead && !actor.ghost)
+                    && !self.is_ethereal(*target)
+            });
+            for target in targets {
+                let mut prepared =
+                    self.prepare_spell_cast(contact_spell, hazard_ref, Some(owner), Some(target))?;
+                for child in &mut prepared {
+                    child.effect.magnitude *= effect.magnitude;
+                    if !child.effect.magnitude.is_finite() {
+                        return Err(MagicError::Number);
+                    }
+                }
+                self.apply_prepared_effects(prepared, alloc)?;
+            }
+        }
+        Ok(())
     }
 
     fn accumulate_effect_value(
