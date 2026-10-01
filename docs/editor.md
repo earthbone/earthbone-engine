@@ -158,14 +158,14 @@ game-facing side.
 ### 3.5 Navmesh regeneration on save
 
 Navmesh generation in the Creation Kit is a manual step that authors forget and that
-produces broken meshes when references move. In the editor, saving a cell whose references
-or landscape changed marks its navmesh stale, and the save step regenerates it through
-`soe-navmesh` from the cell's collision and LAND heights, then reruns finalization for the
-edge links to neighbours. Hand edits survive as overrides on triangles the author marked
-locked. A stale navmesh that the author chooses not to regenerate is saved with a flag the
-engine reads, so the runtime can generate it at load instead. This is the one place the
-editor does something the Creation Kit does not: the workaround (running xEdit's navmesh
-checks, or a generation pass in a separate session) becomes the default behaviour.
+produces broken meshes when references move. `EditorDocument::save_with_navmesh_regeneration`
+accepts the changed cell scene, agent dimensions and locked triangle indices, then uses
+`soe-navmesh` to generate the replacement geometry before writing the plugin. Exterior
+scenes need neighboring geometry around the cell border for Recast's erosion padding. The
+save retains locked triangles and triangles that own authored edge or door links, rebuilds
+adjacency and the spatial grid, and keeps their link metadata. The current editor API does
+not detect cell changes, finalize links with neighboring NAVMs, or write a stale flag when
+regeneration is skipped. Those behaviors remain part of the editor milestone design.
 
 ### 3.6 What the editor renders
 
@@ -275,8 +275,14 @@ year or more or blocked.
 ### Editor core implementation
 
 `soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
-plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
-A supported winning top-level `STAT` or `GLOB` subrecord edit, or a QUST text edit, creates an active-plugin override. Undo
+plugin, and updates the resolved order when an edit is applied or undone. Supported winning
+top-level `STAT` and `GLOB` edits, and QUST stage and objective text edits, create an active
+plugin override. DIAL topic field edits remap BNAM branch and QNAM quest links into the active
+plugin's master order. INFO response text edits select responses by TRDT order, retain the
+other responses, and write an INFO override in its TopicChildren group under the owning DIAL.
+The topic group label uses the active plugin's local DIAL FormID. Undo restores the prior
+active plugin. Saving writes the active plugin bytes and parses those bytes again before
+returning the saved plugin. The TES4 record count is updated with edits.
 
 `save_with_script` compiles PSC source through `soe-papyrus`, attaches its scalar auto
 properties to the selected record in an unfragmented Skyrim VMAD subrecord, and saves the
@@ -287,16 +293,35 @@ files, run a language server, edit existing script bindings, or generate quest f
 The VMAD primary section follows UESP's `VMAD_Field` description and
 `TES5Edit/Core/wbDefinitionsTES5.pas`'s `wbVMAD` definition.
 
+Dialogue topic and response edits follow `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`
+DIAL and INFO definitions and `engine-refs/uesp-modfileformat/{DIAL,INFO,QUST}.wikitext`.
+xEdit declares the DIAL branch and quest link types, and UESP documents INFO records as
+children of their DIAL topic. No source code was copied. Dialogue edits change existing
+fields, they do not create dialogue records or change quest ownership.
+
+Scene edits can rename a SCEN phase or set a Dialogue action's DIAL topic. A copied
+top-level SCEN override relocates its parent QUST, dialogue DIAL and package PACK links from
+the source plugin's master table into the active plugin's master table. The editor checks those
+link types and each action's zero-based phase indexes before accepting the edit, and keeps the
+other SCEN subrecords in order. Undo restores the prior active plugin. Saving writes the active
+plugin bytes and parses those bytes again before returning the saved plugin. The TES4 record
+count is updated with edits.
+
 Copying a winning record whose owner differs from the active plugin requires relocating
-restores the prior active plugin. Saving writes the active plugin bytes and parses those
-bytes again before returning the saved plugin. The TES4 record count is updated with edits.
-per record, while the current editor writes plugin files only. No text plugin translation
-or `.spriggit` configuration reader is implemented.
+FormIDs in the record and its group path. The editor supports copied top-level `STAT` and
+`GLOB` records, top-level DIAL records, nested INFO placement, and QUST text edits when
+source and active master order align. Other nested records remain rejected. The FMT-15
+FormID renumbering and FMT-26 master relocation rows remain open. The Spriggit output guide
+describes separate text files per record, while the current editor writes plugin files
+only. No text plugin translation or `.spriggit` configuration reader is implemented.
 
 `EditorDocument::search_forms` filters the load order's winning forms by an optional record
 signature and a case-insensitive substring of `EDID`. It yields `GlobalFormId` values, so a
 caller can fetch a winning record when selected instead of building a Godot resource for
-every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
+every form. `EditorDocument::override_chain` returns the selected form's versions in load
+order, with each source plugin and record and a winner flag. The final version is the winner,
+including when the selected form has only one version. This is the record-chain data for the
+conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
@@ -331,6 +356,15 @@ The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` i
 `classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. Their
 Godot callback is not wired to this Rust operation yet.
 
+`EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
+`soe-esm::records::stat::Static` view and returns the value with the file name of the winning
+record. `set_stat_model_field` accepts a NIF path without embedded NUL bytes, stores it as the
+record's NUL-terminated `MODL` string, and creates or updates the active-plugin record through
+the undoable edit log. Undo restores both the prior field value and the prior winning plugin.
+The typed access uses xEdit's `STAT` definition, where the generic model data is part of the
+record, and follows Godot's inspector plugin guidance to route property edits through the
+document model. It does not add a Godot inspector control.
+
 ### Quest stage and objective text edits, EDT-07
 
 `EditorDocument::edit_quest_stage_log_entry_text` edits an existing QUST `CNAM` journal
@@ -355,7 +389,7 @@ the companion string tables. Creating an override from another plugin is allowed
 its masters and the active plugin's master prefix match the load-order prefix. That keeps
 the raw QUST links in their original FormID context. Nested records and QUST records with a
 different master order still require FMT-15 and FMT-26 relocation support. The editor does
-not add stages, log entries, objectives or targets, and it does not edit DIAL, INFO or SCEN.
+not add stages, log entries, objectives or targets, and it does not add DIAL or INFO records.
 `crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
 undo, duplicate stage and objective numbers, preserved targets and safe rejection of
 localized text.
@@ -377,3 +411,6 @@ definition identifies DIAL's `QNAM` as its QUST link. This operation edits only 
 aliases with `ALID` and `FNAM`, and does not resolve alias FormIDs or evaluate conditions.
 `crates/editor/tests/edt_18_quest_aliases.rs` covers override save and reload, retained
 alias fields, undo, and rejection of an orphan condition string.
+
+The override-chain API follows Mutagen's winning-override rule and Wrye Bash's description
+of whole-record override resolution. It does not compare individual fields or run patchers.

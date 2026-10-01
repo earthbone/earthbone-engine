@@ -1411,6 +1411,7 @@ name = "soe-editor"
 version = "0.1.0"
 dependencies = [
  "soe-esm",
+ "soe-navmesh",
  "soe-papyrus",
  "thiserror 2.0.20",
 ]

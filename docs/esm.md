@@ -163,7 +163,7 @@ editor undo action. Non-finite collision heights are rejected.
 other NPC subrecords, checks each link against the active load order for a
 winning `HDPT`, and rejects malformed links or non-finite morph values. The
 `NPC_` `PNAM` links are relocated with other recognized FormIDs when a plugin's
-master order changes. These fields are defined by local xEdit's NPC_ record
+master order changes. These fields are defined by local xEdit's `NPC_` record
 definition. TiltedEvolution's `FaceGenSystem.cpp` confirms that runtime face
 assembly resolves NPC head-part records before finding mesh nodes. The PyNifly
 TRI source named by the editor milestone is absent from the local reference

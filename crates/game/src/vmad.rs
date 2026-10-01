@@ -935,16 +935,15 @@ mod tests {
             let bytes = authored_pack_bytes(flags, &[(2, "TIF__000A0001", function)]);
             let parsed = Vmad::parse(&bytes, PACK).unwrap();
             let fragments = parsed.pack_fragments.as_ref().unwrap();
-            let actual = [
-                fragments.begin.as_ref(),
-                fragments.end.as_ref(),
-                fragments.change.as_ref(),
-            ];
-            assert_eq!(actual[expected_index].unwrap().function, function);
-            assert!(actual
-                .into_iter()
-                .enumerate()
-                .all(|(index, fragment)| index == expected_index || fragment.is_none()));
+            assert_eq!(fragments.begin.is_some(), expected_index == 0);
+            assert_eq!(fragments.end.is_some(), expected_index == 1);
+            assert_eq!(fragments.change.is_some(), expected_index == 2);
+            let actual = match expected_index {
+                0 => &fragments.begin,
+                1 => &fragments.end,
+                _ => &fragments.change,
+            };
+            assert_eq!(actual.as_ref().unwrap().function, function);
             assert_eq!(parsed.write(PACK), bytes);
         }
     }
