@@ -428,6 +428,15 @@ their detailed behavior is inferred from the matching Papyrus faction and
 actor contracts and the runtime crime state. Invalid actor and form context
 returns a condition error.
 
+**Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
+`ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
+cleared by `Actor.ClearArrested`. It also resets the player's cumulative
+served-day counter. `Game.ServeTime` applies the remaining jail time. The
+engine does not yet select a high-process witness for werewolf crime, trigger
+a sun-gaze modifier, or send controller rumble to Godot.
+`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
+`ShakeController` remain stubs until those owning systems exist.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the

@@ -2160,6 +2160,10 @@ fn game(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Game", "ClearPrison", |world, _call| {
         world.clear_prison();
+        let player = world.player();
+        if let Some(actor) = world.actor(player) {
+            actor.arrested = false;
+        }
         none()
     });
     for name in ["GetForm", "GetFormEx"] {
