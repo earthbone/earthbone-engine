@@ -205,7 +205,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 373;
+pub const NATIVE_COUNT: usize = 374;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2890,6 +2890,16 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
         let class = world.actor_base(me).and_then(|a| a.class);
         form_value(world, call, class)
     });
+    method!(vm, w, "ActorBase", "GetGiftFilter", |world, call, me| {
+        match world.actor_base_gift_filter(me) {
+            Ok(filter) => form_value(world, call, filter),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("ActorBase.GetGiftFilter: {error}"));
+                none()
+            }
+        }
+    });
     method!(vm, w, "ActorBase", "GetSex", |world, call, me| i(world
         .actor_base(me)
         .map_or(-1, |a| i32::from(a.female))));
@@ -3947,7 +3957,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Faction", "SendPlayerToJail"),
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
-        ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
