@@ -713,6 +713,7 @@ update semantics, so duration fallback and interpolation are interpreter
 rules, not claims from a Havok runtime capture.
 `tests/anm_38_tweener.rs` checks decoded fields, midpoint and endpoint values,
 channel flags and modifier enable state.
+
 ### `BSLookAtModifier` pose execution (ANM-32)
 
 The behavior decoder reads `BSLookAtModifier` target settings and both authored
@@ -892,6 +893,7 @@ do not change this output calculation. The class layout and local editor
 source expose the fields but do not document a more detailed sampling formula.
 The `anm_36_speed_sampler` tests cover field decoding, bindings, output and
 disabled behavior. No original-runtime capture establishes further semantics.
+
 ### Every-N event modifier (2026-09-28)
 
 ANM-26 decodes and executes `BSEventEveryNEventsModifier`. The field layout
