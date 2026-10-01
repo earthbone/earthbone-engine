@@ -29,6 +29,9 @@ pub mod appearance;
 pub mod class;
 pub mod clock;
 pub mod combat;
+pub mod commonlib;
+pub mod commonlib_api;
+pub mod commonlib_world;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
@@ -55,6 +58,7 @@ pub mod race;
 pub mod save;
 pub mod save_generations;
 pub mod services;
+pub mod shim_world;
 pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
@@ -66,6 +70,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use soe_commonlib_shim::conditions::{
+    ComparisonValue, ConditionContext, ConditionError, ConditionRuntime, CONDITIONITEMOBJECT,
+    CONDITION_ITEM_DATA,
+};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
 use soe_papyrus::value::ElementKind;
 use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
@@ -73,7 +81,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 pub use clock::GameClock;
 pub use natives::Registered;
 pub use world::StoryError;
-pub use world::{Handle, Pending, RefPlacement, World};
+pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
 
@@ -1075,6 +1083,11 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        {
+            let mut world = self.world.borrow_mut();
+            world.menu_mode = menu_mode;
+            world.frame_rate.record_frame(real_seconds);
+        }
         let mut game_hours = 0.0;
         if !menu_mode {
             self.resume_quest_lifecycle_tasks();
@@ -1087,6 +1100,11 @@ impl Game {
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
             });
+            w.tick_shader_particles(real_seconds);
+            w.tick_effect_shaders(real_seconds);
+            if let Err(error) = w.tick_visual_effects(real_seconds) {
+                vm.log.push(vm.time(), error.to_string());
+            }
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
@@ -1098,9 +1116,11 @@ impl Game {
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
-            w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
-                vm.create_object_of(n, c)
-            });
+            if w.debug_ai_enabled {
+                w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+                    vm.create_object_of(n, c)
+                });
+            }
         }
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
@@ -1331,6 +1351,69 @@ impl Game {
             .iter()
             .map(|e| e.message.clone())
             .collect()
+    }
+}
+
+impl ConditionRuntime for Game {
+    fn evaluate_item(
+        &mut self,
+        item: &CONDITION_ITEM_DATA,
+        context: ConditionContext,
+    ) -> Result<bool, ConditionError> {
+        let mut world = self.world.borrow_mut();
+        let owner = world
+            .from_runtime_id(context.owner.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let subject = world
+            .from_runtime_id(context.subject.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let target = context
+            .target
+            .and_then(|handle| world.from_runtime_id(handle.0));
+        let quest = context.quest.and_then(|id| world.from_runtime_id(id.0));
+        let comparison = match item.comparison {
+            ComparisonValue::Number(value) => soe_esm::records::gameplay::Comparison::Number(value),
+            ComparisonValue::Global(id) => soe_esm::records::gameplay::Comparison::Global(id.0),
+        };
+        if item.object != CONDITIONITEMOBJECT::SelfRef {
+            return Err(ConditionError::UnsupportedTarget(item.object as u32));
+        }
+        let condition = soe_esm::records::gameplay::Condition {
+            flags: item.flags,
+            comparison,
+            function: item.function,
+            parameters: item.parameters,
+            run_on: item.run_on,
+            reference: item.reference.0,
+            parameter_3: item.parameter_3,
+            strings: [None, None],
+        };
+        let context = conditions::Context {
+            owner,
+            subject,
+            target,
+            quest,
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        conditions::evaluate_one(&mut world, &self.vm, context, &condition).map_err(|error| {
+            match error {
+                conditions::Error::Function(function) => {
+                    ConditionError::UnsupportedFunction(function)
+                }
+                conditions::Error::Target(target) => ConditionError::UnsupportedTarget(target),
+                conditions::Error::Form(_) | conditions::Error::Variable(_) => {
+                    ConditionError::UnavailableState
+                }
+                _ => ConditionError::InvalidCondition,
+            }
+        })
     }
 }
 
