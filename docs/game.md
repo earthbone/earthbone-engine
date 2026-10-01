@@ -91,6 +91,11 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   aliases with forced references, and each objective target's alias, lock
   marker flag and CTDA conditions, plus local or external alias dependencies.
 - `natives`: the base game's natives, closed over the shared world.
+- `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
+  resolved RFCT and placed-reference forms. Calls stack, finite durations
+  expire on unpaused game ticks, and `Stop` removes all matching instances.
+  Hosts can inspect the active requests in stable call order. Rendering the
+  RFCT art object is not connected yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -612,6 +617,11 @@ Their CK contracts are described by
   reverses their actor-value changes. Unsupported or malformed effects are
   logged by `Actor.EquipItem`. Weapon enchantments remain outside this path
   and are not applied during combat yet.
+- `VisualEffect.Play` adds a transient effect instance for the RFCT form and
+  placed target. Calls stack, negative durations remain until stopped, and a
+  finite duration expires on an unpaused game tick. The optional facing
+  reference is retained. `VisualEffect.Stop` removes every matching instance
+  on its target. Rendering the RFCT art object is not connected yet.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.

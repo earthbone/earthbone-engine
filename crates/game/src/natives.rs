@@ -194,6 +194,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     actor_base(vm, world);
     cell(vm, world);
     message_scene_sound_spell(vm, world);
+    visual_effect(vm, world);
     dlc(vm, world);
     fragments_and_effects(vm, world);
     active_magic(vm, world);
@@ -3172,6 +3173,46 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
     );
 }
 
+/// Papyrus VisualEffect.Play and Stop, routed through transient World state.
+fn visual_effect(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "VisualEffect", "Play", |world, call, me| {
+        let Some(target) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "VisualEffect.Play: missing target reference");
+            return none();
+        };
+        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
+        let facing = match call.args.get(2) {
+            None | Some(Value::None) => None,
+            Some(value) => match world.form_arg(value) {
+                Some(form) => Some(form),
+                None => {
+                    call.log
+                        .push(call.time, "VisualEffect.Play: invalid facing reference");
+                    return none();
+                }
+            },
+        };
+        if let Err(error) = world.play_visual_effect(me, target, f64::from(duration), facing) {
+            call.log
+                .push(call.time, format!("VisualEffect.Play: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "VisualEffect", "Stop", |world, call, me| {
+        let Some(target) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "VisualEffect.Stop: missing target reference");
+            return none();
+        };
+        if let Err(error) = world.stop_visual_effect(me, target) {
+            call.log
+                .push(call.time, format!("VisualEffect.Stop: {error}"));
+        }
+        none()
+    });
+}
+
 /// What Dawnguard, HearthFires and Dragonborn added to the base classes.
 /// Ordered by how often the DLC scripts call each one.
 fn dlc(vm: &mut Vm, w: &Shared) {
@@ -3857,6 +3898,13 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         // The effect, music and particle systems are not implemented yet.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
+        ("ObjectReference", "ForceAddRagdollToWorld"),
+        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
+        ("ObjectReference", "TetherToHorse"),
+        // The shader, effect and music systems the DLC scripts lean on
+        // hardest. Nothing renders or sounds yet, so each one is quiet.
+        ("EffectShader", "Play"),
+        ("EffectShader", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),

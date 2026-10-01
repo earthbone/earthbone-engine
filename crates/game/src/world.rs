@@ -117,6 +117,7 @@ pub mod training;
 mod transition;
 mod trigger;
 pub use reference_translation::{RefTranslation, TranslationPath};
+mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use dialogue_scene_restore::DialogueSceneRestoreReport;
@@ -125,6 +126,7 @@ pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use visual_effects::{VisualEffectError, VisualEffectId, VisualEffectInstance};
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -765,6 +767,9 @@ pub struct World {
     /// A transient reference held by one Telekinesis concentration cast.
     /// Physics handles are host-owned, so this state is never serialized.
     pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
+    pub(crate) visual_effects:
+        BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
+    pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -939,6 +944,8 @@ impl World {
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,
             telekinesis_grab: None,
+            visual_effects: BTreeMap::new(),
+            next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
