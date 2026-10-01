@@ -7,6 +7,8 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
+use godot::prelude::{GString, Variant};
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -110,6 +112,38 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
+            let (hud_cart_mode, requests) = {
+                let mut world = game.world_mut();
+                (world.hud_cart_mode, world.take_game_ui_requests())
+            };
+            if hud_cart_mode != self.presented_hud_cart_mode {
+                self.presented_hud_cart_mode = hud_cart_mode;
+                self.base_mut()
+                    .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
+            }
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
         }
         let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
             std::mem::take(&mut game.world_mut().menu_requests)
