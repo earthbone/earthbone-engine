@@ -23,34 +23,21 @@ use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
 const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("BSDirectAtModifier", 23, "ANM-25"),
-    ("BSEventEveryNEventsModifier", 85, "ANM-26"),
-    ("BSEventOnDeactivateModifier", 98, "ANM-27"),
-    ("BSIStateManagerModifier", 3, "ANM-29"),
-    ("BSLimbIKModifier", 1, "ANM-31"),
-    ("BSInterpValueModifier", 36, "ANM-30"),
-    ("BSLookAtModifier", 128, "ANM-32"),
     ("BSModifyOnceModifier", 26, "ANM-33"),
     ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
     ("BSRagdollContactListenerModifier", 50, "ANM-35"),
     ("BSSpeedSamplerModifier", 42, "ANM-36"),
     ("BSTimerModifier", 1, "ANM-37"),
     ("BSTweenerModifier", 5, "ANM-38"),
-    ("hkbDampingModifier", 41, "ANM-39"),
-    ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
-    ("hkbEventDrivenModifier", 158, "ANM-17"),
+    ("hkbDampingModifier", 43, "ANM-39"),
     ("hkbFootIkControlsModifier", 25, "ANM-41"),
     ("hkbFootIkModifier", 2, "ANM-42"),
     ("hkbGetUpModifier", 46, "ANM-43"),
     ("hkbKeyframeBonesModifier", 91, "ANM-44"),
-    ("hkbModifierGenerator", 1909, "ANM-52"),
-    ("hkbModifierList", 708, "ANM-51"),
     ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
     ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
-    ("hkbRotateCharacterModifier", 6, "ANM-14"),
     ("hkbTransformVectorModifier", 1, "ANM-47"),
-    ("hkbTimerModifier", 59, "ANM-16"),
-    ("hkbTwistModifier", 17, "ANM-48"),
+    ("hkbTwistModifier", 19, "ANM-48"),
 ];
 
 fn animations_archive() -> Option<Archive> {
@@ -397,14 +384,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
                             .or_insert(0usize) += 1;
                     }
                 }
-                if matches!(
-                    node.kind,
-                    NodeKind::Modifier { .. }
-                        | NodeKind::ModifierGenerator { .. }
-                        | NodeKind::ModifierList { .. }
-                        | NodeKind::EventDrivenModifier { .. }
-                        | NodeKind::TimerModifier { .. }
-                ) {
+                if matches!(node.kind, NodeKind::Modifier { .. }) {
                     *classes.entry(node.class.clone()).or_insert(0usize) += 1;
                 }
             }
@@ -412,6 +392,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
     }
     println!("{behavior_files} behavior graphs, passthrough modifiers {classes:?}");
     println!("modifier-list children {list_children:?}");
+    assert_eq!(behavior_files, 428, "installed behavior corpus changed");
     let expected = PASSTHROUGH_MODIFIERS
         .iter()
         .map(|(class, count, _)| ((*class).to_string(), *count))
