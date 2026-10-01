@@ -545,13 +545,13 @@ given faction, defaulting an absent reaction to neutral and saturating at the
 
 ## Conformance table
 
-`natives::register` has 378 stateful registrations and 172 quiet stubs,
-including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
-`Actor.IsBleedingOut` and the SCR-26 `Actor.IsFlying` stub. `IsAlarmed` reads
-the actor's alert flag. `IsBleedingOut` requires an actor to be unconscious,
-alive and at or below its record-derived bleedout threshold. A quiet stub
-returns the idle value the game gives when nothing is going on, so vanilla
-scripts can continue when their owning system has no behavior yet.
+`natives::register` includes the implementations and quiet stubs listed below.
+The registration test checks the hand-kept stateful count and rejects duplicate
+names. `IsAlarmed` reads the actor's alert flag. `IsBleedingOut` requires an
+actor to be unconscious, alive and at or below its record-derived bleedout
+threshold. A quiet stub returns the idle value the game gives when nothing is
+going on, so vanilla scripts can continue when their owning system has no
+behavior yet.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
@@ -564,7 +564,7 @@ scripts can continue when their owning system has no behavior yet.
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -714,6 +714,16 @@ Their CK contracts are described by
   `SetUnconscious` clear each other. `Kill(akKiller)` records the killer for
   `GetKiller`, `StartCombat(target)` the target for `GetCombatTarget`.
 - `GetCurrentLocation` is the reference's `XLCN`, else its cell's.
+- `FindClosestActor`, `FindRandomActor`, `FindClosestReferenceOfType` and
+  `FindRandomReferenceOfType` search enabled, non-deleted placed records within
+  the supplied three-dimensional radius. Reference searches require the exact
+  base form. Already instantiated references use runtime position and enable
+  state. Closest ties resolve by FormID, and random selection uses the world's
+  deterministic random stream. `GetFormEx2` resolves its signed Papyrus
+  integer as an unsigned runtime FormID, matching `GetFormEx`. The local CK
+  page documents the four search signatures and radius behavior. The local
+  SKSE `Game.psc` documents `GetFormEx` high-ID handling. No local source
+  documents `GetFormEx2`, so it follows the same lookup behavior.
   `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
   Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
   `GetFactionOwner` answer by the owner's record type.

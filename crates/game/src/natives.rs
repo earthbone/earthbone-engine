@@ -206,7 +206,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 380;
+pub const NATIVE_COUNT: usize = 381;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2224,9 +2224,32 @@ fn game(vm: &mut Vm, w: &Shared) {
         world.host_requests.push(HostRequest::CameraThirdPerson);
         none()
     });
-    for name in ["GetForm", "GetFormEx"] {
+    for name in ["GetForm", "GetFormEx", "GetFormEx2"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
+            form_value(world, call, id)
+        });
+    }
+    for (name, actors_only, random) in [
+        ("FindClosestActor", true, false),
+        ("FindRandomActor", true, true),
+        ("FindClosestReferenceOfType", false, false),
+        ("FindRandomReferenceOfType", false, true),
+    ] {
+        global!(vm, w, "Game", name, |world, call| {
+            let base = if actors_only {
+                None
+            } else {
+                world.form_arg(&call.arg(0))
+            };
+            let offset = usize::from(!actors_only);
+            let center = [
+                call.arg(offset).as_float(),
+                call.arg(offset + 1).as_float(),
+                call.arg(offset + 2).as_float(),
+            ];
+            let radius = call.arg(offset + 3).as_float();
+            let id = world.find_reference_of_base(base, center, radius, actors_only, random);
             form_value(world, call, id)
         });
     }
@@ -4010,7 +4033,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),
         ("Game", "FindRandomReferenceOfType"),
-        ("Game", "GetFormEx2"),
         ("Debug", "QuitGame"),
         ("Debug", "CenterOnCell"),
         ("Debug", "CenterOnCellAndWait"),
