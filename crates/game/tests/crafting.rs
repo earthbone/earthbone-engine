@@ -460,7 +460,7 @@ fn recipe_conditions_are_rechecked_and_unknown_functions_fail_closed() {
     assert_eq!(pending(&g), events);
 
     let mut g = game(
-        crate::recipe(&[(IRON, 1)], NAILS, 10).sub(Tag(*b"CTDA"), condition(0xffff, 0, 1.0, 0)),
+        self::recipe(&[(IRON, 1)], NAILS, 10).sub(Tag(*b"CTDA"), condition(0xffff, 0, 1.0, 0)),
         1,
     );
     stock(&g, IRON, 1);

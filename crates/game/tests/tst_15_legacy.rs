@@ -3,8 +3,7 @@
 
 //! Legacy fixture tail cuts follow the SOEW reader and named section tables.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};

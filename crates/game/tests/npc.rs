@@ -4,8 +4,7 @@
 //! Actor state from `NPC_` records: a synthetic base through the natives,
 //! and the shipped Prisoner from Skyrim.esm when `SKYRIM_DATA` is set.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, flags as npc_flags, Config, Npc, Stats};

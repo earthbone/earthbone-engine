@@ -3,8 +3,7 @@
 
 //! Ordinary LVLI quantities, deterministic choices and atomic rejection.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
