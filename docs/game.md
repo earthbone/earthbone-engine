@@ -5816,6 +5816,12 @@ for Powers and Lesser Powers) fall back to the old direct `equipped` set
 write, since those spell types are rejected by `equip_hand_spell` and have no
 hand to occupy.
 
+`GetEquippedSpell` only reads sources 0 and 1. The generic equipped set written
+for sources 2 and 3 does not retain their source identity, so those getter
+sources return no form. `natives_dlc.rs`'s
+`scr_15_get_equipped_spell_reads_the_requested_hand` checks both hand
+arguments, the unassigned opposite hand, and an unsupported source.
+
 `godot-host/src/magic_menu.rs` builds the known-spell list through the same
 force-build-then-read path `inventory_menu.rs` uses (`World::actor` once,
 then `World::actor_ref`), and `godot_player/magic.rs` wires it to the host's
