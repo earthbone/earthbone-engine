@@ -1849,11 +1849,12 @@ are unknown. Each finding identifies whether it affects world or VM state.
 The method reads the save envelope and does not mutate the game.
 
 `Game::preflight_vanilla_dependencies` compares ESS plugin names and Papyrus
-script names from definitions, instances, references, active frames, queued
-messages and suspended calls with the current definitions. It reports missing
-plugins and scripts, regular/light kind changes and unknown provenance for
-each saved plugin or script because ESS stores no content fingerprints. A
-malformed Papyrus block returns an error. Findings have a stable ordering.
+script names from definitions, inherited parent definitions, instances,
+references, active frames, queued messages and suspended calls with the current
+definitions. It reports missing plugins and scripts, regular/light kind
+changes and unknown provenance for each saved plugin or script because ESS
+stores no content fingerprints. A malformed Papyrus block returns an error.
+Findings have a stable ordering.
 The field boundary follows UESP `Save_File_Format.wikitext` and FallrimTools
 `PluginInfo.java` and `papyrus/Script.java`, which expose saved plugin and
 script identities without content fingerprints. `tests/sav_57_preflight.rs`

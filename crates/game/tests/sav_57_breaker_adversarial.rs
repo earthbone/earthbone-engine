@@ -110,14 +110,19 @@ fn sav_57_vanilla_script_matching_ignores_ascii_case() {
     let mut save = empty_save();
     save.table_3.push(GlobalData {
         kind: GlobalData::PAPYRUS,
-        data: papyrus_with_child_parent("Parent", "MIXEDCASECHILD"),
+        data: papyrus_with_child_parent("MIXEDCASEPARENT", "MIXEDCASECHILD"),
     });
-    let game = game_with_script("mixedcasechild");
+    let mut game = game_with_script("mixedcasechild");
+    game.load_script(&ScriptBuilder::new("mixedcaseparent", "").bytes())
+        .unwrap();
 
     let report = game.preflight_vanilla_dependencies(&save).unwrap();
     assert!(!report.findings.iter().any(|finding| {
         finding.kind == DependencyKind::Script
-            && finding.identity == "MIXEDCASECHILD"
+            && matches!(
+                finding.identity.as_str(),
+                "MIXEDCASECHILD" | "MIXEDCASEPARENT"
+            )
             && finding.change == DependencyChange::Missing
     }));
 }

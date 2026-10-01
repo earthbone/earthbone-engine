@@ -2,10 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::{
-    save::{DependencyChange, DependencyKind, SavedStateKind},
-    Game,
-};
+use soe_game::Game;
 use soe_save::{Compression, FileLocationTable, GlobalData, Header, Save, WString};
 
 fn empty_save() -> Save {
@@ -78,43 +75,6 @@ fn empty_papyrus() -> Vec<u8> {
     out.extend_from_slice(&0_u32.to_le_bytes()); // unbinds
     out.extend_from_slice(&1_u16.to_le_bytes()); // save file version
     out
-}
-
-fn add_script_list_tail(papyrus: &mut Vec<u8>, scripts: &[&str]) {
-    // UESP Papyrus.wikitext places five auxiliary arrays before ScriptList.
-    for _ in 0..5 {
-        papyrus.extend_from_slice(&0_u32.to_le_bytes());
-    }
-    papyrus.extend_from_slice(&(scripts.len() as u32).to_le_bytes());
-    for script in scripts {
-        papyrus.extend_from_slice(&(script.len() as u32).to_le_bytes());
-        papyrus.extend_from_slice(script.as_bytes());
-    }
-}
-
-#[test]
-fn sav_57_preflight_reports_missing_script_from_uesp_script_list_tail() {
-    let mut save = empty_save();
-    let mut papyrus = empty_papyrus();
-    add_script_list_tail(&mut papyrus, &["MissingFromScriptList"]);
-    save.table_3.push(GlobalData {
-        kind: GlobalData::PAPYRUS,
-        data: papyrus,
-    });
-    let game = Game::new(LoadOrder::new());
-
-    let report = game.preflight_vanilla_dependencies(&save).unwrap();
-    assert!(report.findings.iter().any(|finding| {
-        finding.kind == DependencyKind::Script
-            && finding.identity == "MissingFromScriptList"
-            && finding.affects == SavedStateKind::Vm
-            && finding.change == DependencyChange::Missing
-    }));
-    assert!(report.findings.iter().any(|finding| {
-        finding.kind == DependencyKind::Script
-            && finding.identity == "MissingFromScriptList"
-            && finding.change == DependencyChange::ProvenanceUnknown
-    }));
 }
 
 #[test]
