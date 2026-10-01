@@ -423,6 +423,64 @@ fn tst_12_reports_missing_assets_per_mod() {
 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[test]
+fn tst_12_reports_all_finding_categories_per_mod() {
+    let temp = TempDir::new("finding-categories");
+    let broken = temp.0.join("BrokenMod");
+    let native = temp.0.join("NativeMod");
+    let missing = temp.0.join("MissingAssetMod");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::create_dir_all(native.join("Scripts")).unwrap();
+    std::fs::create_dir_all(&missing).unwrap();
+    std::fs::write(broken.join("bad.esp"), b"not a plugin").unwrap();
+
+    let bytes = ScriptBuilder::new("NativeModScript", "")
+        .function(
+            FunctionBuilder::new("MissingNative", "None")
+                .native()
+                .build(),
+        )
+        .bytes();
+    std::fs::write(native.join("Scripts/NativeModScript.pex"), bytes).unwrap();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag::new(b"STAT"), 0x800).zsub(Tag::new(b"MODL"), "meshes/custom/missing.nif"),
+    );
+    std::fs::write(missing.join("MissingAsset.esp"), plugin.to_bytes()).unwrap();
+
+    let reports = run_corpus(&temp.0);
+    let rendered = render(&reports);
+    assert_eq!(
+        reports
+            .iter()
+            .map(|report| report.name.as_str())
+            .collect::<Vec<_>>(),
+        ["BrokenMod", "MissingAssetMod", "NativeMod"]
+    );
+    assert!(
+        rendered.contains("BrokenMod: 1 files, 1 parser failures"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "MissingAssetMod: 1 files, 0 parser failures, 0 unresolved natives, 1 missing assets"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("NativeMod: 1 files, 0 parser failures, 1 unresolved natives"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("bad.esp"), "{rendered}");
+    assert!(
+        rendered.contains("NativeModScript.MissingNative"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("meshes/custom/missing.nif"), "{rendered}");
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[test]
 fn tst_12_mod_corpus_sweep() {
     let Some(root) = std::env::var_os("SOE_MOD_CORPUS").map(PathBuf::from) else {
         eprintln!("SOE_MOD_CORPUS not set, skipping the weekly mod corpus sweep");
