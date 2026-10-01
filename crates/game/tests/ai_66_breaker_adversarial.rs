@@ -83,7 +83,7 @@ fn ai_66_flying_state_covers_all_ck_states_and_rejects_out_of_range() {
 fn ai_66_pathing_and_speed_contract_gaps_are_explicit_for_actor_context() {
     let game = game();
     assert_eq!(
-        eval(&game, id(0x900), 619, [2, 0], 0.0),
+        eval(&game, id(0x900), 619, [90, 0], 0.0),
         Err(conditions::Error::Contract(619))
     );
     assert_eq!(
@@ -91,7 +91,7 @@ fn ai_66_pathing_and_speed_contract_gaps_are_explicit_for_actor_context() {
         Err(conditions::Error::Contract(623))
     );
     assert_eq!(
-        eval(&game, id(0x910), 619, [2, 0], 0.0),
+        eval(&game, id(0x910), 619, [90, 0], 0.0),
         Err(conditions::Error::Form(id(0x910)))
     );
 }

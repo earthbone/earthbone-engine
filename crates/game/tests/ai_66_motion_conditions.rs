@@ -143,7 +143,7 @@ fn ai_66_unavailable_motion_state_conditions_report_function_diagnostics() {
 #[test]
 fn ai_66_pathing_target_offset_reports_missing_contract_after_validating_axis_and_actor() {
     let game = fixture();
-    let valid = condition(619, [2, 0], 1.0);
+    let valid = condition(619, [90, 0], 1.0);
     assert!(conditions::supports_function(619));
     assert_eq!(
         evaluate(&game, id(0x900), &valid),

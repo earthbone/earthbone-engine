@@ -1957,7 +1957,7 @@ saved and defaults to unavailable after load.
 
 **Known-form conditions, AI-76.** `PlayerKnows` (493) reads the player's
 known-form state for `SPEL`, `ENCH`, `MGEF` and `WOOP` records. Its knowable
-record types follow xEdit's `ptKnowable`; a `SHOU` record is not a word of
+record types follow xEdit's `ptKnowable`. A `SHOU` record is not a word of
 power and returns a typed state-contract error. Spell knowledge remains in the
 player spell set, while other supported form types use the saved known-form
 set.
@@ -3266,7 +3266,7 @@ the UESP Skyrim Smithing crafting section.
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
-query. `IsBeingRidden` (714) reads `ActorState::being_ridden`; the named
+query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
 `AI-67` actor save section retains that flag. A host or gameplay path must set
 the flag when another actor mounts this actor. GetGraphVariableInt (675) reads
 a named integer in the actor's live graph state, case-insensitively, and
