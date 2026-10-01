@@ -101,7 +101,7 @@ fn sav_56_same_name_plugin_cannot_change_regular_light_kind() {
 }
 
 #[test]
-fn sav_56_changed_script_is_reported_and_failed_load_leaves_state_unchanged() {
+fn sav_56_changed_script_is_reported_without_blocking_load_without_vm_state() {
     let body = "Int Function Value()\n  Return 1\nEndFunction";
     let source = game(&[], &[("Fixture", body)]);
     let bytes = source.save_state().unwrap();
@@ -109,7 +109,7 @@ fn sav_56_changed_script_is_reported_and_failed_load_leaves_state_unchanged() {
     let before = changed.save_state().unwrap();
 
     assert!(finding(&changed, &bytes, DependencyKind::Script, "Fixture", DependencyChange::FingerprintChanged));
-    assert!(changed.load_state(&bytes).unwrap_err().to_string().contains("script fingerprints differ"));
+    changed.load_state(&bytes).unwrap();
     assert_eq!(changed.save_state().unwrap(), before);
 }
 
@@ -126,5 +126,5 @@ fn sav_56_missing_script_is_reported_as_vm_state_dependency() {
             && item.affects == SavedStateKind::Vm
             && item.change == DependencyChange::Missing
     }));
-    assert!(missing.load_state(&bytes).is_err());
+    missing.load_state(&bytes).unwrap();
 }

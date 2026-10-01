@@ -156,3 +156,18 @@ fn sav_46_reapplying_the_same_change_fails_without_changing_saved_state() {
     assert_eq!(world.save_state(), before);
     assert!(world.faction(id(FACT)).unwrap().tracks_crime);
 }
+
+#[test]
+fn sav_46_relationship_rank_above_source_range_is_rejected_atomically() {
+    let order = Arc::new(order());
+    let mut saved = save();
+    saved
+        .change_forms
+        .push(change(RELA, 39, 2, 9_i32.to_le_bytes().to_vec()));
+    let mut world = World::from_shared_order(order);
+    let before = world.save_state();
+
+    assert!(world.restore_vanilla_record_changes(&saved).is_err());
+    assert_eq!(world.save_state(), before);
+    assert_eq!(world.record(id(RELA)).unwrap().find(Tag(*b"DATA")), Some(&[0; 16][..]));
+}
