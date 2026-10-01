@@ -2702,6 +2702,16 @@ The lifetime sources and tested timing policies are documented in
 remain in their winning records. MAG-71 owns their evaluation and visible
 post-processing through the host stack, including renderer resource cleanup.
 
+## Effect shader playback snapshot, SCR-24
+
+`effect_shader::EffectShaderStack` copies active EFSH and target identities
+with each remaining duration from the shared World. PlayerNode syncs this
+snapshot after gameplay startup and each gameplay tick, clears it when the
+data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
+array. It allocates no scene node or server resource. The host does not yet
+render EFSH authored textures, color keys or particles on reference geometry.
+See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
+
 ## Image-space renderer prerequisites, MAG-71
 
 `ImageSpaceStack::render_layers` samples the active modifiers' authored IMAD

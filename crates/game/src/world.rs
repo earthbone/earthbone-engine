@@ -55,6 +55,7 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+pub mod effect_shader;
 mod encounter_zones;
 mod events;
 pub use events::EffectShaderRequest;
@@ -766,6 +767,7 @@ pub struct World {
     /// Physics handles are host-owned, so this state is never serialized.
     pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) effect_shaders: effect_shader::EffectShaderState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
     pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
@@ -940,6 +942,7 @@ impl World {
             concentration_cast: None,
             telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
+            effect_shaders: effect_shader::EffectShaderState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),

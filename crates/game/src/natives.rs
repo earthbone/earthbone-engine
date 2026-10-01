@@ -198,6 +198,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    effect_shader(vm, world);
     let stubs = stubs(vm, world);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -2954,36 +2955,6 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         i(world.play_sound(me, source))
     });
-    method!(vm, w, "EffectShader", "Play", |world, call, me| {
-        let Some(target) = world.form_arg(&call.arg(0)) else {
-            return none();
-        };
-        let Some(tag) = world.tag_of(me) else {
-            return none();
-        };
-        let target_tag = world.tag_of(target);
-        if tag != soe_esm::Tag::new(b"EFSH")
-            || !matches!(target_tag, Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
-        {
-            return none();
-        }
-        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
-        if !duration.is_nan() {
-            world.effect_shader(me, target, duration, true);
-        }
-        none()
-    });
-    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
-        let Some(target) = world.form_arg(&call.arg(0)) else {
-            return none();
-        };
-        if world.tag_of(me) == Some(soe_esm::Tag::new(b"EFSH"))
-            && matches!(world.tag_of(target), Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
-        {
-            world.effect_shader(me, target, 0.0, false);
-        }
-        none()
-    });
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
         none()
@@ -3070,6 +3041,48 @@ fn image_space(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+}
+
+/// Shipped EffectShader calls retain target and duration in the shared world.
+fn effect_shader(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "EffectShader", "Play", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Play: target must be a placed reference",
+            );
+            return none();
+        };
+        let duration = match call.args.get(1) {
+            None | Some(Value::None) => -1.0,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            Some(_) => {
+                call.log
+                    .push(call.time, "EffectShader.Play: duration must be numeric");
+                return none();
+            }
+        };
+        if let Err(error) = world.play_effect_shader(me, target, duration) {
+            call.log
+                .push(call.time, format!("EffectShader.Play: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Stop: target must be a placed reference",
+            );
+            return none();
+        };
+        if let Err(error) = world.stop_effect_shader(me, target) {
+            call.log
+                .push(call.time, format!("EffectShader.Stop: {error}"));
+        }
+        none()
+    });
 }
 
 /// CK active-effect identity, queries and dispelling contracts.
@@ -3854,7 +3867,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        // The effect, music and particle systems are not implemented yet.
+        // The remaining music and particle systems do not have runtime owners.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),

@@ -54,6 +54,7 @@ impl PlayerNode {
         game.world_mut().change_cell(Some(cell));
         game.run_until_idle(64);
         self.image_space.sync(&game.world());
+        self.effect_shaders.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
         self.main_menu.leave();
@@ -192,6 +193,9 @@ impl PlayerNode {
             streamer
                 .bind_mut()
                 .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+        }
+        if let Some(game) = &self.game {
+            self.effect_shaders.sync(&game.world());
         }
         self.apply_host_requests();
         if self.main_menu.is_active() {
