@@ -611,7 +611,7 @@ impl Vm {
                         self.err(t, &format!("struct member {field} is const"));
                         return;
                     }
-                    if !Self::matches_declared_type(&vals[2], &member.type_name, &s.name) {
+                    if !Self::matches_declared_type(&vals[2], &member.type_name) {
                         self.err(
                             t,
                             &format!(
@@ -662,20 +662,20 @@ impl Vm {
         }
     }
 
-    fn matches_declared_type(value: &Value, target: &str, struct_name: &str) -> bool {
+    fn matches_declared_type(value: &Value, target: &str) -> bool {
         match target.to_ascii_lowercase().as_str() {
             "int" => matches!(value, Value::Int(_)),
             "float" => matches!(value, Value::Float(_)),
             "bool" => matches!(value, Value::Bool(_)),
             "string" => matches!(value, Value::Str(_)),
             name if name.ends_with("[]") => matches!(value, Value::None | Value::Array(_)),
+            _ if matches!(value, Value::None) => true,
             name if name
-                .rsplit('.')
+                .rsplit(['.', '#'])
                 .next()
-                .is_some_and(|n| n.eq_ignore_ascii_case(struct_name)) =>
-            {
-                matches!(value, Value::None | Value::Struct(_))
-            }
+                .is_some_and(|expected| {
+                    matches!(value, Value::Struct(value) if value.name.eq_ignore_ascii_case(expected))
+                }) => true,
             _ => matches!(value, Value::None | Value::Object(_)),
         }
     }

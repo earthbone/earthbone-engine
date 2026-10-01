@@ -6,8 +6,7 @@ use soe_papyrus::pex::{Opcode::*, StructDefinition, StructMember};
 use soe_papyrus::{Value, Vm};
 
 fn script(functions: Vec<FunctionBuilder>, minor: u8) -> soe_papyrus::pex::Script {
-    let mut builder = ScriptBuilder::new("Breaker", "")
-        .variable("entry", "Entry", none());
+    let mut builder = ScriptBuilder::new("Breaker", "").variable("entry", "Entry", none());
     for function in functions {
         builder = builder.function(function.build());
     }
@@ -54,9 +53,19 @@ fn fmt_13_is_none_is_false_and_invalid_runtime_source_is_rejected() {
         .ins(Return, vec![ident("matched")]);
     let mut vm = Vm::new();
     vm.load(script(vec![check], 9));
-    assert_eq!(result(&mut vm, "Check", &[Value::None]), Some(Value::Bool(false)));
-    assert_eq!(result(&mut vm, "Check", &[Value::Int(4)]), Some(Value::Bool(false)));
-    assert!(vm.log.entries.iter().any(|entry| entry.message.contains("Is operand must be an object")));
+    assert_eq!(
+        result(&mut vm, "Check", &[Value::None]),
+        Some(Value::Bool(false))
+    );
+    assert_eq!(
+        result(&mut vm, "Check", &[Value::Int(4)]),
+        Some(Value::Bool(false))
+    );
+    assert!(vm
+        .log
+        .entries
+        .iter()
+        .any(|entry| entry.message.contains("Is operand must be an object")));
 }
 
 #[test]
@@ -74,9 +83,22 @@ fn fmt_13_is_rejects_empty_identifier_and_non_bool_destinations() {
     let mut vm = Vm::new();
     vm.load(script(vec![empty, wrong_dest], 9));
     let actor = vm.create_object_of("actor", "Actor");
-    assert_eq!(result(&mut vm, "Empty", &[Value::Object(actor)]), Some(Value::Bool(false)));
-    assert_eq!(result(&mut vm, "WrongDest", &[Value::Object(actor)]), Some(Value::Int(0)));
-    assert_eq!(vm.log.entries.iter().filter(|entry| entry.message.contains("Is requires a Bool destination")).count(), 2);
+    assert_eq!(
+        result(&mut vm, "Empty", &[Value::Object(actor)]),
+        Some(Value::Bool(false))
+    );
+    assert_eq!(
+        result(&mut vm, "WrongDest", &[Value::Object(actor)]),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        vm.log
+            .entries
+            .iter()
+            .filter(|entry| entry.message.contains("Is requires a Bool destination"))
+            .count(),
+        2
+    );
 }
 
 #[test]
@@ -92,7 +114,9 @@ fn fmt_13_struct_fields_are_case_insensitive_and_preserve_rejected_writes() {
     let mut vm = Vm::new();
     vm.load(script(vec![fields], 9));
     assert_eq!(result(&mut vm, "Fields", &[]), Some(Value::Int(11)));
-    assert!(vm.log.entries.iter().any(|entry| entry.message.contains("does not match struct member count type Int")));
+    assert!(vm.log.entries.iter().any(|entry| entry
+        .message
+        .contains("does not match struct member count type Int")));
 }
 
 #[test]
@@ -101,13 +125,20 @@ fn fmt_13_const_struct_field_rejects_repeated_mutation() {
         .local("entry", "Entry")
         .local("fixed", "Bool")
         .ins(StructCreate, vec![ident("entry")])
-        .ins(StructSet, vec![ident("entry"), s("fixed"), soe_papyrus::asm::b(false)])
+        .ins(
+            StructSet,
+            vec![ident("entry"), s("fixed"), soe_papyrus::asm::b(false)],
+        )
         .ins(StructGet, vec![ident("fixed"), ident("entry"), s("fixed")])
         .ins(Return, vec![ident("fixed")]);
     let mut vm = Vm::new();
     vm.load(script(vec![fields], 9));
     assert_eq!(result(&mut vm, "Fields", &[]), Some(Value::Bool(true)));
-    assert!(vm.log.entries.iter().any(|entry| entry.message.contains("struct member fixed is const")));
+    assert!(vm
+        .log
+        .entries
+        .iter()
+        .any(|entry| entry.message.contains("struct member fixed is const")));
 }
 
 #[test]
@@ -122,5 +153,9 @@ fn fmt_13_struct_opcodes_reject_pre_39_versions() {
     let mut vm = Vm::new();
     vm.load(script(vec![fields], 8));
     assert_eq!(result(&mut vm, "Fields", &[]), Some(Value::None));
-    assert!(vm.log.entries.iter().any(|entry| entry.message.contains("requires a Fallout 4 3.9")));
+    assert!(vm
+        .log
+        .entries
+        .iter()
+        .any(|entry| entry.message.contains("requires a Fallout 4 3.9")));
 }

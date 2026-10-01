@@ -8,7 +8,8 @@ use soe_papyrus::{Value, Vm};
 fn script(functions: Vec<FunctionBuilder>) -> soe_papyrus::pex::Script {
     let mut builder = ScriptBuilder::new("Fmt13Adversarial", "")
         .variable("entry", "Entry", none())
-        .variable("child", "Child", none());
+        .variable("child", "Child", none())
+        .variable("other", "Other", none());
     for function in functions {
         builder = builder.function(function.build());
     }
@@ -32,6 +33,10 @@ fn script(functions: Vec<FunctionBuilder>) -> soe_papyrus::pex::Script {
             name: "Child".into(),
             members: Vec::new(),
         },
+        StructDefinition {
+            name: "Other".into(),
+            members: Vec::new(),
+        },
     ];
     script
 }
@@ -51,7 +56,10 @@ fn fmt_13_struct_set_accepts_value_of_declared_child_struct_type() {
         .ins(StructCreate, vec![ident("entry")])
         .ins(StructCreate, vec![ident("child")])
         .ins(StructSet, vec![ident("entry"), s("child"), ident("child")])
-        .ins(StructGet, vec![ident("readback"), ident("entry"), s("child")])
+        .ins(
+            StructGet,
+            vec![ident("readback"), ident("entry"), s("child")],
+        )
         .ins(Return, vec![ident("readback")]);
     let mut vm = Vm::new();
     vm.load(script(vec![function]));
@@ -61,11 +69,31 @@ fn fmt_13_struct_set_accepts_value_of_declared_child_struct_type() {
         "expected Child struct, got {value:?}; log: {:?}",
         vm.log.entries
     );
-    assert!(!vm
-        .log
-        .entries
-        .iter()
-        .any(|entry| entry.message.contains("does not match struct member child type Child")));
+    assert!(!vm.log.entries.iter().any(|entry| entry
+        .message
+        .contains("does not match struct member child type Child")));
+}
+
+#[test]
+fn fmt_13_struct_set_rejects_value_of_different_struct_type() {
+    let function = FunctionBuilder::new("RejectOther", "Child")
+        .local("entry", "Entry")
+        .local("other", "Other")
+        .local("readback", "Child")
+        .ins(StructCreate, vec![ident("entry")])
+        .ins(StructCreate, vec![ident("other")])
+        .ins(StructSet, vec![ident("entry"), s("child"), ident("other")])
+        .ins(
+            StructGet,
+            vec![ident("readback"), ident("entry"), s("child")],
+        )
+        .ins(Return, vec![ident("readback")]);
+    let mut vm = Vm::new();
+    vm.load(script(vec![function]));
+    assert_eq!(result(&mut vm, "RejectOther"), Some(Value::None));
+    assert!(vm.log.entries.iter().any(|entry| entry
+        .message
+        .contains("value of type Struct does not match struct member child type Child")));
 }
 
 #[test]
@@ -74,7 +102,10 @@ fn fmt_13_struct_get_of_missing_member_returns_none_without_mutating_other_field
         .local("entry", "Entry")
         .local("readback", "Int")
         .ins(StructCreate, vec![ident("entry")])
-        .ins(StructGet, vec![ident("readback"), ident("entry"), s("absent")])
+        .ins(
+            StructGet,
+            vec![ident("readback"), ident("entry"), s("absent")],
+        )
         .ins(Return, vec![ident("readback")]);
     let mut vm = Vm::new();
     vm.load(script(vec![function]));
