@@ -413,8 +413,12 @@ mod crf_03_adversarial;
 mod crf_03_disenchant;
 #[path = "crf_05_adversarial.rs"]
 mod crf_05_adversarial;
+#[path = "crf_05_breaker3_adversarial.rs"]
+mod crf_05_breaker3_adversarial;
 #[path = "crf_05_breaker_adversarial.rs"]
 mod crf_05_breaker_adversarial;
+#[path = "crf_05_breaker_breaker_adversarial.rs"]
+mod crf_05_breaker_breaker_adversarial;
 #[path = "crf_07_adversarial.rs"]
 mod crf_07_adversarial;
 #[path = "crf_08_breaker_adversarial.rs"]
@@ -1089,8 +1093,12 @@ mod tool_01_breaker_adversarial;
 mod tool_01_validation_runner;
 #[path = "transitions.rs"]
 mod transitions;
+#[path = "tst_12_additional_adversarial.rs"]
+mod tst_12_additional_adversarial;
 #[path = "tst_12_adversarial.rs"]
 mod tst_12_adversarial;
+#[path = "tst_12_breaker2_adversarial.rs"]
+mod tst_12_breaker2_adversarial;
 #[path = "tst_12_breaker_adversarial.rs"]
 mod tst_12_breaker_adversarial;
 #[path = "tst_12_mod_corpus.rs"]
