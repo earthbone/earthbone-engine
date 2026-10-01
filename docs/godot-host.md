@@ -253,9 +253,14 @@ game World. It keys active visuals by `(EFSH, target reference)`, so a second
 Play refreshes the existing RenderingServer instance. Stop frees it, finite
 durations free it after elapsed host time, and leaving the tree frees every
 remaining instance. Each active effect owns one sphere mesh instance and one
-material, with no scene node. The current material is a generic blue emissive
-fill. EFSH texture inputs, authored colors, blend modes, fade curves and
-attachment to skinned surfaces are not read yet.
+material, with no scene node. The membrane uses the EFSH fill texture through
+the shared data-source DDS cache, the first authored fill color, a mapped
+source/destination blend mode, and the fill alpha fade and persistent ratio.
+Particle emission, palette and edge texture effects, skin-only filtering, and
+attachment to skinned surfaces are not implemented. The local reference
+corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
+corpus has no EffectShader page. The synthetic tests verify request data and
+host fade/blend selection; live rendered output has not been verified.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial

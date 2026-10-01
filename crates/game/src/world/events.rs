@@ -63,13 +63,44 @@ impl World {
     }
 }
 
+/// Authored membrane settings used by the host when displaying an EffectShader.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectShaderAppearance {
+    /// EFSH `ICON`, the membrane fill texture path.
+    pub fill_texture: Option<String>,
+    /// EFSH `ICO2`, the membrane loop texture path.
+    pub loop_texture: Option<String>,
+    /// EFSH `NAM7`, the membrane post texture path.
+    pub end_texture: Option<String>,
+    /// EFSH `DATA` color key one in RGBA byte order.
+    pub color: [u8; 4],
+    /// EFSH `DATA` source and destination blend values.
+    pub blend: (u32, u32),
+    /// EFSH `DATA` membrane alpha timing, in seconds.
+    pub fade: [f32; 4],
+}
+
+impl Default for EffectShaderAppearance {
+    fn default() -> Self {
+        Self {
+            fill_texture: None,
+            loop_texture: None,
+            end_texture: None,
+            color: [255, 255, 255, 255],
+            blend: (6, 7),
+            fade: [0.0; 4],
+        }
+    }
+}
+
 /// A transient request for the host to display one EffectShader on a reference.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EffectShaderRequest {
     pub shader: GlobalFormId,
     pub target: GlobalFormId,
     pub duration: f32,
     pub playing: bool,
+    pub appearance: EffectShaderAppearance,
 }
 
 impl World {
@@ -110,7 +141,53 @@ impl World {
             target,
             duration,
             playing,
+            appearance: self.effect_shader_appearance(shader),
         });
+    }
+
+    /// Read the membrane settings supported by the host from the winning EFSH.
+    pub fn effect_shader_appearance(&self, shader: GlobalFormId) -> EffectShaderAppearance {
+        let Some(record) = self
+            .record(shader)
+            .filter(|record| record.tag == super::T(b"EFSH"))
+        else {
+            return EffectShaderAppearance::default();
+        };
+        let read_texture = |tag| {
+            record.find(super::T(tag)).and_then(|bytes| {
+                let path = bytes.split(|byte| *byte == 0).next().unwrap_or_default();
+                let path = String::from_utf8_lossy(path).trim().to_string();
+                (!path.is_empty()).then_some(path)
+            })
+        };
+        let fill_texture = read_texture(b"ICON");
+        let loop_texture = read_texture(b"ICO2");
+        let end_texture = read_texture(b"NAM7");
+        let Some(data) = record.find(super::T(b"DATA")) else {
+            return EffectShaderAppearance {
+                fill_texture,
+                loop_texture,
+                end_texture,
+                ..EffectShaderAppearance::default()
+            };
+        };
+        let mut color = EffectShaderAppearance::default().color;
+        if data.len() >= 20 {
+            color.copy_from_slice(&data[16..20]);
+        }
+        let blend = if data.len() >= 96 {
+            (read_u32(data, 4), read_u32(data, 92))
+        } else {
+            EffectShaderAppearance::default().blend
+        };
+        EffectShaderAppearance {
+            fill_texture,
+            loop_texture,
+            end_texture,
+            color,
+            blend,
+            fade: [20, 24, 28, 32].map(|offset| read_f32(data, offset)),
+        }
     }
 
     /// Drain visual requests after the host has reconciled them.
@@ -602,4 +679,18 @@ impl World {
             .insert(self.next_sound, (sound, source, 1.0));
         self.next_sound
     }
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    let Some(value) = bytes.get(offset..offset.saturating_add(4)) else {
+        return 0;
+    };
+    u32::from_le_bytes([value[0], value[1], value[2], value[3]])
+}
+
+fn read_f32(bytes: &[u8], offset: usize) -> f32 {
+    let Some(value) = bytes.get(offset..offset.saturating_add(4)) else {
+        return 0.0;
+    };
+    f32::from_le_bytes([value[0], value[1], value[2], value[3]])
 }

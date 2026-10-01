@@ -212,6 +212,9 @@ struct EffectShaderInstance {
     mesh: Gd<SphereMesh>,
     material: Gd<StandardMaterial3D>,
     remaining: Option<f32>,
+    elapsed: f32,
+    color_alpha: f32,
+    fade: [f32; 4],
     cell: Option<GlobalFormId>,
 }
 
@@ -431,6 +434,7 @@ impl CellStreamerNode {
             );
             if let Some(effect) = self.effect_shaders.get_mut(&key) {
                 effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.elapsed = 0.0;
                 effect.cell = world
                     .reference_ref(request.target)
                     .and_then(|reference| reference.cell);
@@ -443,9 +447,32 @@ impl CellStreamerNode {
             let mut material = StandardMaterial3D::new_gd();
             material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
             material.set_transparency(Transparency::ALPHA);
-            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            let color = request.appearance.color;
+            let color_alpha = f32::from(color[3]) / 255.0;
+            material.set_albedo(Color::from_rgba(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+                color_alpha,
+            ));
             material.set_feature(Feature::EMISSION, true);
-            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            material.set_emission(Color::from_rgb(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+            ));
+            if let (Some(source), Some(path)) = (
+                self.data_source.as_ref(),
+                request.appearance.fill_texture.as_deref(),
+            ) {
+                if let Some(texture) = source
+                    .effect_shader_texture(path)
+                    .and_then(|texture| image_texture_from(&texture))
+                {
+                    material.set_texture(TextureParam::ALBEDO, &texture);
+                }
+            }
+            material.set_blend_mode(effect_blend_mode(request.appearance.blend));
             let rid = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
@@ -456,6 +483,9 @@ impl CellStreamerNode {
                     mesh,
                     material,
                     remaining: (request.duration >= 0.0).then_some(request.duration),
+                    elapsed: 0.0,
+                    color_alpha,
+                    fade: request.appearance.fade,
                     cell: world
                         .reference_ref(request.target)
                         .and_then(|reference| reference.cell),
@@ -478,6 +508,13 @@ impl CellStreamerNode {
                 Vector3::new(position.x, position.y, position.z),
             );
             server.instance_set_transform(effect.rid, transform);
+            effect.elapsed += delta.max(0.0);
+            let alpha =
+                effect.color_alpha * effect_alpha(effect.elapsed, effect.remaining, effect.fade);
+            let color = effect.material.get_albedo();
+            effect
+                .material
+                .set_albedo(Color::from_rgba(color.r, color.g, color.b, alpha));
             effect.cell = world
                 .reference_ref(*target)
                 .and_then(|reference| reference.cell);
@@ -682,6 +719,57 @@ impl CellStreamerNode {
 
     fn tether_endpoints(&self) -> Vec<GlobalFormId> {
         self.tethers.endpoints()
+    }
+}
+
+fn effect_alpha(elapsed: f32, remaining: Option<f32>, fade: [f32; 4]) -> f32 {
+    let [fade_in, full_alpha_time, fade_out, persistent_ratio] = fade;
+    let fade_in_alpha = if fade_in > 0.0 {
+        (elapsed / fade_in).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let peak = if full_alpha_time > 0.0 && elapsed > fade_in + full_alpha_time {
+        persistent_ratio.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let fade_out_alpha = remaining.map_or(1.0, |left| {
+        if fade_out > 0.0 && left < fade_out {
+            (left / fade_out).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    });
+    fade_in_alpha.min(peak) * fade_out_alpha
+}
+
+fn effect_blend_mode(blend: (u32, u32)) -> godot::classes::base_material_3d::BlendMode {
+    use godot::classes::base_material_3d::BlendMode;
+    match blend {
+        (2 | 5, 2) | (2, 5) => BlendMode::ADD,
+        (2, 0) => BlendMode::MUL,
+        _ => BlendMode::MIX,
+    }
+}
+
+#[cfg(test)]
+mod mag_14_tests {
+    use super::{effect_alpha, effect_blend_mode};
+    use godot::classes::base_material_3d::BlendMode;
+
+    #[test]
+    fn mag_14_authored_fade_in_and_persistent_alpha_are_applied() {
+        assert_eq!(effect_alpha(0.0, None, [2.0, 1.0, 0.0, 0.25]), 0.0);
+        assert_eq!(effect_alpha(1.0, None, [2.0, 1.0, 0.0, 0.25]), 0.5);
+        assert_eq!(effect_alpha(4.0, None, [2.0, 1.0, 0.0, 0.25]), 0.25);
+    }
+
+    #[test]
+    fn mag_14_authored_blend_values_select_host_blend_mode() {
+        assert_eq!(effect_blend_mode((5, 6)), BlendMode::MIX);
+        assert_eq!(effect_blend_mode((2, 2)), BlendMode::ADD);
+        assert_eq!(effect_blend_mode((2, 0)), BlendMode::MUL);
     }
 }
 

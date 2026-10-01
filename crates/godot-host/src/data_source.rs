@@ -338,6 +338,11 @@ fn parse_masters(data_dir: &Path, threads: usize) -> Result<Vec<soe_esm::Plugin>
 }
 
 impl DataSource {
+    /// Load an EffectShader membrane texture through the source's shared DDS cache.
+    pub(crate) fn effect_shader_texture(&self, path: &str) -> Option<Arc<TextureData>> {
+        self.textures.get_or_decode(&self.vfs, path)
+    }
+
     /// Loads a vanilla game's resolved profile from its `Data` directory.
     /// The game's default INI supplies the locale when no user INI is given.
     /// Share archive handles and records, with a private speculative texture cache.
