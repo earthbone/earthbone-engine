@@ -7,8 +7,7 @@
 //! with both a player attacker and a baseless NPC attacker against the same
 //! protected target, so both halves of the CMB-34 exception sit in one file.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, npc::flags, Game};

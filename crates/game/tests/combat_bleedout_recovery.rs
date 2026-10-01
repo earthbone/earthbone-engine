@@ -6,8 +6,7 @@
 //! combat_hits.rs and combat_bleedout.rs, keeping the entry/recovery cases
 //! independent of the threshold-only tests already in combat_bleedout.rs.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, npc::flags, Game};

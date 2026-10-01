@@ -3,8 +3,7 @@
 
 //! Distinct stacks must survive quantity operations and engine-save boundaries.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
