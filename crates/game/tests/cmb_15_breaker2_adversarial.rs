@@ -124,8 +124,16 @@ fn cmb_15_outgoing_modifier_is_owned_by_attacker_and_incoming_by_target() {
     game.world_mut()
         .set_actor_value(id(0x901), "lightarmormodifier", 20.0)
         .unwrap();
-    game.world_mut().actor(id(0x900)).unwrap().perks.insert(id(0xB10));
-    game.world_mut().actor(id(0x901)).unwrap().perks.insert(id(0xB11));
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .perks
+        .insert(id(0xB10));
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .perks
+        .insert(id(0xB11));
     let result = game.melee_hit(hit()).unwrap();
     assert_eq!(result.weapon_damage, 9.6);
     assert_eq!(result.health_damage, 9.6);
@@ -134,8 +142,15 @@ fn cmb_15_outgoing_modifier_is_owned_by_attacker_and_incoming_by_target() {
 #[test]
 fn cmb_15_invalid_actor_value_operand_rejects_without_damage() {
     let mut game = fixture(vec![modifier_perk(0xB10, 35, 999, 0.01)]);
-    game.world_mut().actor(id(0x900)).unwrap().perks.insert(id(0xB10));
-    assert!(matches!(game.melee_hit(hit()), Err(Error::Unsupported("unknown perk actor value"))));
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .perks
+        .insert(id(0xB10));
+    assert!(matches!(
+        game.melee_hit(hit()),
+        Err(Error::Unsupported("unknown perk actor value"))
+    ));
     assert_eq!(game.world_mut().actor_value(id(0x901), "health"), 100.0);
 }
 
@@ -145,7 +160,11 @@ fn cmb_15_repeated_perk_hits_do_not_accumulate_actor_value_modifier() {
     game.world_mut()
         .set_actor_value(id(0x900), "onehandedmodifier", 20.0)
         .unwrap();
-    game.world_mut().actor(id(0x900)).unwrap().perks.insert(id(0xB10));
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .perks
+        .insert(id(0xB10));
     let first = game.melee_hit(hit()).unwrap();
     let second = game.melee_hit(hit()).unwrap();
     assert_eq!(first.health_damage, 12.0);
