@@ -30,7 +30,9 @@ fn invalid_cell_owner_type_does_not_clear_the_existing_owner() {
     plugin.push_top(Record::new(Tag::new(b"FACT"), 2));
     plugin.push_top(Record::new(Tag::new(b"CELL"), 3).sub(Tag::new(b"XOWN"), 1_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
-    order.add("scr56-breaker.esp", plugin).expect("plugin loads");
+    order
+        .add("scr56-breaker.esp", plugin)
+        .expect("plugin loads");
     let mut game = Game::new(order);
     let script = ScriptBuilder::new("Scr56CellProbe", "Cell")
         .function(
@@ -39,7 +41,12 @@ fn invalid_cell_owner_type_does_not_clear_the_existing_owner() {
                 .local("result", "None")
                 .ins(
                     CallMethod,
-                    vec![s("SetActorOwner"), ident("self"), ident("result"), ident("owner")],
+                    vec![
+                        s("SetActorOwner"),
+                        ident("self"),
+                        ident("result"),
+                        ident("owner"),
+                    ],
                 )
                 .ins(Return, vec![])
                 .build(),
@@ -48,12 +55,20 @@ fn invalid_cell_owner_type_does_not_clear_the_existing_owner() {
     game.load_script(&script).expect("script loads");
     let cell = game.object_of_form(GlobalFormId { file: 0, object: 3 });
     let wrong_owner = game.object_of_form(GlobalFormId { file: 0, object: 2 });
-    game.vm.attach(cell, "Scr56CellProbe").expect("attach script");
-    let thread = game.vm.call(cell, "Run", &[Value::Object(wrong_owner)]).expect("call starts");
+    game.vm
+        .attach(cell, "Scr56CellProbe")
+        .expect("attach script");
+    let thread = game
+        .vm
+        .call(cell, "Run", &[Value::Object(wrong_owner)])
+        .expect("call starts");
     game.run_until_idle(16);
     assert_eq!(game.vm.thread_result(thread), Some(Value::None));
     assert_eq!(
-        game.world_mut().cell_state(GlobalFormId { file: 0, object: 3 }).unwrap().owner,
+        game.world_mut()
+            .cell_state(GlobalFormId { file: 0, object: 3 })
+            .unwrap()
+            .owner,
         Some(GlobalFormId { file: 0, object: 1 }),
         "an argument outside ActorBase type must leave ownership unchanged"
     );

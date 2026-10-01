@@ -3963,22 +3963,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "StartVampireFeed"),
         // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        // The effect, music and particle systems are not implemented yet.
-        ("VisualEffect", "Play"),
-        ("VisualEffect", "Stop"),
-        ("ObjectReference", "ForceAddRagdollToWorld"),
-        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
-        ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
-        ("EffectShader", "Play"),
-        ("EffectShader", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
         ("MusicType", "Remove"),
         ("Topic", "Add"),
-        ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
         ("Actor", "MoveToPackageLocation"),
@@ -4209,7 +4198,7 @@ mod tests {
         }
         assert!(audit.contains("`ActorBase` and `Alias` have no registered global bindings"));
         assert!(audit.contains("assigns the correction to SCR-18"));
-        assert!(audit.contains("Assign optional validation and the diagnostic to SCR-68"));
+        assert!(audit.contains("SCR-68 owns optional validation and its diagnostic"));
         assert!(audit.contains("Assign reference-type validation to SCR-59"));
         let backlog = include_str!("../../../BACKLOG.csv");
         assert!(backlog.contains("\"SCR-18\""));

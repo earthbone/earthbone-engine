@@ -33,7 +33,10 @@ fn faction_and_force_ref_if_empty_have_registry_derived_contract_comparisons() {
     ];
     assert!(audit.contains("Faction and ForceRefIfEmpty native contracts, SCR-58"));
     for name in faction_methods {
-        assert!(audit.contains(&format!("`Faction.{name}`")), "missing CK comparison for Faction.{name}");
+        assert!(
+            audit.contains(&format!("`Faction.{name}`")),
+            "missing CK comparison for Faction.{name}"
+        );
     }
     assert!(audit.contains("`ReferenceAlias.ForceRefIfEmpty`"));
     assert!(audit.contains("SCR-59 owns reference-type validation"));
@@ -47,11 +50,19 @@ fn crime_group_membership_requires_a_valid_linked_form_list() {
     plugin.push_top(Record::new(Tag::new(b"FLST"), 3).sub(Tag::new(b"LNAM"), 2_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag::new(b"FLST"), 4));
     let mut order = LoadOrder::new();
-    order.add("scr58-breaker.esp", plugin).expect("plugin loads");
-    let mut game = Game::new(order);
+    order
+        .add("scr58-breaker.esp", plugin)
+        .expect("plugin loads");
+    let game = Game::new(order);
     assert!(game.world_mut().faction_in_crime_group(id(1), id(2)));
     assert!(!game.world_mut().faction_in_crime_group(id(1), id(4)));
-    assert!(!game.world_mut().faction_in_crime_group(id(1), GlobalFormId { file: 0, object: 999 }));
+    assert!(!game.world_mut().faction_in_crime_group(
+        id(1),
+        GlobalFormId {
+            file: 0,
+            object: 999
+        }
+    ));
 }
 
 const fn id(object: u32) -> GlobalFormId {
