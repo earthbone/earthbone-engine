@@ -815,11 +815,52 @@ fn function_value(
         }
         161 => {
             let p = form(world, c.param1)?;
+            if c.param2 != 0 || world.tag_of(p) != Some(T(b"PACK")) {
+                return None;
+            }
             bool_f(
                 world
                     .actor(subject)
                     .is_some_and(|a| a.ai.package == Some(p)),
             )
+        }
+        157 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            let (base, opened) = world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)
+                .map(|reference| (reference.base, reference.opened))?;
+            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
+                if opened {
+                    1.0
+                } else {
+                    3.0
+                }
+            } else {
+                0.0
+            }
+        }
+        203 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            bool_f(
+                world
+                    .reference(subject)
+                    .filter(|reference| !reference.deleted)?
+                    .destroyed,
+            )
+        }
+        215 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)?;
+            bool_f(world.record(subject)?.find(T(b"ONAM")).is_some())
         }
         170 => (world.clock.game_days.floor() as i64).rem_euclid(7) as f32,
         286 => 0.0,
@@ -983,7 +1024,6 @@ fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
         }
     }
 }
-
 fn start_boundary_action(
     world: &mut World,
     package_id: GlobalFormId,
@@ -1821,14 +1861,15 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             }
             continue;
         }
-        let active_target = combat_target(world, actor);
+        let mut active_target = combat_target(world, actor);
         if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
             clear_combat_engagement(world, actor);
+            active_target = None;
         }
         let fleeing = world
             .actor(actor)
             .is_some_and(|state| state.ai.procedure == Procedure::Flee);
-        if active_target.is_none() {
+        if active_target.is_none() && !fleeing {
             let due = world.actor(actor).is_some_and(|state| {
                 state.ai.package.is_none()
                     || state.ai.reevaluate
@@ -2849,7 +2890,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
-        Procedure::Flee => w.u8(if version >= 37 { 19 } else { 7 }),
+        Procedure::Flee => w.u8(if version < 34 { 7 } else { 19 }),
         Procedure::Patrol => {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref(), version);

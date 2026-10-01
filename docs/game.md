@@ -401,6 +401,19 @@ The `FACT.DATA`, `CRVA`, `JAIL`, `STOL`, `PLCN` and `JOUT` fields follow
 The arrest flag and `IsArrested` status name the local CK faction and actor
 contracts. Jail marker travel, evidence storage, belongings restoration and
 combat behavior after resistance are not handled here.
+**Crime conditions.** CTDA functions 458, 459, 497, 499, 533 to 535 and 652
+read the actor witness set, faction crime ledgers, player gold and jail-day
+counter, or actor crime-faction links. Functions 459 and 533 to 535 accept an
+explicit `FACT` parameter or use the evaluated actor's crime faction when the
+parameter is null. Function 497 compares that actor faction's bounty with the
+player's `Gold001` count. Function 499 reads the player's accumulated served
+days. Function 458 is true when the evaluated actor witnessed the player
+commit a crime. Function 652 compares the evaluated actor's crime faction with
+the actor reference parameter. xEdit names these conditions and their
+parameters. The CK corpus has no pages for the CTDA condition functions, so
+their detailed behavior is inferred from the matching Papyrus faction and
+actor contracts and the runtime crime state. Invalid actor and form context
+returns a condition error.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -1050,6 +1063,13 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
+The `POBA`, `POCA` and `POEA` actions also start their authored idle or
+dialogue topic at the matching boundary. Idle delivery uses the actor's
+animation event path. A topic opens a dialogue session with the player as
+listener and makes that topic the session's initial choice. Dead and
+unconscious actors do not start boundary actions. Topic actions also require
+an available actor who can speak to the player and no active dialogue session.
+
 An unfinished package with `Must Complete` stays selected ahead of higher
 priority candidates until its procedure tree finishes. Combat can interrupt
 it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
@@ -1149,6 +1169,17 @@ evaluator counts those functions as unsupported. xEdit's
 `wbDefinitionsTES5.pas` supplies their IDs and parameter types. No individual
 CK condition pages for these functions exist in the local CK corpus, so the
 engine does not infer their runtime values.
+AI-72 adds these queries to both condition evaluators: `GetOpenState` for
+placed `DOOR` references (0 for other references, 1 open and 3 closed),
+`GetIsCurrentPackage` against the subject actor's selected package,
+`GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
+reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
+The CK state values 2 (opening) and 4 (closing) require animation progress,
+which the current reference state does not track, so those transitions remain
+unavailable.
+`GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
+`GetCannibal` remain unsupported with a function diagnostic because the local
+sources name them without defining query results.
 AI-66 adds `GetWithinDistance` (639), using the run-on subject's position,
 the parameter reference's position and the parameter float as an inclusive
 distance threshold. xEdit's `wbConditionFunctions` and UESP's
@@ -1259,24 +1290,32 @@ Object ID, or the known Object Type value for any weapon, in its search cell.
 An authored location radius limits the search. Equal distances choose the
 lower resolved FormID. The selected identity is available as the actor's
 `AiState::found_reference`.
-`Sandbox` picks an idle marker or a piece of furniture (beds excluded)
-within the radius of the location, walks there, dwells 0.1 to 0.4 game
-hours, and picks the next, or a random point in the radius when the cell
-has no markers. `Sleep` walks to the bed the location names, or the
-nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. `Sit` reserves the first active,
+`Sandbox` picks an idle marker or a piece of furniture (beds excluded) within
+the location radius, walks there, dwells 0.1 to 0.4 game hours, then picks the
+next marker or a random point when the cell has none. `Sleep` walks to the bed
+the location names, or the nearest furniture in that cell whose base has a bed
+keyword, and holds with `sleeping` set. `Sit` reserves the first active,
 unreserved Sit marker on its furniture reference, walks to that reference's
 placement transform, and releases the reservation when it arrives. Furniture
 marker transforms are not read from the model. Its procedure tag is stored in
 the `AI-20` actor section. `Wait` holds for its real-time duration, with zero
-meaning indefinite. `Shout` casts the equipped `SHOU`'s highest nonzero `SNAM`
-spell through `World::cast_spell` and holds its tree branch until that word's
-authored recovery expires. An actor already in voice recovery waits before
-casting. Failed shout data or delivery leaves the procedure explicitly
-unsupported. Voice recovery is an absolute deadline in the world's real-seconds
-clock, exposed through `GetVoiceRecoveryTime` and `SetVoiceRecoveryTime`. The
-`AI-29` actor section stores that deadline under the version 37 section table.
-The CK package procedure page is absent from the local wiki snapshot.
+meaning indefinite. Walking `Patrol` follows linked markers, including their
+arrival radius and idle time.
+
+`Flee` chooses a reachable navmesh triangle whose centroid increases distance
+from its live combat target, runs there at the race's run speed, then succeeds
+the active tree branch. When the target leaves combat, Flee succeeds
+immediately. The existing tree cursor applies `Success Completes Package` and
+the following branch rules. If no reachable point increases distance, the actor
+holds position until the target or navmesh changes.
+
+`Shout` casts the equipped `SHOU`'s highest nonzero `SNAM` spell through
+`World::cast_spell` and holds its tree branch until that word's authored recovery
+expires. An actor already in voice recovery waits before casting. Failed shout
+data or delivery leaves the procedure explicitly unsupported. Voice recovery is
+an absolute deadline in the world's real-seconds clock, exposed through
+`GetVoiceRecoveryTime` and `SetVoiceRecoveryTime`. The `AI-29` actor section
+stores that deadline under the version 37 section table.
 
 `UseMagic` takes its target from the procedure's `PTDA` input and accepts a
 reference, self, linked reference or selected alias reference. It reads the
@@ -1290,18 +1329,24 @@ against the actor's current combat target, preferring its right hand weapon and
 then its left. It completes its tree branch after the attempt. The shared combat
 path validates equipment and combat modifiers and queues hit events. The
 procedure state is stored in the `AI-36` actor section under the version 37
-table. Every other procedure name is `Procedure::Unsupported` and the actor
-stands where it is. Location kinds near reference, in cell, near package start,
-near editor location, near linked reference, alias reference, alias location
-and near self resolve. Procedure names without a driver implementation remain
-`Procedure::Unsupported` and leave the actor standing.
+table.
 
-The local CK `EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages
-define package evaluation and observation, not Flee movement. PACK branch
-completion uses xEdit's `PRCB` flags and the UESP PACK layout. Route selection
-uses the shared combat target and vanilla NAVM graph already used by combat
-movement. No procedure-specific source in the local corpus defines Flee's
-destination choice.
+Location kinds near reference, in cell, near package start, near editor
+location, near linked reference, alias reference, alias location and near self
+resolve. An alias location uses its filled `LCTN` form's `MNAM` world marker as
+its destination. Location alias fill rules remain separate quest work. Other
+procedure names remain `Procedure::Unsupported` and leave the actor standing.
+The local CK package procedure page is absent from the local wiki snapshot. The
+execution uses the local `EquipShout_-_Actor` and
+`GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
+entries, and xEdit's PACK layout and shared spell APIs. The local CK
+`EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages define package
+evaluation and observation, not Flee movement. PACK branch completion uses
+xEdit's `PRCB` flags and the UESP PACK layout. Route selection uses the shared
+combat target and vanilla NAVM graph already used by combat movement. No
+procedure-specific source in the local corpus defines Flee's destination
+choice.
+
 `Follow` resolves its `PTDA` target as a specific reference, alias, linked
 reference or self. Its first two float inputs set catch-up and follow radii,
 defaulting to 20 and 5 units when omitted. Invalid radii or unresolved targets
@@ -2120,26 +2165,19 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements these CTDA function IDs:
-1, 14, 18, 24, 35, 45, 46, 47, 53, 56, 58, 59, 61, 67,
-69, 70, 71, 72, 73, 74, 77, 79, 80, 91, 98, 99, 106, 107,
-110, 111, 116, 123, 125, 127, 128, 136, 142, 182, 185, 214, 219, 223,
-225, 230, 248, 249, 250, 264, 277, 280, 286, 287, 289, 310, 313, 315,
-318, 325, 327, 339, 359, 360, 372, 378, 403, 408, 414, 426, 430, 432,
-434, 435, 444, 445, 446, 447, 448, 470, 491, 494, 500, 501, 519, 528,
-543, 550, 560, 561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592,
-598, 600, 601, 603, 604, 605, 606, 610, 625, 626, 629, 630, 635, 636,
-639, 640, 651, 655, 659, 660, 675, 683, 691, 692, 693, 696, 698, 699,
-704, 706, 711, 713, 718, 721, 723, 724, 730, 731, 734, 735.
-AI-50 also implements functions 263, 306, 398, 465, 597 and 624. The
-integrated condition evaluator supports ordered AND/OR groups, numeric or
-global comparisons, explicit references and caller-supplied quest aliases.
-Reserved PlayerRef resolves to the runtime player even without a placed record.
-
-This is a bounded set, not the full CTDA contract. Evaluation supports ordered
-AND/OR groups, numeric or global comparisons, explicit references and
-caller-supplied quest aliases. Reserved PlayerRef resolves to the runtime
-player even without a placed record.
+The integrated condition evaluator implements these CTDA function IDs across its branches:
+1, 14, 18, 24, 35, 45, 46, 47, 50, 53, 56, 58, 59, 61
+67, 69, 70, 71, 72, 73, 74, 77, 79, 80, 91, 98, 99, 106
+107, 110, 111, 116, 123, 125, 127, 128, 136, 142, 182, 185, 214, 219
+223, 225, 230, 248, 249, 250, 263, 264, 277, 280, 286, 287, 289, 306
+310, 312, 313, 314, 315, 318, 325, 327, 329, 339, 353, 354, 359, 360
+362, 372, 378, 398, 403, 408, 414, 426, 430, 432, 434, 435, 444, 445
+446, 447, 448, 465, 470, 491, 494, 500, 501, 519, 528, 543, 550, 560
+561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592, 597, 598, 600
+601, 603, 604, 605, 606, 610, 624, 625, 626, 629, 630, 635, 636, 639
+640, 650, 651, 655, 659, 660, 675, 680, 682, 683, 691, 692, 693, 696
+698, 699, 700, 704, 706, 711, 713, 718, 720, 721, 722, 723, 724, 725
+726, 730, 731, 734, 735. This is a bounded set, not the full CTDA contract. Evaluation supports ordered AND/OR groups, numeric or global comparisons, explicit references and caller-supplied quest aliases. Reserved PlayerRef resolves to the runtime player even without a placed record.
 
 GetScale reads reference scale with the race and NPC height
 multipliers for actors, and GetDisabled reads reference state. GetDetected
@@ -2333,6 +2371,43 @@ The CK corpus has no usable semantic contract for conditions 479
 condition contract diagnostic for those ids. AI-50 fixtures cover true, false,
 and invalid form or hand contexts for the implemented functions, and the
 diagnostic paths for both source gaps.
+
+AI-74 adds `GetPCMiscStat` (312), `IsActorAVictim` (314), `IsFleeing` (329),
+`IsActor` (353), `IsEssential` (354) and `HasLinkedRef` (362). Misc-stat
+parameter values and names follow xEdit's `wbMiscStatEnum`, and values read
+the same tracked-stat table as `Game.QueryStat`. Victim state uses the saved
+`witnessed_crimes` relation: an actor is reported as a victim when any actor
+has recorded witnessing a crime by that actor. Fleeing reads the active package
+procedure, essential reads live actor state, and linked-reference checks match
+the requested keyword. The xEdit and UESP tables identify 367 and 368 as
+player-action queries, but the local CK references do not define their result
+or state semantics, so evaluation returns an explicit unsupported-function
+error for both.
+
+AI-74 also consults local xEdit `TES5Edit/Core/wbDefinitionsTES5.pas` for the
+condition function IDs, parameter types, miscellaneous-stat enum and player
+action enum, UESP `Raw_Function_Data.wikitext` for function names, and CK
+`ActorBase_Script.wikitext`, `Actor_Script.wikitext` and
+`ObjectReference_Script.wikitext` for the related essential and linked-ref
+contracts. Existing witnessed-crime state comes from
+`World::record_witnessed_crime`.
+
+The later condition batch checks `IsLinkedTo` against the subject reference's
+linked-reference keyword pairs, `WornHasKeyword` and
+`WornApparelHasKeywordCount` against worn ARMO forms, `IsCommandedActor` against
+live command effects. `DoesNotExist` is supported for declared quest aliases
+run on that alias and returns true when it is unfilled. The batch returns
+`conditions::Error::Contract` for `GetActivatorHeight` and
+`GetKnockedStateEnum`, since the local CK corpus provides no usable runtime
+contract or state representation for them. `GetTargetHeight` returns the
+signed Z difference from the subject reference to its parameter reference,
+as defined by UESP's local raw function table. Invalid actors, forms,
+parameters, and undeclared aliases return explicit errors. xEdit's local
+`wbDefinitionsTES5.pas` supplies the function IDs and parameter types. CK's
+`IsCommandedActor_-_Actor.wikitext`, `WornHasKeyword_-_Actor.wikitext` and
+`GetLinkedRef_-_ObjectReference.wikitext` supply the behavior used for those
+queries. The other condition IDs appear in xEdit's function table, but that
+schema does not establish their runtime behavior.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,

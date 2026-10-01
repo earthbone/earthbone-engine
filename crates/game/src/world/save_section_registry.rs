@@ -100,7 +100,7 @@ fn read_player_level(
 }
 
 fn write_days_in_jail(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
-    super::crime::write_days_in_jail(state, writer);
+    super::crime::write_days_in_jail(state, writer, _pool);
 }
 
 fn read_days_in_jail(
@@ -108,7 +108,7 @@ fn read_days_in_jail(
     reader: &mut FormReader<'_, '_>,
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
-    super::crime::read_days_in_jail(state, reader)
+    super::crime::read_days_in_jail(state, reader, _table)
 }
 
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {

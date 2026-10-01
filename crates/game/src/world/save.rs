@@ -120,6 +120,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references, the active
 /// phase and completed action slots for each scene.
+/// Version 36 retains BOS record flags on instantiated references and the
+/// active phase and completed action slots for each scene.
 /// Version 37 appends named section tables (`save_sections`) to the world,
 /// actor and reference records, after each record's saved fields. Versions
 /// before 37 have no section tables. This is the last version this constant
@@ -133,6 +135,17 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// retain expression overrides, furniture markers, procedure state, voice
 /// recovery deadlines and progression. Reference sections retain persistence,
 /// record flags and destruction state.
+/// World sections include SAV-53 base-object fields, SAV-42 static-object
+/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
+/// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
+/// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
+/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
+/// records and native game-save dependency provenance. AI-88 retains each
+/// actor's reserved furniture marker, AI-36 retains the UseWeapon procedure,
+/// and AI-29 retains voice recovery deadlines. Reference sections retain
+/// persistence, world record flags, reference translation and current
+/// destruction stage through CMB-37. Flee procedure state is retained by the
+/// AI tree cursor and does not require a new section.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

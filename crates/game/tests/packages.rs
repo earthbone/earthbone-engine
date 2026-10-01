@@ -603,6 +603,7 @@ fn ai_32_flee_routes_away_from_its_live_threat_and_resumes_after_save() {
         let state = world.actor(actor).unwrap();
         state.in_combat = true;
         state.combat_target = Some(threat);
+        state.values.set_base("aggression", 2.0).unwrap();
         (
             world.reference(actor).unwrap().position,
             world.reference(threat).unwrap().position,
