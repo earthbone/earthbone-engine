@@ -2545,7 +2545,7 @@ return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
 has no arresting-target state to evaluate. Its condition is reported as
 `Error::Function(657)` instead of guessing from combat or alert state. The
 function names and parameter counts follow local xEdit
-`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`; the actor
+`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
 contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
 `IsArrestingTarget` pages.
 
