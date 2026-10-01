@@ -188,7 +188,7 @@ pattern is in the code and a longer or wider scenario can reach them:
 1. `NativeRegistry::calls` is a `HashMap` of counters. It is hashed in key
    order here, and the live run summaries sort it before printing. Any new
    reader that walks it unsorted prints a different order per run.
-3. The Godot host's threaded builders join in master order, which the
+2. The Godot host's threaded builders join in master order, which the
    detector does not cover, the host is outside `Game`.
 
 `TickHash::with_host_builder_hash` lets a host caller add its builder result
