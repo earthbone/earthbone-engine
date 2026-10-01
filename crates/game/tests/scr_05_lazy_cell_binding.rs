@@ -14,9 +14,9 @@ use std::path::PathBuf;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CELL: u32 = 0x800;
-const REFERENCE: u32 = 0x801;
+pub const REFERENCE: u32 = 0x801;
 
-fn fixture() -> Game {
+pub fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader {
         flags: flags::MASTER,
         author: "soe".into(),
@@ -63,7 +63,7 @@ fn fixture() -> Game {
     game
 }
 
-fn cell_id() -> GlobalFormId {
+pub fn cell_id() -> GlobalFormId {
     GlobalFormId {
         file: 0,
         object: CELL,
@@ -142,7 +142,7 @@ fn scr_05_vanilla_missing_cell_attachments_are_reported() {
     let mut missing = game.bind().scripts_missing;
 
     for cell in cells {
-        missing.extend(game.bind_cell(cell).scripts_missing);
+        missing.extend(game.load_cell(cell).scripts_missing);
     }
     let actual: std::collections::BTreeMap<_, _> = missing.iter().fold(
         std::collections::BTreeMap::new(),

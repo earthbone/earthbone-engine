@@ -12,10 +12,10 @@ use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Ta
 use soe_game::{quest, Game};
 
 const TAG: fn(&[u8; 4]) -> Tag = Tag::new;
-const QUEST: u32 = 0x800;
+pub const QUEST: u32 = 0x800;
 const ACTIVATOR_BASE: u32 = 0x801;
 const CELL: u32 = 0x802;
-const ACTIVATOR: u32 = 0x803;
+pub const ACTIVATOR: u32 = 0x803;
 
 fn plugin() -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
@@ -51,13 +51,13 @@ fn plugin() -> Plugin {
     plugin
 }
 
-fn fixture() -> Game {
+pub fn fixture() -> Game {
     let mut order = LoadOrder::new();
     order.add("Scr03.esm", plugin()).unwrap();
     Game::new(order)
 }
 
-fn wasm_component() -> PathBuf {
+pub fn wasm_component() -> PathBuf {
     let manifest =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scr_03_mod/Cargo.toml");
     let active = Command::new("rustup")

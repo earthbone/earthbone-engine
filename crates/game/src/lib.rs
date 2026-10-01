@@ -529,6 +529,9 @@ impl Game {
     /// Attach scripts on placed references in a cell that has been loaded.
     /// Calls for the same cell return an empty report after the first call.
     pub fn bind_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        if self.world.borrow().loaded_cell() != Some(cell) {
+            return BindReport::default();
+        }
         if !self.bound_cells.insert(cell) {
             return BindReport::default();
         }
