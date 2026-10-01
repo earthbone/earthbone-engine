@@ -861,20 +861,22 @@ their payload fields. xEdit plus the UESP null-field convention establish the
 shared fields, while the FallrimTools fallback supports retaining unclassified
 bytes. No in-memory plugin record layout is used for the save payload.
 
-The gated `sav_33_corpus_reports_item_change_field_coverage` survey records
-save version, change version, record type, flags, payload size and count in
-sorted order. Its threshold is at least 50 saves. The 2026-09-20 corpus run
-read all 60 external saves and found zero ARMO, WEAP and AMMO change forms.
-Each subsequently observed item payload is decoded and re-encoded byte for
-byte by the survey. External saves are read in place and are not copied into
-the repository.
+The `sav_33_corpus_reports_item_change_field_coverage` survey reads the
+external corpus at the documented default path or `SOE_TEST_SAVES`, and
+records save version, change version, record type, flags, payload size and
+count in sorted order. Its threshold is at least 50 saves. The 2026-09-20
+corpus run read all 60 external saves and found zero ARMO, WEAP and AMMO
+change forms. Each subsequently observed item payload is decoded and
+re-encoded byte for byte by the survey. External saves are read in place and
+are not copied into the repository.
 
 Synthetic `sav_33_` tests cover all eight combinations of the three named
 flags across all three item types, preservation of unnamed bits and remaining
-bytes, and truncation at every byte boundary of the six-byte form-flags
-section. An installed-data test checks that Skyrim.esm contains all three
-vanilla record types. Decoding does not assign meaning to unnamed flag bits or
-remaining bytes, and the external corpus currently has no item change forms.
+bytes, exact payload-byte re-encoding, and truncation at every byte boundary
+of the six-byte form-flags section for all three item types. An installed-data
+test checks that Skyrim.esm contains all three vanilla record types. Decoding
+does not assign meaning to unnamed flag bits or remaining bytes, and the
+external corpus currently has no item change forms.
 
 ## Projectile payload source audit
 
@@ -1254,11 +1256,37 @@ source-defined fields for these three record types. Each has an optional
 six-byte form-flags section. BOOK also reports the value, full-name, teaches
 skill and read markers. KEYM reports the value and full-name markers. NOTE
 reports its read marker. Those named marker fields consume no payload bytes in
-xEdit's `wbNull` schema. The decoders reject reserved flag bits and truncated
-form flags. Bytes after the defined fields remain an opaque suffix and are
-written back unchanged. This retains corpus data such as the byte `08` on a
+xEdit's `wbNull` schema. Bits xEdit labels `UnnamedFlag` are retained without
+interpretation, as are bytes after the defined fields. The decoders reject
+truncated form flags. This retains corpus data such as the byte `08` on a
 BOOK carrying only the read marker, whose meaning is not defined by xEdit.
 FallrimTools keeps these payloads raw, and UESP documents the outer
 change-form framing rather than these record layouts. The corpus test accounts
 for every BOOK, NOTE and KEYM change in the external save set and checks exact
-payload re-encoding.
+flag and payload re-encoding. SAV-35 covers each subset of the source-defined
+flags, checks that unnamed flag bits survive typed decoding, verifies that
+zero-byte markers work without a payload, rejects each truncated form-flags
+prefix and checks suffix preservation for all three record types.
+
+## ACTI, TACT and DOOR changes
+
+`ChangeForm::activator_change` decodes all 32 change-flag bits for ACTI, TACT
+and DOOR. Bit 0 selects the optional six-byte form flags. Bits 1 and 2 mark
+the base-object value and full name, and TACT bit 23 marks its speaker. Those
+markers have no payload bytes. Other flag bits remain in `other_flags` without
+assigned behavior. The decoder rejects incomplete form flags and payload
+suffixes, and `ActivatorChange` rebuilds the same flags and bytes.
+
+The layouts follow xEdit's `wbDefinitionsTES5Saves.pas` entries for change
+types 10, 11 and 15. UESP's save format table and FallrimTools' `ChangeForm`
+enum confirm the type indices. UESP's format conventions define null fields as
+zero bytes. FallrimTools uses its raw `ChangeFormDefault` for these types, so
+it provides no typed payload layout.
+
+The SAV-31 synthetic tests exercise all combinations of named source flags,
+each unnamed bit, truncation, exact re-encoding and compressed payloads. The
+external-corpus test scans every save and accounts for each ACTI, TACT and
+DOOR change it finds. The reported 60-save corpus contains zero examples of
+all three types, so that run provides zero payload observations. A separate
+`SKYRIM_DATA`-gated test confirms that `Skyrim.esm` contains the three vanilla
+record types. It does not stand in for saved change payloads.
