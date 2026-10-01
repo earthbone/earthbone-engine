@@ -544,7 +544,7 @@ owning system has no behavior yet.
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
-| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | GetCurrentMemory. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
+| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetCurrentBudget, OverBudget | GetCurrentMemory, GetBudgetCount, GetBudgetName. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
@@ -576,13 +576,6 @@ because the local CK corpus does not provide usable condition semantics for them
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
-  and `Exterior cell loads per update`. `GetCurrentBudget` returns each
-  configured limit, and `OverBudget` is false because these are scheduling
-  caps, not measured usage counters. Invalid indices return an empty name, zero
-  and false. The CK Utility page documents these signatures, and SKSE's vanilla
-  `Utility.psc` declares them as global natives.
-
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
 `Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
@@ -612,6 +605,26 @@ Their CK contracts are described by
   CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
   identifies both functions and their float arguments. The host does not yet
   consume the layer snapshot or render particle geometry.
+### Utility runtime queries, SCR-50
+
+`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
+Without available capture data, they return `None` and log that beta capture is
+unavailable. `GetCurrentMemory`,
+`GetBudgetCount` and `GetBudgetName` require memory tracking, and no game or
+host memory-tracking provider exists. Calls return `None` and add an explicit
+error to the Papyrus log. `GetBudgetName` also requires exactly one integer
+index. The capture lifecycle and average query remain available. The scheduler
+budget methods `GetCurrentBudget` and `OverBudget` report two engine limits:
+`Papyrus instructions per slice` and `Exterior cell loads per update`.
+`GetCurrentBudget` returns each configured limit, and `OverBudget` is false
+because these are scheduling caps, not measured usage counters. The CK Utility
+page documents these signatures, and SKSE's vanilla `Utility.psc` declares
+them as global natives.
+
+The contracts and availability notes come from the local CK
+`Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
+The host's Godot performance monitors are not used as substitutes for
+Creation Engine frame capture or memory budgets.
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest

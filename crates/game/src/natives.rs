@@ -2371,20 +2371,46 @@ fn utility(vm: &mut Vm, w: &Shared) {
         }
     });
     global!(vm, w, "Utility", "GetMinFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMinFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
         match world.frame_rate.minimum() {
             Ok(result) => f(result),
-            Err(error) => {
-                call.log.push(call.time, error);
-                f(0.0)
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMinFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
             }
         }
     });
     global!(vm, w, "Utility", "GetMaxFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMaxFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
         match world.frame_rate.maximum() {
             Ok(result) => f(result),
-            Err(error) => {
-                call.log.push(call.time, error);
-                f(0.0)
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMaxFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
             }
         }
     });
@@ -2410,21 +2436,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
     ));
     vm.natives.register_global(
         "Utility",
-        "GetBudgetCount",
-        Box::new(|_| i(ENGINE_BUDGETS.len() as i32)),
-    );
-    vm.natives.register_global(
-        "Utility",
-        "GetBudgetName",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .map_or_else(|| s(""), |budget| s(budget.0))
-        }),
-    );
-    vm.natives.register_global(
-        "Utility",
         "GetCurrentBudget",
         Box::new(|call| {
             let index = call.arg(0).as_int();
@@ -2443,6 +2454,38 @@ fn utility(vm: &mut Vm, w: &Shared) {
                 .is_some_and(|budget| budget.2))
         }),
     );
+    // These queries depend on engine services that are not available in the
+    // shared World. Keep their unsupported state visible to Papyrus instead
+    // of returning the quiet `None` used by the old stub registrations.
+    for (name, arity, reason) in [
+        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
+        ("GetBudgetCount", 0, "memory tracking is unavailable"),
+        ("GetBudgetName", 1, "memory tracking is unavailable"),
+    ] {
+        let reason = reason.to_owned();
+        global!(vm, w, "Utility", name, |_world, call| {
+            if call.args.len() != arity {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.{name} expects {arity} argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return none();
+            }
+            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
+                );
+                return none();
+            }
+            call.log
+                .push(call.time, format!("error: Utility.{name}: {reason}"));
+            none()
+        });
+    }
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
