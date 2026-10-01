@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;
@@ -43,6 +44,7 @@ pub mod inventory;
 pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;

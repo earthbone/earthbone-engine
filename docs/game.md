@@ -1,5 +1,14 @@
 # soe-game: the runtime form table and the first natives
 
+`ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
+regional sound entry's `RDMO` when the cell has none. It returns eligible
+single-track `ANAM` paths for host playback, following MUST conditions and
+palette `SNAM` entries. Region sound-entry detection uses `REGN.RDAT` type 7.
+Silent MUST records are skipped. The local TES5Edit `wbDefinitionsTES5.pas`
+and UESP `MUSC.wikitext`, `MUST.wikitext` and `REGN.wikitext` define these
+fields. MUSC selection flags, priority and fade, region priority and `RDSA`
+sound descriptors are not evaluated yet.
+
 The combat integration includes race-based unarmed damage, difficulty selection,
 template-backed hits,
 armor slot replacement and explicit weapon hands. SOEW version 20 retains
@@ -227,6 +236,18 @@ the map's third open seam.
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
+
+`conditions.rs` evaluates `GetIsPlayableRace` and the race part of `IsChild`
+from the actor base's winning RACE DATA flags. `HasAssociationType` and
+`HasFamilyRelationship` scan winning RELA records, resolve their actor bases
+and ASTP association, and read the ASTP Family Association flag.
+`HasParentRelationship` respects RELA's authored parent-to-child direction.
+`GetFactionCombatReaction` reads the first FACT's XNAM entry for the second
+FACT, defaulting to neutral when no relation is authored. These record layouts
+come from `TES5Edit/Core/wbDefinitionsTES5.pas`. Association, family, parent
+and child wording comes from the corresponding CK pages. The local CK corpus
+has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
+both return the evaluator's explicit unsupported-function error.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **Game presentation natives, SCR-29.** `Game.SetHudCartMode` updates the
@@ -916,6 +937,17 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
+An unfinished package with `Must Complete` stays selected ahead of higher
+priority candidates until its procedure tree finishes. Combat can interrupt
+it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
+the PKDT interrupt flags. `Ignore Combat` leaves package movement in control
+instead of acquiring or pursuing a combat target. `No Combat Alert` records
+combat engagement without setting the actor's alerted state. `At Package Start
+Unlock Doors` unlocks locked doors owned by the actor in its current cell when
+that package starts. `On Package Change Unlock Doors` does the same when leaving
+the flagged package. Unlocking uses the shared reference lock state and emits
+the ordinary lock state event.
+
 Built actors retain their distributed package entries and insertion positions
 in SOEW version 37, so package selection uses the same stack after load.
 
@@ -1013,7 +1045,10 @@ Other simultaneous child procedures remain unsupported until the completion
 policy in AI-87 is established from paired authored records.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
-plus the local UESP PACK page. CommonLib's sequence header supplies a type
+plus the local UESP PACK page. xEdit names the PKDT interrupt override values
+and interrupt bits, including `Observe combat behavior`. The CK
+`EvaluatePackage` page documents explicit package-stack reevaluation.
+CommonLib's sequence header supplies a type
 but no implementation. The nested-repeat behavior follows the mod author's
 [repeat experiment](https://forums.nexusmods.com/topic/11591393-ai-package-wont-repeat/).
 No reusable interpreter exists in those sources, so this interpreter uses the
@@ -1575,6 +1610,16 @@ fully consume are all load errors naming the section and the level.
 Versions before 37 have no section table at any level, and the reader
 skips looking for one below version 37.
 
+Legacy test fixtures measure trailing cuts with `version_tail_len` or
+`truncate_to_version` in `tests/common/save_tail.rs`, using a fresh world and
+the requested version's reader. Invalid fixtures reuse a cut measured on a
+valid counterpart. Corruption fixtures locate serialized field markers or
+parse their envelope instead of counting back from the save's end. The
+`tst_15_` tests cover empty worlds, actor and reference section removal,
+source-state preservation and the absence of literal tail offsets with two
+or more digits. These helpers reuse the layouts in `world/save.rs` and
+`world/save_sections.rs` and do not change the save format.
+
 ### Player appearance editing, UI-14
 
 The player actor stores selected HDPT forms by part type and normalized face
@@ -1826,6 +1871,17 @@ have independent filters, applied when events are queued. Filter lists inspect
 immediate members only. Empty lists suppress events, and later filter changes
 do not cancel pending calls. Effect expiry and dispel remove its filters before
 later inventory changes are queued.
+
+Successful COBJ recipes whose workbench keyword editor id starts with
+`CraftingSmithing` also award Smithing skill use to the crafting actor. The
+amount is `(3 * value^0.65 + 25) * created_count`, using the created item's
+record value, then passed once through `World::advance_skill` so AVIF `AVSK`
+use multipliers, offsets, the skill curve and saved partial experience apply.
+This follows the UESP Smithing crafting formula and the COBJ output/count
+fields in local xEdit. A rejected transaction and other workbench keywords
+award no Smithing use. Outputs without a supported value field receive no
+award. This transaction path does not dispatch Story Manager events.
+
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
 queue these events too. Silent removal still notifies scripts. AddItem expands
 a FormList into one count change and OnItemAdded event for every supported
@@ -2010,6 +2066,11 @@ FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen
 `Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
+CRF-08 also uses CK `Game_Script.wikitext` for `AdvanceSkill`, CK
+`Quest_Script.wikitext` for the separate `OnStoryCraftItem` event contract,
+and xEdit COBJ output/count fields. The Smithing experience equation follows
+the UESP Skyrim Smithing crafting section.
+
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`. The remaining requested CK pages are absent.
@@ -2363,6 +2424,16 @@ confirming the topic drops out again once the remainder can no longer cover
 another Small favor).
 
 ## Active magic applications
+
+### Grab Actor, MAG-66
+
+Direct casts accept MGEF archetype 45 and retain the selected actor, caster and
+source in the active effect. `World::grab_actor_effect_on` exposes the live
+control relationship. Dispel, expiry and the existing death cleanup remove
+that relationship with the active effect. The CK Magic Effect page describes
+the archetype as picking up and throwing the selected NPC. This game-side
+relationship does not move the actor or apply a throw. The Godot host has no
+actor hold or throw controller yet.
 
 ### Calm archetype, MAG-29
 
@@ -3310,6 +3381,26 @@ cycles and output links supplied by overrides. All 48 installed footstep sound
 links prepared successfully in the existing 24-case survey. Host execution and
 its output-model limits are documented in [godot-host.md](godot-host.md).
 
+## Record-backed music selection (AUD-05)
+
+`music::select` reads a winning `MUSC`, evaluates each candidate `MUST`'s CTDA
+list through the shared condition evaluator, and descends eligible MUST
+palettes to one leaf. A leaf returns its normalized filename or silent-track
+marker, duration, fade-out, loop range and count, cue points, and the parent
+music type's fade, priority, ducking amount, and flags. Unsupported condition
+functions and malformed links or fields return errors. An abrupt-transition
+flag makes the selected fade-in zero. A missing candidate or a palette with no
+eligible child returns an error instead of selecting an ineligible track.
+
+The selection draw is supplied by the caller, must be finite in 0 to 1, and
+selects among eligible entries in their record order. The chooser does not own
+cycle history or save music playback state.
+
+The installed `MUSCombat` winner contains `GetCombatTargetHasKeyword`
+(condition function 707), which the shared evaluator rejects under AI-41's
+combat-state contract. The installed-data music test surveys for an eligible
+track with supported conditions and skips that known unsupported predicate.
+
 ## Authored locks and keys (2026-09-19)
 
 Placed references initialize their lock state and level from XLOC, which was
@@ -3579,7 +3670,10 @@ See [physical melee execution](combat.md) for supported rules and sources.
 Ranged release reads the selected bow or crossbow and equipped compatible AMMO
 form from actor equipment. A valid release consumes one round, queues the
 ordinary item removal notification, and returns a transient PROJ flight
-request to the host. See [ranged release](combat.md#ranged-release-cmb-08).
+request to the host. `FlightMotion` advances that request in fixed time steps
+using its record gravity, speed and range. Flight state is transient and does
+not enter the save. See [ranged release](combat.md#ranged-release-cmb-08) and
+[projectile flight](combat.md#projectile-flight-cmb-22).
 The combined full gate passes 1,163 Rust tests and 11 Python tests, with no
 warnings or skipped optional tools. Installed-data validation passes 12 melee
 and 11 death-lifecycle tests. It decodes 3,262 winning weapons and 3,675 armors,

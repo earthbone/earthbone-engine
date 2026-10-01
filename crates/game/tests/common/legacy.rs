@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Legacy SOEW fixtures from world/save.rs and world/save_sections.rs.
+
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
@@ -12,7 +14,7 @@ use soe_game::world::World;
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too. It also reduces world-level section payloads
-/// to the empty table expected by legacy fixture offsets.
+/// to an empty table before measuring the legacy tail.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -402,14 +404,11 @@ pub fn world_section_growth(bytes: &[u8]) -> usize {
     bytes.len() - normalized.len()
 }
 
-/// Return the number of trailing bytes a versioned reader rejects before the
-/// first prefix it accepts. The callback should parse with a fresh fixture.
-#[allow(dead_code)]
-pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
-    (0..=bytes.len())
-        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
-        .expect("a legacy save prefix is accepted")
-}
+#[path = "save_tail.rs"]
+mod save_tail;
+
+#[allow(unused_imports)]
+pub use save_tail::{truncate_to_version, version_tail_len};
 
 #[allow(dead_code)]
 pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
