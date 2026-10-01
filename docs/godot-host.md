@@ -295,7 +295,7 @@ coordinates and a position. FallrimTools' ESS player-location handling keeps
 that data separate from the player's ACHR change form. The game crate in this
 worktree does not expose the SAV-09 atomic world and VM restoration entry point,
 so no vanilla-save import currently calls this host adapter. The host check is
-therefore limited to the adapter's restored-pose validation; an end-to-end
+therefore limited to the adapter's restored-pose validation. An end-to-end
 vanilla import, attached cell and advanced frame still require SAV-09.
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
