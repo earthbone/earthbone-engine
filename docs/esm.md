@@ -110,7 +110,7 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, lctn, navm, stat, race, hazd}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, npc, stat, race, hazd}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
@@ -152,6 +152,23 @@ fragment bytes are preserved. An invalid or unsupported VMAD property makes
 the operation fail without changing the plugin. Other raw subrecords remain
 untouched because their fields have not been modeled as FormIDs here.
 
+`records::Transform::drop_to_ground` creates a `GroundDrop` edit from a
+collision height in Skyrim world units. The placed transform keeps its
+horizontal position and rotation and replaces its vertical position with the
+surface height. `GroundDrop::undo` returns the original transform for an
+editor undo action. Non-finite collision heights are rejected.
+
+`records::npc::NpcFace` reads `NPC_` `PNAM` head-part links in file order and the
+19 floats in `NAM9`. `edit_record` replaces those fields while preserving the
+other NPC subrecords, checks each link against the active load order for a
+winning `HDPT`, and rejects malformed links or non-finite morph values. The
+`NPC_` `PNAM` links are relocated with other recognized FormIDs when a plugin's
+master order changes. These fields are defined by local xEdit's `NPC_` record
+definition. TiltedEvolution's `FaceGenSystem.cpp` confirms that runtime face
+assembly resolves NPC head-part records before finding mesh nodes. The PyNifly
+TRI source named by the editor milestone is absent from the local reference
+corpus, and this view does not generate TRI morph meshes or FaceGen textures.
+
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
 layout and the 9- and 12-byte forms obtained by omitting xEdit's optional unused
@@ -176,6 +193,15 @@ heights in world units, using the row-start plus running-sum rule OpenMW uses.
 `Heights::encode` is the inverse, quantised to the byte grid. `navm::Geometry` parses
 the packed `NVNM` block, refuses counts that cannot fit in the remaining bytes before
 allocating, and writes itself back byte for byte.
+
+`records::land::apply_height_brush` applies a smooth circular height dab in cell-local
+world units, rewrites the VHGT gradients and regenerates VNML from the edited surface.
+It preserves other LAND subrecords and sets the LAND height and normal flag. Its record
+edit fails without changing the record when a gradient would exceed its signed-byte range.
+Its record layout and flags follow local xEdit's `Core/wbDefinitionsTES5.pas` LAND definition. The
+brush operation follows the position-based operation boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`. The radial smooth falloff and
+VNML generation are implemented here for the 33 by 33 LAND grid.
 
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and

@@ -3,8 +3,17 @@
 //! Authored HitFrame contacts, following CK equipment semantics and Nemesis
 //! animation event tables. Spatial queries return the first obstruction.
 
+#[cfg(feature = "godot")]
+use std::collections::HashMap;
+#[cfg(feature = "godot")]
+use std::hash::BuildHasher;
+
+#[cfg(feature = "godot")]
+use godot::builtin::Rid;
 use soe_esm::GlobalFormId;
 use soe_game::combat::{Error, FlightRequest, Hand, HitResult, MeleeHit};
+#[cfg(feature = "godot")]
+use soe_game::combat::{FlightMotion, FlightSegment};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
@@ -102,6 +111,130 @@ pub struct MeleeContact {
 #[derive(Debug, Default)]
 pub struct RangedRelease {
     shot: Option<(GlobalFormId, GlobalFormId)>,
+}
+
+/// One terminal projectile contact, retaining its first-hit identity and point.
+#[cfg(feature = "godot")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
+pub struct ProjectileContact {
+    pub hit: crate::godot_combat::ContactHit,
+    pub position: [f32; 3],
+}
+
+/// Result of advancing one transient arrow or bolt.
+#[cfg(feature = "godot")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
+pub enum ProjectileUpdate {
+    /// The projectile moved without reaching its configured range.
+    Flying { position: [f32; 3] },
+    /// The first obstruction or actor stopped the projectile.
+    #[cfg(feature = "godot")]
+    Contact(ProjectileContact),
+    /// The projectile reached its configured maximum range.
+    RangeEnded { position: [f32; 3] },
+    /// A previously stopped or expired projectile cannot contact again.
+    Finished,
+}
+
+/// Deterministic, transient flight and one-contact latch for a released shot.
+#[cfg(feature = "godot")]
+#[derive(Debug, Clone, Copy)]
+#[cfg(feature = "godot")]
+pub struct ProjectileFlight {
+    attacker: GlobalFormId,
+    request: FlightRequest,
+    motion: FlightMotion,
+    finished: bool,
+    missed_arrow: Option<[f32; 3]>,
+}
+
+#[cfg(feature = "godot")]
+impl ProjectileFlight {
+    /// Start flight from the host's record-backed release request.
+    #[must_use]
+    pub fn new(request: FlightRequest) -> Self {
+        Self {
+            attacker: request.attacker,
+            request,
+            motion: FlightMotion::new(request),
+            finished: false,
+            missed_arrow: None,
+        }
+    }
+
+    /// Place a recoverable arrow after a world obstruction stops this flight.
+    ///
+    /// The impact is consumed on the first call, even when its AMMO record is
+    /// not recoverable, so repeated host finalization cannot create duplicates.
+    #[must_use]
+    pub fn recover_missed_arrow(&mut self, game: &mut Game) -> Option<GlobalFormId> {
+        let position = self.missed_arrow.take()?;
+        game.world_mut()
+            .place_recovered_arrow(&self.request, position)
+    }
+
+    /// Advance once and query the swept segment for its first contact.
+    ///
+    /// # Errors
+    /// An invalid time step, invalid motion or unavailable physics space.
+    #[cfg(feature = "godot")]
+    pub fn advance<S: BuildHasher>(
+        &mut self,
+        space: Rid,
+        owners: &[&HashMap<Rid, GlobalFormId, S>],
+        delta_seconds: f32,
+    ) -> Result<ProjectileUpdate, Error> {
+        let attacker = self.attacker;
+        self.advance_with(delta_seconds, |segment| {
+            crate::godot_combat::first_projectile_contact(space, owners, attacker, segment)
+        })
+    }
+
+    /// Advance with a contact query, allowing deterministic headless tests.
+    ///
+    /// # Errors
+    /// The time step, motion or supplied contact query is invalid.
+    pub fn advance_with(
+        &mut self,
+        delta_seconds: f32,
+        query: impl FnOnce(FlightSegment) -> Result<Option<ProjectileContact>, Error>,
+    ) -> Result<ProjectileUpdate, Error> {
+        if self.finished {
+            return Ok(ProjectileUpdate::Finished);
+        }
+        let previous_motion = self.motion;
+        let Some(segment) = self.motion.advance(delta_seconds)? else {
+            return Ok(ProjectileUpdate::Flying {
+                position: self.motion.position(),
+            });
+        };
+        let contact = match query(segment) {
+            Ok(contact) => contact,
+            Err(error) => {
+                self.motion = previous_motion;
+                return Err(error);
+            }
+        };
+        if let Some(contact) = contact {
+            self.motion.stop_at(contact.position);
+            self.finished = true;
+            if matches!(contact.hit, crate::godot_combat::ContactHit::Obstruction(_)) {
+                self.missed_arrow = Some(contact.position);
+            }
+            return Ok(ProjectileUpdate::Contact(contact));
+        }
+        if !self.motion.is_active() {
+            self.finished = true;
+            return Ok(ProjectileUpdate::RangeEnded {
+                position: self.motion.position(),
+            });
+        }
+        Ok(ProjectileUpdate::Flying {
+            position: self.motion.position(),
+        })
+    }
 }
 
 impl RangedRelease {

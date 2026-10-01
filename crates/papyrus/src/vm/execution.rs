@@ -8,6 +8,7 @@ use super::{
     MAX_ARRAY_LEN, MAX_STRING_LEN,
 };
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 impl Vm {
     pub(super) fn step_thread(&mut self, t: usize, slice: usize) -> usize {
@@ -27,10 +28,32 @@ impl Vm {
                 continue;
             }
             let function = frame.function.clone();
-            let ins = &function.code[frame.pc];
+            let profile_script = frame.script.as_ref().map(|script| script.name.clone());
+            let profile_name = function.name.clone();
+            let profile_first_call = !frame.profile_recorded;
+            let pc = frame.pc;
+            frame.profile_recorded = true;
+            let ins = &function.code[pc];
             self.threads[t].frames.last_mut().unwrap().pc += 1;
             n += 1;
+            let started = Instant::now();
             self.exec(t, ins.op, &ins.args);
+            if let Some(script) = profile_script {
+                let thread_id = self.threads[t].id;
+                let mut profiler = self.profiling.borrow_mut();
+                if let Some((scope, _)) = &profiler.active {
+                    let matches = match scope {
+                        super::ProfileScope::Script(target) => target.eq_ignore_ascii_case(&script),
+                        super::ProfileScope::Stack(target) => *target == thread_id,
+                    };
+                    if matches {
+                        let key = format!("{script}.{profile_name}");
+                        let entry = profiler.functions.entry(key).or_default();
+                        entry.0 += u64::from(profile_first_call);
+                        entry.1 += started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+                    }
+                }
+            }
         }
         n
     }
