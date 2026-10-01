@@ -1145,6 +1145,69 @@ fn alias_getters_preserve_reference_and_actor_return_types() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// This checks the 21 registered Form methods against CK Form_Script. SKSE's
+/// GetType and GetName appear in its Form declaration. GetKeywords is an
+/// engine extension.
+#[test]
+fn scr_59_form_registry_matches_the_contract_inventory() {
+    let g = game();
+    let bindings = [
+        "GetFormID",
+        "GetName",
+        "GetType",
+        "HasKeyword",
+        "GetKeywords",
+        "RegisterForSingleUpdate",
+        "RegisterForUpdate",
+        "RegisterForSingleUpdateGameTime",
+        "RegisterForUpdateGameTime",
+        "UnregisterForUpdate",
+        "UnregisterForUpdateGameTime",
+        "RegisterForSleep",
+        "UnregisterForSleep",
+        "RegisterForTrackedStatsEvent",
+        "UnregisterForTrackedStatsEvent",
+        "RegisterForAnimationEvent",
+        "UnregisterForAnimationEvent",
+        "RegisterForLOS",
+        "RegisterForSingleLOSGain",
+        "RegisterForSingleLOSLost",
+        "UnregisterForLOS",
+    ];
+    for binding in bindings {
+        assert!(
+            g.vm.natives.has_method("Form", binding),
+            "Form.{binding} is missing from the native registry"
+        );
+    }
+}
+
+/// CK declares ForceRefTo(ObjectReference). Other form types leave the alias
+/// unchanged, while a reference replaces its current target.
+#[test]
+fn scr_59_force_ref_to_accepts_only_object_references() {
+    let mut g = game();
+    g.start();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    let original = g.world_mut().alias_ref(quest, 1);
+
+    let location = obj(&mut g, "InnLoc");
+    call(&mut g, &alias, "ForceRefTo", &[location]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), original);
+
+    let reference = obj(&mut g, "MarkerRef");
+    let expected = g.world().form("MarkerRef").unwrap();
+    call(&mut g, &alias, "ForceRefTo", &[reference]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), Some(expected));
+
+    let actor = obj(&mut g, "GuardRef");
+    let expected_actor = g.world().form("GuardRef").unwrap();
+    call(&mut g, &alias, "ForceRefTo", &[actor]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), Some(expected_actor));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 // ----- factions -----
 
 /// GetReaction reads the record's XNAM (2 is ally), SetEnemy "sets the

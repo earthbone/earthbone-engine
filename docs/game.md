@@ -563,6 +563,48 @@ reads the reference flag used by its Papyrus native. The condition functions 63,
 66, 118, 288 and 361 remain unsupported with explicit function diagnostics
 because the local CK corpus does not provide usable condition semantics for them.
 
+## ForceRefTo and Form contract audit
+
+The SCR-59 inventory checks the registered `Form` methods against the local
+Creation Kit pages. `Form_Script.wikitext` lists the base methods, while
+`GetName` and `GetType` appear in its SKSE member section. `GetKeywords` has no
+CK or SKSE declaration there. It is an engine extension that returns the form's
+keyword array. The inventory test checks that all 21 methods remain registered.
+
+| Binding | CK contract source |
+|---|---|
+| `Form.GetFormID()` | `GetFormID_-_Form.wikitext`, integer runtime form ID |
+| `Form.GetName()` | `GetName_-_Form.wikitext`, string name, SKSE |
+| `Form.GetType()` | `Form_Script.wikitext`, integer type code, SKSE |
+| `Form.HasKeyword(Keyword)` | `HasKeyword_-_Form.wikitext`, boolean, false on unsupported forms |
+| `Form.GetKeywords()` | No CK declaration, engine extension returning keyword forms |
+| `Form.RegisterForSingleUpdate(Float)` | `RegisterForSingleUpdate_-_Form.wikitext`, one update after a real-time interval |
+| `Form.RegisterForUpdate(Float)` | `RegisterForUpdate_-_Form.wikitext`, repeating real-time interval |
+| `Form.RegisterForSingleUpdateGameTime(Float)` | `RegisterForSingleUpdateGameTime_-_Form.wikitext`, one update after a game-time interval |
+| `Form.RegisterForUpdateGameTime(Float)` | `RegisterForUpdateGameTime_-_Form.wikitext`, repeating game-time interval |
+| `Form.UnregisterForUpdate()` | `UnregisterForUpdate_-_Form.wikitext`, remove real-time updates |
+| `Form.UnregisterForUpdateGameTime()` | `UnregisterForUpdateGameTime_-_Form.wikitext`, remove game-time updates |
+| `Form.RegisterForSleep()` | `RegisterForSleep_-_Form.wikitext`, receive sleep events |
+| `Form.UnregisterForSleep()` | `UnregisterForSleep_-_Form.wikitext`, stop receiving sleep events |
+| `Form.RegisterForTrackedStatsEvent()` | `RegisterForTrackedStatsEvent_-_Form.wikitext`, receive tracked-stat events |
+| `Form.UnregisterForTrackedStatsEvent()` | `UnregisterForTrackedStatsEvent_-_Form.wikitext`, stop receiving tracked-stat events |
+| `Form.RegisterForAnimationEvent(ObjectReference, String)` | `RegisterForAnimationEvent_-_Form.wikitext`, subscribe to the sender's named event |
+| `Form.UnregisterForAnimationEvent(ObjectReference, String)` | `UnregisterForAnimationEvent_-_Form.wikitext`, remove that subscription |
+| `Form.RegisterForLOS(Actor, ObjectReference)` | `RegisterForLOS_-_Form.wikitext`, receive gain and lost events |
+| `Form.RegisterForSingleLOSGain(Actor, ObjectReference)` | `RegisterForSingleLOSGain_-_Form.wikitext`, receive one gain event |
+| `Form.RegisterForSingleLOSLost(Actor, ObjectReference)` | `RegisterForSingleLOSLost_-_Form.wikitext`, receive one lost event |
+| `Form.UnregisterForLOS(Actor, ObjectReference)` | `UnregisterForLOS_-_Form.wikitext`, remove matching LOS subscriptions |
+| `ReferenceAlias.ForceRefTo(ObjectReference)` | `ReferenceAlias_Script.wikitext`, force the alias to use the specified reference |
+
+The comparison found that `ForceRefTo` accepted any form even though the CK
+parameter is an `ObjectReference`. The binding now accepts `REFR` and `ACHR`
+records and ignores other forms, retaining the existing alias target. The
+SCR-59 tests cover both reference record kinds and check each `Form` method
+against the VM registry. CK also specifies that a single LOS registration
+can deliver immediately when current visibility already matches. The runtime
+only dispatches on a later visibility transition. Initial LOS query and
+delivery are assigned to SCR-10, which owns the actor LOS query behavior.
+
 Current behavior and compatibility limits:
 
 - `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
