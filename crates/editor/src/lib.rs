@@ -1154,6 +1154,103 @@ impl EditorDocument {
         self.rebuild_load_order()
     }
 
+    /// Apply one circular texture brush dab to a LAND quadrant in the active plugin.
+    ///
+    /// The center and radius use cell-local world units. A missing texture
+    /// layer is created at the first unused quadrant layer index. One dab is
+    /// stored as one undo step.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not an active-plugin LAND
+    /// record, or its quadrant layers cannot be edited.
+    pub fn brush_land_texture(
+        &mut self,
+        form: GlobalFormId,
+        texture: GlobalFormId,
+        quadrant: u8,
+        center: [f32; 2],
+        radius: f32,
+        strength: f32,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        if self.active_plugin.records[index].tag != Tag(*b"LAND") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "texture brush requires an active-plugin LAND record",
+            });
+        }
+        let texture = self.local_form_id(texture)?;
+        let mut record = self.active_plugin.records[index].clone();
+        soe_esm::records::land::apply_texture_brush(
+            &mut record,
+            texture,
+            quadrant,
+            center,
+            radius,
+            strength,
+        )
+        .map_err(|error| EditorError::Plugin {
+            name: self.active_name.clone(),
+            message: error.to_string(),
+        })?;
+
+        if record != self.active_plugin.records[index] {
+            self.undo.push(self.active_plugin.clone());
+            self.active_plugin.records[index] = record;
+            self.rebuild_load_order()?;
+        }
+        Ok(())
+    }
+
+    /// Apply one circular LAND vertex color brush stroke as a single undoable edit.
+    ///
+    /// The LAND record must already be present in the active plugin. `center`
+    /// and `radius` use cell-local world units. `color` is the target RGB value
+    /// and `strength` controls the blend at the brush center.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a LAND record in the
+    /// active plugin, or its vertex color data cannot be edited.
+    pub fn brush_land_vertex_colors(
+        &mut self,
+        form: GlobalFormId,
+        center: [f32; 2],
+        radius: f32,
+        color: [u8; 3],
+        strength: f32,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        if self.active_plugin.records[index].tag != Tag(*b"LAND") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "vertex color brush requires an active-plugin LAND record",
+            });
+        }
+        let mut record = self.active_plugin.records[index].clone();
+        soe_esm::records::land::apply_vertex_color_brush(
+            &mut record,
+            center,
+            radius,
+            color,
+            strength,
+        )
+        .map_err(|error| EditorError::Plugin {
+            name: self.active_name.clone(),
+            message: error.to_string(),
+        })?;
+
+        if record != self.active_plugin.records[index] {
+            self.undo.push(self.active_plugin.clone());
+            self.active_plugin.records[index] = record;
+            self.rebuild_load_order()?;
+        }
+        Ok(())
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors

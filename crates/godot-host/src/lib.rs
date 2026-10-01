@@ -26,6 +26,7 @@ pub mod data_source;
 pub mod detection;
 pub mod dialogue_menu;
 pub mod door_fade;
+pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
 pub mod hud;

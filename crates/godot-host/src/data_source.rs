@@ -318,11 +318,47 @@ pub struct EditorCell {
 
 /// Parse the base masters, on `threads` workers when more than one, and hand
 /// them back in master order so the load order stays deterministic.
-fn parse_masters(data_dir: &Path, threads: usize) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
+fn plugin_cache_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("SOE_PLUGIN_CACHE") {
+        return (path != "off").then(|| PathBuf::from(path));
+    }
+    if let Some(path) = std::env::var_os("XDG_CACHE_HOME") {
+        return Some(
+            PathBuf::from(path)
+                .join("skyrim-open-engine")
+                .join("plugins"),
+        );
+    }
+    #[cfg(windows)]
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        return Some(
+            PathBuf::from(path)
+                .join("skyrim-open-engine")
+                .join("plugins"),
+        );
+    }
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join(".cache")
+            .join("skyrim-open-engine")
+            .join("plugins")
+    })
+}
+
+fn parse_masters(
+    data_dir: &Path,
+    threads: usize,
+    cache_dir: Option<&Path>,
+) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
     let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
     let parse_one = |name: &str| -> Result<soe_esm::Plugin, DataSourceError> {
         let path = data_dir.join(name);
-        soe_esm::read_plugin(&path)
+        let parsed = if let Some(cache_dir) = cache_dir {
+            soe_esm::read_plugin_cached(&path, cache_dir)
+        } else {
+            soe_esm::read_plugin(&path)
+        };
+        parsed
             .map_err(|source| DataSourceError::Io {
                 path: path.clone(),
                 source,
@@ -380,6 +416,16 @@ impl DataSource {
 
     /// `open_loadout` with a fixed worker count, one for the sequential path.
     pub fn open_with_threads(data_dir: &Path, threads: usize) -> Result<Self, DataSourceError> {
+        Self::open_with_threads_and_cache(data_dir, threads, plugin_cache_dir().as_deref())
+    }
+
+    /// `open_with_threads` with an explicit parsed-plugin cache directory.
+    /// Passing `None` disables the parsed-plugin cache.
+    pub fn open_with_threads_and_cache(
+        data_dir: &Path,
+        threads: usize,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self, DataSourceError> {
         let game_dir = data_dir
             .parent()
             .ok_or_else(|| DataSourceError::DataDirectory(data_dir.to_path_buf()))?;
@@ -392,7 +438,7 @@ impl DataSource {
             ccc: None,
         }
         .resolve()?;
-        Self::open_loadout_with_threads(&loadout, threads)
+        Self::open_loadout_with_threads_and_cache(&loadout, threads, cache_dir)
     }
 
     /// `open_loadout` with a fixed worker count, one for the sequential path.
@@ -400,13 +446,23 @@ impl DataSource {
         loadout: &soe_profile::Loadout,
         threads: usize,
     ) -> Result<Self, DataSourceError> {
+        Self::open_loadout_with_threads_and_cache(loadout, threads, plugin_cache_dir().as_deref())
+    }
+
+    /// `open_loadout_with_threads` with an explicit parsed-plugin cache directory.
+    /// Passing `None` disables the parsed-plugin cache.
+    pub fn open_loadout_with_threads_and_cache(
+        loadout: &soe_profile::Loadout,
+        threads: usize,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
         let data_dir = loadout
             .data_roots
             .first()
             .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
-        let parsed = parse_masters(data_dir, threads)?;
+        let parsed = parse_masters(data_dir, threads, cache_dir)?;
         let mut order = LoadOrder::new();
         for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
             order

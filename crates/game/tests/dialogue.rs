@@ -4,17 +4,15 @@
 //! Conversations over authored DIAL groups, INFO conditions and VMAD fragments.
 //! Assertions cover quest state changes and response timing, not just parsing.
 
-#[path = "common/installed.rs"]
-mod installed;
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::installed;
+use crate::common::legacy;
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::dialogue::Error;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
 use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
-use soe_papyrus::Opcode::{CallMethod, IAdd};
+use soe_papyrus::asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::{CallMethod, IAdd, Return};
 use soe_papyrus::Value;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -33,6 +31,7 @@ const GREETING_TOPIC: u32 = 0x906;
 const INFO: u32 = 0xA00;
 const SHARED: u32 = 0xA01;
 const GREETING_INFO: u32 = 0xA02;
+const ADDED_INFO: u32 = 0xA03;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -172,6 +171,87 @@ fn info(form: u32, flags: u16, lines: &[&str], scripts: bool) -> Record {
     record
 }
 
+#[test]
+fn scr_48_topic_add_offers_owned_topic_and_saves_the_known_set() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Existing"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(ADDED_INFO, 0, &["Added topic response"], false)],
+        false,
+    );
+    let mut game = game(plugin);
+    let player = game.player();
+    game.start_quest(id(QUEST));
+    game.start_quest(id(OTHER_QUEST));
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+
+    assert!(game.vm.natives.has_method("Topic", "Add"));
+    assert!(!game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .any(|choice| choice.topic == id(LINKED_TOPIC)));
+    scr_48_call_topic_add(&mut game, LINKED_TOPIC);
+    let choices = game.dialogue_choices().unwrap();
+    assert!(
+        choices
+            .available
+            .iter()
+            .any(|choice| choice.topic == id(LINKED_TOPIC)),
+        "choices: {:?}, rejected: {:?}",
+        choices.available,
+        choices.rejected
+    );
+    let line = game.choose_dialogue(id(LINKED_TOPIC)).unwrap().unwrap();
+    assert_eq!(line.info, id(ADDED_INFO));
+    assert_eq!(line.text.as_deref(), Some("Added topic response"));
+
+    game.close_dialogue();
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert!(game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .any(|choice| choice.topic == id(LINKED_TOPIC)));
+}
+
+#[test]
+fn scr_48_topic_add_reports_invalid_forms_without_adding_them() {
+    let invalid_topic = 0x907;
+    let mut plugin = plugin(vec![info(INFO, 0, &["Existing"], false)]);
+    plugin.push_top(
+        Record::new(T(b"DIAL"), invalid_topic)
+            .sub(T(b"DATA"), [0, 0, 0, 0])
+            .sub(T(b"SNAM"), *b"CUST"),
+    );
+    let mut game = game(plugin);
+    open(&mut game);
+    assert!(matches!(
+        game.world_mut().add_dialogue_topic(id(0xDEAD)),
+        Err(Error::Record(form)) if form == id(0xDEAD)
+    ));
+    assert!(matches!(
+        game.world_mut().add_dialogue_topic(id(BASE)),
+        Err(Error::Data(_))
+    ));
+    scr_48_call_topic_add(&mut game, invalid_topic);
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("Topic.Add")));
+    assert!(game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .all(|choice| choice.topic == id(TOPIC)));
+}
+
 fn plugin(infos: Vec<Record>) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     for base in [7, BASE] {
@@ -240,6 +320,28 @@ fn game_with_order(order: LoadOrder) -> Game {
     game
 }
 
+fn scr_48_call_topic_add(game: &mut Game, topic: u32) {
+    let script = ScriptBuilder::new("Scr48TopicCall", "Topic")
+        .function(
+            FunctionBuilder::new("Run", "None")
+                .global()
+                .param("topic", "Topic")
+                .local("unused", "None")
+                .ins(CallMethod, vec![s("Add"), ident("topic"), ident("unused")])
+                .ins(Return, vec![none()])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&script).unwrap();
+    let object = game.object_of_form(id(topic));
+    let thread = game
+        .vm
+        .call_global("Scr48TopicCall", "Run", &[Value::Object(object)])
+        .unwrap();
+    assert!(game.run_until_idle(64));
+    assert_eq!(game.vm.thread_result(thread), Some(Value::None));
+}
+
 fn open(game: &mut Game) {
     let player = game.player();
     game.start_quest(id(QUEST));
@@ -259,7 +361,7 @@ fn counter_on(game: &mut Game, form: u32, variable: &str) -> i32 {
 }
 
 #[test]
-fn fragments_run_on_the_named_script_and_the_group_owning_quest() {
+fn scr_62_topic_info_gets_owning_quest_from_its_dialogue_group() {
     let mut plugin = plugin(vec![
         info(INFO, 0, &["First", "Second"], true).sub(T(b"TPIC"), LINKED_TOPIC.to_le_bytes())
     ]);

@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use soe_commonlib_shim::events::{EventSink, QuestStartStopEvent};
 use soe_esm::GlobalFormId;
 use thiserror::Error;
 
@@ -71,6 +72,48 @@ impl World {
         self.quests.get(&id)
     }
 
+    /// Whether a quest is between being enabled and starting to run.
+    ///
+    /// Quest start normally completes synchronously. A startup task restored
+    /// from a save remains observable until the lifecycle scheduler resumes it.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_starting(&mut self, id: GlobalFormId) -> bool {
+        self.quest_state(id).is_some_and(|quest| {
+            matches!(
+                quest.lifecycle_task,
+                Some(crate::quest::state::LifecycleTask::Starting)
+            )
+        })
+    }
+
+    /// Whether a quest is between being disabled and finishing its shutdown.
+    ///
+    /// Quest stop normally completes synchronously. A shutdown task restored
+    /// from a save remains observable until the lifecycle scheduler resumes it.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_stopping(&mut self, id: GlobalFormId) -> bool {
+        self.quest_state(id).is_some_and(|quest| {
+            matches!(
+                quest.lifecycle_task,
+                Some(crate::quest::state::LifecycleTask::Stopping)
+            )
+        })
+    }
+
     pub(crate) fn lifecycle_tasks(
         &self,
     ) -> Vec<(GlobalFormId, crate::quest::state::LifecycleTask)> {
@@ -81,6 +124,23 @@ impl World {
             .collect();
         tasks.sort_unstable_by_key(|(id, _)| *id);
         tasks
+    }
+
+    /// Register an MIT shim listener for successful quest start and stop transitions.
+    pub fn add_quest_start_stop_sink(&mut self, sink: Box<dyn EventSink<QuestStartStopEvent>>) {
+        self.quest_start_stop_events.add_sink(sink);
+    }
+
+    fn send_quest_start_stop(&mut self, id: GlobalFormId, started: bool) {
+        let Some(quest) = self.quest(id) else {
+            return;
+        };
+        let event = QuestStartStopEvent {
+            form_id: soe_commonlib_shim::form::FormId(self.runtime_id(id)),
+            started,
+            failed: quest.failed,
+        };
+        self.quest_start_stop_events.send(&event);
     }
 
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
@@ -133,6 +193,7 @@ impl World {
                 });
             }
         }
+        self.send_quest_start_stop(id, true);
         if let Some(stage) = startup {
             self.set_stage(id, stage, alloc);
         }
@@ -315,7 +376,7 @@ impl World {
     }
 
     pub fn stop_quest(&mut self, id: GlobalFormId) -> bool {
-        match self.quest_state(id) {
+        let stopped = match self.quest_state(id) {
             Some(q) if q.running => {
                 q.running = false;
                 q.active = false;
@@ -323,7 +384,11 @@ impl World {
                 true
             }
             _ => false,
+        };
+        if stopped {
+            self.send_quest_start_stop(id, false);
         }
+        stopped
     }
 
     /// `Quest.SetStage`: starts the quest when needed, records the stage,
@@ -336,7 +401,9 @@ impl World {
         if q.def.stage(stage).is_none() {
             return false;
         }
-        if !q.running && !q.completed {
+        let was_running = q.running;
+        let started = !q.running && !q.completed;
+        if started {
             q.running = true;
             q.active = true;
             let object = self.object_of(Handle::Form(id), alloc);
@@ -363,6 +430,7 @@ impl World {
             q.failed = true;
             q.running = false;
         }
+        let is_running = q.running;
         let fragments: Vec<String> = q
             .def
             .vmad
@@ -384,6 +452,12 @@ impl World {
                     args: Vec::new(),
                 });
             }
+        }
+        if started {
+            self.send_quest_start_stop(id, true);
+        }
+        if (was_running || started) && !is_running {
+            self.send_quest_start_stop(id, false);
         }
         true
     }

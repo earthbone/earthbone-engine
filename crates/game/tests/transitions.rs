@@ -158,7 +158,9 @@ pub fn id(object: u32) -> GlobalFormId {
 
 /// The ids a sibling test needs to drive a transition without rebuilding the
 /// fixture: the cell to start in, the door to walk through, and the door back.
+#[allow(dead_code)]
 pub const START_CELL: u32 = CELL_A;
+#[allow(dead_code)]
 pub const DOOR_OUT: u32 = DOOR_A;
 // `no_load_screen.rs` pulls this file in with `#[path]`, so it compiles a
 // second time as a module there and only takes the two ids it needs. The
