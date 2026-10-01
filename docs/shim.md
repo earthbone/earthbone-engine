@@ -73,7 +73,13 @@ aligned with this document. These snapshots are source-level API types. They do 
 ABI or executable singleton access.
 
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
-`include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
+`include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. The world view
+binds settings, calendar hour, and active MGEF effects with the reanimation archetype to the
+game runtime. Actor sit and sleep animation state is not represented, and returns an explicit
+unsupported result. Binary address and vtable hooks also return an unsupported result. The
+mapping follows the local CommonLibSSE-NG `ReanimateEffect.h`, `EffectArchetypes.h`,
+`ActorState.h`, `Setting.h`, `Sky.h` and `TES.h` declarations. These declarations remain
+source-level contracts without a C ABI. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
 The RE and SKSE interface declarations are source-level headers only. They do not provide engine
 bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
