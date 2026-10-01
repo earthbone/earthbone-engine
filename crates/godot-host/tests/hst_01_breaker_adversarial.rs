@@ -143,7 +143,11 @@ fn hst_01_cyclic_node_children_terminate_when_no_controller_is_playable() {
 #[test]
 fn hst_01_skips_invalid_root_and_finds_later_supported_controller() {
     let nif = file(
-        vec![node("Good", BlockRef(1), Vec::new()), controller(BlockRef(2)), interpolator()],
+        vec![
+            node("Good", BlockRef(1), Vec::new()),
+            controller(BlockRef(2)),
+            interpolator(),
+        ],
         vec![BlockRef(99), BlockRef(0)],
     );
 

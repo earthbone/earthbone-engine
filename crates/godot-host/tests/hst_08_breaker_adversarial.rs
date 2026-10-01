@@ -32,14 +32,19 @@ fn hst_08_each_fast_traversal_tick_obeys_both_work_caps() {
             budget,
             cost,
         );
-        let spent = plan.load.iter().copied().map(cost).fold(
-            StreamCost::default(),
-            |sum, next| StreamCost {
+        let spent = plan
+            .load
+            .iter()
+            .copied()
+            .map(cost)
+            .fold(StreamCost::default(), |sum, next| StreamCost {
                 triangles: sum.triangles + next.triangles,
                 bytes: sum.bytes + next.bytes,
-            },
+            });
+        assert!(
+            spent.triangles <= budget.triangles,
+            "tick {step}: {spent:?}"
         );
-        assert!(spent.triangles <= budget.triangles, "tick {step}: {spent:?}");
         assert!(spent.bytes <= budget.bytes, "tick {step}: {spent:?}");
     }
 }
@@ -69,24 +74,7 @@ fn hst_08_both_exact_caps_can_be_spent_in_one_tick() {
         bytes: 24,
     };
     let mut planner = streamer(1);
-    let plan = planner.update_with_budget(
-        SkyrimPos::new(0.0, 0.0, 0.0),
-        budget,
-        |cell| {
-            if cell == CellCoord::new(0, 0) {
-                StreamCost {
-                    triangles: 7,
-                    bytes: 8,
-                }
-            } else {
-                StreamCost {
-                    triangles: 5,
-                    bytes: 16,
-                }
-            }
-        },
-    );
-    let spent = plan.load.iter().copied().map(|cell| {
+    let plan = planner.update_with_budget(SkyrimPos::new(0.0, 0.0, 0.0), budget, |cell| {
         if cell == CellCoord::new(0, 0) {
             StreamCost {
                 triangles: 7,
@@ -98,10 +86,28 @@ fn hst_08_both_exact_caps_can_be_spent_in_one_tick() {
                 bytes: 16,
             }
         }
-    }).fold(StreamCost::default(), |sum, cost| StreamCost {
-        triangles: sum.triangles + cost.triangles,
-        bytes: sum.bytes + cost.bytes,
     });
+    let spent = plan
+        .load
+        .iter()
+        .copied()
+        .map(|cell| {
+            if cell == CellCoord::new(0, 0) {
+                StreamCost {
+                    triangles: 7,
+                    bytes: 8,
+                }
+            } else {
+                StreamCost {
+                    triangles: 5,
+                    bytes: 16,
+                }
+            }
+        })
+        .fold(StreamCost::default(), |sum, cost| StreamCost {
+            triangles: sum.triangles + cost.triangles,
+            bytes: sum.bytes + cost.bytes,
+        });
 
     assert_eq!(
         spent,

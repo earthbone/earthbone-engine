@@ -175,7 +175,12 @@ impl CellStreamer {
                 }
             }
         }
-        wanted.sort_by_key(|cell| (cell.distance_sq(centre), cell.x, cell.y));
+        wanted.sort_by_key(|cell| {
+            let distance_to_centre = (i64::from(cell.x) - i64::from(centre.x)).abs()
+                + (i64::from(cell.y) - i64::from(centre.y)).abs();
+            let distance_to_origin = i64::from(cell.x).abs() + i64::from(cell.y).abs();
+            (distance_to_centre, distance_to_origin, cell.x, cell.y)
+        });
         wanted
     }
 
