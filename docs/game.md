@@ -2105,6 +2105,26 @@ Cell prefetch adds its reference IDs to a derived loaded-3D set, and cell
 release removes those IDs. The set is rebuilt from streaming events and is
 not saved.
 
+`GetTriggerObjectCount` reads the actor occupants tracked for supported XPRM
+box and sphere references. It returns zero for an empty supported trigger,
+and logs an error and returns zero for a reference without a supported
+trigger primitive. These behaviors use the trigger movement API described
+below.
+
+`IsFurnitureInUse` and `IsFurnitureMarkerInUse` remain quiet false-returning
+stubs. The runtime does not yet track occupied or reserved FURN markers.
+`HST-09` covers reserving a marker when an actor sits and releasing it when
+the actor stands. The corresponding SCR-38 binding cannot report occupancy
+until that state exists.
+
+`GetCurrentDestructionStage` remains a quiet zero-returning stub. The
+reference state has no DEST stage value, and the runtime does not apply DEST
+thresholds or clear a destruction stage. `CMB-37` covers those behaviors and
+must supply the stage query's owning state before this native can return the
+CK contract, including stage `-1` for an undamaged object. The SCR-38 probe
+tests for Is3DLoaded and GetTriggerObjectCount invoke the methods through
+Papyrus `CallMethod`.
+
 ### Exterior attachment deltas
 
 `World::update_streaming_cells` changes the player focus while retaining neighboring
