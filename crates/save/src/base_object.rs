@@ -130,26 +130,40 @@ pub struct StaticObjectChange {
     pub value_changed: bool,
     /// Whether xEdit marks the zero-byte full-name field as changed.
     pub full_name_changed: bool,
+    /// Change flag bits xEdit labels unnamed.
+    pub unnamed_flags: u32,
     /// Payload bytes after the fields defined by xEdit.
     pub opaque_suffix: Vec<u8>,
 }
 
 impl StaticObjectChange {
-    /// Rebuild the payload while retaining unnamed flags and opaque bytes.
+    /// Rebuild the complete change flag word from its typed fields.
     ///
     /// # Errors
     /// Returns an error when a typed field disagrees with its change flag.
-    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+    pub fn change_flags(&self) -> Result<u32> {
         let form_present = self.change_flags & static_object_flags::FORM != 0;
         if self.form_flags.is_some() != form_present
             || self.value_changed != (self.change_flags & static_object_flags::VALUE != 0)
             || self.full_name_changed != (self.change_flags & static_object_flags::FULL_NAME != 0)
+            || self.unnamed_flags != (self.change_flags & !static_object_flags::KNOWN)
         {
             return Err(crate::Error::RecordChange {
                 reason: "static-object fields disagree with change flags".to_owned(),
             });
         }
+        Ok(u32::from(form_present)
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags)
+    }
 
+    /// Rebuild the payload while retaining opaque suffix bytes.
+    ///
+    /// # Errors
+    /// Returns an error when a typed field disagrees with its change flag.
+    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+        self.change_flags()?;
         let mut bytes =
             Vec::with_capacity(self.form_flags.map_or(0, |_| 6) + self.opaque_suffix.len());
         if let Some((form_flags, unknown)) = self.form_flags {
@@ -201,6 +215,9 @@ impl ChangeForm {
 
     /// Decode the xEdit-defined fields in a `CONT`, `MISC` or `FURN` payload.
     ///
+    /// FallrimTools keeps these payloads raw. The suffix remains opaque here
+    /// because xEdit defines no additional fields after the shared prefix.
+    ///
     /// # Errors
     /// Returns a payload decompression error or a truncation error when the
     /// six-byte form-flags section is incomplete.
@@ -220,6 +237,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & static_object_flags::VALUE != 0,
             full_name_changed: self.change_flags & static_object_flags::FULL_NAME != 0,
+            unnamed_flags: self.change_flags & !static_object_flags::KNOWN,
             opaque_suffix: cursor.rest().to_vec(),
         }))
     }

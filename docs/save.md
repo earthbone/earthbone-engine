@@ -1229,6 +1229,20 @@ or name, record-backed value and name queries continue to use the winning
 plugin record. SOEW version 37 retains this metadata through engine save/load
 in the SAV-53 world section.
 
+`ChangeForm::static_object_change` decodes the same optional six-byte
+form-flags field for CONT, MISC and FURN. It exposes the value and full-name
+markers as zero-byte fields, retains xEdit's unnamed flag bits, and preserves
+any bytes after the defined prefix as an opaque suffix. xEdit defines no
+additional fields in these three payload layouts. FallrimTools uses its raw
+payload fallback for them, and UESP describes the outer change-form framing,
+so those sources do not add typed field definitions. The decoder rejects an
+incomplete form-flags section and re-encodes known fields, unnamed bits and
+suffix bytes exactly. SAV-41 checks all eight named-flag combinations for each
+record type, each unnamed flag bit, every truncated form-flags prefix, and
+accounts for payloads found in the configured `SOE_TEST_SAVES` corpus. The 60
+surveyed saves contain no CONT, FURN or MISC changes, so observed payload
+coverage is zero and synthetic fixtures establish the field behavior.
+
 `ChangeForm::apparatus_change` and `ChangeForm::idle_marker_change` decode
 APPA and IDLM payloads from the xEdit `Change APPA Data` and `Change IDLM Data`
 definitions. Both have an optional six-byte form-flags section. The value and
