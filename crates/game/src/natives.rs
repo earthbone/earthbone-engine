@@ -526,9 +526,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 return b(false);
             }
             let latent = call.defer();
-            animation_waits
-                .borrow_mut()
-                .wait_for_animation_event(source, &event, latent);
+            let mut world = animation_waits.borrow_mut();
+            world.request_animation(source, &animation);
+            world.wait_for_animation_event(source, &event, latent);
             NativeReturn::Latent(latent)
         }),
     );
@@ -1065,20 +1065,6 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             let event = text(&call.arg(0));
             world.request_animation(me, &event);
             b(true)
-        }
-    );
-    method!(
-        vm,
-        w,
-        "ObjectReference",
-        "PlayAnimationAndWait",
-        |world, call, me| {
-            let animation = text(&call.arg(0));
-            let event = text(&call.arg(1));
-            let latent = call.defer();
-            world.request_animation(me, &animation);
-            world.wait_for_animation(me, &event, latent);
-            NativeReturn::Latent(latent)
         }
     );
     method!(

@@ -13,8 +13,7 @@ use soe_papyrus::{vm::LatentId, VmError};
 use soe_papyrus::{ObjectId, Value};
 
 use super::{
-    Alloc, AnimationCompletion, AnimationHostNotice, AnimationRequest, AnimationWait, Handle,
-    Pending, World,
+    Alloc, AnimationCompletion, AnimationHostNotice, AnimationRequest, Handle, Pending, World,
 };
 
 pub(super) fn write_animation_waits(world: &World, writer: &mut Writer) {
@@ -163,13 +162,14 @@ impl World {
     }
 
     /// Record a latent wait for an event from one reference's graph.
+    #[cfg(test)]
     pub(crate) fn wait_for_animation(
         &mut self,
         target: GlobalFormId,
         event: &str,
         latent: LatentId,
     ) {
-        self.animation_waits.push(AnimationWait {
+        self.animation_waits.push(super::AnimationWait {
             target,
             event: event.to_string(),
             latent,
