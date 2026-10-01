@@ -1442,6 +1442,7 @@ dependencies = [
  "crc32fast",
  "soe-audio",
  "soe-bsa",
+ "soe-commonlib-shim",
  "soe-dds",
  "soe-esm",
  "soe-hkx",

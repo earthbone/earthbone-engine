@@ -9,6 +9,8 @@
 pub enum Support {
     /// An engine crate exists and the shim binds to it now.
     Bound,
+    /// Some types in the group bind to engine state and other types remain planned.
+    Partial,
     /// The concept is in the plan and the binding waits on that crate.
     Planned,
     /// The engine has the concept in another shape, the shim adapts.
@@ -38,7 +40,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         name: "References, actors, inventory and world singletons",
         types: 70,
-        support: Support::Planned,
+        support: Support::Partial,
     },
     Group {
         name: "Papyrus VM",
@@ -98,7 +100,11 @@ pub fn reachable_share() -> f64 {
         .filter(|g| {
             matches!(
                 g.support,
-                Support::Bound | Support::Planned | Support::ShimProvided | Support::Different
+                Support::Bound
+                    | Support::Partial
+                    | Support::Planned
+                    | Support::ShimProvided
+                    | Support::Different
             )
         })
         .map(|g| g.types)

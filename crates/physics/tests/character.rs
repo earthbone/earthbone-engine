@@ -386,7 +386,7 @@ fn a_capsule_steps_over_a_door_threshold() {
 }
 
 #[test]
-fn walking_off_a_riser_descends_without_a_sudden_drop() {
+fn walking_off_a_riser_descends_in_bounded_steps_and_lands() {
     let mut world = SimpleWorld::new();
     // A raised slab that ends at x 0, with the ground one step below it.
     world.add_static(&floor(0.0, 900.0));
@@ -419,15 +419,39 @@ fn walking_off_a_riser_descends_without_a_sudden_drop() {
         "should be on the lower floor, z {}",
         end.position.z
     );
-    for pair in track.windows(2) {
-        let descent = pair[0].z - pair[1].z;
+    for positions in track.windows(2) {
+        let descent = positions[0].z - positions[1].z;
         assert!(
             descent <= 8.0,
-            "sudden drop of {descent} units: {:?} -> {:?}",
-            pair[0],
-            pair[1]
+            "dropped {descent} units in one tick: {positions:?}"
         );
     }
+}
+
+#[test]
+fn losing_support_above_a_deeper_floor_starts_a_fall() {
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    let support = world.add_static(&floor(20.0, 900.0));
+    let id = world.create_character(CharacterSettings::default(), Vec3::new(0.0, 0.0, 25.0));
+    run(&mut world, id, 60, "settle");
+    let before = world.character(id).unwrap().position;
+    assert!((before.z - 20.0).abs() < 0.01, "missed support: {before:?}");
+
+    world.remove(support);
+    world.step(DT);
+    let falling = world.character(id).unwrap();
+    assert!(
+        before.z - falling.position.z <= 8.0 && !falling.on_ground,
+        "snapped to the lower floor instead of falling: {falling:?}"
+    );
+
+    run(&mut world, id, 60, "fall");
+    let landed = world.character(id).unwrap();
+    assert!(
+        landed.on_ground && landed.position.z.abs() < 0.01,
+        "missed the lower floor: {landed:?}"
+    );
 }
 
 #[test]

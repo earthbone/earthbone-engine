@@ -8,8 +8,8 @@
 //! actor, so the same controller carries the player and an NPC walking a
 //! package. On top of the push loop it has the three things that separate
 //! walking from sliding around a box: a step height, so a stair riser or a
-//! door threshold is climbed rather than run into, a downward snap of the
-//! same size, so walking off a riser follows the floor instead of launching,
+//! door threshold is climbed rather than run into, a bounded downward snap,
+//! so walking off a riser follows nearby support without a large drop,
 //! and a slope limit, so a face steeper than [`CharacterSettings::max_slope_cos`]
 //! is never ground and the capsule slides down it.
 //!
@@ -444,7 +444,8 @@ impl SimpleWorld {
             }
         }
 
-        // Walking off a riser should follow the floor down rather than launch.
+        // CONTEXT: Limit floor following to one probe's descent. A deeper
+        // contact must be reached by falling, while step_up settles its lift.
         if was_ground && !ground && vel.z <= 0.0 {
             // CONTEXT: Settling a raised stair trial needs the full step height,
             // but walking off an edge must not drop that far in one tick.

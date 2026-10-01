@@ -15,8 +15,7 @@
 //! `crates/game/tests/actor_values.rs`'s `race()` helper and
 //! `crates/game/tests/actor_attributes_adversarial.rs`'s `clas()` helper.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 

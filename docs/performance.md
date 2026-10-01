@@ -16,6 +16,16 @@ measurements below remain tied to their recorded revisions.
 - NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4, Godot 4.4.1 Forward+
 - Fedora Atomic, release build, the installed Skyrim SE under Steam
 
+## TST-16 game integration test binary, 2026-10-01
+
+The change recorded 440 `soe-game` integration test executables before
+the change and one `it` executable after it. On the same machine, warm
+`cargo test -p soe-game --no-run` took 341.869 seconds before and 131.178
+seconds after. These measurements come from the TST-16 run at commit
+`0dfc2cae`, whose temporary build records were removed after the comparison.
+The before run had warmed dependencies before timing the test build. The
+after run built the consolidated integration test target.
+
 ## Parsed plugin cache, 2026-09-29
 
 `crates/esm/tests/fmt_29_cache.rs::fmt_29_installed_skyrim_master_cache_hit_matches_and_times_second_load`
