@@ -7,8 +7,27 @@ use super::{
     godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
     PhysicsWorld, PlayerNode, Vec3,
 };
-use godot::obj::WithBaseField;
-use godot::prelude::{GString, Variant};
+use crate::units::placement_to_godot;
+use godot::prelude::*;
+
+fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
+    world
+        .furniture_seat(player)
+        .and_then(|(furniture, _)| {
+            let (actor_position, actor_cell) = world
+                .reference_ref(player)
+                .map(|actor| (actor.position, actor.cell))?;
+            let seat = world.reference(furniture)?;
+            let moved = actor_position
+                .iter()
+                .zip(seat.position)
+                .map(|(actor, seat)| (*actor - seat).powi(2))
+                .sum::<f32>()
+                > 24.0_f32.powi(2);
+            Some(moved || actor_cell != seat.cell)
+        })
+        .unwrap_or(false)
+}
 
 fn restored_player_destination(
     cell: Option<GlobalFormId>,
@@ -134,23 +153,7 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
-                let should_stand = world
-                    .furniture_seat(player)
-                    .and_then(|(furniture, _)| {
-                        let (actor_position, actor_cell) = world
-                            .reference_ref(player)
-                            .map(|actor| (actor.position, actor.cell))?;
-                        let seat = world.reference(furniture)?;
-                        let moved = actor_position
-                            .iter()
-                            .zip(seat.position)
-                            .map(|(actor, seat)| (*actor - seat).powi(2))
-                            .sum::<f32>()
-                            > 24.0_f32.powi(2);
-                        Some(moved || actor_cell != seat.cell)
-                    })
-                    .unwrap_or(false);
-                if should_stand {
+                if should_stand_from_furniture(&mut world, player) {
                     world.stand_from_furniture(player);
                 }
                 let look = self.rig.look_direction();
@@ -178,6 +181,7 @@ impl PlayerNode {
         self.process_debug_host_requests();
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            game.deliver_animation_reports();
             let shakes = std::mem::take(&mut game.world_mut().camera_shakes);
             for shake in shakes {
                 self.camera_shake = Some((0.0, shake.duration, shake.strength));
@@ -523,7 +527,105 @@ impl PlayerNode {
         } else if show_crafting {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
+        if activated {
+            self.open_swing_door(target);
+        }
         activated
+    }
+
+    fn open_swing_door(&mut self, target: GlobalFormId) {
+        let (Some(source), Some(game)) = (&self.data_source, &self.game) else {
+            return;
+        };
+        let Some((base, position, rotation, scale, opened)) = ({
+            let world = game.world();
+            world.reference_ref(target).map(|reference| {
+                (
+                    reference.base,
+                    reference.position,
+                    reference.rotation,
+                    reference.scale,
+                    reference.opened,
+                )
+            })
+        }) else {
+            return;
+        };
+        if !opened {
+            if let Some(mut node) = self.swing_doors.remove(&target) {
+                node.queue_free();
+            }
+            return;
+        }
+        if let Some(node) = self.swing_doors.get_mut(&target) {
+            node.bind_mut().open();
+            return;
+        }
+        let Some(base) = base else {
+            return;
+        };
+        let Some(base_record) = source.order().winner(base) else {
+            return;
+        };
+        if base_record.tag != soe_esm::Tag::new(b"DOOR") {
+            return;
+        }
+        let Some(reference_record) = source.order().winner(target) else {
+            return;
+        };
+        if reference_record.find(soe_esm::Tag::new(b"XTEL")).is_some() {
+            return;
+        }
+        let Some(model) = crate::data_source::model_for(base_record) else {
+            return;
+        };
+        let Ok(bytes) = source.vfs().read(&model) else {
+            return;
+        };
+        let packed: PackedByteArray = bytes.iter().copied().collect();
+        let mut node = crate::godot_animated_static::AnimatedStaticNode::new_alloc();
+        node.set_name(&format!("SwingDoor_{target}"));
+        node.bind_mut().enable_collision();
+        self.base_mut().add_child(&node);
+        if !node.bind_mut().load_nif_bytes(packed) {
+            node.queue_free();
+            return;
+        }
+        let transform = placement_to_godot(
+            soe_physics::Iso::placement(position, rotation, scale)
+                .rotation
+                .rows,
+            position,
+            scale,
+        );
+        node.set_transform(Transform3D::new(
+            Basis::from_cols(
+                Vector3::new(
+                    transform.basis[0][0],
+                    transform.basis[1][0],
+                    transform.basis[2][0],
+                ),
+                Vector3::new(
+                    transform.basis[0][1],
+                    transform.basis[1][1],
+                    transform.basis[2][1],
+                ),
+                Vector3::new(
+                    transform.basis[0][2],
+                    transform.basis[1][2],
+                    transform.basis[2][2],
+                ),
+            ),
+            Vector3::new(transform.origin.x, transform.origin.y, transform.origin.z),
+        ));
+        node.bind_mut().open();
+        self.swing_doors.insert(target, node);
+    }
+
+    pub(super) fn clear_swing_doors(&mut self) {
+        for (_, mut node) in self.swing_doors.drain() {
+            node.queue_free();
+        }
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
@@ -548,6 +650,7 @@ impl PlayerNode {
                 .and_then(|source| source.exterior_world(cell))
                 .is_some();
         if self.loaded_cell != Some(cell) || needs_exterior {
+            self.clear_swing_doors();
             // Contacts belong to the cell that is leaving, not to an exterior
             // ring that is only being attached.
             if self.loaded_cell != Some(cell) {
@@ -669,6 +772,72 @@ impl PlayerNode {
         self.rig.set_facing(rotation[2], -rotation[0]);
         self.update_camera();
         true
+    }
+}
+
+#[cfg(test)]
+mod furniture_tests {
+    use super::should_stand_from_furniture;
+    use soe_esm::records::Transform;
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+    use soe_game::Game;
+
+    const T: fn(&[u8; 4]) -> Tag = Tag::new;
+    const CHAIR: u32 = 0x200;
+    const CHAIR_BASE: u32 = 0x300;
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn game() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        let furniture = Record::new(T(b"FURN"), CHAIR_BASE)
+            .sub(T(b"MNAM"), 1_u32.to_le_bytes())
+            .sub(T(b"FNPR"), [1_u8, 0, 0, 0]);
+        plugin.push_top(furniture);
+        plugin.push_top(
+            Record::new(T(b"REFR"), CHAIR)
+                .sub(T(b"NAME"), CHAIR_BASE.to_le_bytes())
+                .sub(
+                    T(b"DATA"),
+                    Transform {
+                        position: [25.0, 50.0, 75.0],
+                        rotation: [0.0, 0.0, 1.5],
+                    }
+                    .to_bytes(),
+                ),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Skyrim.esm", plugin).unwrap();
+        let mut game = Game::new(order);
+        let player = game.player();
+        game.world_mut().reference(player).unwrap().is_actor = true;
+        assert!(game.activate(id(CHAIR), player));
+        game
+    }
+
+    #[test]
+    fn hst_09_host_stands_after_movement_or_cell_change() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            assert!(!should_stand_from_furniture(&mut world, player));
+            world.reference(player).unwrap().position[0] += 24.0;
+            assert!(!should_stand_from_furniture(&mut world, player));
+            world.reference(player).unwrap().position[0] += 0.1;
+            assert!(should_stand_from_furniture(&mut world, player));
+            assert!(world.stand_from_furniture(player));
+            assert!(!world.furniture_marker_in_use(id(CHAIR), Some(0)));
+        }
+
+        assert!(game.activate(id(CHAIR), player));
+        {
+            let mut world = game.world_mut();
+            world.reference(player).unwrap().cell = Some(id(9));
+            assert!(should_stand_from_furniture(&mut world, player));
+        }
     }
 }
 

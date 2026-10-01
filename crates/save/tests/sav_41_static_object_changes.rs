@@ -46,18 +46,60 @@ fn sav_41_source_flag_subsets_round_trip_for_each_record_type() {
 
             assert_eq!(change.record_type(), record_type);
             assert_eq!(decoded.change_flags, change_flags);
+            assert_eq!(decoded.change_flags().unwrap(), change_flags);
             assert_eq!(
                 decoded.form_flags.is_some(),
                 change_flags & flags::FORM != 0
+            );
+            assert_eq!(
+                decoded.form_flags,
+                (change_flags & flags::FORM != 0).then_some((0xB4A3_9281, 0xD6C5))
             );
             assert_eq!(decoded.value_changed, change_flags & flags::VALUE != 0);
             assert_eq!(
                 decoded.full_name_changed,
                 change_flags & flags::FULL_NAME != 0
             );
+            assert_eq!(decoded.unnamed_flags, change_flags & !flags::KNOWN);
             assert_eq!(decoded.data_bytes().unwrap(), data);
         }
     }
+}
+
+#[test]
+fn sav_41_each_unnamed_flag_bit_is_retained() {
+    for (kind, record_type) in TYPES {
+        for bit in 3..32 {
+            let change_flags = 1 << bit;
+            let bytes = [0xFA, 0xCE];
+            let decoded = form(kind, change_flags, bytes.to_vec())
+                .static_object_change()
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(
+                decoded.unnamed_flags, change_flags,
+                "{record_type} bit {bit}"
+            );
+            assert_eq!(
+                decoded.data_bytes().unwrap(),
+                bytes,
+                "{record_type} bit {bit}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sav_41_rejects_typed_fields_that_disagree_with_flags() {
+    let mut decoded = form(14, flags::VALUE, Vec::new())
+        .static_object_change()
+        .unwrap()
+        .unwrap();
+    decoded.value_changed = false;
+
+    assert!(decoded.change_flags().is_err());
+    assert!(decoded.data_bytes().is_err());
 }
 
 #[test]

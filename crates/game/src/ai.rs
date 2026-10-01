@@ -1862,8 +1862,68 @@ fn ensure_nav_graph(world: &mut World) {
             cells.push(rec.placement.cell.map(|c| order.resolve(file, c)));
         }
         let (graph, _) = b.build();
+        let mut graph = graph;
+        let door_keys: Vec<_> = graph.door_keys().collect();
+        for key in door_keys {
+            let door = GlobalFormId {
+                file: (key >> 32) as u16,
+                object: key as u32,
+            };
+            let Some((position, opened)) = world
+                .reference(door)
+                .map(|reference| (reference.position, reference.opened))
+            else {
+                continue;
+            };
+            if graph.bind_door_footprint(key, position) {
+                graph.set_door_open(key, opened);
+            }
+        }
         world.ai.nav = Some(graph);
         world.ai.nav_cells = cells;
+    }
+}
+
+/// Apply live door states to their physically bound NAVM triangles. A state
+/// change invalidates cached actor routes so the next movement step replans.
+fn refresh_nav_doors(world: &mut World) {
+    ensure_nav_graph(world);
+    let Some(graph) = world.ai.nav.as_ref() else {
+        return;
+    };
+    let door_keys: Vec<_> = graph.door_keys().collect();
+    let mut door_changes = Vec::new();
+    for key in door_keys {
+        let door = GlobalFormId {
+            file: (key >> 32) as u16,
+            object: key as u32,
+        };
+        let Some((position, opened)) = world
+            .reference(door)
+            .map(|reference| (reference.position, reference.opened))
+        else {
+            continue;
+        };
+        door_changes.push((key, position, opened));
+    }
+    let Some(graph) = world.ai.nav.as_mut() else {
+        return;
+    };
+    let state_changed =
+        door_changes
+            .into_iter()
+            .fold(false, |state_changed, (key, position, opened)| {
+                let binding_changed = graph.bind_door_footprint(key, position);
+                let open_state_changed = graph.set_door_open(key, opened);
+                binding_changed | open_state_changed | state_changed
+            });
+    if state_changed {
+        for actor in world.loaded_actors() {
+            if let Some(state) = world.actor(actor) {
+                state.ai.path.clear();
+                state.ai.path_cells.clear();
+            }
+        }
     }
 }
 
@@ -1872,6 +1932,7 @@ fn ensure_nav_graph(world: &mut World) {
 /// Advance every loaded actor: evaluate when due, then move.
 pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     let _span = soe_trace::Span::new("ai.tick", "game");
+    refresh_nav_doors(world);
     let now = world.clock.real_seconds;
     for actor in world.loaded_actors() {
         if world.is_player(actor) {
@@ -2313,7 +2374,7 @@ fn plan_combat(
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> Option<PlannedPath> {
-    ensure_nav_graph(world);
+    refresh_nav_doors(world);
     let path = world.ai.nav.as_ref()?.find_path_between(from, to)?;
     let cells = path
         .point_nodes
@@ -2389,7 +2450,7 @@ fn plan(
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> PlannedPath {
-    ensure_nav_graph(world);
+    refresh_nav_doors(world);
     let (Some(graph), nav_cells) = (world.ai.nav.as_ref(), &world.ai.nav_cells) else {
         return (vec![to], vec![to_cell]);
     };

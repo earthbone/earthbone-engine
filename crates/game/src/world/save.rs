@@ -1189,6 +1189,7 @@ impl World {
             .max(1);
         let previous_player_level =
             std::mem::replace(&mut self.player_level, fallback_player_level);
+        let previous_created_bases = std::mem::take(&mut self.created_base_records);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let previous_follower_services = std::mem::take(&mut self.follower_services);
         let section_result = if version >= 37 {
@@ -1212,6 +1213,7 @@ impl World {
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
+        let created_base_records = std::mem::take(&mut self.created_base_records);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.vampire_lord_forms = previous_vampire_forms;
@@ -1225,6 +1227,7 @@ impl World {
         self.brewed_potions = previous_brewed;
         self.cloak_effects = previous_cloaks;
         scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
+        self.created_base_records = previous_created_bases;
         section_result?;
         validation_result?;
         if follower_services
@@ -1367,6 +1370,7 @@ impl World {
         self.brewed_potions = brewed_potions;
         self.vampire_lord_forms = vampire_lord_forms;
         self.unresolved_records = unresolved_records;
+        self.created_base_records = created_base_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;

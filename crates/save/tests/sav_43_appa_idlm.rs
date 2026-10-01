@@ -53,6 +53,36 @@ fn sav_43_source_flag_combinations_retain_typed_fields_and_exact_bytes() {
 }
 
 #[test]
+fn sav_43_preserves_each_unnamed_flag_with_every_named_combination() {
+    let unnamed_mask = !0b111u32;
+    let flag_words = (0..8u32)
+        .flat_map(|named| {
+            (3..32)
+                .map(move |bit| named | (1u32 << bit))
+                .chain(std::iter::once(named | unnamed_mask))
+        })
+        .collect::<Vec<_>>();
+
+    for kind in [19u8, 27] {
+        for flags in flag_words.iter().copied() {
+            let payload = if flags & 1 != 0 {
+                FORM_FLAGS.to_vec()
+            } else {
+                Vec::new()
+            };
+            let value = decoded(&change(kind, flags, payload.clone()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(value.change_flags, flags, "type {kind}, flags {flags:#x}");
+            assert_eq!(value.data_bytes(), payload, "type {kind}, flags {flags:#x}");
+            assert_eq!(value.form_flags.is_some(), flags & 1 != 0);
+            assert_eq!(value.value_changed, flags & 2 != 0);
+            assert_eq!(value.full_name_changed, flags & 4 != 0);
+        }
+    }
+}
+
+#[test]
 fn sav_43_form_flags_reject_every_truncated_prefix() {
     for kind in [19u8, 27] {
         for prefix in 0..FORM_FLAGS.len() {
@@ -110,13 +140,17 @@ fn sav_43_external_corpus_accounts_for_every_appa_and_idlm_change() {
     let mut counts = BTreeMap::from([("APPA", 0usize), ("IDLM", 0usize)]);
     let mut flag_counts = BTreeMap::new();
     let mut payload_bytes = 0usize;
+    let mut total_change_forms = 0usize;
+    let mut accounted_change_forms = 0usize;
     for path in &paths {
         let save = Save::open(path).unwrap();
         for form in &save.change_forms {
+            total_change_forms += 1;
             let kind = form.record_type();
             let Some(count) = counts.get_mut(kind) else {
                 continue;
             };
+            accounted_change_forms += 1;
             *count += 1;
             let value = decoded(form).unwrap().unwrap();
             let payload = form.payload().unwrap();
@@ -127,8 +161,13 @@ fn sav_43_external_corpus_accounts_for_every_appa_and_idlm_change() {
                 .or_insert(0usize) += 1;
         }
     }
+    assert_eq!(
+        accounted_change_forms,
+        counts.values().sum(),
+        "every APPA and IDLM change form must be included in the totals"
+    );
     eprintln!(
-        "SAV-43 corpus: {} saves, counts {counts:?}, flags {flag_counts:?}, {payload_bytes} payload bytes",
-        paths.len()
+        "SAV-43 corpus: {} saves, {total_change_forms} total change forms, {accounted_change_forms} APPA/IDLM forms, counts {counts:?}, flags {flag_counts:?}, {payload_bytes} payload bytes",
+        paths.len(),
     );
 }

@@ -444,6 +444,52 @@ impl Game {
         self.world.clone()
     }
 
+    /// Deliver one host animation event to Papyrus listeners and latent waits.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_event(source, name, &mut |object, class| {
+                vm.create_object_of(object, class)
+            });
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Fail animation waits when their host graph unloads before completion.
+    pub fn report_animation_unloaded(&mut self, target: GlobalFormId) {
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_unloaded(target);
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Drain host graph events after a host frame and deliver them in order.
+    pub fn deliver_animation_reports(&mut self) {
+        let notices = self.world.borrow_mut().take_animation_host_notices();
+        for notice in notices {
+            match notice {
+                world::AnimationHostNotice::Event { source, name } => {
+                    self.report_animation_event(source, &name);
+                }
+                world::AnimationHostNotice::Unloaded { target } => {
+                    self.report_animation_unloaded(target);
+                }
+            }
+        }
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.world.borrow().form(editor_id)
     }
@@ -631,8 +677,9 @@ impl Game {
     /// Conditions use the actor base and race from the loaded records. The
     /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
     /// Every condition in a submod must pass. A matching replacement is an
-    /// HKX file with the same filename as `original_animation` under that
-    /// submod directory.
+    /// HKX file with the same filename as `original_animation` under the
+    /// submod's animation directory. OAR's `overrideAnimationsFolder` selects
+    /// a sibling directory for that path.
     ///
     /// # Errors
     ///
@@ -660,6 +707,9 @@ impl Game {
         let order = world.order();
 
         for sub_mod in &self.oar_submods {
+            if sub_mod.disabled {
+                continue;
+            }
             if !sub_mod.condition_groups.iter().all(|group| {
                 group
                     .iter()
@@ -667,7 +717,7 @@ impl Game {
             }) {
                 continue;
             }
-            if let Some(path) = find_oar_clip(&sub_mod.directory, file_name) {
+            if let Some(path) = find_oar_clip(&sub_mod.animation_directory, file_name) {
                 return Some(path);
             }
         }
@@ -1177,11 +1227,27 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
+        let mut routed = 0;
+        for event in story_events {
+            let result = {
+                let vm = &mut self.vm;
+                self.world.borrow_mut().send_story_event(vm, &event)
+            };
+            match result {
+                Ok(quests) => routed += quests.len(),
+                Err(error) => self
+                    .vm
+                    .log
+                    .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
+            }
+        }
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
-        let n = pending
-            .iter()
-            .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
-            .count();
+        let n = routed
+            + pending
+                .iter()
+                .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
+                .count();
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
@@ -1300,20 +1366,9 @@ impl Game {
         n
     }
 
-    /// Report one event emitted by a reference's behavior graph to Papyrus
-    /// listeners and any `WaitForAnimationEvent` calls.
-    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
-        let vm = &mut self.vm;
-        self.world
-            .borrow_mut()
-            .animation_event(source, name, &mut |script, class| {
-                vm.create_object_of(script, class)
-            });
-    }
-
-    /// Complete waits false when the reference's behavior graph unloads.
+    /// Preserve the original unload entry point for callers of `Game`.
     pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
-        self.world.borrow_mut().animation_graph_unloaded(source);
+        self.report_animation_unloaded(source);
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is

@@ -550,6 +550,7 @@ fn story_event_name(code: [u8; 4]) -> &'static str {
         b"AHEL" => "OnStoryHello",
         b"LEVL" => "OnStoryIncreaseLevel",
         b"SKIL" => "OnStoryIncreaseSkill",
+        b"SCPT" => "OnStoryScript",
         b"INFC" => "OnStoryInfection",
         b"INTM" => "OnStoryIntimidateNPC",
         b"JAIL" => "OnStoryJail",
