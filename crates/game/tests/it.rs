@@ -127,6 +127,10 @@ mod ai_44_crime_conditions;
 mod ai_45_adversarial;
 #[path = "ai_45_crime_conditions.rs"]
 mod ai_45_crime_conditions;
+#[path = "ai_46_adversarial.rs"]
+mod ai_46_adversarial;
+#[path = "ai_46_crime_conditions.rs"]
+mod ai_46_crime_conditions;
 #[path = "ai_47_adversarial.rs"]
 mod ai_47_adversarial;
 #[path = "ai_48_adversarial.rs"]
@@ -841,6 +845,10 @@ mod scr_29_adversarial;
 mod scr_29_game_native_contracts;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_43_adversarial.rs"]
+mod scr_43_adversarial;
+#[path = "scr_43_quest_transition_natives.rs"]
+mod scr_43_quest_transition_natives;
 #[path = "sound.rs"]
 mod sound;
 #[path = "tool_01_breaker_adversarial.rs"]
