@@ -242,4 +242,3 @@ fn interrupted_crossfade_resumes_from_current_weights_through_save_load() {
     assert_eq!(weights(&restored), vec![(3, 1.0)]);
     assert_eq!(original.world().save_state(), restored.world().save_state());
 }
-

@@ -5,7 +5,9 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: 0, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 #[test]
 fn scr_35_loaded_parent_includes_its_descendant_location() {
