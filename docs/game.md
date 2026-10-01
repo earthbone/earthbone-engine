@@ -2974,14 +2974,19 @@ eligibility, while resident-body confirmation and movement use the host API.
 The solver moves the kinematic body to a supplied position and does not model
 vanilla range or force policy.
 
-`World::grab_telekinesis_reference` now accepts one enabled, non-deleted,
+`World::grab_telekinesis_reference` accepts one enabled, non-deleted,
 non-actor reference while that caster holds a concentration spell containing
-archetype 20. A second grab is rejected. Releasing the concentration cast,
-magicka exhaustion or a cast error clears the transient reference. The World
-does not serialize the grab because the host body is transient. The host must
-also confirm that the reference has a resident movable body. The MAG-20
-equip-ability grant is absent in this worktree, so the shipped spell's
-Telekinesis actor-value bonus is not applied.
+archetype 20. PlayerNode selects the resident movable body with the smallest
+eye-ray offset, breaking ties by distance, whose center is within 48 Skyrim
+units of the eye ray and within 180 units. It confirms the World state and
+host body together. While held, the host body is
+moved to the same eye-relative distance each physics step. Releasing the
+concentration cast, magicka exhaustion or a cast error clears the transient
+World reference, returns the host body to rigid simulation and queues
+`OnRelease`; a successful hold queues `OnGrab`. A second grab is rejected.
+The World does not serialize the grab because the host body is transient.
+The MAG-20 equip-ability grant is absent in this worktree, so the shipped
+spell's Telekinesis actor-value bonus is not applied.
 
 Repeat the survey with `SKYRIM_DATA` set:
 

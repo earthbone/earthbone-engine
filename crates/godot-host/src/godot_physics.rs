@@ -125,6 +125,11 @@ impl CellBodies {
         true
     }
 
+    #[must_use]
+    pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
+        self.grabbed_reference
+    }
+
     /// Every live body's RID, in insertion order. Diagnostic callers may
     /// inspect these handles, but must not free them, `free` owns that.
     pub fn body_rids(&self) -> impl Iterator<Item = Rid> + '_ {
