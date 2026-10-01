@@ -58,6 +58,29 @@ pub enum EditorError {
         /// Why the requested geometry was rejected.
         reason: &'static str,
     },
+    /// A quest subrecord has an invalid shape for the requested field.
+    #[error("quest form {form} has invalid {tag} data: {reason}")]
+    InvalidQuestField {
+        /// Quest being edited.
+        form: GlobalFormId,
+        /// Field whose layout is invalid.
+        tag: Tag,
+        /// Why the field could not be edited.
+        reason: &'static str,
+    },
+    /// A condition list contains tags or data that are not a valid CTDA sequence.
+    #[error("quest form {form} has an invalid alias condition list: {reason}")]
+    InvalidQuestConditions {
+        /// Quest being edited.
+        form: GlobalFormId,
+        /// Why the condition list is invalid.
+        reason: &'static str,
+    },
+    /// The quest record stores localized string IDs that need a string-table writer.
+    #[error(
+        "quest form {0} uses localized strings, which cannot be updated by the plugin-only writer"
+    )]
+    LocalizedQuestText(GlobalFormId),
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
     Save {
@@ -286,6 +309,329 @@ impl EditorDocument {
         let pex_bytes = self.compile_script_for_form(form, source_name, source)?;
         let plugin = self.save(plugin_path)?;
         Ok((pex_bytes, plugin))
+    }
+
+    /// Apply one circular LAND height brush dab as a single undoable edit.
+    ///
+    /// The LAND record must already be present in the active plugin. `center`
+    /// and `radius` use cell-local world units, and `strength` is the height
+    /// change at the brush centre. The operation updates VHGT and derived
+    /// VNML together while preserving the record's other subrecords.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a LAND record in the
+    /// active plugin, or its height data cannot be edited.
+    pub fn brush_land_heights(
+        &mut self,
+        form: GlobalFormId,
+        center: [f32; 2],
+        radius: f32,
+        strength: f32,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        if self.active_plugin.records[index].tag != Tag(*b"LAND") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "height brush requires an active-plugin LAND record",
+            });
+        }
+        let mut record = self.active_plugin.records[index].clone();
+        soe_esm::records::land::apply_height_brush(&mut record, center, radius, strength).map_err(
+            |error| EditorError::Plugin {
+                name: self.active_name.clone(),
+                message: error.to_string(),
+            },
+        )?;
+
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = record;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
+    /// Apply a gizmo transform to a placed reference in the active plugin.
+    ///
+    /// The `REFR` must already belong to the active plugin. This keeps the
+    /// record in its existing cell group while the transform remains the
+    /// single source used by rendering and plugin output.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not an active-plugin
+    /// reference, has malformed or repeated `DATA`, or the load order cannot
+    /// be rebuilt.
+    pub fn set_reference_transform(
+        &mut self,
+        form: GlobalFormId,
+        transform: soe_esm::records::Transform,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        let record = self
+            .active_plugin
+            .records
+            .get(index)
+            .ok_or(EditorError::MissingForm(form))?;
+        if record.tag != Tag(*b"REFR") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the selected form is not a placed reference",
+            });
+        }
+        let mut data = record
+            .subrecords
+            .iter()
+            .filter(|subrecord| subrecord.tag == Tag(*b"DATA"));
+        let Some(existing) = data.next() else {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the placed reference has no transform DATA",
+            });
+        };
+        if data.next().is_some() {
+            return Err(EditorError::RepeatedSubrecord {
+                form,
+                tag: Tag(*b"DATA"),
+            });
+        }
+        if existing.data.len() != 24 {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the placed reference transform DATA is not 24 bytes",
+            });
+        }
+
+        let mut replacement = record.clone();
+        if let Some(subrecord) = replacement
+            .subrecords
+            .iter_mut()
+            .find(|subrecord| subrecord.tag == Tag(*b"DATA"))
+        {
+            subrecord.data = transform.to_bytes().to_vec();
+        }
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = replacement;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
+    /// Edit one existing quest stage log entry by stage and entry occurrence.
+    ///
+    /// Occurrence indices preserve distinct entries when stage numbers repeat.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not a supported QUST record, its layout
+    /// is malformed, the selected entry has no CNAM text, or the quest uses
+    /// localized string IDs.
+    pub fn edit_quest_stage_log_entry_text(
+        &mut self,
+        form: GlobalFormId,
+        stage_occurrence: usize,
+        entry_occurrence: usize,
+        text: &str,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        reject_localized_quest_text(form, &record)?;
+        let subrecord_index =
+            quest_stage_log_text_index(form, &record, stage_occurrence, entry_occurrence)?;
+        record.subrecords[subrecord_index].data = nul_terminated(text);
+        self.replace_edited_record(form, record)
+    }
+
+    /// Edit one existing quest objective's display text by occurrence.
+    ///
+    /// Occurrence indices preserve distinct objectives when objective numbers
+    /// repeat. Target aliases and conditions remain in their authored order.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not a supported QUST record, its layout
+    /// is malformed, the selected objective has no NNAM text, or the quest
+    /// uses localized string IDs.
+    pub fn edit_quest_objective_text(
+        &mut self,
+        form: GlobalFormId,
+        objective_occurrence: usize,
+        text: &str,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        reject_localized_quest_text(form, &record)?;
+        let subrecord_index = quest_objective_text_index(form, &record, objective_occurrence)?;
+        record.subrecords[subrecord_index].data = nul_terminated(text);
+        self.replace_edited_record(form, record)
+    }
+
+    /// Set or clear a quest alias's force-into-alias fill rule.
+    ///
+    /// `alias_occurrence` selects the ALST alias in record order. A value of
+    /// `None` removes its optional ALFI field.
+    ///
+    /// # Errors
+    /// Returns an error if the quest or alias is unsupported or its ALFI field
+    /// is malformed or repeated.
+    pub fn set_quest_alias_fill_rule(
+        &mut self,
+        form: GlobalFormId,
+        alias_occurrence: usize,
+        target_alias: Option<i32>,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        let (start, end) = quest_alias_range(form, &record, alias_occurrence)?;
+        let fields = (start + 1..end)
+            .filter(|index| record.subrecords[*index].tag == Tag(*b"ALFI"))
+            .collect::<Vec<_>>();
+        if fields.len() > 1 {
+            return Err(EditorError::InvalidQuestField {
+                form,
+                tag: Tag(*b"ALFI"),
+                reason: "alias has repeated fill rules",
+            });
+        }
+        if fields
+            .first()
+            .is_some_and(|index| record.subrecords[*index].data.len() != 4)
+        {
+            return Err(EditorError::InvalidQuestField {
+                form,
+                tag: Tag(*b"ALFI"),
+                reason: "fill rule must contain four bytes",
+            });
+        }
+        match (fields.first().copied(), target_alias) {
+            (Some(index), Some(alias)) => {
+                record.subrecords[index].data = alias.to_le_bytes().to_vec();
+            }
+            (Some(index), None) => {
+                record.subrecords.remove(index);
+            }
+            (None, Some(alias)) => {
+                let after_flags = (start + 1..end)
+                    .find(|index| record.subrecords[*index].tag == Tag(*b"FNAM"))
+                    .ok_or(EditorError::InvalidQuestField {
+                        form,
+                        tag: Tag(*b"FNAM"),
+                        reason: "alias flags are missing before the fill rule",
+                    })?;
+                record.subrecords.insert(
+                    after_flags + 1,
+                    Subrecord::new(Tag(*b"ALFI"), alias.to_le_bytes()),
+                );
+            }
+            (None, None) => {}
+        }
+        self.replace_edited_record(form, record)
+    }
+
+    /// Replace one quest alias's ordered match-condition subrecords.
+    ///
+    /// The supplied list may contain CTDA records with optional CIS1 and CIS2
+    /// strings. Other alias fields retain their existing order and bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the quest or alias is unsupported, or if the input
+    /// condition list is malformed.
+    pub fn set_quest_alias_conditions(
+        &mut self,
+        form: GlobalFormId,
+        alias_occurrence: usize,
+        conditions: &[Subrecord],
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        let (start, end) = quest_alias_range(form, &record, alias_occurrence)?;
+        validate_alias_conditions(form, &record, conditions)?;
+        let mut insertion = None;
+        let mut retained = Vec::with_capacity(record.subrecords.len() + conditions.len());
+        for (index, subrecord) in record.subrecords.drain(..).enumerate() {
+            if index > start && index < end && is_condition_subrecord(subrecord.tag) {
+                insertion.get_or_insert(retained.len());
+            } else {
+                retained.push(subrecord);
+            }
+        }
+        let insertion = insertion.unwrap_or_else(|| {
+            let retained_aliases = retained
+                .iter()
+                .enumerate()
+                .filter_map(|(index, subrecord)| (subrecord.tag == Tag(*b"ALST")).then_some(index))
+                .collect::<Vec<_>>();
+            let Some(&alias_start) = retained_aliases.get(alias_occurrence) else {
+                return retained.len();
+            };
+            let alias_end = retained[alias_start + 1..]
+                .iter()
+                .position(|subrecord| subrecord.tag == Tag(*b"ALED"))
+                .map_or(retained.len(), |offset| alias_start + 1 + offset);
+            let alias_body = &retained[alias_start + 1..alias_end];
+            alias_body
+                .iter()
+                .rposition(|subrecord| is_alias_fill_subrecord(subrecord.tag))
+                .or_else(|| {
+                    alias_body
+                        .iter()
+                        .rposition(|subrecord| subrecord.tag == Tag(*b"FNAM"))
+                })
+                .or_else(|| {
+                    alias_body
+                        .iter()
+                        .rposition(|subrecord| subrecord.tag == Tag(*b"ALID"))
+                })
+                .map_or(alias_end, |offset| alias_start + 2 + offset)
+        });
+        retained.splice(insertion..insertion, conditions.iter().cloned());
+        record.subrecords = retained;
+        self.replace_edited_record(form, record)
+    }
+
+    fn quest_record_for_edit(&self, form: GlobalFormId) -> Result<Record, EditorError> {
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let source = self.load_order.record(record_ref);
+        if source.tag != Tag(*b"QUST") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "quest text editing requires a QUST record",
+            });
+        }
+        let active = self.active_record(form).cloned();
+        if active.is_some() {
+            return active.ok_or(EditorError::MissingForm(form));
+        }
+        if !is_top_level(
+            &self.load_order.file(record_ref.file).plugin,
+            record_ref.record,
+        ) {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "nested record placement needs FMT-15 and FMT-26 FormID remapping",
+            });
+        }
+        if !quest_master_order_is_aligned(&self.load_order, self.active_index, record_ref.file) {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "quest reference relocation needs matching source and active master order",
+            });
+        }
+        let mut record = source.clone();
+        record.form_id = self.local_form_id(form)?;
+        Ok(record)
+    }
+
+    fn replace_edited_record(
+        &mut self,
+        form: GlobalFormId,
+        record: Record,
+    ) -> Result<(), EditorError> {
+        self.undo.push(self.active_plugin.clone());
+        if let Some(index) = self.active_record_index(form) {
+            self.active_plugin.records[index] = record;
+        } else {
+            self.active_plugin.push_top(record);
+        }
+        self.sync_record_count();
+        self.rebuild_load_order()
     }
 
     /// Undo the most recent edit, returning whether an edit was available.
@@ -729,6 +1075,269 @@ fn validate_metadata(geometry: &Geometry) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn reject_localized_quest_text(form: GlobalFormId, record: &Record) -> Result<(), EditorError> {
+    if record.flags & soe_esm::plugin::flags::LOCALIZED != 0 {
+        return Err(EditorError::LocalizedQuestText(form));
+    }
+    Ok(())
+}
+
+fn quest_alias_range(
+    form: GlobalFormId,
+    record: &Record,
+    alias_occurrence: usize,
+) -> Result<(usize, usize), EditorError> {
+    let alias_tag = Tag(*b"ALST");
+    let aliases = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == alias_tag).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *aliases
+        .get(alias_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "alias occurrence does not exist",
+        })?;
+    let boundary = aliases
+        .get(alias_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let terminators = (start + 1..boundary)
+        .filter(|index| record.subrecords[*index].tag == Tag(*b"ALED"))
+        .collect::<Vec<_>>();
+    let [terminator] = terminators.as_slice() else {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: Tag(*b"ALED"),
+            reason: "alias must have exactly one end marker",
+        });
+    };
+    let end = *terminator + 1;
+    if record.subrecords[start].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "alias id must contain four bytes",
+        });
+    }
+    let body = &record.subrecords[start + 1..end - 1];
+    let alias_name_count = body
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"ALID"))
+        .count();
+    let flags = body
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"FNAM"))
+        .collect::<Vec<_>>();
+    if alias_name_count != 1 || flags.len() != 1 || flags[0].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "reference alias needs one name and one four-byte flags field",
+        });
+    }
+    if !record.subrecords[*terminator].data.is_empty() {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: Tag(*b"ALED"),
+            reason: "alias end marker must be empty",
+        });
+    }
+    Ok((start, end))
+}
+
+fn is_condition_subrecord(tag: Tag) -> bool {
+    matches!(tag.as_bytes(), b"CTDA" | b"CIS1" | b"CIS2")
+}
+
+fn is_alias_fill_subrecord(tag: Tag) -> bool {
+    matches!(
+        tag.as_bytes(),
+        b"ALFI"
+            | b"ALFR"
+            | b"ALUA"
+            | b"ALFA"
+            | b"ALRT"
+            | b"ALEQ"
+            | b"ALEA"
+            | b"ALCO"
+            | b"ALCA"
+            | b"ALCL"
+            | b"ALNA"
+            | b"ALNT"
+            | b"ALFE"
+            | b"ALFD"
+    )
+}
+
+fn validate_alias_conditions(
+    form: GlobalFormId,
+    record: &Record,
+    conditions: &[Subrecord],
+) -> Result<(), EditorError> {
+    let mut condition_record = record.clone();
+    condition_record.subrecords = conditions.to_vec();
+    let mut parsed = Vec::new();
+    for subrecord in conditions {
+        if !is_condition_subrecord(subrecord.tag)
+            || soe_esm::records::gameplay::Condition::push(
+                &condition_record,
+                subrecord,
+                &mut parsed,
+            )
+            .is_err()
+        {
+            return Err(EditorError::InvalidQuestConditions {
+                form,
+                reason: "expected well-formed CTDA records and optional CIS1 or CIS2 strings",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn nul_terminated(text: &str) -> Vec<u8> {
+    let mut data = text.as_bytes().to_vec();
+    data.push(0);
+    data
+}
+
+fn quest_stage_log_text_index(
+    form: GlobalFormId,
+    record: &Record,
+    stage_occurrence: usize,
+    entry_occurrence: usize,
+) -> Result<usize, EditorError> {
+    let stage_tag = Tag(*b"INDX");
+    let qobj = Tag(*b"QOBJ");
+    let qsdt = Tag(*b"QSDT");
+    let cnam = Tag(*b"CNAM");
+    let stages = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == stage_tag).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *stages
+        .get(stage_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: stage_tag,
+            reason: "stage occurrence does not exist",
+        })?;
+    if record.subrecords[start].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: stage_tag,
+            reason: "stage index must contain four bytes",
+        });
+    }
+    let end = stages
+        .get(stage_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let end = (start + 1..end)
+        .find(|index| {
+            let tag = record.subrecords[*index].tag;
+            tag == qobj || tag == Tag(*b"ANAM") || tag == Tag(*b"ALST") || tag == Tag(*b"ALLS")
+        })
+        .unwrap_or(end);
+    let entries = (start + 1..end)
+        .filter(|index| record.subrecords[*index].tag == qsdt)
+        .collect::<Vec<_>>();
+    let entry_start = *entries
+        .get(entry_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: qsdt,
+            reason: "stage log entry occurrence does not exist",
+        })?;
+    if record.subrecords[entry_start].data.len() != 1 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: qsdt,
+            reason: "stage log flags must contain one byte",
+        });
+    }
+    let entry_end = entries.get(entry_occurrence + 1).copied().unwrap_or(end);
+    let text_fields = (entry_start + 1..entry_end)
+        .filter(|index| record.subrecords[*index].tag == cnam)
+        .collect::<Vec<_>>();
+    match text_fields.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(EditorError::InvalidQuestField {
+            form,
+            tag: cnam,
+            reason: "stage log entry has no text field",
+        }),
+        _ => Err(EditorError::InvalidQuestField {
+            form,
+            tag: cnam,
+            reason: "stage log entry has repeated text fields",
+        }),
+    }
+}
+
+fn quest_objective_text_index(
+    form: GlobalFormId,
+    record: &Record,
+    objective_occurrence: usize,
+) -> Result<usize, EditorError> {
+    let qobj = Tag(*b"QOBJ");
+    let nnam = Tag(*b"NNAM");
+    let objectives = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == qobj).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *objectives
+        .get(objective_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: qobj,
+            reason: "objective occurrence does not exist",
+        })?;
+    if record.subrecords[start].data.len() != 2 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: qobj,
+            reason: "objective index must contain two bytes",
+        });
+    }
+    let end = objectives
+        .get(objective_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let end = (start + 1..end)
+        .find(|index| {
+            matches!(
+                record.subrecords[*index].tag,
+                tag if tag == Tag(*b"ANAM") || tag == Tag(*b"ALST") || tag == Tag(*b"ALLS")
+            )
+        })
+        .unwrap_or(end);
+    let text_fields = (start + 1..end)
+        .filter(|index| record.subrecords[*index].tag == nnam)
+        .collect::<Vec<_>>();
+    match text_fields.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(EditorError::InvalidQuestField {
+            form,
+            tag: nnam,
+            reason: "objective has no display text",
+        }),
+        _ => Err(EditorError::InvalidQuestField {
+            form,
+            tag: nnam,
+            reason: "objective has repeated display text",
+        }),
+    }
+}
+
 fn file_name(path: &Path) -> Result<String, EditorError> {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -785,6 +1394,22 @@ fn write_vmad_string(bytes: &mut Vec<u8>, value: &str) -> Result<(), EditorError
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
     Ok(())
+}
+
+fn quest_master_order_is_aligned(
+    load_order: &LoadOrder,
+    active_index: usize,
+    source_index: usize,
+) -> bool {
+    let active_masters = &load_order.file(active_index).plugin.header.masters;
+    let source_masters = &load_order.file(source_index).plugin.header.masters;
+    source_masters.len() == source_index
+        && active_masters.len() > source_index
+        && (0..source_index).all(|index| {
+            source_masters[index].eq_ignore_ascii_case(&load_order.file(index).name)
+                && active_masters[index].eq_ignore_ascii_case(&load_order.file(index).name)
+        })
+        && active_masters[source_index].eq_ignore_ascii_case(&load_order.file(source_index).name)
 }
 
 fn is_top_level(plugin: &Plugin, record_index: usize) -> bool {

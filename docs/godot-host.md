@@ -170,6 +170,7 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `units` | no | Skyrim units and axes to Godot metres and Y up |
 | `streaming` | no | which cells to load and unload around a focus, with budgets and hysteresis |
 | `mesh` | no | a decoded NIF shape to `ArrayMesh` surface arrays, with validation |
+| `facegen` | no | apply named TRI morph weights to head-part meshes and compose ordered NPC tint masks into DDS files |
 | `terrain` | no | LAND heights to Terrain3D regions |
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
@@ -180,6 +181,28 @@ unmeasured. Static world collision is not evidence of hazard execution.
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
+
+`facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
+`FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
+passes the changed geometry through the same axis conversion, bounds and surface validation
+as streamed meshes. Normals are generated from the changed geometry. The caller resolves
+the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+
+## FaceGen tint textures, EDT-23
+
+`facegen::generate_face_tint` accepts decoded RGBA8 masks in the order supplied by the
+caller. Each mask alpha is multiplied by its layer opacity, and its color is blended over
+black. The result is encoded as one 512 by 512 BC1 sRGB DDS level. `face_tint_path` returns
+`textures/actors/character/facegendata/facetint/<plugin>/<FORMID>.dds`, where `FORMID` is
+the eight digit uppercase local form id used by Skyrim asset tools.
+
+The path follows Mutagen's `Npc.GetResolvedAssetLinks` implementation. xEdit's TES5
+definitions identify each race tint asset by layer index, texture path and mask type.
+TiltedEvolution's `FaceGenSystem` passes each tint texture, color, alpha and type to the
+engine tint renderer and allocates a 512 by 512 surface. Its `CreateTints` call is an engine
+function, so the blend arithmetic here is a deterministic editor export rule covered by a
+synthetic fixture. PyNifly was named in the backlog read-first list but is absent from the
+local reference corpus, which was unavailable from this worktree during conflict resolution.
 
 ### Game native presentation signals, SCR-29
 
@@ -238,6 +261,23 @@ The streamer assumes a requested load lands. A load that fails has to be reporte
 `mark_unloaded`, or the cell is never asked for again. That is a choice: the alternative,
 the streamer tracking load state itself, puts engine state into the decision logic and was
 what made every mod manager VFS in the notes hard to test.
+
+### Editor cell tree and selected view, EDT-03
+
+The Godot project enables `addons/soe_cell_editor`, an `EditorPlugin` dock with a
+worldspace and cell tree beside a `SubViewport`. After loading a Skyrim `Data` directory,
+`CellStreamerNode::editor_cell_tree` exposes winning `CELL` records with resolved form ids,
+editor ids, exterior worldspace and grid coordinates, and indexed placed-object counts.
+Interiors appear under their own tree group. Selecting a row calls
+`CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
+the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
+host renderer. It clears the previous selection first, so the viewport contains one cell.
+The viewport camera frames the rendered bounds after selection.
+
+This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
+cell records, expose reference selection, or add transform gizmos. The Godot project opens
+the cell view only after the author enters a valid `Data` directory or launches the editor
+with `SKYRIM_DATA` set.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under

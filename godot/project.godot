@@ -8,6 +8,10 @@ config_version=5
 config/name="Skyrim open engine host"
 config/features=PackedStringArray("4.4")
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/soe_cell_editor/plugin.cfg")
+
 [physics]
 
 ; Jolt ships inside Godot from 4.4, so the engine links no physics library of

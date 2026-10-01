@@ -47,6 +47,8 @@ pub enum Error {
     HeadMorphNotFound(String),
     /// The supplied head mesh does not have the TRI file's vertex count.
     HeadMorphVertexCount { expected: usize, actual: usize },
+    /// A head-part vertex does not match the TRI base position at that index.
+    HeadMorphBaseMismatch { vertex: usize },
 }
 
 impl fmt::Display for Error {
@@ -95,6 +97,10 @@ impl fmt::Display for Error {
             Error::HeadMorphVertexCount { expected, actual } => write!(
                 f,
                 "head TRI has {expected} vertices but the mesh has {actual}"
+            ),
+            Error::HeadMorphBaseMismatch { vertex } => write!(
+                f,
+                "head mesh vertex {vertex} does not match the TRI base geometry"
             ),
         }
     }
