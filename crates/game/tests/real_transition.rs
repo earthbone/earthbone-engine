@@ -8,8 +8,7 @@
 //! numbers are already known from the streaming and collision work and a
 //! surprise here is worth chasing.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 use std::time::Instant;

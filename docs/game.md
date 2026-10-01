@@ -896,6 +896,22 @@ Their CK contracts are described by
 
 ## Tests
 
+`Cargo.toml` disables automatic integration-test discovery and registers one
+binary, `it`, rooted at `tests/it.rs`. Each top-level test file stays in place
+and is registered there with `#[path]`. Shared installed-data, legacy-save
+and magic fixtures are declared once under `crate::common` and
+`crate::support`. Test files import these helpers through `crate::` paths.
+Existing nested scenario reruns retain their test names below the new
+top-level module prefix. Determinism child processes use that prefix when
+selecting their exact test, as do feature-gated persistence child processes.
+Rerun fixtures include their module path in temporary-directory names so
+concurrent modules do not overwrite each other's inputs.
+
+`tst_16_every_test_file_is_registered` compares the top-level Rust files with
+the module declarations and reports the declaration to add for a missing
+file. The registration file uses Git's union merge driver. New test files
+need their module declaration in `tests/it.rs`.
+
 Installed integration tests use `tests/common/installed.rs`. Each test
 process caches parsed plugin files and load orders by their installed master
 set, then gives each `Game` its own mutable world over the shared immutable
@@ -3098,7 +3114,10 @@ specifying the archetype's execution rules.
 ### Peak Value Modifier, MAG-55
 
 Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
-form must resolve to a KYWD record. Active effects on the same target compete
+form must resolve to a KYWD record. A missing related keyword returns an
+unsupported-keyword error before changing state, including the installed
+`FrostSlowFFContact` effect whose `RelatedID` is zero.
+Active effects on the same target compete
 when their keyword and primary actor value match, and the greatest signed
 modifier is applied once. Distinct keywords form separate groups. A lower new
 modifier does not change the actor value.
