@@ -28,6 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .sub(
                 t(b"CNTO"),
                 [0x501_u32.to_le_bytes(), 3_i32.to_le_bytes()].concat(),
+            )
+            .sub(
+                t(b"CNTO"),
+                [0x512_u32.to_le_bytes(), 1_i32.to_le_bytes()].concat(),
             ),
     );
     p.push_top(Record::new(t(b"RACE"), 0x100).sub(t(b"WNAM"), 0x200_u32.to_le_bytes()));
@@ -40,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 [0_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
             ),
     );
+    p.push_top(Record::new(t(b"MISC"), 0x512).zsub(t(b"EDID"), "Lockpick"));
+    p.push_top(Record::new(t(b"DOOR"), 0x510).zsub(t(b"EDID"), "Hst03FixtureDoor"));
     let mut armor = Record::new(t(b"ARMO"), 0x200);
     for (i, (name, mask)) in [
         ("malebody_1.nif", 4_u32),
@@ -70,11 +76,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reference = Record::new(t(b"REFR"), 0x401)
         .sub(t(b"NAME"), 0x400_u32.to_le_bytes())
         .sub(t(b"DATA"), vec![0; 24]);
+    let mut lock = vec![0; 20];
+    lock[0] = 1;
+    let lockpick_door = Record::new(t(b"REFR"), 0x511)
+        .sub(t(b"NAME"), 0x510_u32.to_le_bytes())
+        .sub(t(b"DATA"), vec![0; 24])
+        .sub(t(b"XLOC"), lock);
+    let mut key_only_lock = vec![0; 20];
+    key_only_lock[0] = 255;
+    let key_only_door = Record::new(t(b"REFR"), 0x513)
+        .sub(t(b"NAME"), 0x510_u32.to_le_bytes())
+        .sub(t(b"DATA"), vec![0; 24])
+        .sub(t(b"XLOC"), key_only_lock);
     let cell = Record::new(t(b"CELL"), 0x800)
         .zsub(t(b"EDID"), "WhiterunBanneredMare")
         .sub(t(b"DATA"), 1_u16.to_le_bytes());
     let mut temp = Group::new(GroupKind::CellTemporary(0x800));
     temp.entries.push(Entry::Record(p.push_record(reference)));
+    temp.entries
+        .push(Entry::Record(p.push_record(lockpick_door)));
+    temp.entries
+        .push(Entry::Record(p.push_record(key_only_door)));
     let mut children = Group::new(GroupKind::CellChildren(0x800));
     children.entries.push(Entry::Group(temp));
     let mut sub = Group::new(GroupKind::InteriorSubBlock(0));
