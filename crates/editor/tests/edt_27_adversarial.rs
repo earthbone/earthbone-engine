@@ -10,17 +10,26 @@ use soe_esm::plugin::{FileHeader, Record};
 use soe_esm::records::land::{Land, VERTS};
 use soe_esm::{GlobalFormId, Plugin, Tag};
 
-const LAND_FORM: GlobalFormId = GlobalFormId { file: 0, object: 0x800 };
+const LAND_FORM: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x800,
+};
 const ORIGINAL: [u8; 3] = [12, 34, 56];
 const PAINT: [u8; 3] = [200, 100, 50];
 const CENTER: [f32; 2] = [2048.0, 2048.0];
 const CENTER_INDEX: usize = 16 * 33 + 16;
 
 fn fixture(label: &str, with_colours: bool) -> (EditorDocument, PathBuf) {
-    let path = std::env::temp_dir().join(format!("soe-edt-27-breaker-{}-{label}.esp", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "soe-edt-27-breaker-{}-{label}.esp",
+        std::process::id()
+    ));
     let mut record = Record::new(Tag(*b"LAND"), 0x800).sub(Tag(*b"DATA"), 0x8000u32.to_le_bytes());
     if with_colours {
-        let bytes = vec![ORIGINAL; VERTS].into_iter().flatten().collect::<Vec<_>>();
+        let bytes = vec![ORIGINAL; VERTS]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
         record = record.sub(Tag(*b"VCLR"), bytes);
     }
     let mut plugin = Plugin::new(FileHeader::default());
@@ -74,7 +83,10 @@ fn edt_27_zero_strength_leaves_effective_white_colors_unchanged() {
 fn edt_27_missing_land_rejects_stroke_without_mutating_plugin() {
     let (mut doc, path) = fixture("missing-land", true);
     let before = doc.active_plugin().clone();
-    let missing = GlobalFormId { file: 0, object: 0x999 };
+    let missing = GlobalFormId {
+        file: 0,
+        object: 0x999,
+    };
     assert!(doc
         .brush_land_vertex_colors(missing, CENTER, 256.0, PAINT, 1.0)
         .is_err());

@@ -10,8 +10,14 @@ use soe_esm::plugin::{FileHeader, Record};
 use soe_esm::records::land::Land;
 use soe_esm::{GlobalFormId, Plugin, Tag};
 
-const LAND_FORM: GlobalFormId = GlobalFormId { file: 0, object: 0x800 };
-const TEXTURE: GlobalFormId = GlobalFormId { file: 0, object: 0x1234 };
+const LAND_FORM: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x800,
+};
+const TEXTURE: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x1234,
+};
 const BASE: u32 = 0x7777;
 const ALPHA_POS: u16 = 8 * 17 + 8;
 
@@ -30,7 +36,10 @@ fn vtxt(position: u16, weight: f32) -> Vec<u8> {
 }
 
 fn fixture(label: &str, duplicate_target: bool) -> (EditorDocument, PathBuf) {
-    let path = std::env::temp_dir().join(format!("soe-edt-26-breaker-{}-{label}.esp", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "soe-edt-26-breaker-{}-{label}.esp",
+        std::process::id()
+    ));
     let mut record = Record::new(Tag(*b"LAND"), 0x800)
         .sub(Tag(*b"DATA"), 4u32.to_le_bytes())
         .sub(Tag(*b"BTXT"), header(BASE, 0, 0))
@@ -82,7 +91,10 @@ fn edt_26_duplicate_target_layer_rejects_stroke_without_creating_undo_state() {
 fn edt_26_missing_land_rejects_stroke_without_mutating_plugin() {
     let (mut doc, path) = fixture("missing", false);
     let before = doc.active_plugin().clone();
-    let missing = GlobalFormId { file: 0, object: 0x999 };
+    let missing = GlobalFormId {
+        file: 0,
+        object: 0x999,
+    };
     assert!(doc
         .brush_land_texture(missing, TEXTURE, 0, [1024.0, 1024.0], 128.0, 0.5)
         .is_err());
