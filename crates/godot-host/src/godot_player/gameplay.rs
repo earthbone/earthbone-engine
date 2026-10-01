@@ -101,6 +101,8 @@ impl PlayerNode {
                 if should_stand {
                     world.stand_from_furniture(player);
                 }
+                let look = self.rig.look_direction();
+                world.camera_look = [look.x, look.y, look.z];
                 world
                     .reference_ref(player)
                     .and_then(|reference| reference.cell)
@@ -123,6 +125,11 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            let shakes = std::mem::take(&mut game.world_mut().camera_shakes);
+            for shake in shakes {
+                self.camera_shake = Some((0.0, shake.duration, shake.strength));
+                self.camera_shake_time = 0.0;
+            }
             self.image_space.sync(&game.world());
             let (hud_cart_mode, requests) = {
                 let mut world = game.world_mut();

@@ -293,16 +293,29 @@ The signatures and short behavior descriptions come from the local
 functions are absent. Skill effects use the record-backed AVIF and GMST path
 documented in [progression](progression.md).
 
-**Shared reference placement.** The host reads world state out and never
-writes it back. `World::ref_placement` (in `world/refs.rs`) is the read-only
-view a host uses to keep its own rendering and collision resources in step
-with a reference's runtime state: current position, rotation, scale and enable,
-in the small, `Copy` `RefPlacement` struct, not the mutable `RefState` a native
-or VM path uses to change that state. It returns `None` for a reference never
-instantiated, whose record-authored placement is still current. A deleted
-reference remains present with `visible: false` so the host can release its
-resources. The host side of this contract, and the split it takes between
-collision and rendering change detection, is documented in
+**Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
+current time-driven sun position in Skyrim units, using a 100,000-unit orbit
+with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
+is relative to the player's current placement. `Game.IsPlayerSungazing`
+compares the host camera direction with the sun direction and returns true
+within one degree. `Game.ShakeCamera` queues a transient request for the host;
+its source defaults to the player, strength defaults to 0.5 and clamps to 0
+through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
+fallback. Invalid source types, non-finite values and negative durations do
+not queue an effect. These camera requests are transient and are not saved.
+The CK pages define the returned coordinates and gaze meaning, while the
+shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
+not specify the sun orbit formula or gaze angular tolerance, so those are
+
+**Shared reference placement.** `World::ref_placement` (in `world/refs.rs`) is
+the read-only view a host uses to keep rendering and collision resources in
+step with a reference's runtime position, rotation, scale and enable state. It
+returns `None` for a reference never instantiated, whose record-authored
+placement is still current. A deleted reference remains present with
+`visible: false` so the host can release its resources. Host physics may write
+finite poses through `World::set_host_ref_pose`; other host presentation reads
+placement without mutating it. The host contract and its split between
+collision and rendering change detection are documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
@@ -517,13 +530,13 @@ given faction, defaulting an absent reaction to neutral and saturating at the
 
 ## Conformance table
 
-`natives::register` has 373 stateful registrations and 178 quiet stubs,
-including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
-`Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
-`IsBleedingOut` requires an actor to be unconscious, alive and at or below its
-record-derived bleedout threshold. A quiet stub returns the idle value the game
-gives when nothing is going on, so vanilla scripts can continue when their
-owning system has no behavior yet.
+`natives::register` has 373 stateful registrations and 177 quiet stubs,
+including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
+`Actor.IsBleedingOut` and the SCR-26 `Actor.IsFlying` stub. `IsAlarmed` reads
+the actor's alert flag. `IsBleedingOut` requires an actor to be unconscious,
+alive and at or below its record-derived bleedout threshold. A quiet stub
+returns the idle value the game gives when nothing is going on, so vanilla
+scripts can continue when their owning system has no behavior yet.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
@@ -536,7 +549,7 @@ owning system has no behavior yet.
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |

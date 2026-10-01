@@ -1357,6 +1357,11 @@ gives: the simulation's authority stays in the engine so a headless run and a re
 cannot drift. The third person boom raycasts against that same world and pulls in short of
 whatever it hits, keeping `collision_padding` clear, so the camera cannot end up inside a
 wall. Activating casts from the eye along the full look direction, pitch included.
+When shared gameplay is active, `PlayerNode` copies this full Skyrim-space
+look direction into `World` before script ticks so `Game.IsPlayerSungazing`
+uses the active camera orientation. `Game.ShakeCamera` requests are drained
+after each game tick and applied through the player `Camera3D` horizontal and
+vertical offsets until their requested duration expires.
 
 ### Untested here
 

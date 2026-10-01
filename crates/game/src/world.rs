@@ -735,6 +735,10 @@ pub struct World {
     /// Transient presentation requests raised by global Game natives.
     pub game_ui_requests: Vec<GameUiRequest>,
     pub beast_form: bool,
+    /// Host camera direction in Skyrim axes, refreshed by the player adapter.
+    pub camera_look: [f32; 3],
+    /// One-shot camera effects requested by Papyrus and consumed by the host.
+    pub camera_shakes: Vec<CameraShake>,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
     /// Magic effects made available for new enchantments by disenchanting.
@@ -822,6 +826,14 @@ pub struct BinkOptions {
     pub mute_music: bool,
     /// Whether the host displays letterboxing.
     pub letterbox: bool,
+}
+
+/// A transient camera shake requested by `Game.ShakeCamera`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraShake {
+    pub source: GlobalFormId,
+    pub strength: f32,
+    pub duration: f32,
 }
 
 impl World {
@@ -918,6 +930,8 @@ impl World {
             hud_cart_mode: false,
             game_ui_requests: Vec::new(),
             beast_form: false,
+            camera_look: [0.0, 1.0, 0.0],
+            camera_shakes: Vec::new(),
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
             learned_enchantment_effects: BTreeSet::new(),
