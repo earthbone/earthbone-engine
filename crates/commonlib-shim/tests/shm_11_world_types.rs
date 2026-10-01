@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_11_generated_headers_include_the_world_type_contract() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 14);
+    assert_eq!(generated.len(), 16);
     for (relative, expected) in generated {
         let path = include.join(relative);
         assert_eq!(
