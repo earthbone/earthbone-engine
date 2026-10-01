@@ -752,6 +752,7 @@ impl SkinnedActorNode {
 
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
+    /// The first upload uses the actor's current invisibility state.
     pub(crate) fn bind_appearance(
         &mut self,
         world: Rc<RefCell<soe_game::World>>,
@@ -771,6 +772,7 @@ impl SkinnedActorNode {
             )
             .map_err(|error| error.to_string())?
             .ok_or("initial appearance was not prepared")?;
+        self.invisible = world.borrow().is_invisible(actor);
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
             let world = world.borrow();
