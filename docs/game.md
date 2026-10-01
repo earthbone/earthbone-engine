@@ -566,11 +566,13 @@ because the local CK corpus does not provide usable condition semantics for them
 Current behavior and compatibility limits:
 
 - `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
-  and `Exterior cell loads per update`. `GetCurrentBudget` returns each
-  configured limit, and `OverBudget` is false because these are scheduling
-  caps, not measured usage counters. Invalid indices return an empty name, zero
-  and false. The CK Utility page documents these signatures, and SKSE's vanilla
-  `Utility.psc` declares them as global natives.
+  and `Exterior cell loads per update`. `GetCurrentBudget` returns the matching
+  limit from `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. `OverBudget` returns false because these
+  limits are scheduling caps and the runtime does not expose usage counters.
+  Invalid indices return an empty name, zero and false. The CK Utility page
+  documents these global signatures, and SKSE's vanilla `Utility.psc` declares
+  them as global natives.
 
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
