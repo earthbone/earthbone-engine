@@ -232,6 +232,9 @@ impl World {
             .all(T(b"FNPR"))
             .enumerate()
             .find_map(|(index, data)| {
+                if data.len() != 4 {
+                    return None;
+                }
                 let raw = data.get(..2)?;
                 let kind = u16::from_le_bytes([raw[0], raw[1]]);
                 let marker = u16::try_from(index).ok()?;
