@@ -101,6 +101,7 @@ does not preserve quest-item eligibility, so the owning fix needs an inventory
 contract row before it can be implemented. SCR-67 is restricted to the game
 crate and the backlog is explicitly unchanged, so this finding remains open
 and is the completion gap for this audit.
+
 ## Native contract audit, SCR-73
 
 `crates/game/tests/scr_73_native_contract_audit.rs` derives the audited
@@ -125,6 +126,7 @@ instance methods `ForceActive` and `GetClassification`, and globals
 bindings with weather-system behavior. SCR-53 owns replacing the quiet
 `Weapon.Fire` stub with weapon-system behavior. The audit does not claim that
 either current stub implements the vanilla contract.
+
 ## Sources to use for current gaps and future systems
 
 | System and current entry point | Existing sources to use | What tes4skyrim or its references add | Boundary |
