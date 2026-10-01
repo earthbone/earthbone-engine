@@ -1282,4 +1282,4 @@ external-corpus test scans every save and accounts for each ACTI, TACT and
 DOOR change it finds. The reported 60-save corpus contains zero examples of
 all three types, so that run provides zero payload observations. A separate
 `SKYRIM_DATA`-gated test confirms that `Skyrim.esm` contains the three vanilla
-record types; it does not stand in for saved change payloads.
+record types. It does not stand in for saved change payloads.
