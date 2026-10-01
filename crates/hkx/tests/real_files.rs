@@ -23,13 +23,6 @@ use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
 const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("BSDirectAtModifier", 23, "ANM-25"),
-    ("BSEventEveryNEventsModifier", 85, "ANM-26"),
-    ("BSEventOnDeactivateModifier", 98, "ANM-27"),
-    ("BSIStateManagerModifier", 3, "ANM-29"),
-    ("BSLimbIKModifier", 1, "ANM-31"),
-    ("BSInterpValueModifier", 36, "ANM-30"),
-    ("BSLookAtModifier", 128, "ANM-32"),
     ("BSModifyOnceModifier", 26, "ANM-33"),
     ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
     ("BSRagdollContactListenerModifier", 50, "ANM-35"),
@@ -37,18 +30,12 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("BSTimerModifier", 1, "ANM-37"),
     ("BSTweenerModifier", 5, "ANM-38"),
     ("hkbDampingModifier", 41, "ANM-39"),
-    ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
     ("hkbEventDrivenModifier", 158, "ANM-17"),
     ("hkbEventsFromRangeModifier", 3, "ANM-15"),
     ("hkbFootIkControlsModifier", 25, "ANM-41"),
-    ("hkbFootIkModifier", 2, "ANM-42"),
-    ("hkbKeyframeBonesModifier", 91, "ANM-44"),
     ("hkbModifierGenerator", 1909, "ANM-52"),
     ("hkbModifierList", 708, "ANM-51"),
-    ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
-    ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
     ("hkbRotateCharacterModifier", 6, "ANM-14"),
-    ("hkbTransformVectorModifier", 1, "ANM-47"),
     ("hkbTimerModifier", 59, "ANM-16"),
 ];
 
