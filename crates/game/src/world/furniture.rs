@@ -17,7 +17,7 @@ const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
 
 pub(crate) fn write_furniture_seat(
-    state: &super::ActorState,
+    state: &ActorState,
     writer: &mut Writer,
     _pool: &mut soe_papyrus::vm::state::ArrayPool,
 ) {
@@ -29,29 +29,6 @@ pub(crate) fn write_furniture_seat(
 }
 
 pub(crate) fn read_furniture_seat(
-    state: &mut super::ActorState,
-    reader: &mut FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), VmError> {
-    if reader.bool()? {
-        state.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
-    }
-    Ok(())
-}
-
-fn write_seat(
-    actor: &ActorState,
-    writer: &mut Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
-    writer.bool(actor.furniture_seat.is_some());
-    if let Some((furniture, marker)) = actor.furniture_seat {
-        write_form_id(writer, furniture);
-        writer.u16(marker);
-    }
-}
-
-fn read_seat(
     actor: &mut ActorState,
     reader: &mut FormReader<'_, '_>,
     _table: &soe_papyrus::vm::state::ArrayTable,
@@ -64,8 +41,8 @@ fn read_seat(
 
 pub(super) const SECTION: Section<ActorState> = Section {
     name: "HST-09",
-    write: write_seat,
-    read: read_seat,
+    write: write_furniture_seat,
+    read: read_furniture_seat,
 };
 
 impl World {

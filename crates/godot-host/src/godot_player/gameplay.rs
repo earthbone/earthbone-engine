@@ -7,6 +7,8 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
+use godot::prelude::{GString, Variant};
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -54,18 +56,24 @@ impl PlayerNode {
         self.image_space.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
+        self.main_menu.leave();
         self.sync_game_pose()
     }
 
     pub(super) fn advance_game(&mut self, delta: f64) {
-        if self.game.is_none() {
+        if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
+        self.sync_camera_controls();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         if let Some(game) = &mut self.game {
             let player = game.player();
-            {
+            let prior = game
+                .world()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            let cell = {
                 let mut world = game.world_mut();
                 // The previous frame has already installed the new host resources.
                 world.settle_unload();
@@ -92,7 +100,12 @@ impl PlayerNode {
                 if should_stand {
                     world.stand_from_furniture(player);
                 }
-            }
+                world
+                    .reference_ref(player)
+                    .and_then(|reference| reference.cell)
+            };
+            let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
+            game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
@@ -110,12 +123,64 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
+            let (hud_cart_mode, requests) = {
+                let mut world = game.world_mut();
+                (world.hud_cart_mode, world.take_game_ui_requests())
+            };
+            if hud_cart_mode != self.presented_hud_cart_mode {
+                self.presented_hud_cart_mode = hud_cart_mode;
+                self.base_mut()
+                    .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
+            }
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
+        }
+        self.capture_screenshot_requests();
+        let training_request = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().take_training_menu_request());
+        if let Some(trainer) = training_request {
+            self.open_training_menu(trainer);
         }
         let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
             std::mem::take(&mut game.world_mut().menu_requests)
         });
         for request in requests {
             match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
                 soe_game::world::MenuRequest::Race => {
                     self.show_race_menu();
                 }
@@ -128,12 +193,114 @@ impl PlayerNode {
                 .bind_mut()
                 .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
         }
+        self.apply_host_requests();
+        if self.main_menu.is_active() {
+            return;
+        }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
         }
+    }
+
+    pub(super) fn sync_camera_controls(&mut self) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        let controls = game.world().camera_controls;
+        self.camera_state.apply(controls);
+        self.rig
+            .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
+        if let Some(visual) = &mut self.player_appearance {
+            if visual.is_instance_valid() {
+                visual.bind_mut().set_first_person_geometry_visible(
+                    self.rig.mode != super::CameraMode::First
+                        || self.camera_state.first_person_geometry_visible(),
+                );
+            } else {
+                self.player_appearance = None;
+            }
+        }
+    }
+
+    pub(super) fn capture_screenshot_requests(&mut self) -> bool {
+        let requests = self
+            .game
+            .as_mut()
+            .map(|game| game.world_mut().take_screenshot_requests())
+            .unwrap_or_default();
+        let mut succeeded = true;
+        for path in requests {
+            let Some(viewport) = self.base().get_viewport() else {
+                godot_error!("PlayerNode: screenshot has no viewport for {path}");
+                succeeded = false;
+                continue;
+            };
+            let Some(texture) = viewport.get_texture() else {
+                godot_error!("PlayerNode: screenshot viewport has no texture for {path}");
+                succeeded = false;
+                continue;
+            };
+            let Some(image) = texture.get_image() else {
+                godot_error!("PlayerNode: screenshot viewport has no image for {path}");
+                succeeded = false;
+                continue;
+            };
+            if image.save_png(&path) != godot::global::Error::OK {
+                godot_error!("PlayerNode: failed to save screenshot to {path}");
+                succeeded = false;
+            }
+        }
+        succeeded
+    }
+
+    fn apply_host_requests(&mut self) {
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().host_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::HostRequest::QuitToMainMenu => {
+                    self.enter_main_menu();
+                }
+                soe_game::world::HostRequest::StartTitleSequence(name) => {
+                    self.enter_main_menu();
+                    self.main_menu.start_sequence(name.clone());
+                    self.base_mut().emit_signal(
+                        "title_sequence_started",
+                        &[godot::builtin::Variant::from(GString::from(name.as_str()))],
+                    );
+                }
+            }
+        }
+    }
+
+    fn enter_main_menu(&mut self) {
+        if self.main_menu.is_active() {
+            return;
+        }
+        self.close_menu();
+        if let Some(streamer) = self.game_streamer.as_mut() {
+            streamer.bind_mut().clear();
+        }
+        self.game = None;
+        self.data_source = None;
+        self.game_streamer = None;
+        self.loaded_cell = None;
+        self.exterior = None;
+        self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.collision_references.clear();
+        self.melee_bodies.clear();
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
+        self.world = None;
+        self.query_collision.free();
+        self.actor_bodies.free();
+        self.character = None;
+        self.main_menu.enter();
+        self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
 
     fn prefetch_nearby_interior(&mut self, delta: f64) {
@@ -164,7 +331,7 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
-        let (activated, show_container, lockpick_request) = {
+        let (activated, show_container, show_crafting, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -194,6 +361,7 @@ impl PlayerNode {
                     .is_some_and(|reference| reference.activation_blocked);
                 (container, blocked)
             };
+            let creation_bench = crate::crafting_menu::is_creation_bench(game, target);
             let lockpick = game.world().form("Lockpick");
             let key = game.world().key(target);
             let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
@@ -214,6 +382,7 @@ impl PlayerNode {
             (
                 activated,
                 activated && container && !blocked && opened,
+                activated && creation_bench && !blocked,
                 lockpick_request,
             )
         };
@@ -227,6 +396,8 @@ impl PlayerNode {
         self.pending_lockpick = None;
         if show_container {
             self.open_container_menu(target);
+        } else if show_crafting {
+            self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
         activated
     }
@@ -351,6 +522,7 @@ impl PlayerNode {
             self.character = Some(id);
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
+            self.sync_cell_ambience(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());

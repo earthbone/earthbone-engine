@@ -130,6 +130,122 @@ fn a_voice_line_sniffs_as_a_fuz_through_the_source_layer() {
     assert_eq!(soe_audio::sniff(fuz.audio), Container::Xwma);
 }
 
+/// Verifies the default build decodes a vanilla line in process and agrees
+/// with the ffmpeg reference output.
+#[cfg(not(feature = "xwma-ffmpeg"))]
+#[test]
+fn aud_02_vanilla_xwma_decodes_in_process_and_matches_ffmpeg() {
+    use soe_audio::wma::{decode_with, Native};
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let Some(archive) = voice_archive() else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    if !Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+    {
+        eprintln!("skipping: the ffmpeg binary is not on the path");
+        return;
+    }
+
+    let name = archive
+        .files()
+        .iter()
+        .find(|name| name.to_lowercase().ends_with(".fuz"))
+        .expect("the voice archive has a FUZ file")
+        .clone();
+    let bytes = archive.read(&name).expect("the voice line reads");
+    let fuz = Fuz::split(&bytes).expect("the FUZ splits");
+    let xwma = Xwma::parse(fuz.audio).expect("the xWMA container parses");
+    let native = decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
+
+    let mut child = Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "xwma",
+            "-i",
+            "pipe:0",
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
+            "pipe:1",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("ffmpeg starts");
+    child
+        .stdin
+        .take()
+        .expect("ffmpeg stdin exists")
+        .write_all(&xwma.to_bytes())
+        .expect("the xWMA bytes reach ffmpeg");
+    let reference = child.wait_with_output().expect("ffmpeg completes");
+    assert!(
+        reference.status.success(),
+        "ffmpeg reference decode failed: {}",
+        String::from_utf8_lossy(&reference.stderr)
+    );
+    let (reference_bytes, _tail) = reference.stdout.as_chunks::<4>();
+    let reference_samples: Vec<f32> = reference_bytes
+        .iter()
+        .map(|sample| f32::from_le_bytes(*sample))
+        .collect();
+
+    assert_eq!(native.sample_rate, xwma.format.sample_rate);
+    assert_eq!(native.channels, xwma.format.channels);
+    assert!(native.peak() > 0.0, "{name} native output is silent");
+    assert!(
+        !reference_samples.is_empty(),
+        "{name} reference output is empty"
+    );
+    let native_duration = native.duration_seconds();
+    let reference_duration = reference_samples.len() as f64
+        / f64::from(xwma.format.sample_rate)
+        / f64::from(xwma.format.channels);
+    assert!(
+        (native_duration - reference_duration).abs() < 0.06,
+        "{name}: native {native_duration:.3}s differs from ffmpeg {reference_duration:.3}s"
+    );
+
+    let mut correlation = 0.0f64;
+    for offset in (-4096isize..=4096).step_by(32) {
+        let native_start = offset.max(0) as usize;
+        let reference_start = (-offset).max(0) as usize;
+        let compared = native
+            .samples
+            .len()
+            .saturating_sub(native_start)
+            .min(reference_samples.len().saturating_sub(reference_start));
+        let (mut dot, mut native_energy, mut reference_energy) = (0.0f64, 0.0f64, 0.0f64);
+        for index in (0..compared).step_by(8) {
+            let left = f64::from(native.samples[native_start + index]);
+            let right = f64::from(reference_samples[reference_start + index]);
+            dot += left * right;
+            native_energy += left * left;
+            reference_energy += right * right;
+        }
+        if native_energy > 0.0 && reference_energy > 0.0 {
+            correlation = correlation.max(dot / (native_energy * reference_energy).sqrt());
+        }
+    }
+    assert!(
+        correlation >= 0.8,
+        "{name}: native output correlation with ffmpeg is {correlation:.3}"
+    );
+}
+
 /// The decode path, which needs the off-by-default feature and the binary.
 #[cfg(feature = "xwma-ffmpeg")]
 #[test]

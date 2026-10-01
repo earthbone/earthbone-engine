@@ -310,6 +310,20 @@ impl LiveRagdoll {
         &self.bodies
     }
 
+    /// Apply one Skyrim-space impulse to the root body in Godot metres.
+    pub fn apply_impulse(&self, vector: [f32; 3]) {
+        let Some(body) = self.bodies.first().copied() else {
+            return;
+        };
+        let direction = crate::units::direction_to_godot(vector);
+        let impulse = Vector3::new(
+            direction[0] * crate::units::METRES_PER_UNIT,
+            direction[1] * crate::units::METRES_PER_UNIT,
+            direction[2] * crate::units::METRES_PER_UNIT,
+        );
+        PhysicsServer3D::singleton().body_apply_central_impulse(body, impulse);
+    }
+
     /// Placement held at the death transition, before bodies move independently.
     pub fn actor_transform(&self) -> Transform3D {
         self.actor_transform
