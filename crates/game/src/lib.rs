@@ -63,6 +63,7 @@ pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
+pub mod wasm;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -84,6 +85,7 @@ pub use world::StoryError;
 pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
+use wasm::WasmMods;
 
 /// What [`Game::bind`] found in the load order's `VMAD` subrecords.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -151,11 +153,21 @@ fn data_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+fn is_placed_reference(tag: Tag) -> bool {
+    [
+        b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PBEA", b"PMIS", b"PARW", b"PHZD",
+    ]
+    .iter()
+    .any(|bytes| tag == Tag::new(bytes))
+}
+
 pub struct Game {
     pub vm: Vm,
     world: Rc<RefCell<World>>,
     pub registered: Registered,
     bound: Option<BindReport>,
+    bound_forms: BTreeSet<GlobalFormId>,
+    bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
@@ -168,6 +180,7 @@ pub struct Game {
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
+    wasm_mods: WasmMods,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -235,6 +248,8 @@ impl Game {
             world,
             registered,
             bound: None,
+            bound_forms: BTreeSet::new(),
+            bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
             oar_submods: Vec::new(),
@@ -242,6 +257,7 @@ impl Game {
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
+            wasm_mods: WasmMods::new(),
         }
     }
 
@@ -505,8 +521,8 @@ impl Game {
         self.object_of(Handle::Form(id))
     }
 
-    /// Attach every script the load order names and fill its properties.
-    /// Runs once, later calls return the first report.
+    /// Attach non-reference scripts in the load order and fill their properties.
+    /// Placed-reference scripts are attached by [`Game::bind_cell`].
     pub fn bind(&mut self) -> BindReport {
         if let Some(r) = &self.bound {
             return r.clone();
@@ -518,13 +534,13 @@ impl Game {
             let mut out = Vec::new();
             for (file_index, file) in order.files().iter().enumerate() {
                 for (i, rec) in file.plugin.records.iter().enumerate() {
-                    if rec.tag == Tag::new(b"MGEF") {
-                        continue;
-                    }
                     let Some(raw) = rec.find(Tag::new(b"VMAD")) else {
                         continue;
                     };
                     let id = order.resolve(file_index, rec.form_id);
+                    if is_placed_reference(rec.tag) {
+                        continue;
+                    }
                     let rref = RecordRef {
                         file: file_index,
                         record: i,
@@ -540,23 +556,84 @@ impl Game {
             out
         };
         let _bind_span = soe_trace::Span::with_payload("game.bind", "game", carriers.len() as u64);
-        for (id, rref, _tag, vmad) in carriers {
+        for (id, rref, tag, vmad) in carriers {
             let _span = soe_trace::Span::new("game.bind_form", "game");
-            report.forms_with_scripts += 1;
-            let object = self.object_of(Handle::Form(id));
-            self.attach_all(object, id, rref.file, &vmad.scripts, &mut report);
-            for alias in &vmad.aliases {
-                let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
-                let handle = Handle::Alias {
-                    quest: id,
-                    id: alias_id,
-                };
-                let object = self.object_of(handle);
-                self.attach_all(object, id, rref.file, &alias.scripts, &mut report);
+            if tag == Tag::new(b"MGEF") {
+                for entry in &vmad.scripts {
+                    if entry.status != 3 && !self.vm.has_script(&entry.name) {
+                        report.scripts_missing.push((entry.name.clone(), id));
+                    }
+                }
+            } else {
+                self.bind_carrier(id, rref.file, &vmad, &mut report);
             }
         }
         self.bound = Some(report.clone());
         report
+    }
+
+    /// Build a cell's references and attach the VMAD scripts they carry.
+    /// Each cell and form is bound once. Missing script files are listed in
+    /// the returned report with their owning form.
+    pub fn load_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        self.world.borrow_mut().load_cell(cell);
+        self.bind_cell(cell)
+    }
+
+    /// Attach scripts on placed references in a cell that has been loaded.
+    /// Calls for the same cell return an empty report after the first call.
+    pub fn bind_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        if self.world.borrow().loaded_cell() != Some(cell) {
+            return BindReport::default();
+        }
+        if !self.bound_cells.insert(cell) {
+            return BindReport::default();
+        }
+        let ids = self.world.borrow_mut().cell_reference_ids(cell);
+        let carriers = {
+            let world = self.world.borrow();
+            let order = world.order();
+            ids.into_iter()
+                .filter_map(|id| {
+                    if self.bound_forms.contains(&id) {
+                        return None;
+                    }
+                    let rref = order.winner_ref(id)?;
+                    let record = order.record(rref);
+                    let raw = record.find(Tag::new(b"VMAD"))?;
+                    let vmad = Vmad::parse(raw, record.tag).ok()?;
+                    Some((id, rref.file, vmad))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut report = BindReport::default();
+        for (id, file, vmad) in carriers {
+            if self.bound_forms.insert(id) {
+                self.bind_carrier(id, file, &vmad, &mut report);
+            }
+        }
+        report
+    }
+
+    fn bind_carrier(
+        &mut self,
+        id: GlobalFormId,
+        file: usize,
+        vmad: &Vmad,
+        report: &mut BindReport,
+    ) {
+        report.forms_with_scripts += 1;
+        let object = self.object_of(Handle::Form(id));
+        self.attach_all(object, id, file, &vmad.scripts, report);
+        for alias in &vmad.aliases {
+            let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
+            let handle = Handle::Alias {
+                quest: id,
+                id: alias_id,
+            };
+            let object = self.object_of(handle);
+            self.attach_all(object, id, file, &alias.scripts, report);
+        }
     }
 
     fn attach_all(
@@ -772,6 +849,12 @@ impl Game {
             .set_stage(id, stage, &mut |n, c| vm.create_object_of(n, c))
     }
 
+    /// Load and initialize a WebAssembly component mod using the versioned
+    /// component interface in `wit/mod-api.wit`.
+    pub fn load_wasm_mod(&mut self, bytes: &[u8]) -> Result<(), wasm::Error> {
+        self.wasm_mods.load(bytes)
+    }
+
     /// Queue the activation without running the VM. `activate` is this
     /// followed by [`Game::run_until_idle`], split out so a caller can save
     /// state with the `OnActivate` event still queued and unresolved.
@@ -916,8 +999,22 @@ impl Game {
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
+    }
+
+    fn dispatch_wasm_activate(&mut self, target: GlobalFormId, activator: GlobalFormId) {
+        let commands = self.wasm_mods.activate(target, activator);
+        for command in commands {
+            match command {
+                wasm::Command::SetStage(quest, stage) => {
+                    self.set_stage(quest, stage);
+                }
+            }
+        }
     }
 
     /// Activate through the usual default processing and event path, retaining
@@ -931,6 +1028,9 @@ impl Game {
             true,
             &mut |n, c| vm.create_object_of(n, c),
         );
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
     }
@@ -1256,12 +1356,15 @@ impl Game {
                     self.world.borrow_mut().pending.push(event);
                 }
                 Pending::ActorDeath {
-                    killer, recipients, ..
+                    actor,
+                    killer,
+                    recipients,
                 } => {
                     let (objects, argument) = {
                         let vm = &mut self.vm;
                         let mut world = self.world.borrow_mut();
                         let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+                        world.resolve_soul_trap_death(actor, &mut alloc);
                         let argument = world.form_value(killer, &mut alloc);
                         let objects: Vec<_> = recipients
                             .into_iter()
@@ -1412,6 +1515,10 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let loaded_cell = self.world.borrow().loaded_cell();
+        if let Some(cell) = loaded_cell {
+            self.bind_cell(cell);
+        }
         for _ in 0..max_rounds {
             self.pump();
             self.vm.run(self.budget);

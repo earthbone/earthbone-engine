@@ -21,6 +21,13 @@ pub(crate) const SECTION: crate::world::save_sections::Section<World> =
         read: read_command_owners,
     };
 
+pub(crate) const REANIMATE_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-43",
+        write: write_reanimate_owners,
+        read: read_reanimate_owners,
+    };
+
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
         w.u64(self.next_effect);
@@ -110,6 +117,50 @@ impl World {
     }
 }
 
+fn write_reanimate_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let owners: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| {
+            effect
+                .reanimated_previous_owner
+                .map(|owner| (effect.id, owner))
+        })
+        .collect();
+    w.len(owners.len());
+    for (id, owner) in owners {
+        w.u64(id.0);
+        write_opt_form_id(w, owner);
+    }
+}
+
+fn read_reanimate_owners(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 12 {
+        return Err(VmError::State(
+            "MAG-43 owner count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let owner = read_opt_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-43 duplicate effect identity".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-43 missing active effect".into()))?;
+        effect.reanimated_previous_owner = Some(owner);
+    }
+    Ok(())
+}
+
 fn write_command_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
     let commanded: Vec<_> = world
         .active_effects
@@ -163,6 +214,7 @@ fn read_command_owners(
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
+    has_reanimated_owner: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -180,6 +232,11 @@ pub(in crate::world) fn read_magic(
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
             read_opt_form_id(r)?
+        } else {
+            None
+        };
+        let reanimated_previous_owner = if has_reanimated_owner && r.bool()? {
+            Some(read_opt_form_id(r)?)
         } else {
             None
         };
@@ -219,6 +276,7 @@ pub(in crate::world) fn read_magic(
             duration,
             elapsed,
             summoned,
+            reanimated_previous_owner,
             restore_owner: None,
             recover,
             changes,

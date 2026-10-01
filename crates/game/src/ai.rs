@@ -2469,6 +2469,13 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
+pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
+    nav_graph(world)
+        .find_path_between(from, to)
+        .map(|path| path.points.into_iter().skip(1).collect())
+        .unwrap_or_else(|| vec![to])
+}
+
 fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;

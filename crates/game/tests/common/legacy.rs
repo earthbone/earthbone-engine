@@ -464,7 +464,12 @@ fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
     cursor = cursor.checked_add(2)?;
     for _ in 0..count {
         let name_len = usize::from(*bytes.get(cursor)?);
-        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let name_start = cursor.checked_add(1)?;
+        cursor = name_start.checked_add(name_len)?;
+        let name = bytes.get(name_start..cursor)?;
+        if name.is_empty() || !name.iter().all(u8::is_ascii_graphic) {
+            return None;
+        }
         let payload_len = usize::try_from(u32::from_le_bytes([
             *bytes.get(cursor)?,
             *bytes.get(cursor.checked_add(1)?)?,

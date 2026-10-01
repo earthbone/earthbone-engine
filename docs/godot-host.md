@@ -264,12 +264,23 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
 | `camera` | no | first and third person placement in Skyrim units, the basis Godot wants |
+| `detect_life` | no | active Detect Life targets as authored-shader presentation requests in Godot coordinates |
 | `input` | no | the vanilla `controlmap.txt`, key bindings, and a frame of input into movement intent |
 | `godot_layer` | yes | the `CellStreamer` node, `RenderingServer` instances, `array_mesh_from`, `heightmap_image_from` |
 | `godot_player` | yes | the `PlayerNode`: devices in, physics character and camera out |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
+
+## Detect Life presentation, MAG-40
+
+`detect_life::presentations` reads the selected targets from the shared game
+world and converts each Skyrim position to Godot metres and axes. The request
+retains the winning MGEF Hit Shader FormID and active effect identity so a host
+effect renderer can identify the authored shader and remove it when the effect
+ends. This adapter returns requests only. It does not decode EFSH records or
+draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
+`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and

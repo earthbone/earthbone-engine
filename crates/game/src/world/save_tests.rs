@@ -382,6 +382,7 @@ fn rich_world(namespace: u16) -> World {
             duration: Some(60.0),
             elapsed: 1.0,
             summoned: None,
+            reanimated_previous_owner: None,
             restore_owner: None,
             recover: false,
             changes: vec![],
@@ -503,12 +504,18 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.file.to_le_bytes());
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
+    let owner_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xE300_0000,
+    };
     world
         .active_effects
         .get_mut(&EffectId(1))
         .unwrap()
-        .restore_owner = None;
+        .reanimated_previous_owner = Some(Some(owner_sentinel));
     let mut bytes = world.save_state();
+    let mut world_sections = Writer::new();
+    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     // Every actor and reference record now ends with its save-section table,
     // which a pre-version-37 writer never emitted. The actor table includes
     // the PRG-01 skill-experience section. Locate each record's own tail by
@@ -583,6 +590,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .reanimated_previous_owner = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
@@ -613,8 +625,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     // CONTEXT: Version 23 predates list metadata. Remove its list marker.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
-    let mut world_sections = Writer::new();
-    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     bytes.truncate(bytes.len() - world_sections.out.len());
     // Remove the current detection pool count after dropping the trailing
     // version 37 section table, so this fixture has the version 29 layout.
@@ -768,6 +778,7 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
 fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
+
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
         (18, "created namespace in a legacy world state".to_string()),

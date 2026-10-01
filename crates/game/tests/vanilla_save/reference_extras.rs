@@ -355,6 +355,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // Both references' own empty save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
+    // Account for the removed reference tables separately from world sections.
     let reference_sections = clean.len() - legacy.len() - legacy::world_section_growth(&clean);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let tail = legacy::version_tail_len(&legacy, |candidate| {
