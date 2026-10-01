@@ -118,28 +118,21 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days and learned magic effects.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-/// Version 36 retains BOS record flags on instantiated references and the
-/// active phase and completed action slots for each scene.
+/// Version 36 retains BOS record flags on instantiated references, the active
+/// phase and completed action slots for each scene.
 /// Version 37 appends named section tables (`save_sections`) to the world,
 /// actor and reference records, after each record's saved fields. Versions
 /// before 37 have no section tables. This is the last version this constant
 /// will reach. New saved state goes into a section registered in
 /// `save_section_registry` at its owning level.
-/// Version 37 also accompanies the provenance-aware native game save envelope
-/// and carries Fallout 4 struct values in saved Papyrus state.
-/// World sections include SAV-53 base-object fields, SAV-42 static-object
-/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
-/// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
-/// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
-/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
-/// records and native game-save dependency provenance. AI-88 retains each
-/// actor's reserved furniture marker, and AI-36 retains the UseWeapon
-/// package procedure. Actor sections also retain voice recovery deadlines,
-/// Shout, Flee and Guard procedure state. Reference sections retain
-/// persistence, world record flags and the current destruction stage through
-/// CMB-37.
-/// Version 37 accompanies the provenance-aware native game save envelope.
-/// The same version carries Fallout 4 struct values in saved Papyrus state.
+/// Version 37 accompanies the provenance-aware native game save envelope
+/// and carries Fallout 4 struct values in saved Papyrus state. World sections
+/// retain base and static object fields, APPA and IDLM fields, WOOP and MGEF
+/// markers, PACK and NAVM markers, script-qualified package fragment calls,
+/// unresolved records, lifecycle tasks and training sessions. Actor sections
+/// retain expression overrides, furniture markers, procedure state, voice
+/// recovery deadlines and progression. Reference sections retain persistence,
+/// record flags and destruction state.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

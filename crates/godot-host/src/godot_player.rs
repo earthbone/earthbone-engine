@@ -33,7 +33,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
-use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
+use crate::camera::{CameraHostState, CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
 use crate::door_fade::DoorFade;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
@@ -51,11 +51,19 @@ mod melee;
 mod menu;
 mod race;
 mod saves;
+mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so
 /// a later pass can read `fActivatePickLength` from the INI.
 const ACTIVATE_REACH: f32 = 180.0;
+
+fn crosshair_reference(
+    hit: Option<soe_physics::world::RayHit>,
+    references: &HashMap<BodyId, GlobalFormId>,
+) -> Option<GlobalFormId> {
+    hit.and_then(|hit| references.get(&hit.body).copied())
+}
 
 struct DoorFadeView {
     overlay: Gd<ColorRect>,
@@ -97,6 +105,8 @@ pub struct PlayerNode {
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
     animation_source: Option<GlobalFormId>,
+    /// The existing skinned node bound to the player's own appearance.
+    player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     /// One server body per loaded actor, rebuilt from the shared World on
@@ -122,6 +132,7 @@ pub struct PlayerNode {
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
+    camera_state: CameraHostState,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
@@ -129,12 +140,15 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
+    grabbed_host: Option<(GlobalFormId, Vec3)>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
     devices: Devices,
     input_focused: bool,
     menu: crate::ui::MenuState,
+    training_trainer: Option<GlobalFormId>,
+    main_menu: crate::ui::MainMenuState,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
     race_choice: Option<(GlobalFormId, bool)>,
@@ -171,6 +185,7 @@ impl INode3D for PlayerNode {
             data_source: None,
             game: None,
             animation_source: None,
+            player_appearance: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
@@ -192,15 +207,19 @@ impl INode3D for PlayerNode {
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
             interior_prefetch_elapsed: 0.0,
             camera: None,
+            camera_state: CameraHostState::default(),
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
+            grabbed_host: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
             input_focused: true,
             menu: crate::ui::MenuState::default(),
+            training_trainer: None,
+            main_menu: crate::ui::MainMenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
             race_choice: None,
@@ -438,6 +457,28 @@ impl PlayerNode {
         self.action_latches = Action::all().into_iter().map(|a| (a, until)).collect();
     }
 
+    /// Emitted after gameplay is released and the host enters the main menu.
+    #[signal]
+    fn returned_to_main_menu();
+
+    /// Emitted when the host starts a named title sequence on the main menu.
+    #[signal]
+    fn title_sequence_started(name: GString);
+
+    /// Report whether PlayerNode has released gameplay and returned to its main menu state.
+    #[func]
+    pub fn is_main_menu(&self) -> bool {
+        self.main_menu.is_active()
+    }
+
+    /// Return the currently playing title sequence name, if one was requested.
+    #[func]
+    pub fn active_title_sequence(&self) -> GString {
+        self.main_menu
+            .title_sequence()
+            .map_or_else(GString::new, GString::from)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
@@ -447,20 +488,21 @@ impl PlayerNode {
         file: i32,
         object: i64,
     ) -> bool {
-        let (Some(game), Some(source)) = (&self.game, &self.data_source) else {
+        let (Some(game), Some(source)) = (self.game.as_mut(), self.data_source.as_ref()) else {
             return false;
         };
         let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
             return false;
         };
-        let appearance = visual.bind_mut().bind_appearance(
-            game.shared_world(),
-            Arc::clone(source),
-            soe_esm::GlobalFormId { file, object },
-        );
+        let actor = soe_esm::GlobalFormId { file, object };
+        let is_player = actor == game.player();
+        let appearance =
+            visual
+                .bind_mut()
+                .bind_appearance(game.shared_world(), Arc::clone(source), actor);
         match appearance {
             Ok(()) => {
-                self.animation_source = Some(soe_esm::GlobalFormId { file, object });
+                self.animation_source = Some(actor);
                 visual.connect(
                     "animation_event",
                     &self.base().callable("report_animation_event"),
@@ -469,6 +511,13 @@ impl PlayerNode {
                     "animation_graph_unloaded",
                     &self.base().callable("report_animation_graph_unloaded"),
                 );
+                if is_player {
+                    visual.bind_mut().set_first_person_geometry_visible(
+                        self.rig.mode != CameraMode::First
+                            || self.camera_state.first_person_geometry_visible(),
+                    );
+                    self.player_appearance = Some(visual);
+                }
                 true
             }
             Err(error) => {
@@ -613,6 +662,11 @@ impl PlayerNode {
         self.collision_references = collision.references;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
+        self.grabbed_host = None;
+        if let Some(game) = &mut self.game {
+            game.world_mut().set_grabbed_reference(None);
+            game.world_mut().set_crosshair_reference(None);
+        }
         self.motion = CameraMotion::new(self.feet(), self.capsule_height());
         self.update_camera();
         bodies as i32
@@ -622,6 +676,14 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        if !self.menu.is_open()
+            && self
+                .game
+                .as_ref()
+                .is_some_and(|game| game.gift_menu_request().is_some())
+        {
+            self.open_gift_menu();
+        }
         if self.menu.is_open() {
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);
@@ -686,14 +748,67 @@ impl PlayerNode {
 
         self.advance_footsteps(before, was_grounded, &input);
 
-        let activation_hit = if input.activate_pressed {
-            self.activate_ray()
+        let crosshair_hit = self.activate_ray();
+        let crosshair_reference = crosshair_reference(crosshair_hit, &self.collision_references);
+        if let Some(game) = &mut self.game {
+            game.world_mut()
+                .set_crosshair_reference(crosshair_reference);
+        }
+        let activate_held = self.held_actions.contains(&Action::Activate);
+        if input.activate_pressed && self.grabbed_host.is_none() {
+            if let (Some(reference), Some(hit)) = (crosshair_reference, crosshair_hit) {
+                if self.query_collision.set_held(reference, true) {
+                    self.grabbed_host = Some((reference, hit.point));
+                    if let Some(game) = &mut self.game {
+                        game.world_mut().set_grabbed_reference(Some(reference));
+                        let player = game.player();
+                        let grabber = game.object_of_form(player);
+                        game.send_event(
+                            reference,
+                            "OnGrab",
+                            &[soe_papyrus::Value::Object(grabber)],
+                        );
+                    }
+                }
+            }
+        }
+        if let Some((reference, origin_hit)) = self.grabbed_host {
+            if activate_held {
+                let eye = self.rig.head(self.feet(), self.capsule_height());
+                let direction = self.rig.look_direction();
+                let reach = ACTIVATE_REACH * 0.55;
+                let target = Vec3::new(
+                    eye.x + direction.x * reach,
+                    eye.y + direction.y * reach,
+                    eye.z + direction.z * reach,
+                );
+                let offset = Vector3::new(
+                    (target.x - origin_hit.x) * crate::units::METRES_PER_UNIT,
+                    (target.z - origin_hit.z) * crate::units::METRES_PER_UNIT,
+                    -(target.y - origin_hit.y) * crate::units::METRES_PER_UNIT,
+                );
+                self.query_collision.move_held(reference, offset);
+            } else {
+                self.query_collision.set_held(reference, false);
+                self.grabbed_host = None;
+                if let Some(game) = &mut self.game {
+                    game.world_mut().set_grabbed_reference(None);
+                    let player = game.player();
+                    let releaser = game.object_of_form(player);
+                    game.send_event(
+                        reference,
+                        "OnRelease",
+                        &[soe_papyrus::Value::Object(releaser)],
+                    );
+                }
+            }
+        }
+        self.last_activate_hit = input.activate_pressed && crosshair_hit.is_some();
+        self.last_activate_reference = if input.activate_pressed {
+            crosshair_reference
         } else {
             None
         };
-        self.last_activate_hit = activation_hit.is_some();
-        self.last_activate_reference =
-            activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
         let player_motion = if input.is_moving() {
@@ -856,6 +971,25 @@ impl PlayerNode {
         true
     }
 
+    /// Queue and immediately capture a screenshot through the host request path.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn take_screenshot(&mut self, path: GString) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.vm.call_global(
+            "Debug",
+            "TakeScreenshot",
+            &[soe_papyrus::Value::string(&path.to_string())],
+        ) {
+            godot_error!("PlayerNode: Debug.TakeScreenshot failed: {error}");
+            return false;
+        }
+        game.run_until_idle(64);
+        self.capture_screenshot_requests()
+    }
+
     /// Current derived image-space stack for host diagnostics.
     #[func]
     pub fn gameplay_image_space(&self) -> Array<VarDictionary> {
@@ -998,6 +1132,27 @@ impl PlayerNode {
     pub fn set_facing(&mut self, yaw: f32, pitch: f32) {
         self.rig.set_facing(yaw, pitch);
         self.update_camera();
+    }
+
+    /// Read the camera controls currently applied from Game natives.
+    #[func]
+    pub fn camera_state(&self) -> VarDictionary {
+        let mut state = VarDictionary::new();
+        let target = self.camera_state.target();
+        state.set("target_file", target.map_or(-1, |id| i64::from(id.file)));
+        state.set(
+            "target_object",
+            target.map_or(-1, |id| i64::from(id.object)),
+        );
+        state.set(
+            "first_person_geometry",
+            self.camera_state.first_person_geometry_visible(),
+        );
+        state.set(
+            "sitting_rotation_degrees",
+            self.camera_state.sitting_rotation_degrees(),
+        );
+        state
     }
 
     /// The action names this node registered, for a test or a rebinding UI.
@@ -1269,6 +1424,7 @@ impl PlayerNode {
         if self.camera.is_none() {
             return;
         }
+        let (feet, height) = self.camera_anchor(feet, height);
 
         // In third person the boom is pulled in by whatever it would pass
         // through, so the camera never ends up inside a wall.
@@ -1295,6 +1451,29 @@ impl PlayerNode {
             camera.set_global_transform(transform);
             camera.set_fov(self.rig.fov());
         }
+    }
+
+    fn camera_anchor(&mut self, player_feet: Vec3, player_height: f32) -> (Vec3, f32) {
+        let Some(target) = self.camera_state.target() else {
+            return (player_feet, player_height);
+        };
+        let Some(game) = &self.game else {
+            return (player_feet, player_height);
+        };
+        let mut world = game.world_mut();
+        let target_pose = world.reference(target).map(|reference| {
+            (
+                target,
+                Vec3::new(
+                    reference.position[0],
+                    reference.position[1],
+                    reference.position[2],
+                ),
+                CharacterSettings::default().height,
+            )
+        });
+        self.camera_state
+            .anchor(player_feet, player_height, target_pose)
     }
 }
 
@@ -1345,5 +1524,29 @@ mod mag_42_tests {
             player_locomotion(intent, false),
             (intent.direction, intent.speed, intent.jump)
         );
+    }
+}
+
+#[cfg(test)]
+mod hst_18_tests {
+    use super::*;
+
+    #[test]
+    fn hst_18_crosshair_reports_hit_reference_and_clears_on_miss() {
+        let body = BodyId(4);
+        let reference = GlobalFormId {
+            file: 2,
+            object: 0x123,
+        };
+        let references = HashMap::from([(body, reference)]);
+        let hit = soe_physics::world::RayHit {
+            body,
+            material: None,
+            point: Vec3::ZERO,
+            normal: Vec3::Z,
+            fraction: 0.5,
+        };
+        assert_eq!(crosshair_reference(Some(hit), &references), Some(reference));
+        assert_eq!(crosshair_reference(None, &references), None);
     }
 }

@@ -45,6 +45,7 @@ pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
 pub mod terrain_lod_generate;
+pub mod training_menu;
 pub mod ui;
 pub mod units;
 

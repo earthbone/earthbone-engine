@@ -625,6 +625,14 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
+    /// Show or hide this rig's RenderingServer instances with first-person geometry.
+    pub(crate) fn set_first_person_geometry_visible(&mut self, visible: bool) {
+        let mut server = RenderingServer::singleton();
+        for shape in &self.shapes {
+            server.instance_set_visible(shape.instance, visible);
+        }
+    }
+
     fn sync_invisibility(&mut self) {
         let invisible = self
             .appearance

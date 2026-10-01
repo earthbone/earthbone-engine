@@ -36,6 +36,21 @@ documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
 
+### Crosshair and held references, HST-18
+
+`PlayerNode` raycasts from the eye along the camera look direction on each
+advance and stores the hit reference in the shared game world. The Game
+Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
+current host values. Holding the mapped Activate input converts a hit
+reference's collision body to kinematic mode and moves it with the look ray.
+Releasing Activate returns its body to rigid mode. The grabbed reference is
+cleared when the cell is replaced. These values are transient and are not
+saved.
+
+The grab path currently uses references with static collision bodies loaded
+for the active cell. Movable-reference body creation and synchronizing their
+physics pose into the shared world remain HST-12 work.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
@@ -64,6 +79,22 @@ controls adjust normalized values from -1 to 1 in 0.1 steps. Confirm writes
 the draft to the player's shared actor state, which SOEW stores in the UI-14
 actor section. Closing the menu discards the draft and leaves the saved actor
 appearance unchanged. The preview is a menu summary of selected records and
+morph values.
+
+### Race menu asset cache, UI-17
+
+`Game.PrecacheCharGen` asks the host to read model files for playable race
+head-part choices and the TRI files tagged as chargen morphs on those parts.
+The streamer retains each available path once and reports retained file count,
+NIF count, TRI count, byte total and paths missing from the active data VFS.
+`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
+counts. The asset buffers are CPU-side file data. This does not upload preview
+meshes or apply morphs to a rendered actor.
+
+The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
+clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
+model field and the NAM0 chargen TRI path.
+
 morph values. It is a menu summary, not rendered character appearance.
 
 `godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
@@ -278,6 +309,11 @@ This milestone supplies a read-only cell tree and rendered cell preview. It does
 cell records, expose reference selection, or add transform gizmos. The Godot project opens
 the cell view only after the author enters a valid `Data` directory or launches the editor
 with `SKYRIM_DATA` set.
+
+`PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
+per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`
+budget category through `Utility.GetBudgetCount`, `GetBudgetName`, `GetCurrentBudget` and
+`OverBudget`.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -1336,6 +1372,25 @@ Mouse motion drives look. Right/left modifier scan codes map to Godot's shared
 modifier keys, so side-specific chords are not distinguished. The walkthrough
 is a movement prototype. It does not activate game references, cross doors,
 play footsteps or run the gameplay VM.
+
+### Papyrus camera controls, HST-17
+
+The CK `Game_Script.wikitext` describes `SetCameraTarget` as setting the camera
+target actor, `ShowFirstPersonGeometry` as showing or hiding first-person
+geometry, and `SetSittingRotation` as setting the sitting camera offset.
+`skse64/scripts/vanilla/Game.psc` specifies that sitting offset in degrees.
+`soe-game` stores these transient requests in `World::camera_controls`, and
+`PlayerNode` applies them on its next game advance. A selected actor's current
+reference position becomes the camera anchor. The first-person geometry flag
+is retained as host camera state for the renderer. Sitting rotation offsets
+the camera yaw while leaving movement facing unchanged.
+
+`PlayerNode.camera_state()` reports the applied target FormID, geometry flag
+and sitting offset for host inspection. When a skinned appearance is bound to
+the player, the geometry flag controls its RenderingServer instances in first
+person. Third-person view keeps the player appearance visible. The
+`hst_17_camera_controls.rs` test exercises the state readbacks and verifies
+the third-person camera yaw and position respond to the sitting offset.
 
 ### Mouse and gamepad bindings
 
@@ -2465,6 +2520,13 @@ enumerating container forms, and `OnContainerChanged_-_ObjectReference.wikitext`
 documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
 
+The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
+It lists positive inventory totals after applying the optional form or keyword
+filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
+with the accumulated nonnegative gift value. Both giving and taking use the
+same source and target transaction path.
+
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
 both inventories remain unchanged when recipient quantity overflow rejects a
@@ -2508,6 +2570,12 @@ state to the host.
 Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
 native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
 crafting menu's recipe list and selected-recipe confirmation flow.
+
+`Game.ShowTrainingMenu(actor)` requests this presenter through a transient
+World request. The presenter shows the trainer's skill, current value, tier
+cap, DLG-16 price and remaining per-level sessions. The purchase button is
+disabled when the player lacks gold or has reached the skill or session cap.
+Purchases call the shared World transaction and redraw the offer afterward.
 
 The native J shortcut opens the quest journal through the same menu shell.
 It reads loaded active quest state from the shared Game, omits QUST type 0,
@@ -2766,6 +2834,17 @@ actor's full selected skin. When the live race or sex changes, the node loads
 the new rig and appearance before replacing the previous view. Every selected
 skin shape must map all its bone names onto the race rig or the replacement is
 rejected. Paths use the data source VFS and its file overlay.
+
+
+## Facial expression target mapping (ANM-59)
+
+`facial::expression_weights` maps CK expression ids 0 through 16 to the
+corresponding named head blend shape and returns weights for available
+expression names only. `apply_expression` sets the selected shape to the
+requested percentage and zeros competing expression shapes while preserving
+other morph values. The actor NIF pipeline does not currently load Skyrim
+`.tri` targets or upload Godot blend shape arrays, so this mapping is not yet
+connected to a rendered vanilla head.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -3280,6 +3359,18 @@ the unload of the grass cell and restreaming the new set leaves it out.
 `godot/rnd_11_test.gd` runs the same path inside Godot through
 `stream_exterior` and `release_exterior_cell`.
 
+## Main menu lifecycle, UI-18
+
+The Game globals `QuitToMainMenu` and `StartTitleSequence` queue transient
+host requests on the shared World. PlayerNode consumes them after a gameplay
+tick. Returning to the main menu closes any modal menu, drops the active Game,
+streaming source, cell and host physics resources, and emits
+`returned_to_main_menu`. `is_main_menu` reports this state. Starting a title
+sequence first enters the main menu, stores the requested name as the active
+sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
+returns that name or an empty string when none is active. A plain return clears
+any active sequence. Starting a new game leaves the main menu state.
+
 Open gaps, none closed by this row:
 
 - Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
@@ -3323,3 +3414,11 @@ MultiMesh transforms and sets the visible instance count. `_process` calls
 
 Each particle draws an untextured, two sided quad in the emitter's initial
 color and radius. The node loads a NIF by path and selects an emitter by name.
+
+## Papyrus screenshot capture, HST-19
+
+The `PlayerNode` gameplay tick drains transient screenshot paths queued by
+`Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
+`take_screenshot(path)` entry point calls the same Papyrus native and services
+its request immediately. `godot/hst_19_screenshot_capture_test.gd`
+checks that this path writes a PNG under Godot headless with installed data.

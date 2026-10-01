@@ -39,7 +39,6 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::story_manager::SECTION,
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
 ];
-
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
 fn read_pending_script_calls(
@@ -48,6 +47,42 @@ fn read_pending_script_calls(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     super::save::read_pending_script_calls(world, reader)
+}
+
+fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::training::write_training_sessions(world, writer);
+}
+
+fn read_training_sessions(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::training::read_training_sessions(world, reader)
+}
+
+fn write_expression_override(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_expression_override(actor, writer);
+}
+
+fn read_expression_override(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_expression_override(actor, reader)
+}
+
+fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::super::progression::write_character_progression(actor, writer);
+}
+
+fn read_character_progression(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::super::progression::read_character_progression(actor, reader)
 }
 
 fn write_player_level(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -61,18 +96,6 @@ fn read_player_level(
 ) -> Result<(), soe_papyrus::VmError> {
     world.player_level = reader.u32()?;
     Ok(())
-}
-
-fn write_character_progression(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
-    super::super::progression::write_character_progression(state, writer);
-}
-
-fn read_character_progression(
-    state: &mut ActorState,
-    reader: &mut FormReader<'_, '_>,
-    _table: &ArrayTable,
-) -> Result<(), VmError> {
-    super::super::progression::read_character_progression(state, reader)
 }
 
 fn write_days_in_jail(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -142,6 +165,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     super::furniture::SECTION,
+    Section { name: "ANM-59", write: write_expression_override, read: read_expression_override },
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-21", write: super::save::write_driver_state_section, read: super::save::read_driver_state_section },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
@@ -154,7 +178,6 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
-
 /// Sections read and written once per reference, at the end of every
 /// reference record.
 #[rustfmt::skip]
@@ -164,18 +187,6 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
 ];
-
-fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
-    super::training::write_training_sessions(world, writer);
-}
-
-fn read_training_sessions(
-    world: &mut World,
-    reader: &mut FormReader<'_, '_>,
-    _table: &ArrayTable,
-) -> Result<(), VmError> {
-    super::training::read_training_sessions(world, reader)
-}
 
 fn write_vampire_lord_state(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::magic::write_vampire_lord_state(world, writer);

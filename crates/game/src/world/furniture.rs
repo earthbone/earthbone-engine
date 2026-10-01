@@ -17,7 +17,7 @@ const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
 
 pub(crate) fn write_furniture_seat(
-    state: &super::ActorState,
+    state: &ActorState,
     writer: &mut Writer,
     _pool: &mut soe_papyrus::vm::state::ArrayPool,
 ) {
@@ -29,12 +29,12 @@ pub(crate) fn write_furniture_seat(
 }
 
 pub(crate) fn read_furniture_seat(
-    state: &mut super::ActorState,
+    actor: &mut ActorState,
     reader: &mut FormReader<'_, '_>,
     _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     if reader.bool()? {
-        state.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
+        actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
     }
     Ok(())
 }

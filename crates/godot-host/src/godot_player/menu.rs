@@ -442,6 +442,10 @@ impl PlayerNode {
     #[func]
     pub fn close_menu(&mut self) -> bool {
         let closing_dialogue = self.menu.title() == Some("Dialogue");
+        let closing_gift = self
+            .menu
+            .title()
+            .is_some_and(|title| title.starts_with("Gift: "));
         if self.menu.title() == Some("Race") {
             self.race_choice = None;
             crate::race_menu::discard_draft(&mut self.appearance_choice);
@@ -460,6 +464,11 @@ impl PlayerNode {
             self.stop_dialogue_voice();
             if let Some(game) = self.game.as_mut() {
                 game.close_dialogue();
+            }
+        }
+        if closing_gift {
+            if let Some(game) = self.game.as_mut() {
+                game.close_gift_menu();
             }
         }
         let focused = self.input_focused;

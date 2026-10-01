@@ -46,6 +46,98 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Set a CK expression override on an actor.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor or either CK value is out of range.
+    pub fn set_expression_override(
+        &mut self,
+        id: GlobalFormId,
+        mood: i32,
+        strength: i32,
+    ) -> Result<(), String> {
+        if !(0..=16).contains(&mood) {
+            return Err(format!("expression mood {mood} is outside 0..=16"));
+        }
+        if !(0..=100).contains(&strength) {
+            return Err(format!("expression strength {strength} is outside 0..=100"));
+        }
+        let actor = self
+            .actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?;
+        actor.expression_override = Some(super::ExpressionOverride {
+            mood: mood as u8,
+            strength: strength as u8,
+        });
+        Ok(())
+    }
+
+    /// Clear a CK expression override so the actor's AI mood can drive its face again.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor.
+    pub fn clear_expression_override(&mut self, id: GlobalFormId) -> Result<(), String> {
+        let actor = self
+            .actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?;
+        actor.expression_override = None;
+        Ok(())
+    }
+
+    /// Effective expression id and strength for the host's head morph targets.
+    #[must_use]
+    pub fn facial_expression(&mut self, id: GlobalFormId) -> Option<(u8, u8)> {
+        let actor = self.actor(id)?;
+        actor.expression_override.map_or_else(
+            || {
+                let mood = actor.values.get("mood").current().round() as i32;
+                let ck_mood = [7, 8, 9, 10, 11, 12, 13, 14]
+                    .get(usize::try_from(mood).ok()?)
+                    .copied()?;
+                Some((ck_mood, 100))
+            },
+            |value| Some((value.mood, value.strength)),
+        )
+    }
+
+    pub(super) fn write_expression_override(
+        actor: &ActorState,
+        writer: &mut soe_papyrus::vm::state::Writer,
+    ) {
+        if let Some(value) = actor.expression_override {
+            writer.u8(1);
+            writer.u8(value.mood);
+            writer.u8(value.strength);
+        } else {
+            writer.u8(0);
+        }
+    }
+
+    pub(super) fn read_expression_override(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), soe_papyrus::VmError> {
+        actor.expression_override = match reader.u8()? {
+            0 => None,
+            1 => {
+                let mood = reader.u8()?;
+                let strength = reader.u8()?;
+                if mood > 16 || strength > 100 {
+                    return Err(soe_papyrus::VmError::State(
+                        "invalid ANM-59 expression override".into(),
+                    ));
+                }
+                Some(super::ExpressionOverride { mood, strength })
+            }
+            _ => {
+                return Err(soe_papyrus::VmError::State(
+                    "invalid ANM-59 expression override flag".into(),
+                ));
+            }
+        };
+        Ok(())
+    }
+
     /// Current head-part and morph selections for the player.
     pub fn player_appearance(&mut self) -> Option<crate::appearance::PlayerAppearance> {
         let player = self.player();

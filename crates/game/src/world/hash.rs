@@ -514,6 +514,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some(expression) = a.expression_override {
+        h.bool(true);
+        h.u32(u32::from(expression.mood));
+        h.u32(u32::from(expression.strength));
+    } else {
+        h.bool(false);
+    }
     if let Some((furniture, marker)) = a.furniture_seat {
         h.bool(true);
         form(h, furniture);

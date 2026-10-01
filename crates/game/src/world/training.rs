@@ -21,6 +21,16 @@ const GOLD_ID: GlobalFormId = GlobalFormId {
 const TRAINING_SESSIONS_PER_LEVEL: u32 = 5;
 const TRAINER_SKILL_CAPS: [f32; 5] = [25.0, 50.0, 75.0, 90.0, 100.0];
 
+/// Values displayed by the trainer menu for one purchase.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub skill: &'static str,
+    pub current: f32,
+    pub cap: f32,
+    pub cost: i32,
+    pub sessions_remaining: u32,
+}
+
 /// Training purchase failures.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Error {
@@ -82,6 +92,52 @@ fn trainer_class(world: &World, trainer: GlobalFormId) -> Result<Class, Error> {
 }
 
 impl World {
+    /// Read the trainer's skill, current price and remaining level sessions.
+    pub fn training_offer(&mut self, trainer: GlobalFormId) -> Result<Offer, Error> {
+        let class = trainer_class(self, trainer)?;
+        let player = self.player();
+        let level = self.actor_ref(player).ok_or(Error::Actor)?.level;
+        let used = if self.training_session_level == level {
+            self.training_sessions_this_level
+        } else {
+            0
+        };
+        let skill = ACTOR_VALUE_NAMES
+            .get(6 + usize::from(class.teaches))
+            .copied()
+            .ok_or(Error::Trainer)?;
+        let current = self.base_actor_value(player, skill);
+        let cap = TRAINER_SKILL_CAPS[usize::from(class.maximum_training_level - 1)];
+        if !current.is_finite() || current < 0.0 {
+            return Err(Error::Limit);
+        }
+        let raw_cost = current * cost_multiplier(self)?;
+        if !raw_cost.is_finite() || raw_cost <= 0.0 || raw_cost.ceil() > i32::MAX as f32 {
+            return Err(Error::Cost);
+        }
+        Ok(Offer {
+            skill,
+            current,
+            cap,
+            cost: raw_cost.ceil() as i32,
+            sessions_remaining: TRAINING_SESSIONS_PER_LEVEL - used,
+        })
+    }
+
+    /// Queue a Papyrus Game.ShowTrainingMenu request for the host presenter.
+    pub fn request_training_menu(&mut self, trainer: GlobalFormId) -> bool {
+        if trainer_class(self, trainer).is_err() {
+            return false;
+        }
+        self.pending_training_menu = Some(trainer);
+        true
+    }
+
+    /// Take the pending trainer menu request, if one was queued by Papyrus.
+    pub fn take_training_menu_request(&mut self) -> Option<GlobalFormId> {
+        self.pending_training_menu.take()
+    }
+
     /// Buy one training session from an actor whose class teaches a skill.
     ///
     /// The player can buy five sessions per character level. The class's

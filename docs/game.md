@@ -20,6 +20,11 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+HST-18 adds transient crosshair and grabbed-reference values to `World`.
+`Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
+corresponding Papyrus form object when a host value is present, and return
+`None` when it is absent. The values are host frame state and are not saved.
+
 ## What is in it
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
@@ -238,10 +243,20 @@ queue with running the VM until no runnable work remains. Deferred death
 requests stay queued until EndDeferredKill. Timers are the same: `tick`
 moves due registrations into the queue as `OnUpdate` events.
 
+`Game.QuitToMainMenu` and `Game.StartTitleSequence` enqueue transient
+`HostRequest` values on the world for Godot to consume. Those requests are not
+saved because they describe host presentation actions, not game state. The
+host drops them after each runtime tick.
+
 **Provider collisions.** `Game::add_natives` runs a second provider (an
 extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
 the map's third open seam.
+
+The four `Debug` script and stack profiling natives delegate to the VM's
+transient profiler. Stop calls write Chrome trace JSON profile files, with
+per-function VM instruction time and call counts, under the configured profile
+directory. A failed file write is added to the Papyrus log.
 
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
@@ -310,6 +325,12 @@ rigid body for an enabled, non-deleted, non-actor reference. The host calls it
 after a physics step, and rendering reads the resulting placement in the same
 tick. It writes the existing saved fields, so the world save format is
 unchanged. A late pose from a disabled or deleted body is rejected.
+
+`Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
+requests. The host loads model files for head parts offered by playable races
+and their chargen TRI files before processing later race menu requests. The
+clear request drops those retained file buffers. These requests add no saved
+state.
 
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
@@ -405,6 +426,15 @@ behavior. `CellStreamerNode` owns pin joints between supplied rigid body RIDs,
 but the Papyrus runtime does not yet connect cart and horse references to those
 host bodies or pivots.
 
+**Facial expression override, ANM-59.** `Actor.SetExpressionOverride` stores a
+CK expression id from 0 through 16 and strength from 0 through 100 on the
+actor. `ClearExpressionOverride` removes it. `World::facial_expression`
+returns the active override, or maps the actor's record-backed AIDT mood to
+the corresponding mood expression at full strength after clearing. The
+override is an actor save section named `ANM-59` and participates in the
+determinism hash. The host maps expression ids to head blend shape names.
+Loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
+
 **Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
 instance, one selected soul gem stack, an ENCH form and the caller's learned
 enchantment set. It checks the selected soul level against the gem's SLCP
@@ -442,11 +472,11 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 370 stateful registrations, including
-`CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
+`natives::register` has 373 stateful registrations and 178 quiet stubs,
+including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
 `Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
 `IsBleedingOut` requires an actor to be unconscious, alive and at or below its
-record-derived bleedout threshold. Quiet stubs return the idle value the game
+record-derived bleedout threshold. A quiet stub returns the idle value the game
 gives when nothing is going on, so vanilla scripts can continue when their
 owning system has no behavior yet.
 
@@ -454,7 +484,7 @@ owning system has no behavior yet.
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse | IsFurnitureInUse, PlayAnimationAndWait, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -463,7 +493,7 @@ owning system has no behavior yet.
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
-| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
+| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
@@ -493,6 +523,13 @@ reads the reference flag used by its Papyrus native. The condition functions 63,
 because the local CK corpus does not provide usable condition semantics for them.
 
 Current behavior and compatibility limits:
+
+- `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
+  and `Exterior cell loads per update`. `GetCurrentBudget` returns each
+  configured limit, and `OverBudget` is false because these are scheduling
+  caps, not measured usage counters. Invalid indices return an empty name, zero
+  and false. The CK Utility page documents these signatures, and SKSE's vanilla
+  `Utility.psc` declares them as global natives.
 
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
@@ -535,6 +572,11 @@ Their CK contracts are described by
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
+- `Game.SetCameraTarget` accepts an actor form and stores it as the host
+  camera target. Non-actor values leave the current target unchanged.
+  `Game.ShowFirstPersonGeometry` sets the host's first-person geometry
+  visibility state, and `Game.SetSittingRotation` stores the camera offset in
+  degrees. These presentation controls are transient and are not saved.
 - Inventories start from the base record's `CNTO` list.
 - Actor values keep base, permanent, temporary and damage components in one
   store. Set changes base, Mod changes permanent, Force adjusts permanent
@@ -1979,6 +2021,20 @@ alone.
 settling costs what it does. A dirty flag set at each mutation site would
 make it a walk instead of a rebuild, and would help every unload rather than
 only this path.
+
+## Gift menu requests, UI-15
+
+`Actor.ShowGiftMenu` queues one host request and suspends its Papyrus caller
+until the menu closes. Giving moves items from the player to the actor, while
+taking moves items from the actor to the player. The optional FormList filter
+matches item forms and item keywords. Successful selections use the ordinary
+notified inventory transaction. When favor points are enabled, the request
+adds the selected item's authored value times the moved count. Value offsets
+come from `TES5Edit/Core/wbDefinitionsTES5.pas` for WEAP, ARMO, MISC, INGR,
+AMMO, BOOK and ALCH. Closing resumes the latent call with the nonnegative
+accumulated value. A second request while one is pending returns zero. The local Creation Kit page
+`ck-wiki/ShowGiftMenu_-_Actor.wikitext` supplies the direction, filter,
+favor and latent-call contract.
 
 ## Crafting execution, first increment
 
@@ -5366,8 +5422,12 @@ The field layout follows xEdit `wbRecord(CLAS)` and UESP CLAS. UESP describes
 the taught skill as an actor value index minus six and the training level as
 the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
 the per-level session counter, and the CK `Game.ShowTrainingMenu` page
-establishes the trainer actor passed to the menu. The trainer purchase path is
-available on `World`. The CK menu itself is not connected here.
+establishes the trainer actor passed to the menu. `Game.ShowTrainingMenu`
+queues a transient host request for a valid trainer. PlayerNode consumes it
+after a game tick and presents the skill, current value, tier cap, current
+price and remaining sessions from the same World state used by
+`purchase_training`. The offer remains visible at the skill or session cap,
+while the purchase path rejects it without changing state.
 
 ## Open Animation Replacer selection, ANM-09
 
@@ -5385,6 +5445,7 @@ animation system, it does not replace a live Havok clip yet.
 
 `anm_09_` tests use authored records and synthetic OAR directories to check
 conditioned selection, priority order and unsupported-condition rejection.
+
 
 ## Saved static-object changes, SAV-42
 
@@ -5499,3 +5560,17 @@ fixture exercises both record types, query results, failure atomicity and
 engine save/load. `sav_48_installed_pack_and_navmesh_records_accept_restored_markers`
 checks installed Skyrim.esm records when `SKYRIM_DATA` is set. The field order
 and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.
+
+## Host screenshot requests, HST-19
+
+`Debug.TakeScreenshot(path)` queues the caller's string in `World` for the
+host. The queue is transient and is not part of saved state. `PlayerNode`
+drains requests after its gameplay tick and asks the active viewport texture
+for an image saved as PNG at each supplied path. A request made without an
+active viewport or a path that Godot cannot write is reported to the Godot
+log.
+
+`hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
+checks that the path is queued once and consumed. The headless Godot check is
+`godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
+the host gameplay runtime and checks the resulting PNG file.

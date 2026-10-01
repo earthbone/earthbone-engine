@@ -162,6 +162,12 @@ pub struct Game {
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
 
+/// Maximum VM instructions executed in one scheduler slice.
+pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
+
+/// Maximum exterior cells the player streamer starts loading per update.
+pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
+
 impl Game {
     /// Evaluate one objective target's QSTA conditions against the current world and VM.
     ///
@@ -221,7 +227,7 @@ impl Game {
             world,
             registered,
             bound: None,
-            budget: 100_000,
+            budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
             oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
@@ -929,6 +935,49 @@ impl Game {
         );
         self.run_until_idle(64);
         moved
+    }
+
+    /// Return the active host request for a latent `ShowGiftMenu` call.
+    pub fn gift_menu_request(&self) -> Option<world::GiftMenuRequest> {
+        self.world.borrow().gift_menu.clone()
+    }
+
+    /// Move selected gift items through the ordinary notified inventory path.
+    pub fn gift_menu_transfer(&mut self, item: GlobalFormId, count: i32) -> i32 {
+        let Some(request) = self.gift_menu_request() else {
+            return 0;
+        };
+        if let Some(filter) = request.filter {
+            let mut world = self.world.borrow_mut();
+            let items = world.form_list(filter).cloned().unwrap_or_default();
+            let keywords = world.keywords(item);
+            let allowed =
+                items.contains(&item) || items.iter().any(|entry| keywords.contains(entry));
+            if !allowed {
+                return 0;
+            }
+        }
+        let moved = self.transfer_item(request.source, item, count, request.target);
+        if moved > 0 && request.use_favor_points {
+            let value = self.world.borrow_mut().item_value(item);
+            if let Some(active) = self.world.borrow_mut().gift_menu.as_mut() {
+                active.favor_points = active
+                    .favor_points
+                    .saturating_add(value.saturating_mul(moved));
+            }
+        }
+        moved
+    }
+
+    /// Finish the visible gift menu and resume its Papyrus caller.
+    pub fn close_gift_menu(&mut self) -> bool {
+        let Some(request) = self.world.borrow_mut().gift_menu.take() else {
+            return false;
+        };
+        let result = request.favor_points.max(0);
+        self.vm.resolve_latent(request.latent, Value::Int(result));
+        self.run_until_idle(64);
+        true
     }
 
     /// Deliver an event to a form's scripts and settle.
