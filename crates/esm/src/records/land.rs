@@ -581,6 +581,80 @@ pub fn apply_texture_brush(
     Ok(())
 }
 
+/// Blend a circular brush color into a LAND record's vertex colors.
+///
+/// `center` and `radius` use cell-local world units. `strength` ranges from
+/// zero to one and is multiplied by a smooth radial falloff. A LAND record
+/// without VCLR starts with white vertex colors. Existing LAND subrecords and
+/// unknown data are preserved.
+pub fn apply_vertex_color_brush(
+    record: &mut Record,
+    center: [f32; 2],
+    radius: f32,
+    color: [u8; 3],
+    strength: f32,
+) -> Result<()> {
+    if record.tag != tag::LAND {
+        return Err(Error::Invalid(
+            "vertex color brush requires a LAND record".into(),
+        ));
+    }
+    if !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !strength.is_finite()
+        || !(0.0..=1.0).contains(&strength)
+    {
+        return Err(Error::Invalid(
+            "vertex color brush center and radius must be finite, radius positive, and strength in 0 to 1"
+                .into(),
+        ));
+    }
+
+    let land = Land::from_record(record)?;
+    for subrecord_tag in [b"DATA", b"VCLR"] {
+        ensure_unique_subrecord(record, Tag::new(subrecord_tag))?;
+    }
+    let mut colours = land.colours.unwrap_or_else(|| vec![[255; 3]; VERTS]);
+    let spacing = 4096.0 / (VERTS_PER_SIDE - 1) as f32;
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let x = col as f32 * spacing;
+            let y = row as f32 * spacing;
+            let distance = (x - center[0]).hypot(y - center[1]);
+            if distance < radius {
+                let t = 1.0 - distance / radius;
+                let falloff = t * t * (3.0 - 2.0 * t) * strength;
+                let vertex = &mut colours[row * VERTS_PER_SIDE + col];
+                for channel in 0..3 {
+                    let current = f32::from(vertex[channel]);
+                    let target = f32::from(color[channel]);
+                    vertex[channel] = (current + (target - current) * falloff)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+
+    let data_flags = land.flags | flags::HAS_VERTEX_COLOURS;
+    if let Some(data) = record
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == Tag::new(b"DATA"))
+    {
+        data.data = data_flags.to_le_bytes().to_vec();
+    } else {
+        record.subrecords.insert(
+            0,
+            crate::plugin::Subrecord::new(Tag::new(b"DATA"), data_flags.to_le_bytes()),
+        );
+    }
+    let bytes = colours.into_iter().flatten().collect();
+    set_unique_subrecord(record, Tag::new(b"VCLR"), bytes)?;
+    Ok(())
+}
+
 fn ensure_encodable_heights(heights: &[f32]) -> Result<()> {
     let quantized = heights
         .iter()

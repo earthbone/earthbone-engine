@@ -1204,6 +1204,53 @@ impl EditorDocument {
         Ok(())
     }
 
+    /// Apply one circular LAND vertex color brush stroke as a single undoable edit.
+    ///
+    /// The LAND record must already be present in the active plugin. `center`
+    /// and `radius` use cell-local world units. `color` is the target RGB value
+    /// and `strength` controls the blend at the brush center.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a LAND record in the
+    /// active plugin, or its vertex color data cannot be edited.
+    pub fn brush_land_vertex_colors(
+        &mut self,
+        form: GlobalFormId,
+        center: [f32; 2],
+        radius: f32,
+        color: [u8; 3],
+        strength: f32,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        if self.active_plugin.records[index].tag != Tag(*b"LAND") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "vertex color brush requires an active-plugin LAND record",
+            });
+        }
+        let mut record = self.active_plugin.records[index].clone();
+        soe_esm::records::land::apply_vertex_color_brush(
+            &mut record,
+            center,
+            radius,
+            color,
+            strength,
+        )
+        .map_err(|error| EditorError::Plugin {
+            name: self.active_name.clone(),
+            message: error.to_string(),
+        })?;
+
+        if record != self.active_plugin.records[index] {
+            self.undo.push(self.active_plugin.clone());
+            self.active_plugin.records[index] = record;
+            self.rebuild_load_order()?;
+        }
+        Ok(())
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors

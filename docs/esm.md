@@ -214,6 +214,12 @@ from UESP's local `uesp-modfileformat/LAND.wikitext`. The circular brush operati
 Terrain3D's editor brush operation interface in
 `project/addons/terrain_3d/src/operation_builder.gd`.
 
+`records::land::apply_vertex_color_brush` blends an RGB target into VCLR on the same 33 by 33
+grid. The circular dab uses cell-local world units, smooth radial falloff and strength from zero
+to one. A LAND without VCLR starts at white. The operation sets the vertex-color flag while
+preserving other LAND fields, and rejects malformed or repeated VCLR and DATA subrecords before
+writing. VCLR's 3267-byte RGB grid is described in local `uesp-modfileformat/LAND.wikitext`.
+
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and
 height range, wave period, flags), and `fits_slope` filters a candidate placement's
