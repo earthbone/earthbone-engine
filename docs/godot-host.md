@@ -1338,7 +1338,7 @@ player, starts a replacement at a second position, and captures its output.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
 Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
-`target/release/libsoe_godot_host.so`; otherwise it reports a skip. Build the
+`target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
@@ -2144,7 +2144,7 @@ The default host build decodes vanilla xWMA in process through the audio
 crate's native WMA v2 decoder. The optional `xwma-ffmpeg` feature selects
 ffmpeg as a comparison decoder. The dialogue tests exercise response selection
 and replacement with mock output. The Godot mixer test checks speaker playback
-with a generated WAV fixture; installed xWMA playback still needs a live run.
+with a generated WAV fixture. Installed xWMA playback still needs a live run.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 samples the native mouth targets against that player's playback position,
