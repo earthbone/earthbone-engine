@@ -50,6 +50,24 @@ impl World {
         std::mem::take(&mut self.detection_events)
     }
 
+    /// Whether `target` is currently Alert or in Combat toward `observer`.
+    /// This reads the observer-specific result from the shared detection
+    /// state; it does not create an observation or advance detection.
+    ///
+    /// # Errors
+    /// Returns [`Error::Actor`] when either form is not a live actor.
+    pub fn is_actor_detected_by(
+        &self,
+        target: GlobalFormId,
+        observer: GlobalFormId,
+    ) -> Result<bool, Error> {
+        self.check_detection_actor(target)?;
+        self.check_detection_actor(observer)?;
+        Ok(self
+            .awareness(observer, target)
+            .is_some_and(|a| matches!(a.level, DetectionLevel::Alert | DetectionLevel::Combat)))
+    }
+
     /// Detection settings from the load order's GMST records.
     ///
     /// # Errors
