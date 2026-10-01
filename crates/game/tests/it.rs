@@ -613,12 +613,22 @@ mod mag_17_adversarial;
 mod mag_17_breaker_adversarial;
 #[path = "mag_18_adversarial.rs"]
 mod mag_18_adversarial;
+#[path = "mag_19_adversarial.rs"]
+mod mag_19_adversarial;
+#[path = "mag_19_taper.rs"]
+mod mag_19_taper;
 #[path = "mag_20_adversarial.rs"]
 mod mag_20_adversarial;
 #[path = "mag_20_equip_ability.rs"]
 mod mag_20_equip_ability;
+#[path = "mag_21_adversarial.rs"]
+mod mag_21_adversarial;
 #[path = "mag_22_adversarial.rs"]
 mod mag_22_adversarial;
+#[path = "mag_23_adversarial.rs"]
+mod mag_23_adversarial;
+#[path = "mag_24_adversarial.rs"]
+mod mag_24_adversarial;
 #[path = "mag_27_adversarial.rs"]
 mod mag_27_adversarial;
 #[path = "mag_28_adversarial.rs"]
@@ -725,8 +735,12 @@ mod mag_66_breaker_adversarial;
 mod mag_66_grab_actor;
 #[path = "mag_67_adversarial.rs"]
 mod mag_67_adversarial;
+#[path = "mag_69_adversarial.rs"]
+mod mag_69_adversarial;
 #[path = "mag_70_adversarial.rs"]
 mod mag_70_adversarial;
+#[path = "mag_72.rs"]
+mod mag_72;
 #[path = "mag_73_adversarial.rs"]
 mod mag_73_adversarial;
 #[path = "magic.rs"]
@@ -1205,3 +1219,5 @@ mod ui_15_gift_menu;
 mod ui_17_adversarial;
 #[path = "vanilla_save.rs"]
 mod vanilla_save;
+#[path = "visual_effects.rs"]
+mod visual_effects;
