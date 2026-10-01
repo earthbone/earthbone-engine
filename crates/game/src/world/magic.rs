@@ -2449,9 +2449,7 @@ impl World {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             validate_taper(data.taper_weight, data.taper_curve, data.taper_duration)?;
-            if data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("equip ability"));
-            }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             if matches!(data.archetype, LOCK | OPEN) {
                 if !self.lockable_reference(target) {
                     return Err(MagicError::Target);
@@ -3151,6 +3149,7 @@ impl World {
                 self.dispel_effect(victim, alloc);
             }
             if prepared.effect.recover
+                || self.is_peak_value_effect(prepared.effect.effect)?
                 || prepared.effect.duration == Some(0.0) && prepared.effect.taper_duration == 0.0
             {
                 self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
@@ -3664,7 +3663,18 @@ impl World {
                     break;
                 }
                 let reached_check = spell_conditions && dt + 1e-9 >= to_check;
-                if !effect.recover && (effect.duration != Some(0.0) || effect.taper_duration > 0.0)
+                if self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 32)
+                {
+                    if let Err(error) = self.accumulate_effect_value(&effect, dt) {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                } else if !effect.recover
+                    && !self.is_peak_value_effect(effect.effect).unwrap_or(false)
+                    && (effect.duration != Some(0.0) || effect.taper_duration > 0.0)
                 {
                     let start = effect.elapsed;
                     let end = start + dt;
@@ -3756,6 +3766,26 @@ impl World {
             }
         }
         errors
+    }
+
+    fn accumulate_effect_value(
+        &mut self,
+        effect: &ActiveEffect,
+        seconds: f64,
+    ) -> Result<(), MagicError> {
+        let (name, _) = effect.changes.first().ok_or(MagicError::Number)?;
+        let rate = match self.game_setting("fMagicWardPowerMaxBase") {
+            Some(Value::Float(rate)) if rate.is_finite() && rate >= 0.0 => f64::from(rate),
+            Some(_) => return Err(MagicError::Number),
+            None => return Err(MagicError::Unsupported("ward power setting")),
+        };
+        let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        let current = f64::from(actor.values.get(name).current());
+        let next = (current + rate * seconds).clamp(0.0, f64::from(effect.magnitude));
+        actor
+            .values
+            .force(name, next as f32)
+            .map_err(|_| MagicError::Number)
     }
 
     fn tick_spawn_hazard(

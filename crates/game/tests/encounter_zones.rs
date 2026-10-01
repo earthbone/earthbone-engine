@@ -472,20 +472,10 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     let current = world.save_state();
     for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
-        // Detection and world sections were absent from these old formats.
-        legacy::normalize_world_sections(&mut saved);
-        saved.truncate(saved.len() - 6);
-        // Versions 34 to 36 stored learned effects in the body, and version
-        // 36 stored scene runtime state there too.
-        saved.extend_from_slice(&0_u32.to_le_bytes());
-        if version >= 36 {
-            saved.extend_from_slice(&0_u32.to_le_bytes());
-        }
-        saved[4..6].copy_from_slice(&version.to_le_bytes());
-        let tail = legacy::version_tail_len(&saved, |candidate| {
+        legacy::empty_legacy_world_collections(&mut saved, version);
+        legacy::truncate_to_version(&mut saved, version, |candidate| {
             reset_fixture(0).load_state(candidate).is_ok()
         });
-        saved.truncate(saved.len() - tail);
         let mut loaded = reset_fixture(0);
         loaded
             .load_state(&saved)
