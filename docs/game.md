@@ -649,6 +649,49 @@ reads the reference flag used by its Papyrus native. The condition functions 63,
 66, 118, 288 and 361 remain unsupported with explicit function diagnostics
 because the local CK corpus does not provide usable condition semantics for them.
 
+### Utility and VisualEffect contract audit, SCR-72
+
+The registry contains the following 27 Utility and VisualEffect bindings. CK
+contracts come from `engine-refs/ck-wiki/Utility_Script.wikitext` and the
+shipped `engine-refs/skse64/scripts/vanilla/Utility.psc`. INI getters are
+identified by the CK page as SKSE globals. The memory and frame-capture
+functions are documented in the CK page as conditional or beta functions.
+
+| Binding | Contract comparison and disposition |
+|---|---|
+| `Utility.GameTimeToString` | CK and PSC accept elapsed game days and return a calendar date and time. Fixed in SCR-72 to format `MM/DD/YYYY HH:MM`. |
+| `Utility.GetCurrentGameTime` | CK and PSC return game days passed. Reads `GameClock.game_days`. |
+| `Utility.GetCurrentRealTime` | CK and PSC return elapsed real seconds. Reads `GameClock.real_seconds`. |
+| `Utility.IsInMenuMode` | CK reports menu state. Quiet false stub, behavior is owned by SCR-49. |
+| `Utility.RandomFloat` | CK and PSC specify inclusive minimum and maximum. Fixed in SCR-72 so both endpoints are representable. |
+| `Utility.RandomInt` | CK and PSC specify inclusive minimum and maximum. The world RNG includes both bounds. |
+| `Utility.SetINIFloat` | CK specifies storing a float under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIInt` | CK specifies storing an integer under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIBool` | CK specifies storing a boolean under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIString` | CK specifies storing a string under the named INI key. Stores it in the runtime INI map. |
+| `Utility.GetINIFloat` | CK identifies the SKSE global getter for a float. Parses the stored value, defaulting to zero. |
+| `Utility.GetINIInt` | CK identifies the SKSE global getter for an integer. Parses the stored value, defaulting to zero. |
+| `Utility.GetINIBool` | CK identifies the SKSE global getter for a boolean. Returns true for stored `true` or `1`. |
+| `Utility.GetINIString` | CK identifies the SKSE global getter for a string. Returns the stored value or an empty string. |
+| `Utility.CaptureFrameRate` | CK marks this as beta-only and returns a comma-separated sample string bounded to 1,000 characters. Quiet stub, owned by SCR-49. |
+| `Utility.StartFrameRateCapture` | CK marks this as beta-only and starts sampling. Quiet stub, owned by SCR-49. |
+| `Utility.EndFrameRateCapture` | CK marks this as beta-only and ends sampling. Quiet stub, owned by SCR-49. |
+| `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
+| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
+| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
+| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Quiet stub, owned by SCR-50. |
+| `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
+| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
+| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
+| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite; VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target; VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+
+The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
+registered by the Papyrus VM rather than `game::natives::register`, so they are
+not part of this registry inventory. Their clock contracts are documented in
+the VM section above.
+
 Current behavior and compatibility limits:
 
 - `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`

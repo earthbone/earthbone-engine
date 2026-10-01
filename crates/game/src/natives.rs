@@ -3967,6 +3967,131 @@ mod tests {
     use super::*;
     use soe_esm::LoadOrder;
 
+    const SCR_72_BINDINGS: [(&str, &str, bool, &str); 27] = [
+        (
+            "Utility",
+            "GameTimeToString",
+            true,
+            "CK: game days to calendar date and time",
+        ),
+        (
+            "Utility",
+            "GetCurrentGameTime",
+            true,
+            "CK: current game days",
+        ),
+        (
+            "Utility",
+            "GetCurrentRealTime",
+            true,
+            "CK: elapsed real seconds",
+        ),
+        ("Utility", "IsInMenuMode", true, "CK: menu mode state"),
+        ("Utility", "RandomFloat", true, "CK: inclusive float range"),
+        ("Utility", "RandomInt", true, "CK: inclusive integer range"),
+        ("Utility", "SetINIFloat", true, "CK: set float INI value"),
+        ("Utility", "SetINIInt", true, "CK: set integer INI value"),
+        ("Utility", "SetINIBool", true, "CK: set boolean INI value"),
+        ("Utility", "SetINIString", true, "CK: set string INI value"),
+        (
+            "Utility",
+            "GetINIFloat",
+            true,
+            "CK: get float INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIInt",
+            true,
+            "CK: get integer INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIBool",
+            true,
+            "CK: get boolean INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIString",
+            true,
+            "CK: get string INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "CaptureFrameRate",
+            true,
+            "CK beta: capture frame samples",
+        ),
+        (
+            "Utility",
+            "StartFrameRateCapture",
+            true,
+            "CK beta: begin capture",
+        ),
+        (
+            "Utility",
+            "EndFrameRateCapture",
+            true,
+            "CK beta: end capture",
+        ),
+        (
+            "Utility",
+            "GetAverageFrameRate",
+            true,
+            "CK beta: average captured rate",
+        ),
+        (
+            "Utility",
+            "GetMinFrameRate",
+            true,
+            "CK beta: minimum captured rate",
+        ),
+        (
+            "Utility",
+            "GetMaxFrameRate",
+            true,
+            "CK beta: maximum captured rate",
+        ),
+        (
+            "Utility",
+            "GetCurrentMemory",
+            true,
+            "CK: initialize and return memory stats",
+        ),
+        ("Utility", "GetBudgetCount", true, "CK: memory budget count"),
+        (
+            "Utility",
+            "GetBudgetName",
+            true,
+            "CK: memory budget name by index",
+        ),
+        (
+            "Utility",
+            "GetCurrentBudget",
+            true,
+            "CK: current budget by index",
+        ),
+        (
+            "Utility",
+            "OverBudget",
+            true,
+            "CK: budget threshold by index",
+        ),
+        (
+            "VisualEffect",
+            "Play",
+            false,
+            "VisualEffect contract: start authored effect on target",
+        ),
+        (
+            "VisualEffect",
+            "Stop",
+            false,
+            "VisualEffect contract: stop authored effect on target",
+        ),
+    ];
+
     #[test]
     fn the_hand_kept_count_matches_the_registry() {
         let mut vm = Vm::new();
@@ -4038,5 +4163,28 @@ mod tests {
             assert!(!vm.natives.has_global(class, name), "{class}.{name}");
         }
         assert!(!vm.natives.has_method("Topic", "Remove"));
+    }
+
+    #[test]
+    fn scr_72_registry_inventory_has_a_contract_comparison_for_each_binding() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        assert_eq!(SCR_72_BINDINGS.len(), 27);
+        for (class, name, global, contract) in SCR_72_BINDINGS {
+            assert!(
+                !contract.is_empty(),
+                "{class}.{name} has no contract comparison"
+            );
+            assert!(
+                if global {
+                    vm.natives.has_global(class, name)
+                } else {
+                    vm.natives.has_method(class, name)
+                },
+                "{class}.{name} registry shape disagrees with its contract inventory"
+            );
+        }
     }
 }
