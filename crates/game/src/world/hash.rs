@@ -986,6 +986,7 @@ impl World {
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
         for (id, effects) in &self.brewed_potions {

@@ -58,6 +58,7 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+pub mod effect_shader;
 mod encounter_zones;
 mod events;
 pub use events::EffectShaderRequest;
@@ -492,6 +493,8 @@ pub enum MenuRequest {
     PrecacheCharGenClear,
     /// Open the player's race and sex selection screen.
     Race,
+    /// Open the training menu for the named actor.
+    Training(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -622,12 +625,23 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 /// One-shot request for a host-owned screen or presentation action.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostRequest {
     /// Tear down gameplay and return to the main menu.
     QuitToMainMenu,
     /// Start the named title sequence on the main menu.
     StartTitleSequence(String),
+    FadeOutGame {
+        fading_out: bool,
+        black: bool,
+        seconds_before_fade: f32,
+        fade_duration: f32,
+    },
+    Save {
+        automatic: bool,
+    },
+    CameraFirstPerson,
+    CameraThirdPerson,
 }
 
 pub struct World {
@@ -764,6 +778,10 @@ pub struct World {
     /// Transient presentation requests raised by global Game natives.
     pub game_ui_requests: Vec<GameUiRequest>,
     pub beast_form: bool,
+    /// Host camera direction in Skyrim axes, refreshed by the player adapter.
+    pub camera_look: [f32; 3],
+    /// One-shot camera effects requested by Papyrus and consumed by the host.
+    pub camera_shakes: Vec<CameraShake>,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
     /// Magic effects made available for new enchantments by disenchanting.
@@ -801,6 +819,7 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Active shader particle geometries derived from winning SPGD records.
     pub(crate) shader_particles: shader_particles::ShaderParticleState,
+    pub(crate) effect_shaders: effect_shader::EffectShaderState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
     pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
@@ -856,6 +875,14 @@ pub struct BinkOptions {
     pub mute_music: bool,
     /// Whether the host displays letterboxing.
     pub letterbox: bool,
+}
+
+/// A transient camera shake requested by `Game.ShakeCamera`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraShake {
+    pub source: GlobalFormId,
+    pub strength: f32,
+    pub duration: f32,
 }
 
 impl World {
@@ -962,6 +989,8 @@ impl World {
             hud_cart_mode: false,
             game_ui_requests: Vec::new(),
             beast_form: false,
+            camera_look: [0.0, 1.0, 0.0],
+            camera_shakes: Vec::new(),
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
             learned_enchantment_effects: BTreeSet::new(),
@@ -991,6 +1020,7 @@ impl World {
             next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             shader_particles: shader_particles::ShaderParticleState::default(),
+            effect_shaders: effect_shader::EffectShaderState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),
@@ -1025,6 +1055,17 @@ impl World {
     /// Take pending host screenshot paths in request order.
     pub fn take_screenshot_requests(&mut self) -> Vec<String> {
         std::mem::take(&mut self.screenshot_requests)
+    }
+
+    /// Drain operations that must be carried out by the active host.
+    ///
+    /// # Errors
+    /// This method does not fail.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
+        std::mem::take(&mut self.host_requests)
     }
 }
 

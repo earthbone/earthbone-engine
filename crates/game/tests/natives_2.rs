@@ -22,6 +22,7 @@ use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plu
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
+use soe_game::HostRequest;
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -564,6 +565,22 @@ fn game() -> Game {
         game.load_script(&s).unwrap();
     }
     game
+}
+
+/// CK `Game.ClearPrison` clears the prison variables on the player. The
+/// current shared actor model represents that prison flag as `arrested`.
+#[test]
+fn scr_27_clear_prison_clears_player_arrest_state() {
+    let mut game = game();
+    let player = game.world_mut().player();
+    game.world_mut().actor(player).unwrap().arrested = true;
+    game.world_mut().actor(player).unwrap().days_in_jail = 4;
+
+    call_global(&mut game, "Game", "ClearPrison", &[]);
+
+    assert!(!game.world_mut().actor(player).unwrap().arrested);
+    assert_eq!(game.world_mut().actor(player).unwrap().days_in_jail, 0);
+    assert!(errors(&game).is_empty());
 }
 
 static PROBES: AtomicUsize = AtomicUsize::new(0);
@@ -1534,6 +1551,85 @@ fn scr_58_faction_crime_group_uses_the_other_faction_argument() {
     assert_eq!(
         call(&mut g, &thieves, "IsFactionInCrimeGroup", &[guards]),
         Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// `ModReaction` applies its amount to the selected direction only.
+#[test]
+fn scr_25_mod_reaction_changes_selected_direction() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    call(
+        &mut g,
+        &guards,
+        "ModReaction",
+        &[thieves.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves.clone()]),
+        Value::Int(3),
+        "the requested amount must be applied"
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards]),
+        Value::Int(0),
+        "the reverse relation must not change"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// `ModReaction` defaults a missing relation to neutral, ignores a missing
+/// target, and saturates instead of overflowing.
+#[test]
+fn scr_25_mod_reaction_handles_default_missing_target_and_overflow() {
+    let mut g = game();
+    let guards_id = g.form("GuardsFaction").unwrap();
+    let thieves_id = g.form("ThievesFaction").unwrap();
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    call(
+        &mut g,
+        &thieves,
+        "ModReaction",
+        &[guards.clone(), Value::Int(-1)],
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards.clone()]),
+        Value::Int(-1),
+        "an absent relation starts from neutral"
+    );
+    call(
+        &mut g,
+        &thieves,
+        "ModReaction",
+        &[Value::None, Value::Int(8)],
+    );
+    assert_eq!(
+        g.world_mut()
+            .faction(thieves_id)
+            .unwrap()
+            .reactions
+            .get(&guards_id),
+        Some(&-1),
+        "a missing target must leave the existing relation unchanged"
+    );
+    g.world_mut()
+        .faction(guards_id)
+        .unwrap()
+        .reactions
+        .insert(thieves_id, i32::MAX);
+    call(
+        &mut g,
+        &guards,
+        "ModReaction",
+        &[thieves.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves]),
+        Value::Int(i32::MAX),
+        "the reaction must saturate at the integer boundary"
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
@@ -2800,6 +2896,67 @@ fn game_state_natives_round_trip() {
         Value::string("x")
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Game presentation and save natives preserve their typed arguments and
+/// enqueue ordered work for the owning host subsystems.
+#[test]
+fn scr_28_game_presentation_and_save_requests() {
+    let mut g = game();
+    for name in [
+        "RequestSave",
+        "RequestAutoSave",
+        "ForceFirstPerson",
+        "ForceThirdPerson",
+    ] {
+        assert_eq!(call_global(&mut g, "Game", name, &[]), Value::None);
+    }
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "FadeOutGame",
+            &[
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Float(0.25),
+                Value::Float(1.5),
+            ],
+        ),
+        Value::None
+    );
+    assert_eq!(
+        g.world_mut().take_host_requests(),
+        vec![
+            HostRequest::Save { automatic: false },
+            HostRequest::Save { automatic: true },
+            HostRequest::CameraFirstPerson,
+            HostRequest::CameraThirdPerson,
+            HostRequest::FadeOutGame {
+                fading_out: true,
+                black: false,
+                seconds_before_fade: 0.25,
+                fade_duration: 1.5,
+            },
+        ]
+    );
+    assert!(g.world_mut().take_host_requests().is_empty());
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "FadeOutGame",
+            &[
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Float(f32::NAN),
+                Value::Float(1.0),
+            ],
+        ),
+        Value::None
+    );
+    assert!(g.world_mut().take_host_requests().is_empty());
+    assert!(g.vm.log.contains("Game.FadeOutGame"));
 }
 
 /// CK defines independent player-control flags and separate chargen flags.
