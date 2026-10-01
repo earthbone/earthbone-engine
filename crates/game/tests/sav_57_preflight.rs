@@ -9,8 +9,7 @@ use soe_game::{
 use soe_papyrus::asm::ScriptBuilder;
 use soe_save::{Compression, FileLocationTable, GlobalData, Header, Save, WString};
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 fn plugin(light: bool, content: &str) -> Plugin {
     let mut file = Plugin::new(FileHeader {
