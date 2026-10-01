@@ -5138,6 +5138,32 @@ MAG-71 separately owns authored color, blur, depth and HDR curve evaluation
 and rendering. MAG-25 adds no visible post-processing and claims no rendered
 parity with Skyrim.
 
+## ImageSpaceModifier and Keyword native audit, SCR-63
+
+The registry binds seven methods and one global across these classes. The test
+`scr_63_binding_inventory_matches_the_ck_contracts` derives that inventory
+from the live native registry and checks each method/global classification.
+`scr_63_image_space_and_keyword_calls_follow_documented_contracts` invokes
+each binding and checks its return value or World effect.
+
+| Binding | Local contract and implementation |
+|---|---|
+| `ImageSpaceModifier.Apply(float afStrength = 1.0)` method | Shipped `skse64/scripts/vanilla/ImageSpaceModifier.psc` says the strength is not clamped. The native applies the modifier at the requested strength, defaulting to 1.0. |
+| `ImageSpaceModifier.ApplyCrossFade(float afFadeDuration = 1.0)` method | The shipped PSC adds the modifier to the crossfade chain and removes the prior crossfade modifier. It remains separate from ordinary applications. |
+| `ImageSpaceModifier.PopTo(ImageSpaceModifier akNewModifier, float afStrength = 1.0)` method | The shipped PSC says this replaces the source with the destination without interrupting an unrelated crossfade. The CK [PopTo contract](https://ck.uesp.net/wiki/PopTo_-_ImageSpaceModifier) confirms that behavior and unclamped strength. |
+| `ImageSpaceModifier.Remove()` method | The shipped PSC says to remove this modifier. The native removes its ordinary application. |
+| `ImageSpaceModifier.RemoveCrossFade(float afFadeDuration = 1.0)` global | The shipped PSC declares this global and says to fade out the current crossfade modifier. |
+| `Keyword.GetString()` method | CK `Keyword_Script.wikitext` records the SKSE member contract as returning the string associated with the keyword. The binding returns the keyword record's editor ID. |
+| `Keyword.SendStoryEvent(Location akLoc = None, ObjectReference akRef1 = None, ObjectReference akRef2 = None, int aiValue1 = 0, int aiValue2 = 0)` method | CK `Keyword_Script.wikitext` and the shipped `Keyword.psc` say this sends the keyword and optional context to the Story Manager. It is a quiet no-op until authored Story Manager execution lands in `PRG-14`. |
+| `Keyword.SendStoryEventAndWait(Location akLoc = None, ObjectReference akRef1 = None, ObjectReference akRef2 = None, int aiValue1 = 0, int aiValue2 = 0)` method | CK and the shipped PSC say it waits for Story Manager processing and returns whether a quest started. Its quiet false result is the no-quest-start case. The missing dispatch and wait path is owned by `PRG-14`. |
+
+The class page provides the Keyword contract, while individual ImageSpaceModifier
+function pages are absent from the local CK dump except for `PopTo`. For the
+other ImageSpaceModifier signatures and descriptions, the shipped vanilla PSC
+is the local contract source. `docs/reference-audit.md` identifies PRG-14 as
+the Story Manager execution work; `SAV-20` covers persistence of a pending
+event context after such dispatch exists.
+
 ## Image-space rendering prerequisite audit, MAG-71
 
 MAG-71 depends on MAG-25's active modifier lifetimes and MAG-72's shared base
