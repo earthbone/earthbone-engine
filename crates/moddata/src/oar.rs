@@ -432,7 +432,9 @@ mod tests {
     fn a_modern_submod_requires_an_author_name() {
         let tmp = tempfile::tempdir().expect("tempdir");
         write(tmp.path(), "Mod/Sprint/config.json", r#"{"priority":1}"#);
-        assert!(AnimationMod::scan(tmp.path()).is_err());
+        let err =
+            AnimationMod::scan(tmp.path().join("Mod/Sprint")).expect_err("missing author name");
+        assert!(err.to_string().contains("no name"));
     }
 
     #[test]
@@ -649,7 +651,7 @@ mod tests {
         write(
             tmp.path(),
             "OAR/Test/Sub/config.json",
-            r#"{"priority":1,"conditions":[null]}"#,
+            r#"{"name":"Sub","priority":1,"conditions":[null]}"#,
         );
         let found = AnimationMod::scan(tmp.path()).expect("scan");
         assert_eq!(found.sub_mods[0].condition_groups.len(), 1);

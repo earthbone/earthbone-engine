@@ -201,7 +201,7 @@ rules are evaluated for each actor as its state is built.
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
-| OAR | Parsed submods are retained by `Game`; callers can select the highest-priority enabled submod matching actor conditions | Runtime animation playback will consume the selected paths |
+| OAR | Parsed submods are retained by `Game`. Callers can select the highest-priority enabled submod matching actor conditions | Runtime animation playback will consume the selected paths |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
 into the same list `World::keywords` returns for a record's own `KWDA`, so
