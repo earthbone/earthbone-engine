@@ -3,11 +3,9 @@
 
 //! Wait fixtures use vanilla PKC2 ordering: ActualSeconds, then StopMovement.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
@@ -243,12 +241,12 @@ fn worlds_saved_before_wait_tags_remain_readable() {
     let game = game(2.0, false, false);
     let original = game.world().save_state();
     let mut legacy = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 21 predates the image-space, loose-item and zone blocks, and
-    // also predates detection (read gate version 30) and save sections
-    // (version 37), so the extra 6 bytes those two now always write at the
-    // tail, regardless of version, must be truncated away too.
-    legacy.truncate(legacy.len() - 35);
-    legacy[4..6].copy_from_slice(&21u16.to_le_bytes());
+    legacy::truncate_to_version(&mut legacy, 21, |candidate| {
+        self::game(2.0, false, false)
+            .world_mut()
+            .load_state(candidate)
+            .is_ok()
+    });
     game.world_mut().load_state(&legacy).unwrap();
     assert_eq!(game.world().save_state(), original);
 }

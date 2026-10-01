@@ -21,11 +21,14 @@ pub mod batch;
 pub mod camera;
 pub mod collision;
 pub mod combat;
+pub mod crafting_menu;
 pub mod data_source;
 pub mod detect_life;
 pub mod detection;
 pub mod dialogue_menu;
 pub mod door_fade;
+pub mod effect_shader;
+pub mod facegen;
 pub mod facial;
 pub mod hud;
 pub mod image_space;
@@ -43,6 +46,8 @@ pub mod skinned;
 pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
+pub mod terrain_lod_generate;
+pub mod training_menu;
 pub mod ui;
 pub mod units;
 
@@ -55,13 +60,19 @@ pub mod godot_audio;
 #[cfg(feature = "godot")]
 pub mod godot_combat;
 #[cfg(feature = "godot")]
+pub mod godot_forms;
+#[cfg(feature = "godot")]
 pub mod godot_layer;
+#[cfg(feature = "godot")]
+pub mod godot_particle;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
 #[cfg(feature = "godot")]
 pub mod godot_player;
 #[cfg(feature = "godot")]
 pub mod godot_ragdoll;
+#[cfg(feature = "godot")]
+pub mod godot_tether;
 #[cfg(feature = "godot")]
 mod godot_world;
 

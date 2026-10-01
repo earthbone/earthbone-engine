@@ -3,8 +3,7 @@
 
 //! Distinct stacks must survive quantity operations and engine-save boundaries.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
@@ -195,12 +194,9 @@ fn version_eleven_counts_load_as_plain_items() {
     // own record ends with an empty save-section table version 37 added.
     // Strip it before truncating the rest of the buffer to an older header.
     let mut bytes = legacy::without_ref_sections(&mut w, &[id(0x900)]);
-    // The extra 6 bytes beyond the old 50 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version.
-    bytes.truncate(bytes.len() - 56);
-    bytes[4..6].copy_from_slice(&11_u16.to_le_bytes());
+    legacy::truncate_to_version(&mut bytes, 11, |candidate| {
+        world().load_state(candidate).is_ok()
+    });
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.item_count(id(0x900), id(0x801)), 17);

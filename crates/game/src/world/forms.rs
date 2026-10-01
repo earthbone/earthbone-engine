@@ -5,7 +5,7 @@
 //! cells and game settings.
 
 use soe_esm::records::lctn::Location;
-use soe_esm::GlobalFormId;
+use soe_esm::{cursor::Fields, Error, GlobalFormId, Result};
 use soe_papyrus::Value;
 use std::collections::HashSet;
 
@@ -42,6 +42,181 @@ pub(super) fn add_saved_form_list_entries(
 }
 
 impl World {
+    /// Whether an actor base's race carries the RACE DATA Playable flag.
+    pub fn race_is_playable(&mut self, actor: GlobalFormId) -> Option<bool> {
+        let race = self.actor_base(actor)?.race?;
+        let rec = self
+            .record(race)
+            .filter(|record| record.tag == T(b"RACE"))?;
+        let data = rec.find(T(b"DATA"))?;
+        // The seven skill boosts occupy two bytes each, followed by two
+        // unknown bytes, four height and weight floats, then the flags.
+        let flags = data.get(32..36)?;
+        Some(u32::from_le_bytes(flags.try_into().ok()?) & 1 != 0)
+    }
+
+    /// Whether an actor base's race carries the RACE DATA Child flag.
+    pub fn race_is_child(&mut self, actor: GlobalFormId) -> Option<bool> {
+        let race = self.actor_base(actor)?.race?;
+        let rec = self
+            .record(race)
+            .filter(|record| record.tag == T(b"RACE"))?;
+        let data = rec.find(T(b"DATA"))?;
+        let flags = data.get(32..36)?;
+        Some(u32::from_le_bytes(flags.try_into().ok()?) & 4 != 0)
+    }
+
+    /// Whether a winning RELA record connects two actor bases with an ASTP.
+    /// Relationship direction is ignored because association membership is
+    /// mutual, while parent checks use the authored direction separately.
+    pub fn actors_have_association(
+        &self,
+        first: GlobalFormId,
+        second: GlobalFormId,
+        association: GlobalFormId,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            if data.len() < 16 {
+                return false;
+            }
+            let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+            let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+            let assoc = self.resolve_from(id, le_u32(&data[12..16]).unwrap_or(0));
+            assoc == Some(association)
+                && ((parent == Some(first) && child == Some(second))
+                    || (parent == Some(second) && child == Some(first)))
+        })
+    }
+
+    /// Whether two actor bases have a relationship whose association is marked
+    /// Family Association in ASTP DATA. With no second actor, any family link
+    /// for the first actor is sufficient.
+    pub fn actors_have_family_relationship(
+        &self,
+        actor: GlobalFormId,
+        other: Option<GlobalFormId>,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            if data.len() < 16 {
+                return false;
+            }
+            let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+            let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+            let linked = parent == Some(actor) || child == Some(actor);
+            let paired = other.is_none_or(|other| {
+                (parent == Some(actor) && child == Some(other))
+                    || (parent == Some(other) && child == Some(actor))
+            });
+            let association = self.resolve_from(id, le_u32(&data[12..16]).unwrap_or(0));
+            linked
+                && paired
+                && association
+                    .and_then(|association| self.record(association))
+                    .filter(|record| record.tag == T(b"ASTP") && !record.is_deleted())
+                    .and_then(|record| record.find(T(b"DATA")))
+                    .and_then(le_u32)
+                    .is_some_and(|flags| flags & 1 != 0)
+        })
+    }
+
+    /// Whether the authored RELA direction names `parent` and `child`.
+    pub fn actors_have_parent_relationship(
+        &self,
+        parent: GlobalFormId,
+        child: GlobalFormId,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            data.len() >= 8
+                && self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0)) == Some(parent)
+                && self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0)) == Some(child)
+        })
+    }
+
+    /// Return an item's authored gold value for gift favor accounting.
+    pub fn item_value(&self, id: GlobalFormId) -> i32 {
+        let Some(record) = self.record(id) else {
+            return 0;
+        };
+        let tag = record.tag.as_bytes();
+        let (subrecord, offset) = match tag {
+            b"WEAP" | b"ARMO" | b"MISC" | b"INGR" => (T(b"DATA"), 0),
+            b"AMMO" => (T(b"DATA"), 12),
+            b"BOOK" => (T(b"DATA"), 8),
+            b"ALCH" => (T(b"ENIT"), 0),
+            _ => return 0,
+        };
+        let Some(data) = record.find(subrecord) else {
+            return 0;
+        };
+        data.get(offset..offset + 4)
+            .map(|bytes| i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).max(0))
+            .unwrap_or(0)
+    }
+
+    /// Read the optional `NPC_.GNAM` gift filter.
+    ///
+    /// # Errors
+    /// Rejects a missing or deleted actor base, malformed GNAM data, or a
+    /// link that does not resolve to a live FormList.
+    pub fn actor_base_gift_filter(&self, base: GlobalFormId) -> Result<Option<GlobalFormId>> {
+        let record = self
+            .record(base)
+            .filter(|record| record.tag == T(b"NPC_") && !record.is_deleted())
+            .ok_or_else(|| {
+                Error::Invalid(format!("gift filter owner is not a live NPC_: {base}"))
+            })?;
+        let Some(bytes) = record.find(T(b"GNAM")) else {
+            return Ok(None);
+        };
+        let mut field = Fields::new(record.tag, T(b"GNAM"), bytes);
+        field.exact(4)?;
+        let raw = field.u32()?;
+        if raw == 0 {
+            return Ok(None);
+        }
+        let filter = self.resolve_from(base, raw).ok_or_else(|| {
+            Error::Invalid(format!("gift filter on NPC_ {base} does not resolve"))
+        })?;
+        if self
+            .record(filter)
+            .is_none_or(|record| record.tag != T(b"FLST") || record.is_deleted())
+        {
+            return Err(Error::Invalid(format!(
+                "gift filter on NPC_ {base} is not a live FLST: {filter}"
+            )));
+        }
+        Ok(Some(filter))
+    }
+
+    /// Add one script-supplied entry to a FormList using the saved-addition
+    /// ordering and duplicate rules.
+    pub fn add_form_list_entry(&mut self, list: GlobalFormId, item: Option<GlobalFormId>) {
+        let Some(item) = item else {
+            return;
+        };
+        if let Some(items) = self.form_list(list) {
+            add_saved_form_list_entries(items, [item]);
+        }
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;
@@ -146,6 +321,74 @@ impl World {
             self.locations.insert(id, LocationState::default());
         }
         self.locations.get_mut(&id)
+    }
+
+    /// Whether a location or one of its descendants belongs to the active cell.
+    #[must_use]
+    pub fn location_is_loaded(&self, id: GlobalFormId) -> bool {
+        if self.tag_of(id) != Some(T(b"LCTN")) {
+            return false;
+        }
+        let Some(cell) = self.loaded_cell else {
+            return false;
+        };
+        let loaded_location = self
+            .record(cell)
+            .filter(|record| record.tag == T(b"CELL"))
+            .and_then(|record| record.find(T(b"XLCN")))
+            .and_then(le_u32)
+            .filter(|raw| *raw != 0)
+            .and_then(|raw| self.resolve_from(cell, raw));
+        loaded_location.is_some_and(|loaded| loaded == id || self.location_is_child(id, loaded))
+    }
+
+    /// Whether a location record lists a placed reference with this ref type.
+    #[must_use]
+    pub fn location_has_ref_type(&self, id: GlobalFormId, ref_type: GlobalFormId) -> bool {
+        self.location_ref_type_entries(id)
+            .any(|(entry_type, _)| entry_type == ref_type)
+    }
+
+    /// Alive and dead actors linked to a location under a reference type.
+    #[must_use]
+    pub fn location_ref_type_counts(&self, id: GlobalFormId, ref_type: GlobalFormId) -> (i32, i32) {
+        let mut alive = 0;
+        let mut dead = 0;
+        for (entry_type, reference) in self.location_ref_type_entries(id) {
+            if entry_type != ref_type || self.tag_of(reference) != Some(T(b"ACHR")) {
+                continue;
+            }
+            if self.actor_ref(reference).is_some_and(|actor| actor.dead) {
+                dead += 1;
+            } else {
+                alive += 1;
+            }
+        }
+        (alive, dead)
+    }
+
+    fn location_ref_type_entries(
+        &self,
+        id: GlobalFormId,
+    ) -> impl Iterator<Item = (GlobalFormId, GlobalFormId)> + '_ {
+        let entries = self
+            .record(id)
+            .filter(|record| record.tag == T(b"LCTN"))
+            .into_iter()
+            .flat_map(|record| {
+                record
+                    .all(T(b"ACSR"))
+                    .chain(record.all(T(b"LCSR")))
+                    .filter(|data| data.len() == 16)
+            });
+        entries.filter_map(move |data| {
+            let ref_type = self.resolve_from(id, le_u32(data)?)?;
+            if self.tag_of(ref_type) != Some(T(b"LCRT")) {
+                return None;
+            }
+            let reference = self.resolve_from(id, le_u32(&data[4..])?)?;
+            Some((ref_type, reference))
+        })
     }
 
     /// `PNAM` of an `LCTN`.
@@ -273,6 +516,22 @@ impl World {
         self.factions.get_mut(&id)
     }
 
+    /// Whether `other` appears in the shared crime faction list linked by
+    /// this faction's `CRGR` subrecord.
+    pub fn faction_in_crime_group(&mut self, faction: GlobalFormId, other: GlobalFormId) -> bool {
+        let Some(group) = self
+            .record(faction)
+            .filter(|record| record.tag == T(b"FACT"))
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(le_u32)
+            .and_then(|raw| self.resolve_from(faction, raw))
+        else {
+            return false;
+        };
+        self.form_list(group)
+            .is_some_and(|members| members.contains(&other))
+    }
+
     /// `FACT.CRVA`, the bounty table `record_witnessed_crime` prices a
     /// crime against. Read straight from the winning record on every call:
     /// unlike `crime_gold_violent`, it never changes at runtime, so caching
@@ -365,5 +624,45 @@ impl World {
             Some(b's') => Value::string(&zstring(data)),
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+    const fn id(file: u16, object: u32) -> GlobalFormId {
+        GlobalFormId { file, object }
+    }
+
+    #[test]
+    fn scr_60_formlist_additions_follow_creation_order_and_skip_duplicates() {
+        let list_id = id(0, 0x800);
+        let authored = id(0, 0x801);
+        let regular = id(0, 0x802);
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag::new(b"FLST"), list_id.object)
+                .sub(Tag::new(b"LNAM"), authored.object.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag::new(b"MISC"), authored.object));
+        plugin.push_top(Record::new(Tag::new(b"MISC"), regular.object));
+        let mut order = LoadOrder::new();
+        order.add("Scr60.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let created = id(super::super::DYNAMIC_FILE, 0x100);
+
+        world.add_form_list_entry(list_id, None);
+        world.add_form_list_entry(list_id, Some(authored));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(created));
+        world.add_form_list_entry(list_id, Some(created));
+
+        assert_eq!(
+            world.form_list(list_id).unwrap(),
+            &[created, authored, regular]
+        );
     }
 }

@@ -45,12 +45,18 @@ pub struct Condition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubMod {
     pub directory: PathBuf,
-    /// From `name`, or the directory name when absent.
+    /// Directory searched for clips, which can be a sibling override folder.
+    pub animation_directory: PathBuf,
+    /// The author name in the modern layout, or directory priority in legacy.
     pub name: String,
     /// Higher wins. Required in the modern layout, and the directory name in
     /// the legacy one.
     pub priority: i32,
+    /// Whether the submod is disabled by its selected JSON data file.
+    pub disabled: bool,
     pub conditions: Vec<Condition>,
+    /// Conditions in each group are ORed. The groups themselves are ANDed.
+    pub condition_groups: Vec<Vec<Condition>>,
     /// True when this came from a `_conditions.txt` tree.
     pub legacy: bool,
 }
@@ -68,13 +74,31 @@ impl AnimationMod {
     ///
     /// # Errors
     ///
-    /// [`Error::Json`] when a `config.json` is present but unreadable as a
-    /// submod. A directory that holds neither layout yields nothing.
+    /// [`Error::Json`] when `root` itself has an unreadable `config.json`.
+    /// Invalid nested submods are skipped independently. A directory that
+    /// holds neither layout yields nothing.
     pub fn scan(root: impl AsRef<Path>) -> Result<Self> {
         let mut sub_mods = Vec::new();
         walk(root.as_ref(), 0, &mut sub_mods)?;
         sub_mods.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
         Ok(Self { sub_mods })
+    }
+
+    /// Return the highest-priority enabled submod accepted by `matches`.
+    ///
+    /// The caller evaluates conditions because OAR conditions can be
+    /// registered by other plugins. Equal priorities retain scan order.
+    pub fn select_submod(&self, mut matches: impl FnMut(&SubMod) -> bool) -> Option<&SubMod> {
+        self.sub_mods
+            .iter()
+            .filter(|submod| !submod.disabled && matches(submod))
+            .fold(None, |selected: Option<&SubMod>, candidate| {
+                if selected.is_none_or(|current| candidate.priority > current.priority) {
+                    Some(candidate)
+                } else {
+                    selected
+                }
+            })
     }
 }
 
@@ -108,7 +132,9 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<SubMod>) -> Result<()> {
         .collect();
     paths.sort();
     for path in paths {
-        walk(&path, depth + 1, out)?;
+        // Parsing.cpp treats each submod as an independent parse result and
+        // keeps successful siblings when one submod fails.
+        let _ = walk(&path, depth + 1, out);
     }
     Ok(())
 }
@@ -122,7 +148,8 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
     let name = author_obj
         .get("name")
         .and_then(serde_json::Value::as_str)
-        .map_or_else(|| directory_name(dir), ToString::to_string);
+        .ok_or_else(|| Error::json(config, "no name"))?
+        .to_string();
 
     let user = dir.join("user.json");
     let (data_path, data_doc) = if user.is_file() {
@@ -149,16 +176,30 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
         .and_then(|value| i32::try_from(value).ok())
         .ok_or_else(|| Error::json(data_path, "no valid priority"))?;
 
+    let disabled = data_obj
+        .get("disabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
     let conditions = data_obj
         .get("conditions")
         .and_then(serde_json::Value::as_array)
-        .map_or_else(Vec::new, |a| a.iter().filter_map(read_condition).collect());
+        .map_or_else(Vec::new, |a| {
+            a.iter()
+                .map(|value| read_condition(value).unwrap_or_else(invalid_condition))
+                .collect()
+        });
+    let condition_groups = conditions.iter().cloned().map(|c| vec![c]).collect();
+    let animation_directory = animation_directory(dir, data_obj, data_path)?;
 
     Ok(SubMod {
         directory: dir.to_path_buf(),
+        animation_directory,
         name,
         priority,
+        disabled,
         conditions,
+        condition_groups,
         legacy: false,
     })
 }
@@ -166,6 +207,30 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
 fn read_json(path: &Path) -> Result<serde_json::Value> {
     let text = std::fs::read_to_string(path).map_err(|e| Error::io(path, e))?;
     serde_json::from_str(&text).map_err(|e| Error::json(path, e.to_string()))
+}
+
+fn animation_directory(
+    dir: &Path,
+    data: &serde_json::Map<String, serde_json::Value>,
+    data_path: &Path,
+) -> Result<PathBuf> {
+    let Some(folder) = data
+        .get("overrideAnimationsFolder")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(dir.to_path_buf());
+    };
+    if folder.is_empty() {
+        return Ok(dir.to_path_buf());
+    }
+    let override_directory = dir.parent().unwrap_or(dir).join(folder);
+    if !override_directory.is_dir() {
+        return Err(Error::json(
+            data_path,
+            "override animations folder is not a directory",
+        ));
+    }
+    Ok(override_directory)
 }
 
 fn read_condition(value: &serde_json::Value) -> Option<Condition> {
@@ -189,6 +254,15 @@ fn read_condition(value: &serde_json::Value) -> Option<Condition> {
     })
 }
 
+fn invalid_condition() -> Condition {
+    Condition {
+        name: String::new(),
+        negated: false,
+        required_plugin: None,
+        parameters: serde_json::Map::new(),
+    }
+}
+
 /// The legacy layout: the directory name is the priority and the conditions
 /// are one per line in `_conditions.txt`.
 fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
@@ -207,15 +281,24 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
             .and_then(serde_json::Value::as_i64)
             .and_then(|value| i32::try_from(value).ok())
             .ok_or_else(|| Error::json(&user, "no valid priority"))?;
+        let disabled = obj
+            .get("disabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let conditions = obj
             .get("conditions")
             .and_then(serde_json::Value::as_array)
             .map_or_else(Vec::new, |a| a.iter().filter_map(read_condition).collect());
+        let condition_groups = conditions.iter().cloned().map(|c| vec![c]).collect();
+        let animation_directory = animation_directory(dir, obj, &user)?;
         return Ok(Some(SubMod {
             directory: dir.to_path_buf(),
+            animation_directory,
             name: priority.to_string(),
             priority,
+            disabled,
             conditions,
+            condition_groups,
             legacy: true,
         }));
     }
@@ -226,38 +309,70 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
         return Ok(None);
     };
     let text = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
-    let conditions = text
+    let lines: Vec<&str> = text
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with(';'))
-        .map(|l| {
-            let (negated, rest) = match l.strip_prefix("NOT ") {
-                Some(r) => (true, r.trim()),
-                None => (false, l),
-            };
-            let head = rest.split('(').next().unwrap_or(rest).trim();
-            Condition {
-                name: head.to_string(),
-                negated,
-                required_plugin: None,
-                parameters: {
-                    let mut m = serde_json::Map::new();
-                    m.insert(
-                        "raw".to_string(),
-                        serde_json::Value::String(rest.to_string()),
-                    );
-                    m
-                },
-            }
-        })
         .collect();
+    let mut condition_groups = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let first = lines[index];
+        if first.ends_with("OR") {
+            let mut group = Vec::new();
+            let mut line = first;
+            loop {
+                let continued = line.ends_with("OR");
+                let content = if continued {
+                    line[..line.len() - 2].trim_end()
+                } else {
+                    line
+                };
+                group.push(read_legacy_condition(content));
+                index += 1;
+                if !continued || index == lines.len() {
+                    break;
+                }
+                line = lines[index];
+            }
+            condition_groups.push(group);
+        } else {
+            condition_groups.push(vec![read_legacy_condition(first)]);
+            index += 1;
+        }
+    }
+    let conditions = condition_groups.iter().flatten().cloned().collect();
     Ok(Some(SubMod {
         directory: dir.to_path_buf(),
+        animation_directory: dir.to_path_buf(),
         name,
         priority,
+        disabled: false,
         conditions,
+        condition_groups,
         legacy: true,
     }))
+}
+
+fn read_legacy_condition(line: &str) -> Condition {
+    let (negated, rest) = match line.strip_prefix("NOT ") {
+        Some(r) => (true, r.trim()),
+        None => (false, line),
+    };
+    let head = rest.split('(').next().unwrap_or(rest).trim();
+    Condition {
+        name: head.to_string(),
+        negated,
+        required_plugin: None,
+        parameters: {
+            let mut m = serde_json::Map::new();
+            m.insert(
+                "raw".to_string(),
+                serde_json::Value::String(rest.to_string()),
+            );
+            m
+        },
+    }
 }
 
 fn directory_name(dir: &Path) -> String {
@@ -306,18 +421,20 @@ mod tests {
     }
 
     #[test]
-    fn a_submod_without_a_priority_is_an_error_not_a_default() {
+    fn a_submod_without_a_priority_is_skipped_without_a_default() {
         let tmp = tempfile::tempdir().expect("tempdir");
         write(tmp.path(), "Mod/Sub/config.json", r#"{"name":"x"}"#);
-        assert!(AnimationMod::scan(tmp.path()).is_err());
+        let found = AnimationMod::scan(tmp.path()).expect("scan keeps walking");
+        assert!(found.sub_mods.is_empty());
     }
 
     #[test]
-    fn a_missing_name_falls_back_to_the_directory() {
+    fn a_modern_submod_requires_an_author_name() {
         let tmp = tempfile::tempdir().expect("tempdir");
         write(tmp.path(), "Mod/Sprint/config.json", r#"{"priority":1}"#);
-        let m = AnimationMod::scan(tmp.path()).expect("scan");
-        assert_eq!(m.sub_mods[0].name, "Sprint");
+        let err =
+            AnimationMod::scan(tmp.path().join("Mod/Sprint")).expect_err("missing author name");
+        assert!(err.to_string().contains("no name"));
     }
 
     #[test]
@@ -350,8 +467,16 @@ mod tests {
     #[test]
     fn submods_come_back_highest_priority_first() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        write(tmp.path(), "M/A/config.json", r#"{"priority":1}"#);
-        write(tmp.path(), "M/B/config.json", r#"{"priority":9}"#);
+        write(
+            tmp.path(),
+            "M/A/config.json",
+            r#"{"name":"A","priority":1}"#,
+        );
+        write(
+            tmp.path(),
+            "M/B/config.json",
+            r#"{"name":"B","priority":9}"#,
+        );
         let m = AnimationMod::scan(tmp.path()).expect("scan");
         assert_eq!(m.sub_mods[0].priority, 9);
         assert_eq!(m.sub_mods[1].priority, 1);
@@ -418,7 +543,8 @@ mod tests {
             r#"{"priority":2147483648}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("invalid override");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("invalid override");
 
         assert!(err.to_string().contains("no valid priority"));
     }
@@ -437,7 +563,8 @@ mod tests {
             r#"{"conditions":[]}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("missing override priority");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("missing override priority");
 
         assert!(err.to_string().contains("no valid priority"));
     }
@@ -456,7 +583,8 @@ mod tests {
             r#"{"priority":8}"#,
         );
 
-        let err = AnimationMod::scan(tmp.path()).expect_err("missing author name");
+        let err = AnimationMod::scan(tmp.path().join("OpenAnimationReplacer/Pack/Walk"))
+            .expect_err("missing author name");
 
         assert!(err.to_string().contains("no name"));
     }
@@ -489,7 +617,7 @@ mod tests {
         write(
             tmp.path(),
             "OpenAnimationReplacer/M/S/config.json",
-            r#"{"priority":5}"#,
+            r#"{"name":"S","priority":5}"#,
         );
         write(
             tmp.path(),
@@ -500,5 +628,33 @@ mod tests {
         assert_eq!(m.sub_mods.len(), 2);
         assert!(m.sub_mods.iter().any(|s| s.legacy));
         assert!(m.sub_mods.iter().any(|s| !s.legacy));
+    }
+
+    #[test]
+    fn anm_09_legacy_or_lines_form_an_alternative_condition_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write(
+            tmp.path(),
+            "DynamicAnimationReplacer/_CustomConditions/100/_conditions.txt",
+            "IsFemale() OR\nIsActorBase(0x800)\nIsRace(0x801)\n",
+        );
+        let found = AnimationMod::scan(tmp.path()).expect("scan");
+        let sub_mod = &found.sub_mods[0];
+        assert_eq!(sub_mod.condition_groups.len(), 2);
+        assert_eq!(sub_mod.condition_groups[0].len(), 2);
+        assert_eq!(sub_mod.condition_groups[1].len(), 1);
+    }
+
+    #[test]
+    fn anm_09_malformed_json_conditions_are_retained_for_fail_closed_evaluation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write(
+            tmp.path(),
+            "OAR/Test/Sub/config.json",
+            r#"{"name":"Sub","priority":1,"conditions":[null]}"#,
+        );
+        let found = AnimationMod::scan(tmp.path()).expect("scan");
+        assert_eq!(found.sub_mods[0].condition_groups.len(), 1);
+        assert_eq!(found.sub_mods[0].condition_groups[0][0].name, "");
     }
 }

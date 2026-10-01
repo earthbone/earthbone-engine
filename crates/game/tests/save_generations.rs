@@ -136,9 +136,17 @@ fn sav_63_corrupt_latest_recovers_an_intact_generation() {
     game(2).write_generation(&directory.store(2)).unwrap();
     let mut bytes = fs::read(directory.generation(2)).unwrap();
     let changed = game(88).save_state().unwrap();
-    assert_eq!(bytes.len() - 26, changed.len());
+    let mut reader = soe_papyrus::vm::state::Reader::new(&bytes);
+    assert_eq!(reader.take(4).unwrap(), b"SOEB");
+    assert_eq!(reader.u16().unwrap(), 1);
+    assert_eq!(reader.u64().unwrap(), 2);
+    let payload_len = usize::try_from(reader.u64().unwrap()).unwrap();
+    reader.u32().unwrap();
+    assert_eq!(payload_len, reader.remaining());
+    let payload_at = bytes.len() - reader.remaining();
+    assert_eq!(payload_len, changed.len());
     game(0).load_state(&changed).unwrap();
-    bytes[26..].copy_from_slice(&changed);
+    bytes[payload_at..].copy_from_slice(&changed);
     fs::write(directory.generation(2), bytes).unwrap();
     let before = snapshot(&directory.0);
     let mut live = game(77);
@@ -446,7 +454,11 @@ mod failures {
 
     fn spawn_paused(directory: &Directory, event: Event, occurrence: usize, after: bool) -> Child {
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failures::child_writer", "--nocapture"])
+            .args([
+                "--exact",
+                &crate::common::child_test_name(module_path!(), "child_writer"),
+                "--nocapture",
+            ])
             .env("SOE_GENERATION_CHILD_PATH", &directory.0)
             .env("SOE_GENERATION_CHILD_EVENT", format!("{event:?}"))
             .env("SOE_GENERATION_CHILD_OCCURRENCE", occurrence.to_string())

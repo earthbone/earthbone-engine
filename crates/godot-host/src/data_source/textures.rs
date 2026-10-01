@@ -150,6 +150,7 @@ pub(super) struct TextureCache {
     /// of both doing it (the first version raced and read 132 files for 88
     /// textures).
     textures: Mutex<HashMap<String, TextureSlot>>,
+    decoded_rgba: Mutex<HashMap<String, Option<Arc<DdsImage>>>>,
     decoded: AtomicUsize,
     failures: AtomicUsize,
     decode_ns: AtomicU64,
@@ -168,6 +169,24 @@ pub(super) struct TextureCounters {
 }
 
 impl TextureCache {
+    pub(super) fn decode_rgba(&self, vfs: &Vfs, path: &str) -> Option<Arc<DdsImage>> {
+        let path = soe_bsa::normalize(path);
+        let mut cache = self
+            .decoded_rgba
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        cache
+            .entry(path.clone())
+            .or_insert_with(|| {
+                let bytes = vfs.read(&path).ok()?;
+                Dds::parse(&bytes)
+                    .and_then(|dds| dds.decode(0, 0))
+                    .ok()
+                    .map(Arc::new)
+            })
+            .clone()
+    }
+
     pub(super) fn clear_prepared(&self) {
         self.textures
             .lock()
@@ -198,7 +217,7 @@ impl TextureCache {
         }
     }
 
-    fn get_or_decode(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
+    pub(super) fn get_or_decode(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
         self.get_or_load(path, |canonical| self.read(vfs, canonical))
     }
 

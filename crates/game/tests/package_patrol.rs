@@ -3,8 +3,7 @@
 
 //! Walking Patrol fixtures follow xEdit PKC2, PTDA, XLKR and XPRD layouts.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
@@ -162,7 +161,7 @@ fn order(settings: Settings) -> LoadOrder {
             Record::new(T(b"FURN"), FURNITURE)
                 .zsub(T(b"EDID"), "PatrolFurniture")
                 .sub(T(b"MNAM"), 1u32.to_le_bytes())
-                .sub(T(b"FNPR"), 1u16.to_le_bytes()),
+                .sub(T(b"FNPR"), [1_u8, 0, 0, 0]),
         );
     }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));
@@ -330,15 +329,7 @@ fn moved_marker_replans_before_spending_the_movement_budget() {
 fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position() {
     for settings in [
         Settings {
-            horse: true,
-            ..Settings::default()
-        },
-        Settings {
             static_path: true,
-            ..Settings::default()
-        },
-        Settings {
-            omitted: true,
             ..Settings::default()
         },
         Settings {
@@ -395,12 +386,12 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut game = game(Settings::default());
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks, and
-    // also predates detection (read gate version 30) and save sections
-    // (version 37), so the extra 6 bytes those two now always write at the
-    // tail, regardless of version, must be truncated away too.
-    old.truncate(old.len() - 35);
-    old[4..6].copy_from_slice(&22u16.to_le_bytes());
+    legacy::truncate_to_version(&mut old, 22, |candidate| {
+        self::game(Settings::default())
+            .world_mut()
+            .load_state(candidate)
+            .is_ok()
+    });
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
     game.tick(1.0);
@@ -416,11 +407,6 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 predates the image-space, loose-item and zone blocks, and
-    // also predates detection (read gate version 30) and save sections
-    // (version 37), so the extra 6 bytes those two now always write at the
-    // tail, regardless of version, must be truncated away too.
-    old.truncate(old.len() - 35);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

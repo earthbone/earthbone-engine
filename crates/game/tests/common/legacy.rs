@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Legacy SOEW fixtures from world/save.rs and world/save_sections.rs.
+
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added, as well as the post-version-33 AI section.
-/// It also strips the named save-section table
-/// version 37 appends to the actor's own record and, since `World::actor`
+/// version 29 added, the witnessed crime set version 31 added, the hand spell
+/// fields version 32 added and the MAG-57 actor section, so fixtures built
+/// against an older header see none of those fields' bytes. Also strips the
+/// actor's named section table and the reference's empty save-section table
+/// version 37 appends to those records and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too. It also reduces world-level section payloads
-/// to the empty table expected by legacy fixture offsets.
+/// to an empty table before measuring the legacy tail.
 ///
-/// This file is pulled into many test binaries through `#[path]`, and each
-/// binary compiles its own copy. Only some of them call this particular
-/// helper, so the others see it as unused under `-D warnings`.
 #[allow(dead_code)]
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
@@ -220,13 +220,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             "right spell sentinel is not unique"
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
-
-        // The right spell field is immediately followed by this actor's
-        // named save-section table, which a pre-version-37 writer never
-        // emitted. Read each length so this stays correct as sections are
-        // added to the actor registry.
-        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
-        fields.push((table_offset, section_table_len(&bytes, table_offset)));
+        // Remove this actor's complete section table, including any named
+        // sections added after the legacy version being simulated.
+        let actor_sections = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((actor_sections, section_table_len(&bytes, actor_sections)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the named
@@ -244,8 +241,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let alpha_offset = alpha_offsets[0];
         bytes[alpha_offset..alpha_offset + alpha_marker.len()]
             .copy_from_slice(&prior_alpha.to_le_bytes());
-        let reference_table = alpha_offset + alpha_marker.len();
-        fields.push((reference_table, section_table_len(&bytes, reference_table)));
+        let reference_sections = alpha_offset + alpha_marker.len();
+        fields.push((
+            reference_sections,
+            section_table_len(&bytes, reference_sections),
+        ));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
@@ -269,10 +269,8 @@ pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> V
 /// alpha value. A fixture that materializes a bare reference, such as an
 /// authored loose item never turned into an actor, calls this instead
 /// before truncating the rest of the buffer to an older header. Order does
-/// not matter, an empty slice is a no-op that still round trips the state.
+/// not matter, a table with no registered sections still round trips the state.
 ///
-/// Same cross-binary sharing as `without_exclusive_branches` above: only the
-/// binaries that fixture a bare reference call this one.
 #[allow(dead_code)]
 pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
@@ -359,8 +357,8 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
         assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
         let offset = found[0];
         bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
-        let table = offset + marker.len();
-        offsets.push((table, section_table_len(&bytes, table)));
+        let section_offset = offset + marker.len();
+        offsets.push((section_offset, section_table_len(&bytes, section_offset)));
     }
     offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in offsets {
@@ -401,14 +399,8 @@ pub fn world_section_growth(bytes: &[u8]) -> usize {
     bytes.len() - normalized.len()
 }
 
-/// Return the number of trailing bytes a versioned reader rejects before the
-/// first prefix it accepts. The callback should parse with a fresh fixture.
-#[allow(dead_code)]
-pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
-    (0..=bytes.len())
-        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
-        .expect("a legacy save prefix is accepted")
-}
+#[allow(unused_imports)]
+pub use crate::common::save_tail::{truncate_to_version, version_tail_len};
 
 #[allow(dead_code)]
 pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
@@ -440,6 +432,21 @@ pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
     let length = bytes.len() - start;
     bytes.truncate(start);
     length
+}
+
+/// Add the empty collections that versions 34 to 36 stored outside sections.
+/// This fixture requires empty learned effects, scene progress and detection.
+#[allow(dead_code)]
+pub fn empty_legacy_world_collections(bytes: &mut Vec<u8>, version: u16) {
+    if (34..37).contains(&version) {
+        strip_world_sections(bytes);
+        // CONTEXT: These trailing collections all have zero counts. Moving
+        // the empty detection count past the inserted counts preserves it.
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        if version == 36 {
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
+    }
 }
 
 pub fn normalize_world_sections(bytes: &mut Vec<u8>) {

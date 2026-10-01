@@ -8,6 +8,7 @@ use super::{
     MAX_ARRAY_LEN, MAX_STRING_LEN,
 };
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 impl Vm {
     pub(super) fn step_thread(&mut self, t: usize, slice: usize) -> usize {
@@ -27,10 +28,32 @@ impl Vm {
                 continue;
             }
             let function = frame.function.clone();
-            let ins = &function.code[frame.pc];
+            let profile_script = frame.script.as_ref().map(|script| script.name.clone());
+            let profile_name = function.name.clone();
+            let profile_first_call = !frame.profile_recorded;
+            let pc = frame.pc;
+            frame.profile_recorded = true;
+            let ins = &function.code[pc];
             self.threads[t].frames.last_mut().unwrap().pc += 1;
             n += 1;
+            let started = Instant::now();
             self.exec(t, ins.op, &ins.args);
+            if let Some(script) = profile_script {
+                let thread_id = self.threads[t].id;
+                let mut profiler = self.profiling.borrow_mut();
+                if let Some((scope, _)) = &profiler.active {
+                    let matches = match scope {
+                        super::ProfileScope::Script(target) => target.eq_ignore_ascii_case(&script),
+                        super::ProfileScope::Stack(target) => *target == thread_id,
+                    };
+                    if matches {
+                        let key = format!("{script}.{profile_name}");
+                        let entry = profiler.functions.entry(key).or_default();
+                        entry.0 += u64::from(profile_first_call);
+                        entry.1 += started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+                    }
+                }
+            }
         }
         n
     }
@@ -398,15 +421,22 @@ impl Vm {
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
                 if supported {
                     let target = match args.get(2) {
-                        Some(Operand::Identifier(name) | Operand::Str(name))
-                            if !name.is_empty() =>
-                        {
-                            Some(name.as_str())
-                        }
+                        Some(Operand::Identifier(name)) if !name.is_empty() => Some(name.as_str()),
                         _ => None,
                     };
-                    let Some(target) = target else {
-                        self.err(t, "Is type operand must be a nonempty name");
+                    let destination_type = {
+                        let frame = self.threads[t].frames.last().unwrap();
+                        dest_name(0).and_then(|dest| Self::type_of(&self.instances, frame, &dest))
+                    };
+                    let Some(target) = target.filter(|_| {
+                        destination_type
+                            .as_deref()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("Bool"))
+                    }) else {
+                        self.err(
+                            t,
+                            "Is requires a Bool destination and a nonempty identifier type operand",
+                        );
                         set(self, 0, Value::Bool(false));
                         return;
                     };
@@ -483,7 +513,14 @@ impl Vm {
                     .last()
                     .and_then(|f| f.script.as_ref())
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
-                let field = name_at(2).to_ascii_lowercase();
+                let field = match args.get(2) {
+                    Some(Operand::Str(field)) if !field.is_empty() => field.to_ascii_lowercase(),
+                    _ => {
+                        self.err(t, "struct_get member operand must be a nonempty string");
+                        set(self, 0, Value::None);
+                        return;
+                    }
+                };
                 if !supported {
                     self.err(t, "struct_get requires a Fallout 4 3.9 or newer script");
                     set(self, 0, Value::None);
@@ -510,9 +547,9 @@ impl Vm {
                             dest_name(0)
                                 .and_then(|dest| Self::type_of(&self.instances, frame, &dest))
                         };
-                        if destination_type
+                        if !destination_type
                             .as_deref()
-                            .is_some_and(|target| !target.eq_ignore_ascii_case(&member.type_name))
+                            .is_some_and(|target| target.eq_ignore_ascii_case(&member.type_name))
                         {
                             self.err(
                                 t,
@@ -540,7 +577,13 @@ impl Vm {
                     .last()
                     .and_then(|f| f.script.as_ref())
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
-                let field = name_at(1).to_ascii_lowercase();
+                let field = match args.get(1) {
+                    Some(Operand::Str(field)) if !field.is_empty() => field.to_ascii_lowercase(),
+                    _ => {
+                        self.err(t, "struct_set member operand must be a nonempty string");
+                        return;
+                    }
+                };
                 if !supported {
                     self.err(t, "struct_set requires a Fallout 4 3.9 or newer script");
                 } else if let Value::Struct(s) = &vals[0] {
@@ -568,7 +611,7 @@ impl Vm {
                         self.err(t, &format!("struct member {field} is const"));
                         return;
                     }
-                    if !Self::matches_declared_type(&vals[2], &member.type_name, &s.name) {
+                    if !Self::matches_declared_type(&vals[2], &member.type_name) {
                         self.err(
                             t,
                             &format!(
@@ -619,20 +662,20 @@ impl Vm {
         }
     }
 
-    fn matches_declared_type(value: &Value, target: &str, struct_name: &str) -> bool {
+    fn matches_declared_type(value: &Value, target: &str) -> bool {
         match target.to_ascii_lowercase().as_str() {
             "int" => matches!(value, Value::Int(_)),
             "float" => matches!(value, Value::Float(_)),
             "bool" => matches!(value, Value::Bool(_)),
             "string" => matches!(value, Value::Str(_)),
             name if name.ends_with("[]") => matches!(value, Value::None | Value::Array(_)),
+            _ if matches!(value, Value::None) => true,
             name if name
-                .rsplit('.')
+                .rsplit(['.', '#'])
                 .next()
-                .is_some_and(|n| n.eq_ignore_ascii_case(struct_name)) =>
-            {
-                matches!(value, Value::None | Value::Struct(_))
-            }
+                .is_some_and(|expected| {
+                    matches!(value, Value::Struct(value) if value.name.eq_ignore_ascii_case(expected))
+                }) => true,
             _ => matches!(value, Value::None | Value::Object(_)),
         }
     }

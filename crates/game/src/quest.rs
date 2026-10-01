@@ -4,7 +4,8 @@
 //! objectives, and aliases. Layout from `wbRecord(QUST)` in
 //! `wbDefinitionsTES5.pas`. The subrecords come in order and the meaning of
 //! `FNAM` depends on whether an objective or an alias is open, so the reader
-//! is a small state machine over the subrecord list.
+//! is a small state machine over the subrecord list. `ALFL` is the specific
+//! location fill defined by xEdit and UESP's QUST format page.
 
 use soe_esm::records::gameplay::Condition;
 use soe_esm::records::Text;
@@ -25,6 +26,19 @@ pub mod flags {
 pub mod stage_flags {
     pub const START_UP: u8 = 0x02;
     pub const SHUT_DOWN: u8 = 0x04;
+}
+
+pub mod alias_flags {
+    //! Flags on reference and location aliases in a `QUST` record.
+    pub const RESERVES_REFERENCE: u32 = 1 << 0;
+    pub const OPTIONAL: u32 = 1 << 1;
+    pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
+    pub const ALLOW_DEAD: u32 = 1 << 4;
+    pub const IN_LOADED_AREA: u32 = 1 << 5;
+    pub const ALLOW_DISABLED: u32 = 1 << 7;
+    pub const ALLOW_RESERVED: u32 = 1 << 9;
+    pub const ALLOW_DESTROYED: u32 = 1 << 12;
+    pub const CLOSEST: u32 = 1 << 13;
 }
 
 pub mod entry_flags {
@@ -74,7 +88,7 @@ pub struct ObjectiveTarget {
     pub conditions: Vec<Condition>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Alias {
     pub id: u32,
     pub name: String,
@@ -83,8 +97,14 @@ pub struct Alias {
     pub location: bool,
     /// `ALFR`: the reference the alias holds from the start.
     pub forced_ref: Option<u32>,
+    /// `ALFL`: the location the alias holds from the start.
+    pub forced_location: Option<u32>,
     /// `ALPC`: packages the alias puts on its actor, in order.
     pub packages: Vec<u32>,
+    /// `ALCO` selects Create Reference to Object rather than a placed reference.
+    pub creates_reference: bool,
+    /// `CTDA` predicates in the alias's Match Conditions block.
+    pub match_conditions: Vec<Condition>,
     /// Alias dependency used by the reference or location alias fill type.
     pub fill: Option<AliasFill>,
 }
@@ -146,6 +166,13 @@ impl Quest {
                 && Condition::push(rec, sub, &mut q.dialogue_conditions)?
             {
                 continue;
+            }
+            if matches!(section, Section::Alias) {
+                if let Some(alias) = q.aliases.last_mut() {
+                    if Condition::push(rec, sub, &mut alias.match_conditions)? {
+                        continue;
+                    }
+                }
             }
             if matches!(section, Section::Objective)
                 && q.objectives
@@ -238,7 +265,10 @@ impl Quest {
                         flags: 0,
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
+                        forced_location: None,
                         packages: Vec::new(),
+                        creates_reference: false,
+                        match_conditions: Vec::new(),
                         fill: None,
                     });
                     section = Section::Alias;
@@ -252,6 +282,11 @@ impl Quest {
                             .push(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
                     }
                 }
+                b"ALCO" => {
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.creates_reference = true;
+                    }
+                }
                 b"ALID" => {
                     if let Some(a) = q.aliases.last_mut() {
                         a.name = zstring(d);
@@ -263,6 +298,14 @@ impl Quest {
                     }
                     if let Some(a) = q.aliases.last_mut() {
                         a.forced_ref = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALFL" => {
+                    if d.len() < 4 {
+                        return Err(short("ALFL"));
+                    }
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.forced_location = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
                     }
                 }
                 b"ALFA" => {
@@ -399,10 +442,27 @@ pub fn with_objective(rec: Record, index: u16, text: &str) -> Record {
 }
 
 pub fn with_alias(rec: Record, id: u32, name: &str, forced_ref: Option<u32>) -> Record {
+    with_alias_flags(rec, id, name, forced_ref, 0)
+}
+
+/// Add a reference alias with the supplied QUST alias flags.
+///
+/// # Errors
+/// This builder does not return errors.
+///
+/// # Panics
+/// This builder does not panic.
+pub fn with_alias_flags(
+    rec: Record,
+    id: u32,
+    name: &str,
+    forced_ref: Option<u32>,
+    flags: u32,
+) -> Record {
     let rec = rec
         .sub(Tag::new(b"ALST"), id.to_le_bytes())
         .zsub(Tag::new(b"ALID"), name)
-        .sub(Tag::new(b"FNAM"), 0u32.to_le_bytes());
+        .sub(Tag::new(b"FNAM"), flags.to_le_bytes());
     let rec = match forced_ref {
         Some(r) => rec.sub(Tag::new(b"ALFR"), r.to_le_bytes()),
         None => rec,

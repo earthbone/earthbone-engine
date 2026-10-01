@@ -54,10 +54,8 @@ default = ["godot"]
 # logic with no engine dependency, which is what the tests and the benchmark
 # exercise.
 godot = ["dep:godot"]
-# Lets the host decode a vanilla voice line, which is xWMA inside a FUZ. Off
-# by default for the reason `soe-audio` states: it shells out to `ffmpeg` and
-# an engine build should not require a program to be installed. Without it
-# every other sound still plays and a voice line reports `Unsupported::Wma`.
+# Uses ffmpeg as the host's xWMA decoder instead of the default in-process
+# decoder. Kept for comparison with `soe-audio`'s native implementation.
 xwma-ffmpeg = ["soe-audio/xwma-ffmpeg"]
 
 [dependencies]
@@ -71,11 +69,12 @@ soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
 soe-audio = { path = "../audio" }
-soe-dds = { path = "../dds" }
+soe-dds = { path = "../dds", features = ["encode"] }
 soe-hkx = { path = "../hkx" }
 soe-physics = { path = "../physics" }
 soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
+soe-editor = { path = "../editor" }
 
 [dev-dependencies]
 tempfile = "3"

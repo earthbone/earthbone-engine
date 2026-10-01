@@ -17,7 +17,7 @@ const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
 
 pub(crate) fn write_furniture_seat(
-    state: &super::ActorState,
+    state: &ActorState,
     writer: &mut Writer,
     _pool: &mut soe_papyrus::vm::state::ArrayPool,
 ) {
@@ -29,12 +29,12 @@ pub(crate) fn write_furniture_seat(
 }
 
 pub(crate) fn read_furniture_seat(
-    state: &mut super::ActorState,
+    actor: &mut ActorState,
     reader: &mut FormReader<'_, '_>,
     _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     if reader.bool()? {
-        state.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
+        actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
     }
     Ok(())
 }
@@ -217,11 +217,15 @@ impl World {
             return None;
         }
         let record = self.record(base)?;
-        let active_markers = record
+        let flags = record
             .find(T(b"MNAM"))
             .filter(|data| data.len() >= 4)
-            .map(|data| u32::from_le_bytes([data[0], data[1], data[2], data[3]]) & 0x00ff_ffff)
+            .map(|data| u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
             .unwrap_or(0);
+        if flags & 0x0200_0000 != 0 {
+            return None;
+        }
+        let active_markers = flags & 0x00ff_ffff;
         let occupied: std::collections::BTreeSet<_> = self
             .actors
             .values()
@@ -232,6 +236,9 @@ impl World {
             .all(T(b"FNPR"))
             .enumerate()
             .find_map(|(index, data)| {
+                if data.len() != 4 {
+                    return None;
+                }
                 let raw = data.get(..2)?;
                 let kind = u16::from_le_bytes([raw[0], raw[1]]);
                 let marker = u16::try_from(index).ok()?;

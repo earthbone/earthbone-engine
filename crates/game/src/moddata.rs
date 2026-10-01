@@ -22,8 +22,8 @@
 //!   A reference may not be loaded at start, so swaps are held and applied
 //!   when the reference is built.
 //! - **Open Animation Replacer** picks animations by condition, which is not
-//!   world state at all. Its trees are counted in the report and left for the
-//!   animation system.
+//!   world state at all. Its submods are retained by `Game` for runtime path
+//!   selection and counted in the report.
 //!
 //! # Order
 //!
@@ -36,8 +36,8 @@
 //! Ordinary SPID chances use the world's seeded generator per matching NPC
 //! base. SPID's trailing `!` requests a deterministic per-actor choice. Those
 //! rules are evaluated when an actor is built from its reference ID and are
-//! keyed from the entry value, player runtime ID and actor runtime ID. SPID
-//! uses the save character ID instead of the player FormID. Zero and 100
+//! keyed from the entry value, save character ID and actor runtime ID. The
+//! host supplies the current save character ID through `World`; zero and 100
 //! percent remain exact.
 //! KID chance uses its keyword editor ID and target FormID as a deterministic
 //! seed. Exclusive groups prevent adding a keyword when another group member
@@ -211,10 +211,7 @@ pub(crate) fn for_actor(
 ) -> Vec<Distributed> {
     let mut result = world.mod_data.for_base(base).to_vec();
     let subject = subject_of(world, base);
-    let player = u64::from(world.order().runtime_id(GlobalFormId {
-        file: 0,
-        object: crate::world::PLAYER_OBJECT,
-    }));
+    let player = world.player_character_id();
     let actor_id = u64::from(world.order().runtime_id(actor));
     for rule in &world.mod_data.actor_rules {
         if rule.base != base

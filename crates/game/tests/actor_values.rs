@@ -4,8 +4,7 @@
 //! CK actor-value contracts through the native boundary, independent NPC
 //! field bytes, and winning template/race inputs used by combat and magic.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
@@ -252,14 +251,9 @@ fn version_seven_components_load_without_dialogue_state() {
         .unwrap();
     let hash = original.world().state_hash();
     let mut old = legacy::without_exclusive_branches(&mut original.world_mut(), &[actor]);
-    old[4..6].copy_from_slice(&7u16.to_le_bytes());
-    // Find the version 7 boundary as later saved fields change size.
-    let tail = legacy::version_tail_len(&old, |candidate| {
-        let (restored, _) = fresh();
-        let mut world = restored.world_mut();
-        world.load_state(candidate).is_ok()
+    legacy::truncate_to_version(&mut old, 7, |candidate| {
+        fresh().0.world_mut().load_state(candidate).is_ok()
     });
-    old.truncate(old.len() - tail);
     let (restored, _) = fresh();
     restored.world_mut().load_state(&old).unwrap();
     assert_eq!(restored.world().state_hash(), hash);

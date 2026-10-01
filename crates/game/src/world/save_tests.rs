@@ -2,6 +2,9 @@
 
 //! Created identity separation and typed migration of the legacy SOEW namespace.
 
+#[path = "../../tests/common/save_tail.rs"]
+mod legacy_tail;
+
 use super::*;
 use crate::inventory::{Extra, Field, Stack};
 use crate::quest::state::{AliasMetadata, JournalInstance, RunData, StoryEvent, StoryParameter};
@@ -78,6 +81,21 @@ fn sav_07_full_load_order_and_created_references_round_trip_without_aliases() {
         );
         assert!(loaded.exists(id(255, 0x802)));
     }
+}
+
+#[test]
+fn cmb_38_ragdoll_override_round_trips_in_named_actor_section() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    let actor_id = id(DYNAMIC_FILE, 0x800);
+    world.actors.get_mut(&actor_id).unwrap().ragdoll_forced = Some(false);
+    let saved = world.save_state();
+    let mut loaded = World::from_shared_order(world.order.clone());
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(
+        loaded.actor_ref(actor_id).unwrap().ragdoll_forced,
+        Some(false)
+    );
+    assert_eq!(loaded.save_state(), saved);
 }
 
 #[test]
@@ -581,6 +599,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
+        actor.stagger_magnitude = 0.0;
+        actor.stagger_direction = None;
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
@@ -606,31 +626,32 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     bytes.truncate(bytes.len() - world_sections.out.len());
+    // Remove the current detection pool count after dropping the trailing
+    // version 37 section table, so this fixture has the version 29 layout.
+    bytes.truncate(bytes.len() - 4);
     bytes
 }
 
 #[test]
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
-        let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop empty post-version-19 blocks, including zone visit and scene
-        // history and the version 30 detection block's now-unconditional empty
-        // pool count. Named world sections are removed by the helper above.
-        legacy.truncate(legacy.len() - 37);
-        let tail = legacy.len() - 25;
+        let mut source = rich_world(255);
+        let mut legacy = without_exclusive_branches(&mut source);
+        if version == 17 {
+            let mut before_difficulty = legacy.clone();
+            legacy_tail::truncate_to_version(&mut before_difficulty, 15, |candidate| {
+                World::new(legacy_order()).load_state(candidate).is_ok()
+            });
+            legacy.remove(before_difficulty.len());
+        }
+        legacy_tail::truncate_to_version(&mut legacy, version, |candidate| {
+            World::new(legacy_order()).load_state(candidate).is_ok()
+        });
         let mut expected = rich_world(DYNAMIC_FILE);
         for actor in expected.actors.values_mut() {
             actor.swimming = false;
             actor.running = false;
             actor.riding_mount = false;
-        }
-        match version {
-            15 => legacy.truncate(tail),
-            16 => legacy.truncate(tail + 1),
-            17 => {
-                legacy.remove(tail);
-            }
-            _ => {}
         }
         if version < 17 {
             for actor in expected.actors.values_mut() {
@@ -702,10 +723,9 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
-    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
-    // these trailing bytes are.
-    legacy.truncate(legacy.len() - 37);
-    legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
+    legacy_tail::truncate_to_version(&mut legacy, 19, |candidate| {
+        World::new(legacy_order()).load_state(candidate).is_ok()
+    });
     loaded.load_state(&legacy).unwrap();
     let mut expected = rich_world(DYNAMIC_FILE);
     for actor in expected.actors.values_mut() {
@@ -760,11 +780,11 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let before = world.save_state();
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
+        (18, "created namespace in a legacy world state".to_string()),
         (
             unknown_version,
             format!("world state version {unknown_version}"),
         ),
-        (18, "created namespace in a legacy world state".to_string()),
     ] {
         let mut bytes = before.clone();
         bytes[4..6].copy_from_slice(&version.to_le_bytes());
@@ -775,6 +795,30 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
             .contains(message.as_str()));
         assert_eq!(world.save_state(), before);
     }
+}
+
+#[test]
+fn sav_07_guard_procedure_requires_world_version_37() {
+    let actor = ActorState {
+        ai: crate::ai::AiState {
+            procedure: crate::ai::Procedure::Guard,
+            ..crate::ai::AiState::default()
+        },
+        ..ActorState::default()
+    };
+    let mut bytes = Writer::new();
+    write_actor_state(&mut bytes, &actor);
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
+    bytes.out.truncate(bytes.out.len() - sections.out.len());
+
+    let mut reader = Reader::new(&bytes.out);
+    let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
+    let error = read_actor_state(&mut reader, 36).unwrap_err().to_string();
+    assert!(
+        error.contains("Guard procedure requires world version 37"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -819,10 +863,9 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
-    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
-    // these trailing bytes are.
-    legacy.truncate(legacy.len() - 37);
-    legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
+    legacy_tail::truncate_to_version(&mut legacy, 18, |candidate| {
+        World::new(legacy_order()).load_state(candidate).is_ok()
+    });
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
     assert!(world.exists(id(DYNAMIC_FILE, 0x800)));
@@ -920,12 +963,9 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
 
 #[test]
 fn no_section_name_repeats_within_or_across_the_three_registries() {
-    let all: Vec<_> = WORLD_SECTIONS
-        .iter()
-        .map(|section| section.name)
-        .chain(ACTOR_SECTIONS.iter().map(|section| section.name))
-        .chain(REF_SECTIONS.iter().map(|section| section.name))
-        .collect();
+    let mut all: Vec<_> = WORLD_SECTIONS.iter().map(|section| section.name).collect();
+    all.extend(ACTOR_SECTIONS.iter().map(|section| section.name));
+    all.extend(REF_SECTIONS.iter().map(|section| section.name));
     let mut sorted = all.clone();
     sorted.sort_unstable();
     sorted.dedup();
