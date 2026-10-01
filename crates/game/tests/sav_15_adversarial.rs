@@ -52,7 +52,11 @@ fn save(mask: u32) -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];
@@ -69,7 +73,11 @@ fn save(mask: u32) -> Save {
         .data_bytes(),
     });
     let mut player = ref_id(0x400800).raw().to_be_bytes()[1..].to_vec();
-    player.extend([1.0_f32, 2.0, 3.0, 0.0, 0.5, 0.0].into_iter().flat_map(f32::to_le_bytes));
+    player.extend(
+        [1.0_f32, 2.0, 3.0, 0.0, 0.5, 0.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes),
+    );
     player.extend_from_slice(&[0; 20]);
     save.change_forms.push(ChangeForm {
         form: ref_id(0x400015),
@@ -79,7 +87,11 @@ fn save(mask: u32) -> Save {
         uncompressed_len: 0,
         data: {
             let mut data = ref_id(0x400800).raw().to_be_bytes()[1..].to_vec();
-            data.extend([1.0_f32, 2.0, 3.0, 0.0, 0.5, 0.0].into_iter().flat_map(f32::to_le_bytes));
+            data.extend(
+                [1.0_f32, 2.0, 3.0, 0.0, 0.5, 0.0]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes),
+            );
             data.extend_from_slice(&mask.to_le_bytes());
             data.extend_from_slice(&0_u16.to_le_bytes());
             data
@@ -105,9 +117,11 @@ fn world() -> World {
     plugin.push_top(Record::new(Tag(*b"NPC_"), 7).sub(Tag(*b"EDID"), b"Player\0".to_vec()));
     plugin.push_top(Record::new(Tag(*b"CELL"), 0x800));
     plugin.push_top(Record::new(Tag(*b"MISC"), 0x900));
-    plugin.push_top(Record::new(Tag(*b"REFR"), 0x15)
-        .with_flags(plugin::flags::INITIALLY_DISABLED)
-        .sub(Tag(*b"NAME"), 0x00000900_u32.to_le_bytes().to_vec()));
+    plugin.push_top(
+        Record::new(Tag(*b"REFR"), 0x15)
+            .with_flags(plugin::flags::INITIALLY_DISABLED)
+            .sub(Tag(*b"NAME"), 0x00000900_u32.to_le_bytes().to_vec()),
+    );
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
     World::new(order)
@@ -116,20 +130,43 @@ fn world() -> World {
 #[test]
 fn saved_inversion_mask_xors_authored_disabled_and_persistent_flags() {
     let mut world = world();
-    world.restore_vanilla_reference_placements(&save(
-        plugin::flags::INITIALLY_DISABLED | plugin::flags::PERSISTENT,
-    )).unwrap();
-    let state = world.reference_ref(GlobalFormId { file: 0, object: 0x15 }).unwrap();
-    assert!(state.enabled, "the disabled bit is cleared by the saved inversion mask");
-    assert!(state.persistent, "the persistent bit is set by the saved inversion mask");
+    world
+        .restore_vanilla_reference_placements(&save(
+            plugin::flags::INITIALLY_DISABLED | plugin::flags::PERSISTENT,
+        ))
+        .unwrap();
+    let state = world
+        .reference_ref(GlobalFormId {
+            file: 0,
+            object: 0x15,
+        })
+        .unwrap();
+    assert!(
+        state.enabled,
+        "the disabled bit is cleared by the saved inversion mask"
+    );
+    assert!(
+        state.persistent,
+        "the persistent bit is set by the saved inversion mask"
+    );
 }
 
 #[test]
 fn saved_mask_does_not_change_authored_bits_outside_disabled_and_persistent() {
     let mut world = world();
-    world.restore_vanilla_reference_placements(&save(plugin::flags::VISIBLE_WHEN_DISTANT)).unwrap();
-    let state = world.reference_ref(GlobalFormId { file: 0, object: 0x15 }).unwrap();
-    assert!(!state.enabled, "an unrelated mask bit preserves the authored disabled state");
+    world
+        .restore_vanilla_reference_placements(&save(plugin::flags::VISIBLE_WHEN_DISTANT))
+        .unwrap();
+    let state = world
+        .reference_ref(GlobalFormId {
+            file: 0,
+            object: 0x15,
+        })
+        .unwrap();
+    assert!(
+        !state.enabled,
+        "an unrelated mask bit preserves the authored disabled state"
+    );
     assert!(!state.persistent);
 }
 
