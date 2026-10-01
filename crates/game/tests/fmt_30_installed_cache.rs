@@ -38,8 +38,6 @@ fn fmt_30_installed_helper_persists_master_entries_for_another_test_binary() {
         return;
     };
     let cache = temp_dir();
-    let previous_cache = std::env::var_os("SOE_PLUGIN_CACHE");
-    std::env::set_var("SOE_PLUGIN_CACHE", &cache);
     let masters = [
         "Skyrim.esm",
         "Update.esm",
@@ -47,8 +45,6 @@ fn fmt_30_installed_helper_persists_master_entries_for_another_test_binary() {
         "HearthFires.esm",
         "Dragonborn.esm",
     ];
-    let order = installed::load_order(&masters).unwrap();
-    assert!(order.len() > 1_000_000);
     let entries = || {
         std::fs::read_dir(&cache)
             .unwrap()
@@ -61,23 +57,22 @@ fn fmt_30_installed_helper_persists_master_entries_for_another_test_binary() {
             })
             .count()
     };
-    assert_eq!(entries(), masters.len());
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .arg("--exact")
-        .arg("fmt_30_installed_cache::fmt_30_installed_helper_second_binary_child")
-        .arg("--nocapture")
-        .env("FMT_30_GAME_CHILD", "1")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    if let Some(path) = previous_cache {
-        std::env::set_var("SOE_PLUGIN_CACHE", path);
-    } else {
-        std::env::remove_var("SOE_PLUGIN_CACHE");
+    // CONTEXT: Fresh processes avoid the suite's populated in-memory caches.
+    for _ in 0..2 {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("fmt_30_installed_cache::fmt_30_installed_helper_second_binary_child")
+            .arg("--nocapture")
+            .env("FMT_30_GAME_CHILD", "1")
+            .env("SOE_PLUGIN_CACHE", &cache)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(entries(), masters.len());
     }
     std::fs::remove_dir_all(cache).unwrap();
 }
