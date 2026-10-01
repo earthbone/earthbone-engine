@@ -22,6 +22,7 @@ use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_navmesh::vanilla::flags as nav_flags;
+use soe_navmesh::ObstacleShape;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 
@@ -748,6 +749,54 @@ fn a_travel_package_walks_the_navmesh_into_the_next_cell() {
 }
 
 #[test]
+fn ai_17_runtime_obstacles_invalidate_loaded_actor_routes() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("GuardQuest").unwrap();
+    game.set_stage(quest, 10);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "the travel package has a planned route"
+    );
+
+    let obstacle = {
+        let mut world = game.world_mut();
+        let id = ai::add_nav_obstacle(
+            &mut world,
+            ObstacleShape::Box {
+                min: [60.0, 25.0, -1.0],
+                max: [75.0, 40.0, 1.0],
+            },
+        )
+        .unwrap();
+        assert!(
+            world.actor_ref(guard).unwrap().ai.path.is_empty(),
+            "adding an obstacle invalidates the cached route"
+        );
+        id
+    };
+    tick(&mut game, 0.1);
+    assert!(
+        game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "a disconnected on-mesh route does not fall back through the obstacle"
+    );
+
+    let mut world = game.world_mut();
+    assert!(ai::remove_nav_obstacle(&mut world, obstacle));
+    assert!(
+        world.actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing an obstacle invalidates the route for replanning"
+    );
+    drop(world);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing the obstacle restores a route"
+    );
+}
+
+#[test]
 fn a_race_walks_at_its_record_override() {
     let mut game = game_at_hour(12.0);
     let guard = game.form("GuardRef").unwrap();
@@ -1407,6 +1456,62 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     assert_eq!(stacks[0], 0, "the Prisoner base has no PKID list");
     assert!(stacks[1] > 0, "Hulda has packages");
     eprintln!("total {:.2}s", started.elapsed().as_secs_f32());
+}
+
+#[test]
+fn ai_87_installed_simultaneous_packages_show_both_completion_policies() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    let game = Game::new(order);
+    let world = game.world();
+
+    let mut completing_records = Vec::new();
+    let mut non_completing_records = Vec::new();
+    let ids: Vec<_> = world
+        .order()
+        .winners_of(T(b"PACK"))
+        .map(|(id, _)| id)
+        .collect();
+    for id in ids {
+        let record = world.record(id).unwrap();
+        let parsed = package::Package::from_record(record)
+            .unwrap_or_else(|error| panic!("PACK {id:?}: {error}"));
+        for (index, branch) in parsed.tree.iter().enumerate() {
+            if branch.kind != "Simultaneous" {
+                continue;
+            }
+            let end = (index + 1 + branch.child_count as usize).min(parsed.tree.len());
+            for child in &parsed.tree[index + 1..end] {
+                if child.procedure.is_none() {
+                    continue;
+                }
+                let id_list = if child.success_completes_package {
+                    &mut completing_records
+                } else {
+                    &mut non_completing_records
+                };
+                if !id_list.contains(&id) {
+                    id_list.push(id);
+                }
+            }
+        }
+    }
+
+    assert!(
+        !completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 set"
+    );
+    assert!(
+        !non_completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 clear"
+    );
 }
 
 /// FMT-03: PACK VMAD begin, end and change fragment entries must decode

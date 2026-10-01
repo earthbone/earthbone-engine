@@ -1088,6 +1088,35 @@ cannot be read from the runtime yet. The CK `GetFlyingState` page defines
 states 0 to 4, but that contract alone does not provide the missing runtime
 state.
 
+**Quest reference alias searches.** At quest start, a reference alias with
+Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
+and `REFR` records in sorted FormID order. The scan stops before evaluation if
+it would inspect more than 4,096 candidates. Each candidate must be enabled
+unless the alias has Allow Disabled, and a dead actor must have Allow Dead.
+Destroyed candidates require Allow Destroyed. In Loaded Area requires a
+resident cell, not merely a reference built by an unrelated form lookup.
+Every authored condition must pass with the candidate as subject and the quest
+as owner. Unsupported conditions reject that candidate. The alias fills only
+when exactly one candidate passes. Existing alias fills prevent reuse unless
+the new alias has Allow Reuse in Quest, and reserved references require Allow
+Reserved. An ambiguous or missing result leaves an Optional alias empty. A
+required searched alias prevents quest start when it cannot be filled. This
+uses the QUST alias flags and condition block defined in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Other alias fill types, including
+Create Reference to Object (`ALCO`), are not created by this path, and aliases
+with `ALCO` are excluded from this placed-reference search. Closest search
+remains unsupported because local format sources do not establish the runtime
+distance origin or tie rule.
+
+**Specific location aliases, AI-18.** `Quest.Start` resolves a location
+alias's `ALFL` through the quest plugin's load-order namespace and fills it
+only when the winning form is a live `LCTN`. A missing or wrong-type target
+leaves an Optional alias empty and prevents a required alias from starting
+the quest. The location identity uses the existing quest alias state, which
+the `SOEW` writer already saves and restores. This fill follows the Specific
+Location rule in xEdit's `wbRecord(QUST)` and UESP's QUST format page.
+Reference alias locations and external alias locations remain AI-19 work.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The actor
 retains the active child and its completion state. A completed Travel applies
 `Success Completes Package` and the following branch rules. Sleep walks to the
@@ -1115,6 +1144,17 @@ section table. The CK package procedure page is absent from the local wiki
 snapshot. The execution uses the local `EquipShout_-_Actor` and
 `GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
 entries, and the existing xEdit PACK and shared spell APIs.
+
+Nested `Sequence` branches finish after their children, and `Repeat when
+Complete` restarts only the branch carrying that flag. `Success Completes
+Package` stops the whole tree, including enclosing repeats. Once Per Day is
+recorded after the tree finishes, not at every Travel arrival. Conditions are
+checked when entering each branch. Unsupported group types hold with an explicit
+`Procedure::Unsupported` value. The tooling helper `procedure_of` reports the
+first procedure before conditions. The parser's `ai_87` paired `Simultaneous`
+fixtures keep `FNAM` clear and set as separate policies, including an unknown
+bit case. Its `SKYRIM_DATA` survey checks that authored Skyrim.esm
+`Simultaneous` procedure records include both policies.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.

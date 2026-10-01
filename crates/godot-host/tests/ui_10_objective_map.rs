@@ -38,7 +38,7 @@ fn quest() -> Record {
         .sub(tag(*b"ALED"), [])
         .sub(tag(*b"ALLS"), 2_u32.to_le_bytes())
         .zsub(tag(*b"ALID"), "LocationTarget")
-        .sub(tag(*b"ALFR"), 0x200_u32.to_le_bytes())
+        .sub(tag(*b"ALFL"), 0x200_u32.to_le_bytes())
         .sub(tag(*b"ALED"), [])
 }
 
@@ -61,11 +61,11 @@ fn game() -> Game {
     plugin.push_top(Record::new(tag(*b"LCTN"), 0x200).sub(tag(*b"MNAM"), 0x301_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("UiObjectiveMap.esm", plugin).unwrap();
-    let game = Game::new(order);
+    let mut game = Game::new(order);
+    assert!(game.start_quest(id(0x100)));
     {
         let mut world = game.world_mut();
         let state = world.quest_state(id(0x100)).unwrap();
-        state.active = true;
         state.highest = 1;
         world.objective(id(0x100), 10).unwrap().displayed = true;
         world.objective(id(0x100), 20).unwrap().displayed = true;

@@ -138,6 +138,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Shout, Flee and Guard procedure state. Reference sections retain
 /// persistence, world record flags and the current destruction stage through
 /// CMB-37.
+/// Version 37 accompanies the provenance-aware native game save envelope.
+/// The same version carries Fallout 4 struct values in saved Papyrus state.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -306,7 +308,7 @@ impl World {
                         pool.write_value(&mut body, v);
                     }
                 }
-                Pending::CallScript { .. } => unreachable!("script calls use the AI-16 section"),
+                Pending::CallScript { .. } => {}
             }
         }
 
@@ -1035,7 +1037,7 @@ impl World {
                 let actor = actors
                     .get_mut(&id)
                     .ok_or_else(|| VmError::State("package cursor names a missing actor".into()))?;
-                let tree = crate::ai::read_tree_state(&mut r)?;
+                let tree = crate::ai::read_tree_state_for_version(&mut r, version)?;
                 if !seen.insert(id) || actor.ai.package.is_none() || tree.is_none() {
                     return Err(VmError::State("invalid package cursor entry".into()));
                 }
@@ -1075,7 +1077,7 @@ impl World {
         } else {
             BTreeSet::new()
         };
-        let scene_runs = if (36..37).contains(&version) {
+        let mut scene_runs = if (36..37).contains(&version) {
             let count = r.len()?;
             let mut runs = BTreeMap::new();
             for _ in 0..count {
@@ -1134,8 +1136,8 @@ impl World {
         };
         // Read world sections against candidate state while keeping the live
         // world unchanged if any section rejects its payload.
-        self.scenes = scenes.clone();
-        self.learned_enchantment_effects = learned_enchantment_effects.clone();
+        let previous_scenes = std::mem::replace(&mut self.scenes, scenes.clone());
+        let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs.clone());
         if version >= 37 {
             self.scene_runs.clear();
         }
@@ -1145,6 +1147,10 @@ impl World {
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
         let previous_vampire_forms = std::mem::take(&mut self.vampire_lord_forms);
+        let previous_learned_effects = std::mem::replace(
+            &mut self.learned_enchantment_effects,
+            learned_enchantment_effects.clone(),
+        );
         let fallback_player_level = player
             .and_then(|id| actors.get(&id).map(|actor| actor.level))
             .unwrap_or(self.player_level)
@@ -1163,17 +1169,19 @@ impl World {
             Ok(())
         };
         let player_level = self.player_level;
+        scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
+        self.scenes = previous_scenes;
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
-        let unresolved_records = std::mem::take(&mut self.unresolved_records);
-        let brewed_potions = std::mem::take(&mut self.brewed_potions);
+        let unresolved_records =
+            std::mem::replace(&mut self.unresolved_records, previous_unresolved);
+        let brewed_potions = std::mem::replace(&mut self.brewed_potions, previous_brewed);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
-        self.unresolved_records = previous_unresolved;
-        self.brewed_potions = previous_brewed;
         self.vampire_lord_forms = previous_vampire_forms;
+        self.learned_enchantment_effects = previous_learned_effects;
         section_result?;
         validation_result?;
         r.expect_end()?;
@@ -2128,5 +2136,47 @@ pub(super) fn read_brewed_potions(
         }
     }
     world.brewed_potions = potions;
+    Ok(())
+}
+
+pub(super) fn read_pending_script_calls(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let table = ArrayTable::read_pool(r)?;
+    let count = r.len()?;
+    let mut calls = Vec::with_capacity(count);
+    let mut previous_index = None;
+    for _ in 0..count {
+        let index = r.len()?;
+        if previous_index.is_some_and(|previous| index <= previous)
+            || index > world.pending.len() + calls.len()
+        {
+            return Err(VmError::State(
+                "invalid pending script call position".into(),
+            ));
+        }
+        previous_index = Some(index);
+        let object = ObjectId(r.u64()?);
+        let script = r.str()?;
+        let function = r.str()?;
+        let count = r.len()?;
+        let mut args = Vec::with_capacity(count);
+        for _ in 0..count {
+            args.push(table.read_value(r)?);
+        }
+        calls.push((
+            index,
+            Pending::CallScript {
+                object,
+                script,
+                function,
+                args,
+            },
+        ));
+    }
+    for (index, call) in calls {
+        world.pending.insert(index, call);
+    }
     Ok(())
 }

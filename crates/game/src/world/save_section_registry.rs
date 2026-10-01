@@ -23,6 +23,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
     Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
+    Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
@@ -38,6 +39,16 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::story_manager::SECTION,
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
 ];
+
+fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
+
+fn read_pending_script_calls(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::save::read_pending_script_calls(world, reader)
+}
 
 fn write_player_level(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.u32(world.player_level);
