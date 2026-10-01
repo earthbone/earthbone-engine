@@ -6172,6 +6172,7 @@ The CK wiki dump has no contract pages for these CTDA function names.
 action's used item, and the local CK corpus does not define a substitute
 interpretation. Invalid subjects and malformed equipment records fail with
 typed condition errors.
+
 ## Component mods, SCR-03
 
 `Game::load_wasm_mod` compiles and initializes a Wasmtime component using the
