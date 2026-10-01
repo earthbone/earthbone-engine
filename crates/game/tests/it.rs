@@ -625,6 +625,10 @@ mod mag_38_adversarial;
 mod mag_39_summon_adversarial;
 #[path = "mag_41_adversarial.rs"]
 mod mag_41_adversarial;
+#[path = "mag_41_breaker_adversarial.rs"]
+mod mag_41_breaker_adversarial;
+#[path = "mag_41_breaker_extra_adversarial.rs"]
+mod mag_41_breaker_extra_adversarial;
 #[path = "mag_45_adversarial.rs"]
 mod mag_45_adversarial;
 #[path = "mag_45_turn_undead.rs"]
@@ -665,6 +669,10 @@ mod mag_59_adversarial;
 mod mag_60_adversarial;
 #[path = "mag_61_adversarial.rs"]
 mod mag_61_adversarial;
+#[path = "mag_61_breaker_adversarial.rs"]
+mod mag_61_breaker_adversarial;
+#[path = "mag_61_breaker_breaker_adversarial.rs"]
+mod mag_61_breaker_breaker_adversarial;
 #[path = "mag_62_adversarial.rs"]
 mod mag_62_adversarial;
 #[path = "mag_63_adversarial.rs"]
