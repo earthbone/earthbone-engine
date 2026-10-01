@@ -3,6 +3,7 @@
 
 //! ANM-08: memory image preservation, edits and malformed relocation rejection.
 
+use soe_hkx::behavior::{BehaviorGraph, NodeKind};
 use soe_hkx::document::{Address, Fixup, PackfileDocument};
 use soe_hkx::writer::PackfileBuilder;
 use soe_hkx::{Error, Packfile};
@@ -15,6 +16,50 @@ fn fixture() -> Vec<u8> {
     b.ptr(root, 0, opaque);
     b.string(root, 8, "old");
     b.finish()
+}
+
+fn behavior_model(pf: &Packfile) -> (BehaviorGraph, Vec<[[u32; 4]; 2]>) {
+    let mut graph = BehaviorGraph::from_packfile(pf).unwrap();
+    let mut output_bits = Vec::new();
+    for node in &mut graph.nodes {
+        if let NodeKind::FootIkControls { controls, .. } = &mut node.kind {
+            // CONTEXT: Vanilla foot IK output vectors can contain NaNs.
+            output_bits.push([
+                controls.error_out_translation.map(f32::to_bits),
+                controls.align_with_ground_rotation.map(f32::to_bits),
+            ]);
+            controls.error_out_translation = [0.0; 4];
+            controls.align_with_ground_rotation = [0.0; 4];
+        }
+    }
+    (graph, output_bits)
+}
+
+#[test]
+fn behavior_roundtrip_preserves_and_distinguishes_nan_output_bits() {
+    let foot_ik_fixture = |nan_bits| {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let modifier = b.object("hkbFootIkControlsModifier", 176);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, modifier);
+        b.set_bool(modifier, 72, true);
+        b.set_u32(modifier, 152, nan_bits);
+        b.finish()
+    };
+    let source = foot_ik_fixture(0x7fc0_0001);
+    let doc = PackfileDocument::parse(&source).unwrap();
+    let before = Packfile::parse(&source).unwrap();
+    let after = Packfile::parse(&doc.to_bytes().unwrap()).unwrap();
+    assert_eq!(behavior_model(&before), behavior_model(&after));
+    let changed = Packfile::parse(&foot_ik_fixture(0x7fc0_0002)).unwrap();
+    assert_ne!(behavior_model(&before), behavior_model(&changed));
 }
 
 #[test]
@@ -185,7 +230,6 @@ fn installed_animation_edit_changes_modeled_duration() {
 #[test]
 fn anm_08_installed_packfiles_roundtrip() {
     use soe_hkx::animation::SplineCompressedAnimation;
-    use soe_hkx::behavior::BehaviorGraph;
     use soe_hkx::character::{CharacterData, ProjectData};
     use soe_hkx::skeleton::AnimationContainer;
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
@@ -247,11 +291,7 @@ fn anm_08_installed_packfiles_roundtrip() {
                             AnimationContainer::from_packfile(&b).unwrap(),
                             "{name}"
                         ),
-                        1 => assert_eq!(
-                            BehaviorGraph::from_packfile(&a).unwrap(),
-                            BehaviorGraph::from_packfile(&b).unwrap(),
-                            "{name}"
-                        ),
+                        1 => assert_eq!(behavior_model(&a), behavior_model(&b), "{name}"),
                         2 => assert_eq!(
                             CharacterData::from_packfile(&a).unwrap(),
                             CharacterData::from_packfile(&b).unwrap(),

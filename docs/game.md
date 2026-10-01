@@ -20,12 +20,23 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+`world::commonlib` projects existing world state into the MIT CommonLib shim:
+ExtraWorn flags from inventory stacks, GameSettingCollection reads through the
+runtime override and winning GMST path, placed HAZD reference identity and
+placement, the actor's combat target and stagger window, and HitData from an
+accepted melee result. The adapter owns no parallel state. Hazard ticking,
+head tracking, animation sequence state and executable hit dispatch remain
+unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
 HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
 `None` when it is absent. The values are host frame state and are not saved.
 
 ## What is in it
+
+- `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
+  stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
@@ -46,6 +57,10 @@ corresponding Papyrus form object when a host value is present, and return
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+- `World::add_quest_start_stop_sink` registers an MIT shim event listener.
+  Successful `Start`, `Stop`, and stage-driven quest transitions emit the
+  resolved runtime FormID and the resulting failed state. The event source
+  observes the existing quest state and does not keep a second quest copy.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
@@ -113,6 +128,23 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   also starts the quests flagged Start Game Enabled, `tick` advances time,
   `activate` and `send_event` do what a player or the engine would, `pump`
   drains what natives queued.
+- The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
+  reanimation effects from this same `World`. Sit and sleep animation state is
+  not stored by the runtime, so the adapter reports it as unsupported. Binary
+  address and vtable hooks have no runtime target.
+
+`World::commonlib_event_sources` exposes the in-process CommonLib event
+channels for disarm, dragon souls gained, level increase and location
+discovery. The matching `commonlib_*` methods send those event payloads to
+registered sinks. Form identities retain both the load-order file index and
+object id. Level increase reads `player_level` and the current player identity
+from the live world, and rejects levels outside the event's `u16` field before
+dispatch. These events add no saved state. Disarm, dragon soul awards and
+location discovery are event entry points for their gameplay callers. This
+crate does not currently implement those gameplay systems. Binary hook
+requests return the requested hook name as an unsupported result without
+changing runtime state. The corresponding source-level API and C++ contract
+fixture are in `crates/commonlib-shim`.
 
 ## Design
 
@@ -348,6 +380,16 @@ after a physics step, and rendering reads the resulting placement in the same
 tick. It writes the existing saved fields, so the world save format is
 unchanged. A late pose from a disabled or deleted body is rejected.
 
+**CommonLib world reads.** The MIT `soe-commonlib-shim` boundary exposes
+player identity, player position and actor values, plus the actor forms whose
+runtime state is built. `World` implements these reads directly through its
+player, reference and actor methods. The shim's `FormKey` retains both load
+order file and object identity. It does not keep a parallel copy of world
+state. Projectile runtime access returns an explicit unsupported-hook result
+because projectile simulation is not implemented. The matching local
+CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
+`ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
+shim exposes source-level C++ declarations only, without an FFI bridge.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. The
@@ -528,6 +570,31 @@ extra, and preserves damaged values below 1.0, following
 `ck-wiki/GetItemHealthPercent_-_ObjectReference.wikitext`. CTDA 664 retains
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
+
+## CommonLib world views, SHM-16
+
+`World::commonlib_data_handler` returns the MIT `TESDataHandler` view over winning records and
+load-order files. A lookup exposes the resolved runtime FormID, record signature, editor ID
+and associated keywords. `World::commonlib_reference` builds a reference through the normal
+world path, then exposes its current base, transform, cell and enabled/deleted flags through
+the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
+File views retain the load-order filename and regular or light slot.
+
+`World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
+Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
+`weapon_drawn` field to `Drawn` or `Sheathed`. The world does not yet track animation transition
+states. `SetBaseObject` and invalid actor-value requests return an unsupported result without
+changing state. Tests exercise these views against a synthetic load order. No installed-data
+records or SKSE binary plugin are required for this contract.
+
+**CommonLib event channels.** The shared world exposes the MIT shim's
+`ActorKill` and `CriticalHit` event sources. Non-silent deaths with a valid
+actor killer dispatch `ActorKill` after the victim enters dead state. The
+critical-hit reporting method validates an actor and winning WEAP record,
+then sends the caller-confirmed event. Critical chance and damage modifiers
+are not calculated by this reporting method. The listeners live only for the
+current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
+for the projected C++ payload contract and unsupported binary hook boundary.
 
 ## Conformance table
 
@@ -1260,6 +1327,21 @@ cannot be read from the runtime yet. The CK `GetFlyingState` page defines
 states 0 to 4, but that contract alone does not provide the missing runtime
 state.
 
+The MIT CommonLib shim exposes these fields through `CONDITION_ITEM_DATA` and
+delegates condition calls through `ConditionRuntime`. `Game` implements that
+boundary by resolving supplied runtime handles and running the condition
+against its current world and Papyrus VM. Condition copy hooks return an
+explicit unsupported-hook error.
+
+**Procedures.** AI-02 walks sequential branches in authored preorder. The
+actor retains the active child and its completion state. A completed Travel
+starts the next child on the next driver tick. Nested `Sequence` branches
+finish after their children, and `Repeat when Complete` restarts only the
+branch carrying that flag. `Success Completes Package` stops the whole tree,
+including enclosing repeats. Once Per Day is recorded after the tree finishes,
+not at every Travel arrival. Conditions are checked when entering each branch.
+Unsupported group types hold with an explicit `Procedure::Unsupported` value.
+The tooling helper `procedure_of` reports the first procedure before conditions.
 **Quest reference alias searches.** At quest start, a reference alias with
 Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
 and `REFR` records in sorted FormID order. The scan stops before evaluation if
@@ -1906,6 +1988,14 @@ incompatible files, with a minimum configured limit of two generations.
 The `sav_63_` tests also corrupt a newly published generation after an
 interrupted rotation, then recover the older verified state and finish a
 bounded retry.
+
+The `sav_61_` tests cover the available recovery boundary: an accepted native
+generation lives in a separate directory and leaves the source save bytes
+unchanged, while a generation written against a different script schema is
+rejected without changing the live game. Dependency preflight, unresolved
+record and script preservation, and reconnection are not implemented in this
+tree, so these checks do not establish missing-mod recovery play or a host
+recovery scenario.
 
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
