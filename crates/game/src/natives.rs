@@ -204,7 +204,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 369;
+pub const NATIVE_COUNT: usize = 370;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -475,19 +475,71 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "DamageObject",
+        |world, call, me| {
+            world.damage_object(me, call.arg(0).as_float(), alloc!(call));
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetCurrentDestructionStage",
+        |world, call, me| i(world.destruction_stage(me))
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "ClearDestruction",
+        |world, call, me| {
+            world.clear_destruction(me, alloc!(call));
+            none()
+        }
+    );
+    let waits = w.clone();
+    vm.natives.register_method(
+        "ObjectReference",
+        "WaitForAnimationEvent",
+        Box::new(move |call| {
+            let Some(source) = call
+                .self_object
+                .and_then(|object| waits.borrow().form_of(object))
+            else {
+                return b(false);
+            };
+            let event = text(&call.arg(0));
+            let latent = call.defer();
+            waits
+                .borrow_mut()
+                .wait_for_animation_event(source, &event, latent);
+            NativeReturn::Latent(latent)
+        }),
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "InterruptCast",
+        |world, _call, me| {
+            world.interrupt_spell_cast(me);
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = true;
-            }
+            world.set_reference_enabled(me, true);
             none()
         });
     }
     for name in ["Disable", "DisableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = false;
-            }
+            world.set_reference_enabled(me, false);
             none()
         });
     }
@@ -497,16 +549,35 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "IsDisabled", |world, call, me| b(
         world.reference(me).is_some_and(|r| !r.enabled)
     ));
+    method!(vm, w, "ObjectReference", "Is3DLoaded", |world, call, me| b(
+        world.is_reference_3d_loaded(me)
+    ));
     method!(vm, w, "ObjectReference", "Delete", |world, call, me| {
         if let Some(r) = world.reference(me) {
             r.deleted = true;
-            r.enabled = false;
         }
+        world.set_reference_enabled(me, false);
         none()
     });
     method!(vm, w, "ObjectReference", "IsDeleted", |world, call, me| b(
         world.reference(me).is_some_and(|r| r.deleted)
     ));
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetTriggerObjectCount",
+        |world, call, me| match world.trigger_object_count(me) {
+            Some(count) => i(count as i32),
+            None => {
+                call.log.push(
+                    call.time,
+                    "Error: GetTriggerObjectCount called on a non-trigger",
+                );
+                i(0)
+            }
+        }
+    );
     method!(
         vm,
         w,
@@ -595,6 +666,70 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(6).as_float(),
+                call.args.get(7).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Linear,
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SplineTranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(7).as_float(),
+                call.args.get(8).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Spline {
+                    tangent_magnitude: call.arg(6).as_float(),
+                },
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "StopTranslation",
+        |world, call, me| {
+            world.stop_translation(me, alloc!(call));
+            none()
+        }
+    );
     method!(vm, w, "ObjectReference", "MoveTo", |world, call, me| {
         let offset = [
             call.arg(1).as_float(),
@@ -919,6 +1054,34 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "MoveToMyEditorLocation",
         |world, call, me| b(world.move_to_editor_location(me))
     );
+    method!(vm, w, "ObjectReference", "Reset", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
+        world.reset_reference(me, target);
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TetherToHorse",
+        |world, call, me| {
+            let Some(horse) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let Some((position, rotation, cell)) = world
+                .reference(me)
+                .map(|cart| (cart.position, cart.rotation, cart.cell))
+            else {
+                return none();
+            };
+            if let Some(horse) = world.reference(horse) {
+                horse.position = position;
+                horse.rotation = rotation;
+                horse.cell = cell;
+            }
+            none()
+        }
+    );
     for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             let owner = world
@@ -976,6 +1139,37 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 none()
             }
         );
+    }
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PushActorAway",
+        |world, call, me| {
+            if let Some(target) = world.form_arg(&call.arg(0)) {
+                let _ = world.push_actor_away(me, target, call.arg(1).as_float());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "KnockAreaEffect",
+        |world, call, me| {
+            let _ = world.knock_area_effect(me, call.arg(0).as_float(), call.arg(1).as_float());
+            none()
+        }
+    );
+    for (name, enabled) in [
+        ("ForceAddRagdollToWorld", true),
+        ("ForceRemoveRagdollFromWorld", false),
+    ] {
+        method!(vm, w, "ObjectReference", name, |world, _call, me| {
+            let _ = world.force_ragdoll(me, enabled);
+            none()
+        });
     }
 }
 
@@ -3369,7 +3563,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
     let mut n = 0;
     let bools: &[(&str, &str, bool)] = &[
-        ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
@@ -3402,8 +3595,6 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         n += 1;
     }
     let ints: &[(&str, &str, i32)] = &[
-        ("ObjectReference", "GetTriggerObjectCount", 0),
-        ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetSitState", 0),
         ("Location", "GetRefTypeAliveCount", 0),
         ("Location", "GetRefTypeDeadCount", 0),
@@ -3425,10 +3616,6 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("ObjectReference", "ClearDestruction"),
-        ("ObjectReference", "DamageObject"),
-        ("ObjectReference", "KnockAreaEffect"),
-        ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
@@ -3452,8 +3639,6 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        ("ObjectReference", "WaitForAnimationEvent"),
-        ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
@@ -3464,12 +3649,8 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
         ("Actor", "StartVampireFeed"),
-        // The arrow 3d, the ragdoll and the cart tether are renderer and
-        // physics work, the DLC scripts only ask for them.
+        // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        ("ObjectReference", "ForceAddRagdollToWorld"),
-        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
-        ("ObjectReference", "TetherToHorse"),
         // The effect, music and particle systems are not implemented yet.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
@@ -3482,10 +3663,6 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
-        ("ObjectReference", "TranslateTo"),
-        ("ObjectReference", "SplineTranslateTo"),
-        ("ObjectReference", "StopTranslation"),
-        ("ObjectReference", "Reset"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),

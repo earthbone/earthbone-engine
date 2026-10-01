@@ -22,7 +22,7 @@
 //! landscape LOD generation itself the way `wbLOD.pas` documents tree and
 //! object LOD, so block alignment follows `TwbLodSettings.BlockForCell`
 //! (`Core/wbLOD.pas`): a block is named by its south-west cell,
-//! `SWCell + ((cell - SWCell) div level) * level`, where `SWCell` is the
+//! `SWCell + trunc((cell - SWCell) / level) * level`, where `SWCell` is the
 //! worldspace's anchor from `lodsettings\<world>.lod`. The file name's `x`
 //! and `y` are that cell, not a block index: `miWorldspaceSaveAsLODClick`
 //! in the same `Worldspace browser.pas` steps `x` and `y` in cells by the
@@ -97,15 +97,14 @@ impl LodBlockCoord {
 
     /// The block a cell belongs to at `level` on a grid anchored at
     /// `anchor`, the worldspace's `SWCell`, following
-    /// `TwbLodSettings.BlockForCell`. Pascal integer `div` truncates toward
-    /// zero, so a cell just south or west of the anchor can name the anchor's
-    /// block even though the cell lies outside that block's span.
+    /// `TwbLodSettings.BlockForCell`. Integer division truncates toward zero,
+    /// so cells just south or west of the anchor name the anchor's block.
     pub fn containing_from(cell: CellCoord, level: LodLevel, anchor: CellCoord) -> Self {
         let span = level.cells();
         Self {
             level,
-            x: anchor.x + ((cell.x - anchor.x) / span) * span,
-            y: anchor.y + ((cell.y - anchor.y) / span) * span,
+            x: anchor.x + (cell.x - anchor.x) / span * span,
+            y: anchor.y + (cell.y - anchor.y) / span * span,
         }
     }
 

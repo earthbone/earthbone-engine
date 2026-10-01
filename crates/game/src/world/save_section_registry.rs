@@ -19,6 +19,7 @@ use soe_papyrus::VmError;
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
@@ -124,10 +125,12 @@ fn read_woop_mgef_section(
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-21", write: super::save::write_driver_state_section, read: super::save::read_driver_state_section },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
+    Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
     Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
@@ -141,9 +144,10 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
 /// reference record.
 #[rustfmt::skip]
 pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
+    super::destruction::SECTION,
+    Section { name: "HST-16", write: write_reference_translation, read: read_reference_translation },
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
-    Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
 
 fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -156,6 +160,42 @@ fn read_training_sessions(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     super::training::read_training_sessions(world, reader)
+}
+
+fn write_animation_waits(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::events::write_animation_waits(world, writer);
+}
+
+fn read_animation_waits(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::events::read_animation_waits(world, reader)
+}
+
+fn write_ragdoll_override(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::knockback::write_ragdoll_override(actor, writer);
+}
+
+fn read_ragdoll_override(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::knockback::read_ragdoll_override(actor, reader)
+}
+
+fn write_reference_translation(state: &RefState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::reference_translation::write_section(state, writer);
+}
+
+fn read_reference_translation(
+    state: &mut RefState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::reference_translation::read_section(state, reader)
 }
 
 fn write_package_overrides(
@@ -209,7 +249,7 @@ fn read_voice_recovery(
         let until = reader.f64()?;
         if !until.is_finite() || until < 0.0 {
             return Err(soe_papyrus::VmError::State(
-                "AI-29 invalid voice recovery deadline".into(),
+                "invalid voice recovery deadline".into(),
             ));
         }
         state.voice_recovery_until = Some(until);
@@ -252,23 +292,6 @@ fn read_use_weapon_procedure(
     if reader.bool()? {
         state.ai.procedure = crate::ai::Procedure::UseWeapon;
     }
-    Ok(())
-}
-
-fn write_destruction_stage(
-    state: &RefState,
-    writer: &mut soe_papyrus::vm::state::Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
-    writer.i32(state.destruction_stage);
-}
-
-fn read_destruction_stage(
-    state: &mut RefState,
-    reader: &mut super::save::FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), soe_papyrus::VmError> {
-    state.destruction_stage = reader.i32()?;
     Ok(())
 }
 

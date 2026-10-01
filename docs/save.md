@@ -1,5 +1,9 @@
 # `save`: Skyrim Special Edition save games
 
+The `soe-game` SOEW world save is version 37. It records the active Flee
+package procedure using the actor's existing AI procedure field. Older world
+save versions remain readable through the current version gate.
+
 `crates/save` reads an `.ess` file into a typed structure and turns the part of
 it that describes progress into scenario expectations the harness in
 `crates/game` can run. The game crate also imports the saved global-variable

@@ -385,8 +385,8 @@ one selected round. It queues the ordinary OnItemRemoved inventory event and
 returns a transient `FlightRequest` with normalized direction and record-backed
 flight fields. A rejected request leaves ammunition unchanged. The host's
 `RangedRelease` captures the weapon at draw start and invokes that transaction
-only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. CMB-22
-covers flight movement and contact handling. Projectile damage and `OnHit`
+only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. Flight
+movement and impact handling remain CMB-22 work. Projectile damage and `OnHit`
 events remain out of scope. No runtime or save field was added.
 
 Sources read for CMB-08:

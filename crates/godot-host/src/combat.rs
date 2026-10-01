@@ -116,6 +116,7 @@ pub struct RangedRelease {
 /// One terminal projectile contact, retaining its first-hit identity and point.
 #[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
 pub struct ProjectileContact {
     pub hit: crate::godot_combat::ContactHit,
     pub position: [f32; 3],
@@ -124,10 +125,12 @@ pub struct ProjectileContact {
 /// Result of advancing one transient arrow or bolt.
 #[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
 pub enum ProjectileUpdate {
     /// The projectile moved without reaching its configured range.
     Flying { position: [f32; 3] },
     /// The first obstruction or actor stopped the projectile.
+    #[cfg(feature = "godot")]
     Contact(ProjectileContact),
     /// The projectile reached its configured maximum range.
     RangeEnded { position: [f32; 3] },
@@ -138,6 +141,7 @@ pub enum ProjectileUpdate {
 /// Deterministic, transient flight and one-contact latch for a released shot.
 #[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy)]
+#[cfg(feature = "godot")]
 pub struct ProjectileFlight {
     attacker: GlobalFormId,
     request: FlightRequest,
@@ -175,6 +179,7 @@ impl ProjectileFlight {
     ///
     /// # Errors
     /// An invalid time step, invalid motion or unavailable physics space.
+    #[cfg(feature = "godot")]
     pub fn advance<S: BuildHasher>(
         &mut self,
         space: Rid,

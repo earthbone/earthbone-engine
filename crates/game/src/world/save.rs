@@ -120,11 +120,10 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references and the
 /// active phase and completed action slots for each scene.
-/// Version 37 appends named section tables (`save_sections`) to the world,
-/// actor and reference records, after each record's saved fields. Versions
-/// before 37 have no section tables. This is the last version this constant
-/// will reach. New saved state goes into a section registered in
-/// `save_section_registry` at its owning level.
+/// Version 37 appends named sections at world, actor and reference levels after
+/// the owning record fields. This is the last version this constant will
+/// reach. New state goes into a section registered in `save_section_registry`
+/// at the level that owns it. Versions before 37 have no section tables.
 /// World sections include SAV-53 base-object fields, SAV-42 static-object
 /// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
 /// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
@@ -132,8 +131,10 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
 /// records and native game-save dependency provenance. AI-88 retains each
 /// actor's reserved furniture marker, and AI-36 retains the UseWeapon
-/// package procedure. Reference sections retain persistence, world record
-/// flags and the current destruction stage through CMB-37.
+/// package procedure. Actor sections also retain voice recovery deadlines,
+/// Shout, Flee and Guard procedure state. Reference sections retain
+/// persistence, world record flags and the current destruction stage through
+/// CMB-37.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1624,12 +1625,14 @@ fn read_ref_state_with_table(
         on_map,
         fast_travel,
         destroyed,
+        destruction_health: None,
         destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
         anim_bools,
         alpha,
+        translation: None,
         persistent: false,
     };
     if version >= 37 {
@@ -1839,6 +1842,11 @@ fn read_actor_state_with_table(
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Guard {
+        return Err(VmError::State(
+            "Guard procedure requires world version 37".into(),
         ));
     }
     if version < 34 && a.ai.procedure == crate::ai::Procedure::Hover {
