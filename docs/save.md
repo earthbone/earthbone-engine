@@ -954,8 +954,8 @@ The game crate's `World::restore_vanilla_record_changes` validates CLAS
 changes and applies FACT and RELA fields to winning record overrides. FACT
 reactions update warm faction runtime state in the same transaction. xEdit's
 CLAS tag-skills marker has no payload and therefore changes no live record
-field. The shared six-byte form-flags section updates `Record::flags` and its
-unknown final word is retained in SOEW version 37.
+field. The shared six-byte form-flags section XORs its mask into authored
+`Record::flags`, and its unknown final word is retained in SOEW version 37.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.

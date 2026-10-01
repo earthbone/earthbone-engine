@@ -166,8 +166,31 @@ fn sav_46_relationship_rank_above_source_range_is_rejected_atomically() {
         .push(change(RELA, 39, 2, 9_i32.to_le_bytes().to_vec()));
     let mut world = World::from_shared_order(order);
     let before = world.save_state();
+    let authored_data = world
+        .record(id(RELA))
+        .unwrap()
+        .find(Tag(*b"DATA"))
+        .unwrap()
+        .to_vec();
 
     assert!(world.restore_vanilla_record_changes(&saved).is_err());
     assert_eq!(world.save_state(), before);
-    assert_eq!(world.record(id(RELA)).unwrap().find(Tag(*b"DATA")), Some(&[0; 16][..]));
+    assert_eq!(
+        world.record(id(RELA)).unwrap().find(Tag(*b"DATA")),
+        Some(authored_data.as_slice())
+    );
+}
+
+#[test]
+fn sav_46_relationship_rank_below_signed_range_is_rejected_atomically() {
+    let order = Arc::new(order());
+    let mut saved = save();
+    saved
+        .change_forms
+        .push(change(RELA, 39, 2, (-5_i32).to_le_bytes().to_vec()));
+    let mut world = World::from_shared_order(order);
+    let before = world.save_state();
+
+    assert!(world.restore_vanilla_record_changes(&saved).is_err());
+    assert_eq!(world.save_state(), before);
 }
