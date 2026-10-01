@@ -280,6 +280,21 @@ impl World {
         self.active_effects.values()
     }
 
+    /// The active Grab Actor application controlling an actor, if any.
+    ///
+    /// The returned application identifies both the selected actor and its
+    /// caster. Host movement and throw behavior are separate from this world
+    /// relationship.
+    #[must_use]
+    pub fn grab_actor_effect_on(&self, target: GlobalFormId) -> Option<&ActiveEffect> {
+        self.active_effects.values().find(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 45)
+        })
+    }
+
     /// Whether a live Demoralize application is making this actor flee.
     pub fn is_fleeing(&self, target: GlobalFormId) -> bool {
         self.active_effects.values().any(|effect| {
@@ -1605,15 +1620,16 @@ impl World {
                     | 3
                     | 4
                     | 5
-                    | 6
                     | 9
-                    | 10
-                    | INVISIBILITY
-                    | LIGHT
+                    | 11
+                    | 12
                     | LOCK
                     | OPEN
                     | 17
                     | 18
+                    | 45
+                    | 6
+                    | 10
                     | 20
                     | 38
                     | DEMORALIZE
