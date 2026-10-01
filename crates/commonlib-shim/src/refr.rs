@@ -31,18 +31,19 @@ pub trait ObjectRef {
     fn parent_cell(&self) -> Option<FormId>;
     fn is_disabled(&self) -> bool;
     fn is_deleted(&self) -> bool;
-    /// The `SetBaseObject` path Base Object Swapper needs at load time.
-    fn set_base(&mut self, base: FormId);
+    /// `SetBaseObject` has no runtime implementation for this reference yet.
+    fn set_base(&mut self, base: FormId) -> Result<(), Unsupported>;
 }
 
 /// The `RE::Actor` surface: the object-ref surface plus actor state.
 pub trait Actor: ObjectRef {
     fn actor_handle(&self) -> ActorHandle;
     fn actor_value(&self, av: ActorValue) -> f32;
-    fn set_actor_value(&mut self, av: ActorValue, value: f32);
+    fn set_actor_value(&mut self, av: ActorValue, value: f32) -> Result<(), Unsupported>;
     fn race(&self) -> FormId;
     fn is_dead(&self) -> bool;
     fn is_player(&self) -> bool;
+    fn weapon_state(&self) -> WeaponState;
     /// Spells, perks and items the distributors add: one entry point each,
     /// returning whether anything changed.
     fn add_spell(&mut self, spell: FormId) -> bool;
@@ -53,6 +54,34 @@ pub trait Actor: ObjectRef {
 /// `RE::ActorValue`, the numeric id the engine's `ActorValueInfo` table uses.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ActorValue(pub u32);
+
+/// `RE::WEAPON_STATE`, retaining each runtime transition state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
+pub enum WeaponState {
+    Sheathed = 0,
+    WantToDraw = 1,
+    Drawing = 2,
+    Drawn = 3,
+    WantToSheathe = 4,
+    Sheathing = 5,
+}
+
+/// Nullable reference identity corresponding to `RE::TESObjectREFRPtr`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct ObjectRefPtr(pub Option<ObjectRefHandle>);
+
+impl ObjectRefPtr {
+    pub fn is_null(self) -> bool {
+        self.0.is_none()
+    }
+}
+
+/// An operation the runtime cannot safely implement through this API yet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Unsupported {
+    pub operation: &'static str,
+}
 
 impl ActorValue {
     pub const HEALTH: Self = Self(24);

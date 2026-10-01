@@ -13,6 +13,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod conditions;
 pub mod events;
 pub mod form;
 pub mod headers;
@@ -22,3 +23,8 @@ pub mod skse;
 pub mod support;
 pub mod util;
 pub mod vm;
+pub mod world;
+pub mod world_types;
+
+pub use form::FileInfo;
+pub use refr::{ObjectRefPtr, Unsupported, WeaponState};
