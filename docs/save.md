@@ -166,8 +166,9 @@ does not claim runtime support for opaque payloads.
 - `ChangeForm::pack_change` and `navmesh_change` decode PACK and NAVM sections.
   PACK retains optional form flags plus waiting and never-run markers. NAVM
   retains optional form flags plus base-object value and full-name markers.
-  The four markers after the form flags have no payload bytes in xEdit's
-  definitions, so typed output re-encodes to the exact source payload.
+  Both typed values retain xEdit's unnamed flag bits without assigning them
+  meaning. The four markers after the form flags have no payload bytes in
+  xEdit's definitions, so typed output re-encodes to the exact source payload.
 - `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
   MGEF form flags, the two payload-free base-object change markers, and retain
   unnamed flag bits. Only the form-flags marker contributes payload bytes.

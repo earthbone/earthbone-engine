@@ -484,13 +484,11 @@ impl ChangeForm {
     /// Decode the saved package flags and their zero-byte markers.
     ///
     /// # Errors
-    /// Rejects unknown flag bits, truncated form flags and trailing payload
-    /// bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn pack_change(&self) -> Result<Option<PackChange>> {
         if self.record_type() != "PACK" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, 0xC000_0001)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "PACK change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -499,19 +497,18 @@ impl ChangeForm {
             form_flags,
             waiting: self.change_flags & (1 << 30) != 0,
             never_run: self.change_flags & (1 << 31) != 0,
+            unnamed_flags: self.change_flags & 0x3FFF_FFFE,
         }))
     }
 
     /// Decode the saved navigation-mesh base-object fields.
     ///
     /// # Errors
-    /// Rejects unknown flag bits, truncated form flags and trailing payload
-    /// bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn navmesh_change(&self) -> Result<Option<NavmeshChange>> {
         if self.record_type() != "NAVM" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, 0b111)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "NAVM change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -520,6 +517,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
+            unnamed_flags: self.change_flags & 0xFFFF_FFF8,
         }))
     }
     /// Decode the source-defined WOOP payload sections.
@@ -1402,6 +1400,8 @@ pub struct PackChange {
     pub form_flags: Option<FormFlags>,
     pub waiting: bool,
     pub never_run: bool,
+    /// xEdit-defined flag bits with no assigned meaning, bits 1 through 29.
+    pub unnamed_flags: u32,
 }
 
 impl PackChange {
@@ -1410,6 +1410,7 @@ impl PackChange {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.waiting) << 30)
             | (u32::from(self.never_run) << 31)
+            | self.unnamed_flags
     }
 
     /// Rebuild the source-defined PACK payload.
@@ -1426,6 +1427,8 @@ pub struct NavmeshChange {
     pub form_flags: Option<FormFlags>,
     pub value_changed: bool,
     pub full_name_changed: bool,
+    /// xEdit-defined flag bits with no assigned meaning, bits 3 through 31.
+    pub unnamed_flags: u32,
 }
 
 impl NavmeshChange {
@@ -1434,6 +1437,7 @@ impl NavmeshChange {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags
     }
 
     /// Rebuild the source-defined NAVM payload.
