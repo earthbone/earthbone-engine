@@ -2948,6 +2948,9 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
         .scenes
         .contains(&me)));
+    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| b(
+        world.scene_action_complete(me, call.arg(0).as_int())
+    ));
     method!(vm, w, "Sound", "Play", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return i(0);
@@ -3781,7 +3784,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
-        ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
         // CONTEXT: Ragdoll execution is not implemented.

@@ -548,7 +548,7 @@ owning system has no behavior yet.
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
-| Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
+| Scene | Start, ForceStart, Stop, IsPlaying, IsActionComplete | |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
 | Scene, Package | GetOwningQuest | |
@@ -707,7 +707,10 @@ Their CK contracts are described by
   other in the notification queue, and returns button 0. A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,
   and `World::advance_scene_phase` waits for every action ending in the current
-  phase before advancing. Reaching the last phase stops the scene and delivers
+  phase before advancing. `Scene.IsActionComplete(actionID)` resolves the SCEN
+  `INAM` identifier and reports whether that action's slot completed in the
+  playing scene. Negative or unknown identifiers and actions outside a playing
+  scene return false. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
   action slots. Version 37 stores each reference's persistent flag and appends
@@ -720,8 +723,7 @@ Their CK contracts are described by
   reuse action numbers. The SCEN layout follows xEdit's `wbRecord(SCEN)` and the
   UESP SCEN page. The local CK corpus's scene index describes scene and timer
   fragments but does not include their detailed behavior pages. Timer dispatch
-  is implemented, while CTDA evaluation, dialogue action dispatch and scene
-  flags are not. `Sound.Play`
+  is implemented, while CTDA evaluation and scene flags are not. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
   `Game::start_scene_dialogue_action` dispatches one active Dialogue action by
   its zero-based position in the SCEN action list. It resolves the speaker alias
@@ -737,9 +739,8 @@ Their CK contracts are described by
   records overlapping action numbers in two vanilla scenes. xEdit's
   `wbRecord(SCEN)` defines the action alias, DIAL, and phase interval. The local
   CK `GetCurrentScene` page documents participant lookup only, so it supplies no
-  action scheduling behavior. This API dispatches dialogue actions when called,
-  it does not automatically schedule scene actions or evaluate scene
-  conditions.
+  action scheduling behavior. Dialogue dispatch happens when called; automatic
+  action scheduling and CTDA evaluation are not implemented.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides

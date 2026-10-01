@@ -1767,7 +1767,7 @@ fn function_value(
         550 => {
             let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
             let slot = c.parameters[1];
-            let Some(completed) = world.scene_action_complete(scene, slot) else {
+            let Some(completed) = world.scene_action_slot_complete(scene, slot) else {
                 return Err(Error::Parameter(c.function, slot));
             };
             boolean(completed)
