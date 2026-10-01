@@ -3,8 +3,7 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};

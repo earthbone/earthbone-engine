@@ -5,11 +5,9 @@
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

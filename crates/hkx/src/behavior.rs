@@ -263,6 +263,81 @@ impl EventProperty {
     }
 }
 
+/// Serialized gain values carried by `hkbFootIkControlData`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkGains {
+    pub on_off: f32,
+    pub ground_ascending: f32,
+    pub ground_descending: f32,
+    pub foot_planted: f32,
+    pub foot_raised: f32,
+    pub foot_unlock: f32,
+    pub world_from_model_feedback: f32,
+    pub error_up_down_bias: f32,
+    pub align_world_from_model: f32,
+    pub hip_orientation: f32,
+    pub max_knee_angle_difference: f32,
+    pub ankle_orientation: f32,
+}
+
+/// Per-leg state serialized by `hkbFootIkControlsModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkControlLeg {
+    pub ground_position: [f32; 4],
+    pub ungrounded_event: EventProperty,
+    pub vertical_error: f32,
+    pub hit_something: bool,
+    pub planted_in_model_space: bool,
+}
+
+/// Authored foot IK controls emitted by `hkbFootIkControlsModifier`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FootIkControls {
+    pub gains: FootIkGains,
+    pub legs: Vec<FootIkControlLeg>,
+    pub error_out_translation: [f32; 4],
+    pub align_with_ground_rotation: [f32; 4],
+}
+
+impl FootIkControls {
+    fn read(o: Obj<'_>) -> Result<FootIkControls> {
+        let control = o.at(o.layout_offset(48, 80));
+        let gains = FootIkGains {
+            on_off: control.f32(0)?,
+            ground_ascending: control.f32(4)?,
+            ground_descending: control.f32(8)?,
+            foot_planted: control.f32(12)?,
+            foot_raised: control.f32(16)?,
+            foot_unlock: control.f32(20)?,
+            world_from_model_feedback: control.f32(24)?,
+            error_up_down_bias: control.f32(28)?,
+            align_world_from_model: control.f32(32)?,
+            hip_orientation: control.f32(36)?,
+            max_knee_angle_difference: control.f32(40)?,
+            ankle_orientation: control.f32(44)?,
+        };
+        let legs = o
+            .array_structs(o.layout_offset(96, 128), o.layout_offset(32, 48))?
+            .into_iter()
+            .map(|leg| {
+                Ok(FootIkControlLeg {
+                    ground_position: leg.vec4(0)?,
+                    ungrounded_event: EventProperty::read(leg, 16)?,
+                    vertical_error: leg.f32(leg.layout_offset(24, 32))?,
+                    hit_something: leg.bool(leg.layout_offset(28, 36))?,
+                    planted_in_model_space: leg.bool(leg.layout_offset(29, 37))?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(FootIkControls {
+            gains,
+            legs,
+            error_out_translation: o.vec4(o.layout_offset(112, 144))?,
+            align_with_ground_rotation: o.vec4(o.layout_offset(128, 160))?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimeInterval {
     pub enter_event_id: i32,
@@ -502,6 +577,14 @@ pub struct ClipTrigger {
     pub is_annotation: bool,
 }
 
+/// One interval and event in `hkbEventsFromRangeModifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EventRange {
+    pub event: EventProperty,
+    /// 0 sends on entry, 1 sends on every update while in range.
+    pub event_mode: i8,
+}
+
 /// Read an authored bone mask, retaining zero weights and array order.
 ///
 /// # Errors
@@ -533,6 +616,13 @@ pub struct BlenderChild {
     pub weight: f32,
     pub world_from_model_weight: f32,
     pub bindings: Option<VariableBindingSet>,
+}
+
+/// One pose generator and its authored per-bone mask in a bone switch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoneSwitchChild {
+    pub generator: Option<NodeId>,
+    pub bone_weights: Option<Vec<f32>>,
 }
 
 /// `hkbBlenderGenerator.flags`: 1 sync, 4 smooth generator weights, 8 do
@@ -599,6 +689,14 @@ pub struct ExpressionData {
     pub assignment_event_index: i32,
     /// `ExpressionEventMode` from the Havok class definition.
     pub event_mode: i8,
+}
+/// `BSPassByTargetTriggerModifier`: crossing parameters and the event to emit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PassByTargetTrigger {
+    pub target_position: [f32; 4],
+    pub radius: f32,
+    pub movement_direction: [f32; 4],
+    pub trigger_event: EventProperty,
 }
 
 /// A state-to-`iState` mapping carried by `BSIStateManagerModifier`.
@@ -722,9 +820,7 @@ pub enum NodeKind {
     },
     BoneSwitch {
         default_generator: Option<NodeId>,
-        /// Bone data children are kept as object offsets, they carry a
-        /// generator each which is not walked yet.
-        children: Vec<Option<u32>>,
+        children: Vec<BoneSwitchChild>,
     },
     EventDrivenModifier {
         enable: bool,
@@ -737,6 +833,31 @@ pub enum NodeKind {
         enable: bool,
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
+    },
+    /// `hkbEventsFromRangeModifier`: ranges are half-open and contiguous.
+    EventsFromRangeModifier {
+        enable: bool,
+        input_value: f32,
+        lower_bound: f32,
+        ranges: Vec<(f32, EventRange)>,
+    },
+    /// `BSTimerModifier`: emits its alarm event after elapsed graph time.
+    BsTimerModifier {
+        enable: bool,
+        alarm_time_seconds: f32,
+        alarm_event: EventProperty,
+        reset_alarm: bool,
+    },
+    /// `BSTweenerModifier`: moves the world-from-model transform toward its
+    /// authored target over the selected duration.
+    Tweener {
+        enable: bool,
+        tween_position: bool,
+        tween_rotation: bool,
+        use_tween_duration: bool,
+        tween_duration: f32,
+        target_position: [f32; 4],
+        target_rotation: [f32; 4],
     },
     /// `BSEventOnDeactivateModifier`: raises its authored event when the
     /// active modifier transitions to inactive.
@@ -784,6 +905,24 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    /// `BSModifyOnceModifier`: activates its selected child modifiers on
+    /// the corresponding parent lifecycle edge.
+    ModifyOnce {
+        enable: bool,
+        on_activate: Option<NodeId>,
+        on_deactivate: Option<NodeId>,
+    },
+    PassByTargetTrigger {
+        enable: bool,
+        trigger: PassByTargetTrigger,
+    },
+    /// `BSRagdollContactListenerModifier`: emits `contact_event` when an
+    /// externally reported contact belongs to one of its declared bones.
+    RagdollContactListener {
+        enable: bool,
+        contact_event: EventProperty,
+        bones: Vec<i16>,
+    },
     /// `BSEventEveryNEventsModifier`: raises its output after matching inputs
     /// reach the authored interval.
     EveryNEventsModifier {
@@ -805,6 +944,43 @@ pub enum NodeKind {
     EvaluateExpression {
         enable: bool,
         expressions: Vec<ExpressionData>,
+    },
+    /// `hkbRotateCharacterModifier`: rotates the root orientation at the
+    /// authored angular speed around `axis_of_rotation`.
+    RotateCharacterModifier {
+        enable: bool,
+        degrees_per_second: f32,
+        speed_multiplier: f32,
+        axis_of_rotation: [f32; 4],
+    },
+    /// `BSSpeedSamplerModifier`: publishes its goal speed to `speedOut`.
+    SpeedSampler {
+        enable: bool,
+        state: i32,
+        direction: f32,
+        goal_speed: f32,
+        speed_out: f32,
+    },
+    /// `hkbDampingModifier`: PID damping over a bound scalar or vector.
+    DampingModifier {
+        enable: bool,
+        kp: f32,
+        ki: f32,
+        kd: f32,
+        enable_scalar: bool,
+        enable_vector: bool,
+        raw_value: f32,
+        damped_value: f32,
+        raw_vector: [f32; 4],
+        damped_vector: [f32; 4],
+        vector_error_sum: [f32; 4],
+        vector_previous_error: [f32; 4],
+        error_sum: f32,
+        previous_error: f32,
+    },
+    FootIkControls {
+        enable: bool,
+        controls: FootIkControls,
     },
     /// `BSLookAtModifier`: rotates its authored bones toward the target.
     LookAtModifier {
@@ -966,10 +1142,14 @@ impl Node {
             NodeKind::GeneratorTransition(g) => out.extend(g.transition_generator),
             NodeKind::IStateTagging {
                 default_generator, ..
-            }
-            | NodeKind::BoneSwitch {
-                default_generator, ..
             } => out.extend(*default_generator),
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => {
+                out.extend(*default_generator);
+                out.extend(children.iter().filter_map(|child| child.generator));
+            }
             NodeKind::SynchronizedClip { clip_generator, .. } => out.extend(*clip_generator),
             NodeKind::CyclicBlendTransition {
                 blender_generator, ..
@@ -983,6 +1163,14 @@ impl Node {
                 out.extend(*offset_clip_generator);
             }
             NodeKind::EventDrivenModifier { modifier, .. } => out.extend(*modifier),
+            NodeKind::ModifyOnce {
+                on_activate,
+                on_deactivate,
+                ..
+            } => {
+                out.extend(*on_activate);
+                out.extend(*on_deactivate);
+            }
             NodeKind::IStateManager { state_data, .. } => {
                 out.extend(state_data.iter().map(|entry| entry.state_machine));
             }
@@ -992,6 +1180,9 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
+            | NodeKind::BsTimerModifier { .. }
+            | NodeKind::Tweener { .. }
             | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
@@ -999,10 +1190,16 @@ impl Node {
             | NodeKind::GetUpModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::PassByTargetTrigger { .. }
+            | NodeKind::RagdollContactListener { .. }
             | NodeKind::EveryNEventsModifier { .. }
             | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::RotateCharacterModifier { .. }
+            | NodeKind::SpeedSampler { .. }
+            | NodeKind::DampingModifier { .. }
+            | NodeKind::FootIkControls { .. }
             | NodeKind::LookAtModifier { .. }
             | NodeKind::LimbIk { .. }
             | NodeKind::FootIk { .. }
@@ -1617,13 +1814,20 @@ impl<'a> Loader<'a> {
             }
             "BSBoneSwitchGenerator" => {
                 let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
+                let mut children = Vec::new();
+                for child in o.array_ptrs(o.layout_offset(52, 88))?.into_iter().flatten() {
+                    child.expect_class("BSBoneSwitchGeneratorBoneData")?;
+                    children.push(BoneSwitchChild {
+                        generator: self.opt_id(child.ptr(child.layout_offset(36, 48))?),
+                        bone_weights: child
+                            .ptr(child.layout_offset(40, 56))?
+                            .map(bone_weights)
+                            .transpose()?,
+                    });
+                }
                 NodeKind::BoneSwitch {
                     default_generator,
-                    children: o
-                        .array_ptrs(o.layout_offset(52, 88))?
-                        .into_iter()
-                        .map(|p| p.map(|p| p.base))
-                        .collect(),
+                    children,
                 }
             }
             "hkbEventDrivenModifier" => {
@@ -1640,6 +1844,70 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+            },
+            "hkbEventsFromRangeModifier" => {
+                let input_value = o.f32(o.layout_offset(44, 80))?;
+                let lower_bound = o.f32(o.layout_offset(48, 84))?;
+                let ranges = if let Some(ranges_obj) = o.ptr(o.layout_offset(52, 88))? {
+                    ranges_obj.expect_class("hkbEventRangeDataArray")?;
+                    ranges_obj
+                        .array_structs(
+                            ranges_obj.layout_offset(8, 16),
+                            ranges_obj.layout_offset(16, 32),
+                        )?
+                        .into_iter()
+                        .map(|range| {
+                            let upper_bound = range.f32(0)?;
+                            let event = EventProperty::read(range, range.layout_offset(4, 8))?;
+                            let event_mode = range.i8(range.layout_offset(12, 24))?;
+                            if event_mode != 0 && event_mode != 1 {
+                                return Err(crate::Error::Unsupported(format!(
+                                    "unsupported event range mode {event_mode}"
+                                )));
+                            }
+                            Ok((upper_bound, EventRange { event, event_mode }))
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    Vec::new()
+                };
+                if !input_value.is_finite()
+                    || !lower_bound.is_finite()
+                    || ranges.iter().any(|(upper, _)| !upper.is_finite())
+                    || ranges
+                        .iter()
+                        .scan(lower_bound, |lower, (upper, _)| {
+                            let valid = upper > lower;
+                            *lower = *upper;
+                            Some(valid)
+                        })
+                        .any(|valid| !valid)
+                {
+                    return Err(crate::Error::Unsupported(
+                        "invalid event range bounds or input".into(),
+                    ));
+                }
+                NodeKind::EventsFromRangeModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    input_value,
+                    lower_bound,
+                    ranges,
+                }
+            }
+            "BSTimerModifier" => NodeKind::BsTimerModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
+                alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+                reset_alarm: o.bool(o.layout_offset(56, 104))?,
+            },
+            "BSTweenerModifier" => NodeKind::Tweener {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                tween_position: o.bool(o.layout_offset(44, 80))?,
+                tween_rotation: o.bool(o.layout_offset(45, 81))?,
+                use_tween_duration: o.bool(o.layout_offset(46, 82))?,
+                tween_duration: o.f32(o.layout_offset(48, 84))?,
+                target_position: o.vec4(o.layout_offset(64, 96))?,
+                target_rotation: o.vec4(o.layout_offset(80, 112))?,
             },
             "BSEventOnDeactivateModifier" => NodeKind::EventOnDeactivateModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
@@ -1735,6 +2003,24 @@ impl<'a> Loader<'a> {
                 randomize_number_of_events: o.bool(o.layout_offset(62, 114))?,
             },
 
+            "BSModifyOnceModifier" => NodeKind::ModifyOnce {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                on_activate: self.opt_id(o.ptr(o.layout_offset(48, 80))?),
+                on_deactivate: self.opt_id(o.ptr(o.layout_offset(56, 96))?),
+            },
+            "BSRagdollContactListenerModifier" => {
+                let bones = o
+                    .ptr(o.layout_offset(56, 104))?
+                    .map(|bones| bones.array_i16(bones.layout_offset(28, 48)))
+                    .transpose()?
+                    .unwrap_or_default();
+                NodeKind::RagdollContactListener {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    contact_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+                    bones,
+                }
+            }
+
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
@@ -1766,6 +2052,48 @@ impl<'a> Loader<'a> {
                     expressions,
                 }
             }
+            "hkbRotateCharacterModifier" => NodeKind::RotateCharacterModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                degrees_per_second: o.f32(o.layout_offset(44, 80))?,
+                speed_multiplier: o.f32(o.layout_offset(48, 84))?,
+                axis_of_rotation: o.vec4(o.layout_offset(64, 96))?,
+            },
+            "BSPassByTargetTriggerModifier" => NodeKind::PassByTargetTrigger {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                trigger: PassByTargetTrigger {
+                    target_position: o.vec4(o.layout_offset(48, 80))?,
+                    radius: o.f32(o.layout_offset(64, 96))?,
+                    movement_direction: o.vec4(o.layout_offset(80, 112))?,
+                    trigger_event: EventProperty::read(o, o.layout_offset(96, 128))?,
+                },
+            },
+            "BSSpeedSamplerModifier" => NodeKind::SpeedSampler {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                state: o.i32(o.layout_offset(44, 80))?,
+                direction: o.f32(o.layout_offset(48, 84))?,
+                goal_speed: o.f32(o.layout_offset(52, 88))?,
+                speed_out: o.f32(o.layout_offset(56, 92))?,
+            },
+            "hkbDampingModifier" => NodeKind::DampingModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                kp: o.f32(o.layout_offset(44, 80))?,
+                ki: o.f32(o.layout_offset(48, 84))?,
+                kd: o.f32(o.layout_offset(52, 88))?,
+                enable_scalar: o.bool(o.layout_offset(56, 92))?,
+                enable_vector: o.bool(o.layout_offset(57, 93))?,
+                raw_value: o.f32(o.layout_offset(60, 96))?,
+                damped_value: o.f32(o.layout_offset(64, 100))?,
+                raw_vector: o.vec4(o.layout_offset(80, 112))?,
+                damped_vector: o.vec4(o.layout_offset(96, 128))?,
+                vector_error_sum: o.vec4(o.layout_offset(112, 144))?,
+                vector_previous_error: o.vec4(o.layout_offset(128, 160))?,
+                error_sum: o.f32(o.layout_offset(144, 176))?,
+                previous_error: o.f32(o.layout_offset(148, 180))?,
+            },
+            "hkbFootIkControlsModifier" => NodeKind::FootIkControls {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                controls: FootIkControls::read(o)?,
+            },
             "BSLookAtModifier" => {
                 let read_bones = |offset: u32| -> Result<Vec<LookAtBone>> {
                     o.array_structs(offset, 64)?
@@ -2020,6 +2348,35 @@ mod tests {
     use crate::writer::PackfileBuilder;
     use crate::Error;
 
+    #[test]
+    fn anm_14_decodes_authored_rotation_fields() {
+        let mut b = PackfileBuilder::new();
+        let container = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(container, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let modifier = b.object("hkbRotateCharacterModifier", 128);
+        b.ptr(graph, 128, modifier);
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, 90.0);
+        b.set_f32(modifier, 84, 2.0);
+        b.set_vec4(modifier, 96, [0.0, 1.0, 0.0, 0.0]);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        assert!(matches!(
+            graph.node(graph.root.unwrap()).kind,
+            NodeKind::RotateCharacterModifier {
+                enable: true,
+                degrees_per_second: 90.0,
+                speed_multiplier: 2.0,
+                axis_of_rotation: [0.0, 1.0, 0.0, 0.0],
+            }
+        ));
+    }
+
     /// A graph with one state machine of two states, each a clip, one
     /// transition on an event with a blending effect, and one wildcard.
     fn synthetic_graph() -> Vec<u8> {
@@ -2132,6 +2489,105 @@ mod tests {
         b.set_i32(wt, 52, 0);
         b.set_u16(wt, 66, transition_flags::IS_GLOBAL_WILDCARD);
         b.finish()
+    }
+
+    fn synthetic_ragdoll_contact_graph() -> Vec<u8> {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        b.string(graph, 56, "ragdoll contacts");
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let values = b.object("hkbVariableValueSet", 64);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.ptr(data, 112, values);
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let listener = b.object("BSRagdollContactListenerModifier", 136);
+        let bones = b.object("hkbBoneIndexArray", 64);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, listener);
+        b.set_bool(listener, 72, true);
+        b.set_i32(listener, 88, 17);
+        b.ptr(listener, 104, bones);
+        b.array_i16(bones, 48, &[1, 4]);
+        b.finish()
+    }
+
+    #[test]
+    fn anm_39_reads_damping_modifier_fields_from_the_packfile() {
+        let mut b = PackfileBuilder::new();
+        let container = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(container, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let damping = b.object("hkbDampingModifier", 192);
+        b.ptr(graph, 128, damping);
+        b.string(damping, 56, "Damping");
+        b.set_bool(damping, 72, true);
+        b.set_f32(damping, 80, 2.0);
+        b.set_f32(damping, 84, 0.5);
+        b.set_f32(damping, 88, 0.25);
+        b.set_bool(damping, 92, true);
+        b.set_bool(damping, 93, true);
+        b.set_f32(damping, 96, 3.0);
+        b.set_f32(damping, 100, 1.0);
+        b.set_vec4(damping, 112, [1.0, 2.0, 3.0, 4.0]);
+        b.set_vec4(damping, 128, [5.0, 6.0, 7.0, 8.0]);
+        b.set_vec4(damping, 144, [9.0, 10.0, 11.0, 12.0]);
+        b.set_vec4(damping, 160, [13.0, 14.0, 15.0, 16.0]);
+        b.set_f32(damping, 176, 17.0);
+        b.set_f32(damping, 180, 18.0);
+        let bindings = b.object("hkbVariableBindingSet", 40);
+        b.ptr(damping, 16, bindings);
+        let binding = b.array_structs(bindings, 16, 40, 1);
+        b.string(binding, 0, "rawValue");
+        b.set_i32(binding, 28, 0);
+        b.set_i32(bindings, 32, -1);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let modifier = graph.node(graph.root.unwrap());
+        assert_eq!(modifier.name, "Damping");
+        assert_eq!(
+            modifier.bindings.as_ref().unwrap().bindings[0].member_path,
+            "rawValue"
+        );
+        assert!(matches!(
+            modifier.kind,
+            NodeKind::DampingModifier {
+                enable: true,
+                kp,
+                ki,
+                kd,
+                enable_scalar: true,
+                enable_vector: true,
+                raw_value,
+                damped_value,
+                raw_vector,
+                damped_vector,
+                vector_error_sum,
+                vector_previous_error,
+                error_sum,
+                previous_error,
+            } if kp == 2.0
+                && ki == 0.5
+                && kd == 0.25
+                && raw_value == 3.0
+                && damped_value == 1.0
+                && raw_vector == [1.0, 2.0, 3.0, 4.0]
+                && damped_vector == [5.0, 6.0, 7.0, 8.0]
+                && vector_error_sum == [9.0, 10.0, 11.0, 12.0]
+                && vector_previous_error == [13.0, 14.0, 15.0, 16.0]
+                && error_sum == 17.0
+                && previous_error == 18.0
+        ));
     }
 
     #[test]
@@ -2392,6 +2848,59 @@ mod tests {
         assert_eq!(g.clip_animation_names(), vec!["mt_idle", "mt_walkforward"]);
         assert_eq!(root.children().len(), 3);
         assert_eq!(g.nodes.len(), 6);
+    }
+
+    #[test]
+    fn anm_35_contact_listener_reads_event_and_declared_bone_indices() {
+        let bytes = synthetic_ragdoll_contact_graph();
+        let pf = Packfile::parse(&bytes).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let wrapper = graph.node(graph.root.unwrap());
+        let NodeKind::ModifierGenerator {
+            modifier: Some(listener),
+            ..
+        } = &wrapper.kind
+        else {
+            panic!("root is {:?}", wrapper.kind);
+        };
+        assert!(matches!(
+            graph.node(*listener).kind,
+            NodeKind::RagdollContactListener {
+                enable: true,
+                contact_event: EventProperty { id: 17, .. },
+                ref bones,
+            } if bones == &[1, 4]
+        ));
+    }
+
+    #[test]
+    fn anm_37_bstimer_modifier_decodes_its_authored_alarm_fields() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let timer = b.object("BSTimerModifier", 112);
+        b.ptr(graph, 128, timer);
+        b.string(timer, 56, "alarm");
+        b.set_bool(timer, 72, true);
+        b.set_f32(timer, 80, 1.25);
+        b.set_i32(timer, 88, 7);
+        b.set_bool(timer, 104, true);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let timer = graph.node(graph.root.unwrap());
+        assert!(matches!(
+            timer.kind,
+            NodeKind::BsTimerModifier {
+                enable: true,
+                alarm_time_seconds,
+                alarm_event: EventProperty { id: 7, has_payload: false },
+                reset_alarm: true,
+            } if alarm_time_seconds == 1.25
+        ));
     }
 
     #[test]

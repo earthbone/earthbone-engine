@@ -3618,7 +3618,7 @@ impl World {
     ) -> Result<GlobalFormId, MagicError> {
         let keyword = self
             .resolve_from(effect, definition.data.associated_item)
-            .ok_or(MagicError::Missing(effect))?;
+            .ok_or(MagicError::Unsupported("peak value keyword"))?;
         if self.tag_of(keyword) != Some(super::T(b"KYWD")) {
             return Err(MagicError::Unsupported("peak value keyword"));
         }
