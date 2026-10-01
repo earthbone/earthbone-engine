@@ -17,12 +17,18 @@ impl World {
             return;
         };
         state.essential = essential;
+        if essential {
+            state.protected = false;
+        }
         let mut actors: Vec<_> = self.actors.keys().copied().collect();
         actors.sort_unstable();
         for actor in actors {
             if self.actor_component_source(actor, crate::npc::template::BASE_DATA) == Ok(base) {
                 if let Some(state) = self.actors.get_mut(&actor) {
                     state.essential = essential;
+                    if essential {
+                        state.protected = false;
+                    }
                 }
             }
         }
@@ -38,12 +44,18 @@ impl World {
             return;
         };
         state.protected = protected;
+        if protected {
+            state.essential = false;
+        }
         let mut actors: Vec<_> = self.actors.keys().copied().collect();
         actors.sort_unstable();
         for actor in actors {
             if self.actor_component_source(actor, crate::npc::template::BASE_DATA) == Ok(base) {
                 if let Some(state) = self.actors.get_mut(&actor) {
                     state.protected = protected;
+                    if protected {
+                        state.essential = false;
+                    }
                 }
             }
         }

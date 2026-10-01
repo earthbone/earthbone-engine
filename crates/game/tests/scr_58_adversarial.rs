@@ -7,9 +7,36 @@ use soe_game::Game;
 #[test]
 fn faction_and_force_ref_if_empty_have_registry_derived_contract_comparisons() {
     let audit = include_str!("../../../docs/reference-audit.md");
-    assert!(audit.contains("Faction native contracts, SCR-58"));
-    assert!(audit.contains("`Faction.IsFactionInCrimeGroup`"));
+    let faction_methods = [
+        "SetAlly",
+        "SetEnemy",
+        "GetReaction",
+        "SetReaction",
+        "GetCrimeGold",
+        "GetCrimeGoldViolent",
+        "GetCrimeGoldNonViolent",
+        "SetCrimeGold",
+        "SetCrimeGoldViolent",
+        "ModCrimeGold",
+        "GetInfamy",
+        "GetInfamyViolent",
+        "GetInfamyNonViolent",
+        "CanPayCrimeGold",
+        "PlayerPayCrimeGold",
+        "IsPlayerExpelled",
+        "SetPlayerExpelled",
+        "SetPlayerEnemy",
+        "IsFactionInCrimeGroup",
+        "SendAssaultAlarm",
+        "SendPlayerToJail",
+        "ModReaction",
+    ];
+    assert!(audit.contains("Faction and ForceRefIfEmpty native contracts, SCR-58"));
+    for name in faction_methods {
+        assert!(audit.contains(&format!("`Faction.{name}`")), "missing CK comparison for Faction.{name}");
+    }
     assert!(audit.contains("`ReferenceAlias.ForceRefIfEmpty`"));
+    assert!(audit.contains("SCR-59 owns reference-type validation"));
 }
 
 #[test]

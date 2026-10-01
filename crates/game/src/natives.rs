@@ -2905,9 +2905,17 @@ fn cell(vm: &mut Vm, w: &Shared) {
         ("SetFactionOwner", Tag::new(b"FACT")),
     ] {
         method!(vm, w, "Cell", name, |world, call, me| {
-            let owner = world
-                .form_arg(&call.arg(0))
-                .filter(|owner| cell_owner_tag_matches(world.tag_of(*owner), expected));
+            let arg = call.arg(0);
+            let owner = if matches!(arg, Value::None) {
+                None
+            } else if let Some(owner) = world
+                .form_arg(&arg)
+                .filter(|owner| cell_owner_tag_matches(world.tag_of(*owner), expected))
+            {
+                Some(owner)
+            } else {
+                return none();
+            };
             if let Some(c) = world.cell_state(me) {
                 c.owner = owner;
             }

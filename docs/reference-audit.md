@@ -106,7 +106,7 @@ also say both classes have no global functions.
 | `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
 | `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
 | `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
-| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. Assign optional validation and the diagnostic to SCR-68. |
+| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic; package reevaluation remains unimplemented there. |
 | `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
 | `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method; Alias runtime objects have no resolved form ID. |
 | `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
@@ -178,11 +178,51 @@ come from `engine-refs/ck-wiki` and the shipped
 | `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`; `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
 | `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
 | `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
-| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-55 owns alias contract completion. |
+| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
 
 The Cell method comparison has eight bindings. The exact-name `Clear` comparison
 has one method binding and no global binding. The setter type discrepancy is
 corrected by checking resolved record tags before changing `XOWN`.
+
+## Faction and ForceRefIfEmpty native contracts, SCR-58
+
+The registry inventory is checked against `natives::register` by
+`scr_58_faction_registry_matches_the_contract_inventory` and
+`scr_58_force_ref_if_empty_is_scoped_to_reference_alias`. CK contracts below
+come from `ck-wiki/Faction_Script.wikitext` and
+`ck-wiki/ReferenceAlias_Script.wikitext`. The function pages add no different
+semantics beyond their declared signatures and summaries.
+
+| Registry binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Faction.SetAlly` | Takes a faction and optional boolean, making the other faction an ally when true. | Updates the relation entry for that faction. |
+| `Faction.SetEnemy` | Takes a faction and optional boolean, making the other faction an enemy when true. | Updates the relation entry for that faction. |
+| `Faction.GetReaction` | Takes a faction and returns the relation code. | Reads the stored reaction, defaulting to neutral. |
+| `Faction.SetReaction` | Takes a faction and integer relation code. | Stores the relation code. |
+| `Faction.GetCrimeGold` | Returns total crime gold owed to this faction. | Sums violent and nonviolent bounty. |
+| `Faction.GetCrimeGoldViolent` | Returns violent crime gold owed. | Reads the violent bounty field. |
+| `Faction.GetCrimeGoldNonViolent` | Returns nonviolent crime gold owed. | Reads the nonviolent bounty field. |
+| `Faction.SetCrimeGold` | Sets total crime gold owed. | Updates the total bounty value. |
+| `Faction.SetCrimeGoldViolent` | Sets violent crime gold owed. | Updates the violent bounty field. |
+| `Faction.ModCrimeGold` | Modifies crime gold by an amount and optional violent flag. | Applies the amount to the selected bounty. |
+| `Faction.GetInfamy` | Returns total infamy for the player in this faction. | Sums violent and nonviolent infamy. |
+| `Faction.GetInfamyViolent` | Returns violent infamy. | Reads the violent infamy field. |
+| `Faction.GetInfamyNonViolent` | Returns nonviolent infamy. | Reads the nonviolent infamy field. |
+| `Faction.CanPayCrimeGold` | Reports whether the player can pay this faction's crime gold. | Checks player gold against the recorded bounty. |
+| `Faction.PlayerPayCrimeGold` | Pays crime gold, with optional stolen-item removal and jail transfer. | Updates bounty and queues the supported payment effects. |
+| `Faction.IsPlayerExpelled` | Reports whether the player is expelled from this faction. | Reads the faction state. |
+| `Faction.SetPlayerExpelled` | Sets whether the player is expelled. | Updates the faction state. |
+| `Faction.SetPlayerEnemy` | Sets whether the player is an enemy of this faction. | Updates the faction state. |
+| `Faction.IsFactionInCrimeGroup` | Takes another faction and reports whether it belongs to this faction's crime group. | Resolves `CRGR` to its linked `FLST` and checks membership. |
+| `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
+| `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
+| `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
+| `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias; an empty alias accepts the form. SCR-59 owns reference-type validation. |
+
+The inventory tests cover 22 `Faction` methods, including the three quiet
+stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no
+global bindings for these names. No per-reference package reevaluation is
+claimed for alias assignment.
 `scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted
 record tags, cross-type rejection, reference rejection and `None`. The
 remaining gaps are already assigned to their feature rows above.
