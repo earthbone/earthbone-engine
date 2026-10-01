@@ -2507,25 +2507,38 @@ impl<'a> Interpreter<'a> {
                     self.raise(event);
                 }
             }
+            NodeKind::EvaluateExpression { .. } => self.evaluate_expressions(id),
+            NodeKind::SpeedSampler { goal_speed, .. } => {
+                let runtime = &mut self.nodes[id.0];
+                runtime.speed_sampler_speed_out =
+                    runtime.speed_sampler_goal_speed.unwrap_or(*goal_speed);
+            }
             NodeKind::TransformVector {
                 rotation,
                 translation,
                 vector_in,
                 rotate_only,
                 inverse,
+                compute_on_activate,
+                compute_on_modify,
                 ..
             } => {
                 let runtime = &mut self.nodes[id.0];
-                let input = runtime.transform_vector_in.unwrap_or(*vector_in);
-                let rotation = runtime.transform_rotation.unwrap_or(*rotation);
-                let translation = runtime.transform_translation.unwrap_or(*translation);
-                runtime.transform_vector_out = Some(transform_vector(
-                    input,
-                    rotation,
-                    translation,
-                    *rotate_only,
-                    *inverse,
-                ));
+                let should_compute =
+                    *compute_on_modify || (runtime.activated_this_frame && *compute_on_activate);
+                runtime.activated_this_frame = false;
+                if should_compute {
+                    let input = runtime.transform_vector_in.unwrap_or(*vector_in);
+                    let rotation = runtime.transform_rotation.unwrap_or(*rotation);
+                    let translation = runtime.transform_translation.unwrap_or(*translation);
+                    runtime.transform_vector_out = Some(transform_vector(
+                        input,
+                        rotation,
+                        translation,
+                        *rotate_only,
+                        *inverse,
+                    ));
+                }
             }
             NodeKind::DampingModifier { .. } => {
                 let runtime = &mut self.nodes[id.0];
@@ -2571,6 +2584,142 @@ impl<'a> Interpreter<'a> {
             }
             _ => {}
         }
+    }
+
+    fn evaluate_expressions(&mut self, id: NodeId) {
+        let NodeKind::EvaluateExpression { expressions, .. } = &self.graph.nodes[id.0].kind else {
+            return;
+        };
+        let expressions = expressions.clone();
+        let compiled = self.expressions[id.0].clone().unwrap_or_default();
+        for (index, (data, expression)) in expressions.iter().zip(compiled).enumerate() {
+            let Ok(expression) = expression else {
+                let error = expression.err().unwrap_or(ExpressionError::InvalidValue);
+                push_unique(
+                    &mut self.unsupported.expression_modifiers,
+                    format!(
+                        "{}.{}: {error:?}",
+                        self.graph.nodes[id.0].name, data.expression
+                    ),
+                );
+                continue;
+            };
+            let value = match expression.evaluate(
+                &self.variables,
+                &self.character_properties,
+                &mut self.expression_random_state,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: {error:?}",
+                            self.graph.nodes[id.0].name, data.expression
+                        ),
+                    );
+                    continue;
+                }
+            };
+            if data.assignment_variable_index >= 0 {
+                let assignment = usize::try_from(data.assignment_variable_index).ok();
+                let supported = assignment.is_some_and(|target| {
+                    matches!(
+                        self.variables.ty(target),
+                        Some(
+                            VariableType::Bool
+                                | VariableType::Int8
+                                | VariableType::Int16
+                                | VariableType::Int32
+                                | VariableType::Real
+                        )
+                    )
+                });
+                if let Some(target) = assignment.filter(|_| supported) {
+                    self.variables.set_real(target, value);
+                } else {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: invalid assignment target {}",
+                            self.graph.nodes[id.0].name,
+                            data.expression,
+                            data.assignment_variable_index
+                        ),
+                    );
+                }
+            }
+            if !matches!(data.event_mode, 0..=3) {
+                push_unique(
+                    &mut self.unsupported.expression_modifiers,
+                    format!(
+                        "{}.{}: invalid event mode {}",
+                        self.graph.nodes[id.0].name, data.expression, data.event_mode
+                    ),
+                );
+                continue;
+            }
+            let truth = value != 0.0;
+            let previous = self.nodes[id.0].expression_previous[index];
+            let raised = self.nodes[id.0].expression_raised[index];
+            let send = match data.event_mode {
+                0 => truth && !raised,
+                1 => truth,
+                2 => truth && !previous,
+                3 => truth || raised,
+                _ => false,
+            };
+            self.nodes[id.0].expression_previous[index] = truth;
+            if send {
+                self.nodes[id.0].expression_raised[index] = true;
+                if let Some(event) = usize::try_from(data.assignment_event_index)
+                    .ok()
+                    .and_then(|event| self.graph.data.event_names.get(event))
+                    .and_then(|name| self.graph.data.event_id(name))
+                {
+                    self.raise(event);
+                } else if data.assignment_event_index >= 0 {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: invalid event index {}",
+                            self.graph.nodes[id.0].name,
+                            data.expression,
+                            data.assignment_event_index
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn apply_modifier_output(&self, id: NodeId, output: &mut Output) {
+        let NodeKind::RotateCharacterModifier {
+            axis_of_rotation, ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        let Some(root) = output.pose.first_mut() else {
+            return;
+        };
+        let axis_length = axis_of_rotation[..3]
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
+        if axis_length <= f32::EPSILON {
+            return;
+        }
+        let half_angle = self.nodes[id.0].rotation_angle * 0.5;
+        let (sin, cos) = half_angle.sin_cos();
+        let rotation = [
+            axis_of_rotation[0] / axis_length * sin,
+            axis_of_rotation[1] / axis_length * sin,
+            axis_of_rotation[2] / axis_length * sin,
+            cos,
+        ];
+        root.rotation = quat_mul(rotation, root.rotation);
     }
 
     fn apply_tweener(&mut self, id: NodeId, output: &mut Output, dt: f32) {
@@ -3542,6 +3691,7 @@ impl<'a> Interpreter<'a> {
                     .collect();
                 for modifier in active_modifiers {
                     self.apply_keyframe_bones_modifier(modifier, &mut output);
+                    self.apply_modifier_output(modifier, &mut output);
                     match &self.graph.node(modifier).kind {
                         NodeKind::LookAtModifier {
                             bones,

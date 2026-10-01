@@ -906,6 +906,7 @@ resets elapsed time and the one-shot flag. The event queue carries the event
 ID and does not carry the authored payload. Synthetic tests cover field
 decoding, the alarm boundary, one-shot delivery, and reset after an
 enable-controlled deactivation and activation.
+
 ### Skyrim timer modifier (ANM-37)
 
 `BSTimerModifier` reads `enable`, `alarmTimeSeconds`, `alarmEvent` and
@@ -1042,7 +1043,7 @@ Model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
 rotation is replaced by the twist rotation. The `twistAngle` variable binding
 overrides the authored angle. Synthetic ANM-48 tests check chain boundaries,
 angle distribution, disabled behavior and malformed indices. The installed
-archive test checks all 17 vanilla twist modifiers when `SKYRIM_DATA` is set.
+archive test checks all 19 vanilla twist modifiers when `SKYRIM_DATA` is set.
 
 ### False-to-true event slots (2026-09-20)
 

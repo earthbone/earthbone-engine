@@ -457,7 +457,7 @@ fn anm_48_installed_twist_modifiers_decode_authored_bone_spans() {
     }
     assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
     assert_eq!(
-        twists, 17,
+        twists, 19,
         "the installed vanilla archive's twist inventory changed"
     );
 }
