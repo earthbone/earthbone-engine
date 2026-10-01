@@ -452,6 +452,8 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(skill);
         h.f32(*experience);
     }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -479,6 +481,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.u32(a.days_in_jail);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
