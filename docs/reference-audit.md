@@ -43,6 +43,7 @@ signatures and behavior notes instead.
 The previous inventory grouped `Topic` with `MusicType` and listed both Add
 and Remove. The source declares no `Topic.Remove`. The docs now list only
 `Topic.Add`. These sources contain no Spell or Topic global bindings.
+
 ## Leveled-list native contracts
 
 The registry in `game/src/natives.rs::leveled` registers methods, not Papyrus

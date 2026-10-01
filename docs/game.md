@@ -762,6 +762,7 @@ The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
 registered by the Papyrus VM rather than `game::natives::register`, so they are
 not part of this registry inventory. Their clock contracts are documented in
 the VM section above.
+
 ## ForceRefTo and Form contract audit
 
 The SCR-59 inventory checks the registered `Form` methods against the local
