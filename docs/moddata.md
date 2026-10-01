@@ -213,7 +213,7 @@ seeded generator. Deterministic `0!` and `100!` work without a random choice.
 Fractional deterministic rules are evaluated for each actor when its state is
 built. Their seed combines the parsed entry seed, the active save character ID
 and the actor runtime FormID, following SPID's `LookupFilters.cpp`. The host
-sets the active ID with `World::set_player_character_id`; this input metadata
+sets the active ID with `World::set_player_character_id`. This input metadata
 is not serialized by the engine. SPID obtains the value from its save manager,
 or from the character ID in a standard save filename. References are SPID
 `SPID/src/LookupConfigs.h`, `Defs.h`, `LookupFilters.cpp` and
