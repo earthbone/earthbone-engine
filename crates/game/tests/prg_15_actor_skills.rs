@@ -16,8 +16,7 @@
 //! independently chosen numbers so the two files do not simply repeat each
 //! other's arithmetic.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{

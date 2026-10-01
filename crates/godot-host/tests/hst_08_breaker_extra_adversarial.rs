@@ -11,11 +11,18 @@ fn hst_08_each_budget_axis_is_independently_unlimited_when_zero() {
         unload_radius: 1,
         max_loads_per_tick: 0,
         max_unloads_per_tick: 0,
-    }).unwrap();
+    })
+    .unwrap();
     let plan = streamer.update_with_budget(
         SkyrimPos::new(0.0, 0.0, 0.0),
-        StreamBudget { triangles: 0, bytes: 11 },
-        |_| StreamCost { triangles: usize::MAX, bytes: 11 },
+        StreamBudget {
+            triangles: 0,
+            bytes: 11,
+        },
+        |_| StreamCost {
+            triangles: usize::MAX,
+            bytes: 11,
+        },
     );
 
     assert_eq!(plan.load, [CellCoord::new(0, 0)]);
@@ -28,11 +35,18 @@ fn hst_08_saturating_costs_never_wrap_past_a_finite_budget() {
         unload_radius: 1,
         max_loads_per_tick: 0,
         max_unloads_per_tick: 0,
-    }).unwrap();
+    })
+    .unwrap();
     let plan = streamer.update_with_budget(
         SkyrimPos::new(0.0, 0.0, 0.0),
-        StreamBudget { triangles: usize::MAX, bytes: usize::MAX },
-        |_| StreamCost { triangles: usize::MAX, bytes: usize::MAX },
+        StreamBudget {
+            triangles: usize::MAX,
+            bytes: usize::MAX,
+        },
+        |_| StreamCost {
+            triangles: usize::MAX,
+            bytes: usize::MAX,
+        },
     );
 
     assert_eq!(plan.load.len(), 1);

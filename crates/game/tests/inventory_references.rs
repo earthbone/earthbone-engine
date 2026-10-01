@@ -3,8 +3,7 @@
 
 //! CK AddItem reference moves, original identity, events and SOEW persistence.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{

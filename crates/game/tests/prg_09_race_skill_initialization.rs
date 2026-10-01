@@ -4,8 +4,7 @@
 //! Actor initialization retains resolved skill values across world reloads.
 //! Manual DNAM skill values stay cached until race-bonus semantics are known.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 

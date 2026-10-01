@@ -7,7 +7,10 @@ use soe_godot_host::animation_dispatch::AnimationEventCursor;
 
 #[test]
 fn hst_10_reference_request_keeps_full_form_identity_and_is_taken_once() {
-    let reference = GlobalFormId { file: 2, object: 0x1234 };
+    let reference = GlobalFormId {
+        file: 2,
+        object: 0x1234,
+    };
     let requests = vec![AnimationRequest {
         target: reference,
         animation: "Open".to_owned(),
@@ -20,8 +23,14 @@ fn hst_10_reference_request_keeps_full_form_identity_and_is_taken_once() {
 
 #[test]
 fn hst_10_same_object_number_on_actor_does_not_match_reference_request() {
-    let reference = GlobalFormId { file: 2, object: 0x1234 };
-    let actor = GlobalFormId { file: 3, object: 0x1234 };
+    let reference = GlobalFormId {
+        file: 2,
+        object: 0x1234,
+    };
+    let actor = GlobalFormId {
+        file: 3,
+        object: 0x1234,
+    };
     let requests = vec![AnimationRequest {
         target: reference,
         animation: "Open".to_owned(),

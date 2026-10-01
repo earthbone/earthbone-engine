@@ -4,14 +4,20 @@
 //! Playback boundary cases for HST-01.
 
 use soe_godot_host::animated_static::{self, AnimatedController};
-use soe_nif::controller::{ControllerFlags, CycleType, QuatTransform, TimeController, TransformInterpolator};
+use soe_nif::controller::{
+    ControllerFlags, CycleType, QuatTransform, TimeController, TransformInterpolator,
+};
 use soe_nif::types::{BlockRef, Quat, Vec3};
 
 fn controller(cycle_type: CycleType, active: bool) -> AnimatedController {
     AnimatedController {
         time: TimeController {
             next_controller: BlockRef::NONE,
-            flags: ControllerFlags { cycle_type, active, ..Default::default() },
+            flags: ControllerFlags {
+                cycle_type,
+                active,
+                ..Default::default()
+            },
             frequency: 1.0,
             phase: 0.0,
             start_time: 0.0,
