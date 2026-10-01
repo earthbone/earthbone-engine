@@ -185,10 +185,7 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     };
     let mut w = game.world_mut();
     w.actor(witness).unwrap().witnessed_crimes.insert(sentinel);
-    // The witness's paired reference ends with its own empty save-section
-    // table version 37 added, in the references block ahead of the actors
-    // block this test searches below. Strip it before anything else.
-    let mut bytes = legacy::without_ref_sections(&mut w, &[witness]);
+    let mut bytes = legacy::without_recent_ai_fields(&mut w, &[witness]);
 
     // `witnessed_crimes` is a length-prefixed set, written last in
     // `write_actor_state`. With a single entry it serializes as a u32

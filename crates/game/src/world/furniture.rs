@@ -39,33 +39,10 @@ pub(crate) fn read_furniture_seat(
     Ok(())
 }
 
-fn write_seat(
-    actor: &ActorState,
-    writer: &mut Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
-    writer.bool(actor.furniture_seat.is_some());
-    if let Some((furniture, marker)) = actor.furniture_seat {
-        write_form_id(writer, furniture);
-        writer.u16(marker);
-    }
-}
-
-fn read_seat(
-    actor: &mut ActorState,
-    reader: &mut FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), VmError> {
-    if reader.bool()? {
-        actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
-    }
-    Ok(())
-}
-
 pub(super) const SECTION: Section<ActorState> = Section {
     name: "HST-09",
-    write: write_seat,
-    read: read_seat,
+    write: write_furniture_seat,
+    read: read_furniture_seat,
 };
 
 impl World {

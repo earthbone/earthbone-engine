@@ -404,12 +404,10 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             world.actor(actor).unwrap().stagger_end_time = Some(value);
         }
     }
-    // Each of the three actors above is a paired reference too, and that
-    // reference's own record ends with an empty save-section table version
-    // 37 added, positioned in the refs block ahead of the actors block this
-    // loop searches below. Strip those three tables before anything else.
+    // Strip paired reference tables. The actor tables are removed with the
+    // stagger and later versioned fields below.
     let mut bytes =
-        legacy::without_ref_sections(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
+        legacy::without_recent_ai_fields(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
     for (_, value) in sentinels {
         let mut marker = vec![1_u8];
         marker.extend_from_slice(&value.to_le_bytes());

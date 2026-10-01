@@ -4,12 +4,59 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
+use soe_papyrus::vm::state::Writer;
+use soe_papyrus::VmError;
 
 use crate::crime::{CrimeType, Error};
 
 use super::World;
 
 impl World {
+    /// Serve the player's bounty in `faction` as jail time.
+    ///
+    /// The sentence is one day per 100 gold, rounded up and capped at seven
+    /// days. Serving clears the faction bounty, advances game time, records
+    /// the days served, and clears partial skill use experience.
+    ///
+    /// # Errors
+    /// Returns [`Error::NotTracked`] when the faction is absent or does not
+    /// track crime, and [`Error::Actor`] when the player cannot be built.
+    pub fn serve_jail_time(&mut self, faction: GlobalFormId) -> Result<u32, Error> {
+        let player = self.player();
+        self.actor(player).ok_or(Error::Actor(player))?;
+        let state = self.faction(faction).ok_or(Error::NotTracked(faction))?;
+        if !state.tracks_crime {
+            return Err(Error::NotTracked(faction));
+        }
+        let bounty = state
+            .crime_gold_violent
+            .saturating_add(state.crime_gold_nonviolent)
+            .max(0);
+        if bounty == 0 {
+            return Ok(0);
+        }
+        let days = sentence_days(bounty);
+        state.crime_gold_violent = 0;
+        state.crime_gold_nonviolent = 0;
+        let actor = self.actor(player).ok_or(Error::Actor(player))?;
+        actor.days_in_jail = actor.days_in_jail.saturating_add(days);
+        actor.skill_experience.clear();
+        let scale = self.clock.timescale;
+        if scale.is_finite() && scale > 0.0 {
+            self.advance_clock(f64::from(days) * 86_400.0 / scale);
+        }
+        Ok(days)
+    }
+
+    /// Clear the player's cumulative served-day counter.
+    pub fn clear_prison(&mut self) {
+        if let Some(player) = self.player {
+            if let Some(actor) = self.actors.get_mut(&player) {
+                actor.days_in_jail = 0;
+            }
+        }
+    }
+
     /// Records a crime `perpetrator` commits, seen by `witness`. Prices it
     /// from `perpetrator`'s own crime faction's `CRVA` table
     /// (`Actor.GetCrimeFaction`) and adds the result to that faction's
@@ -82,4 +129,24 @@ impl World {
             .insert(perpetrator);
         Ok(total)
     }
+}
+
+fn sentence_days(bounty: i32) -> u32 {
+    u32::try_from(bounty.max(0).saturating_add(99) / 100)
+        .unwrap_or(u32::MAX)
+        .clamp(1, 7)
+}
+
+/// Save the player's jail-day count in the PRG-13 actor section.
+pub(crate) fn write_days_in_jail(actor: &super::ActorState, writer: &mut Writer) {
+    writer.u32(actor.days_in_jail);
+}
+
+/// Restore the player's jail-day count from the PRG-13 actor section.
+pub(crate) fn read_days_in_jail(
+    actor: &mut super::ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    actor.days_in_jail = reader.u32()?;
+    Ok(())
 }
