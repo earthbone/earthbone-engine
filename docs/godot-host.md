@@ -56,7 +56,8 @@ physics pose into the shared world remain HST-12 work.
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
 selection. `Game.ShowRaceMenu` queues a transient host request that the player
 consumes on its next gameplay advance. The list comes from winning, non-deleted
-`RACE` records whose `DATA` playable flag is set, ordered by resolved FormID.
+`RACE` records whose `DATA` playable flag is set and whose required attributes
+are valid, ordered by resolved FormID.
 Confirmation stores the chosen race and sex through the shared game's player
 actor-base state. Actor values initialize from the confirmed race when the
 player actor is first built, and later confirmations leave initialized values

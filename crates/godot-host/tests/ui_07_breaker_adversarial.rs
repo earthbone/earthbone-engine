@@ -11,7 +11,8 @@ use soe_godot_host::race_menu;
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 fn race(id: u32, data: Vec<u8>) -> Record {
-    Record::new(T(b"RACE"), id).zsub(T(b"FULL"), &format!("Race {id}"))
+    Record::new(T(b"RACE"), id)
+        .zsub(T(b"FULL"), &format!("Race {id}"))
         .sub(T(b"DATA"), data)
 }
 
@@ -31,8 +32,14 @@ fn game_with_player_and_races(races: impl IntoIterator<Item = Record>, player_ra
         plugin.push_top(record);
     }
     plugin.push_top(
-        npc::build_record(0x14, "Player", "Player", Config::default(), Stats::default())
-            .sub(T(b"RNAM"), player_race.to_le_bytes()),
+        npc::build_record(
+            0x14,
+            "Player",
+            "Player",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"RNAM"), player_race.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
     order.add("Ui07Breaker.esm", plugin).unwrap();
@@ -73,11 +80,7 @@ fn ui_07_trait_setter_rejects_playable_but_unbuildable_race() {
     let mut data = vec![0; 36];
     data[32..36].copy_from_slice(&1_u32.to_le_bytes());
     let valid = race(0x700, playable_data());
-    let mut game = game_with_player_and_races([valid, race(0x702, data)], 0x700);
-    let player = GlobalFormId {
-        file: 0,
-        object: 0x14,
-    };
+    let game = game_with_player_and_races([valid, race(0x702, data)], 0x700);
 
     let initial_traits = game.world_mut().player_character_traits();
     assert_eq!(

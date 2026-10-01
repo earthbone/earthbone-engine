@@ -238,10 +238,16 @@ impl World {
         race: GlobalFormId,
         female: bool,
     ) -> Result<(), Error> {
-        let data = self
+        let record = self
             .record(race)
             .filter(|record| record.tag == Tag(*b"RACE") && !record.is_deleted())
-            .and_then(|record| record.find(Tag(*b"DATA")))
+            .ok_or_else(|| Error::Invalid("missing player race data".into()))?;
+        crate::race::Attributes::from_record(record)
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::Invalid("missing player race data".into()))?;
+        let data = record
+            .find(Tag(*b"DATA"))
             .ok_or_else(|| Error::Invalid("missing player race data".into()))?;
         if data.len() < 36 || u32::from_le_bytes([data[32], data[33], data[34], data[35]]) & 1 == 0
         {
