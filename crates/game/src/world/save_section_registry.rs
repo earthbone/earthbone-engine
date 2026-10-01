@@ -209,7 +209,6 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
-    Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
     Section { name: "AI-67", write: write_being_ridden, read: read_being_ridden },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
