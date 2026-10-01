@@ -21,7 +21,7 @@ use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
     reaction, AnimationListener, BinkOptions, Handle, HostRequest, LeveledEntry, LosListener,
-    MenuRequest, World,
+    MenuRequest, ReferencePhysicsRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -462,6 +462,91 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         |world, call, me| {
             let scene = world.current_scene(me);
             form_value(world, call, scene)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlayAnimationAndWait",
+        |world, call, me| {
+            let animation = text(&call.arg(0));
+            let event = text(&call.arg(1));
+            if animation.is_empty() || event.is_empty() || world.reference(me).is_none() {
+                return b(false);
+            }
+            world.animation_event(me, &animation, alloc!(call));
+            // The world has no reference graph completion callback, so the accepted
+            // request is reported immediately instead of suspending the VM.
+            b(true)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlayGamebryoAnimation",
+        |world, call, me| {
+            let animation = text(&call.arg(0));
+            if animation.is_empty() || world.reference(me).is_none() {
+                return b(false);
+            }
+            world.animation_event(me, &animation, alloc!(call));
+            b(true)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetMotionType",
+        |world, call, me| {
+            let motion_type = call.arg(0).as_int();
+            if !(1..=7).contains(&motion_type) || world.reference(me).is_none() {
+                return none();
+            }
+            let allow_activate = call.args.get(1).is_none_or(Value::as_bool);
+            world.request_reference_physics(ReferencePhysicsRequest::MotionType {
+                reference: me,
+                motion_type: motion_type as u32,
+                allow_activate,
+            });
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "ApplyHavokImpulse",
+        |world, call, me| {
+            let mut direction = [
+                call.arg(0).as_float(),
+                call.arg(1).as_float(),
+                call.arg(2).as_float(),
+            ];
+            let magnitude = call.arg(3).as_float();
+            let length = direction
+                .iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            if world.reference(me).is_none()
+                || !magnitude.is_finite()
+                || !length.is_finite()
+                || length == 0.0
+            {
+                return none();
+            }
+            for value in &mut direction {
+                *value /= length;
+            }
+            world.request_reference_physics(ReferencePhysicsRequest::Impulse {
+                reference: me,
+                direction,
+                magnitude,
+            });
+            none()
         }
     );
     method!(
@@ -3817,10 +3902,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "PlayAnimationAndWait"),
-        ("ObjectReference", "PlayGamebryoAnimation"),
-        ("ObjectReference", "SetMotionType"),
-        ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),

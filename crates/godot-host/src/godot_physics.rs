@@ -23,6 +23,7 @@ use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
 use soe_game::world::ContactActor;
+use soe_game::world::ReferencePhysicsRequest;
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
 use crate::collision::PlacedCollider;
@@ -123,6 +124,66 @@ impl CellBodies {
         transform.origin = offset;
         server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
         true
+    }
+
+    /// Apply queued Papyrus motion and impulse operations to resident bodies.
+    pub fn apply_reference_physics_requests(&mut self, world: &mut soe_game::World) -> usize {
+        let requests = world.take_reference_physics_requests();
+        let mut applied = 0;
+        let mut server = PhysicsServer3D::singleton();
+        for request in requests {
+            match request {
+                ReferencePhysicsRequest::MotionType {
+                    reference,
+                    motion_type,
+                    allow_activate,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter_mut()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let mode = match motion_type {
+                        1 | 2 | 3 | 6 => BodyMode::RIGID,
+                        4 => BodyMode::KINEMATIC,
+                        5 => BodyMode::STATIC,
+                        _ => continue,
+                    };
+                    server.body_set_mode(entry.body, mode);
+                    if motion_type == 1 && !allow_activate {
+                        server.body_set_state(entry.body, BodyState::SLEEPING, &true.to_variant());
+                    }
+                    applied += 1;
+                }
+                ReferencePhysicsRequest::Impulse {
+                    reference,
+                    direction,
+                    magnitude,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let direction = crate::units::SkyrimPos::new(
+                        direction[0] * magnitude,
+                        direction[1] * magnitude,
+                        direction[2] * magnitude,
+                    )
+                    .to_godot();
+                    server.body_apply_central_impulse(
+                        entry.body,
+                        Vector3::new(direction.x, direction.y, direction.z),
+                    );
+                    applied += 1;
+                }
+            }
+        }
+        applied
     }
 
     /// Every live body's RID, in insertion order. Diagnostic callers may

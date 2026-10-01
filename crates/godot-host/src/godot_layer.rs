@@ -595,6 +595,7 @@ impl CellStreamerNode {
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
+            self.collision.apply_reference_physics_requests(world);
             self.collision.poll_movable(world);
         }
         let mut changed = std::collections::HashSet::new();

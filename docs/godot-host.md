@@ -158,6 +158,12 @@ transforms and reports their largest difference from the cached World pose.
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
 
+`CellBodies::apply_reference_physics_requests` drains the transient requests
+from `ObjectReference.SetMotionType` and `ApplyHavokImpulse` after placement
+sync. It applies motion modes and central impulses to resident movable bodies.
+Requests for references without a resident movable body are discarded. The
+Papyrus request queue and this host operation do not add saved state.
+
 `CellBodies::grab_movable_reference` changes one resident movable body to
 kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
 from a finite Skyrim-space position. `release_movable_reference` returns the
