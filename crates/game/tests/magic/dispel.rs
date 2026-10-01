@@ -246,7 +246,9 @@ fn mag_05_later_unsupported_entry_cannot_partially_dispel() {
     let before = game.world().save_state();
     assert!(matches!(
         cast(&mut game, DISPEL_SPELL, OTHER),
-        Err(MagicError::Unsupported("effect archetype"))
+        Err(MagicError::Unsupported(
+            "spawn hazard requires hazard ownership and expiry"
+        ))
     ));
     assert_eq!(game.world().save_state(), before);
 }

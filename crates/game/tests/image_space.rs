@@ -167,14 +167,9 @@ fn invalid_apply_and_pop_leave_the_existing_stack_unchanged() {
 fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     let mut game = game();
     let mut legacy = game.world().save_state();
-    legacy::normalize_world_sections(&mut legacy);
-    // Version 24 is the last one written without an image-space block.
-    legacy[4..6].copy_from_slice(&24u16.to_le_bytes());
-    // Drop the image-space block and the loose-item and zone blocks after it,
-    // plus detection's now-unconditional empty pool count (4 bytes) and the
-    // world-level save-section table version 37 added (2 bytes), both always
-    // present at the tail regardless of the simulated version.
-    legacy.truncate(legacy.len() - 35);
+    legacy::truncate_to_version(&mut legacy, 24, |candidate| {
+        self::game().world_mut().load_state(candidate).is_ok()
+    });
     game.world_mut()
         .crossfade_image_space(Some(id(1)), 0.0)
         .unwrap();
@@ -184,10 +179,20 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     game.tick(1.0);
     let before = game.world().save_state();
     let mut corrupt = before.clone();
-    // The fade duration ends eight bytes before the loose-item and zone blocks.
-    let offset = corrupt.len() - 16;
-    corrupt[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
-    assert!(game.world_mut().load_state(&corrupt).is_err());
+    let mut marker = vec![1];
+    marker.extend_from_slice(&1.0_f64.to_le_bytes());
+    marker.extend_from_slice(&2.0_f64.to_le_bytes());
+    marker.push(1);
+    marker.extend_from_slice(&id(2).file.to_le_bytes());
+    marker.extend_from_slice(&id(2).object.to_le_bytes());
+    let offset = legacy::unique_offset(&corrupt, &marker) + 1 + std::mem::size_of::<f64>();
+    corrupt[offset..offset + std::mem::size_of::<f64>()].copy_from_slice(&f64::NAN.to_le_bytes());
+    assert!(game
+        .world_mut()
+        .load_state(&corrupt)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid image-space fade"));
     assert_eq!(game.world().save_state(), before);
     game.world_mut().load_state(&legacy).unwrap();
     assert!(game.world().image_space_layers().is_empty());

@@ -25,7 +25,9 @@ impl World {
         let mut roots: Vec<_> = self.settings.values().cloned().collect();
         for pending in &self.pending {
             match pending {
-                Pending::Event { object, args, .. } | Pending::Call { object, args, .. } => {
+                Pending::Event { object, args, .. }
+                | Pending::Call { object, args, .. }
+                | Pending::CallScript { object, args, .. } => {
                     roots.push(Value::Object(*object));
                     roots.extend(args.iter().cloned());
                 }

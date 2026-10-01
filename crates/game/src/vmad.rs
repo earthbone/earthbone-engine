@@ -895,25 +895,22 @@ mod tests {
     }
 
     #[test]
-    fn fmt_03_pack_begin_fragment_reproduces_authored_bytes() {
-        let bytes = authored_pack_bytes(0b001, &[(2, "TIF__000A0001", "Fragment_0")]);
-        let v = Vmad::parse(&bytes, PACK).unwrap();
-        let frags = v.pack_fragments.as_ref().unwrap();
-        assert_eq!(frags.begin.as_ref().unwrap().function, "Fragment_0");
-        assert!(frags.end.is_none());
-        assert!(frags.change.is_none());
-        assert_eq!(v.write(PACK), bytes);
-    }
-
-    #[test]
-    fn fmt_03_pack_end_fragment_reproduces_authored_bytes() {
-        let bytes = authored_pack_bytes(0b010, &[(2, "TIF__000A0001", "Fragment_1")]);
-        let v = Vmad::parse(&bytes, PACK).unwrap();
-        let frags = v.pack_fragments.as_ref().unwrap();
-        assert!(frags.begin.is_none());
-        assert_eq!(frags.end.as_ref().unwrap().function, "Fragment_1");
-        assert!(frags.change.is_none());
-        assert_eq!(v.write(PACK), bytes);
+    fn fmt_03_pack_begin_and_end_fragments_reproduce_authored_bytes() {
+        for (flags, function, begin) in [(0b001, "Fragment_0", true), (0b010, "Fragment_1", false)]
+        {
+            let bytes = authored_pack_bytes(flags, &[(2, "TIF__000A0001", function)]);
+            let v = Vmad::parse(&bytes, PACK).unwrap();
+            let frags = v.pack_fragments.as_ref().unwrap();
+            let actual = if begin { &frags.begin } else { &frags.end };
+            assert_eq!(actual.as_ref().unwrap().function, function);
+            if begin {
+                assert!(frags.end.is_none());
+            } else {
+                assert!(frags.begin.is_none());
+            }
+            assert!(frags.change.is_none());
+            assert_eq!(v.write(PACK), bytes);
+        }
     }
 
     #[test]
@@ -925,6 +922,30 @@ mod tests {
         assert!(frags.end.is_none());
         assert_eq!(frags.change.as_ref().unwrap().function, "Fragment_2");
         assert_eq!(v.write(PACK), bytes);
+    }
+
+    #[test]
+    fn fmt_03_pack_single_fragment_flags_reproduce_authored_bytes() {
+        for (flags, function, expected_index) in [
+            (0b001, "Fragment_0", 0),
+            (0b010, "Fragment_1", 1),
+            (0b100, "Fragment_2", 2),
+        ] {
+            let bytes = authored_pack_bytes(flags, &[(2, "TIF__000A0001", function)]);
+            let parsed = Vmad::parse(&bytes, PACK).unwrap();
+            let fragments = parsed.pack_fragments.as_ref().unwrap();
+            let actual = [
+                fragments.begin.as_ref(),
+                fragments.end.as_ref(),
+                fragments.change.as_ref(),
+            ];
+            assert_eq!(actual[expected_index].unwrap().function, function);
+            assert!(actual
+                .into_iter()
+                .enumerate()
+                .all(|(index, fragment)| index == expected_index || fragment.is_none()));
+            assert_eq!(parsed.write(PACK), bytes);
+        }
     }
 
     #[test]

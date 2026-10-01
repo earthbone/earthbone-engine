@@ -29,7 +29,9 @@ use godot::classes::{
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
-use crate::batch::{batch_surfaces, instancing_candidates, BatchMember, InstanceGroup};
+use crate::batch::{
+    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
+};
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
 };
@@ -71,6 +73,10 @@ pub struct CellStreamerNode {
     /// benchmark compares against.
     #[export]
     batch_surfaces: bool,
+    /// Add one server-side occluder from the four largest opaque surfaces
+    /// in each cell. Godot versions without 3D occluder server methods skip it.
+    #[export]
+    cell_occluders: bool,
     streamer: Option<CellStreamer>,
     /// Set by `load_data`. `stream_cell` needs this before it can read a
     /// real cell, the synthetic streaming above never touches it.
@@ -81,6 +87,8 @@ pub struct CellStreamerNode {
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// The occlusion mesh and instance RIDs owned by each streamed cell.
+    occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -161,6 +169,12 @@ struct Instance {
     /// of composing a delta onto an already patched copy. Same reasoning as
     /// `StaticEntry::source` in `godot_physics`.
     arrays: SurfaceArrays,
+}
+
+struct CellOccluder {
+    cell: GlobalFormId,
+    instance: Rid,
+    mesh: Rid,
 }
 
 /// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
@@ -314,10 +328,12 @@ impl INode3D for CellStreamerNode {
             max_unloads_per_tick: d.max_unloads_per_tick as i32,
             focus: None,
             batch_surfaces: true,
+            cell_occluders: false,
             streamer: None,
             data_source: None,
             data_load: None,
             instances: Vec::new(),
+            occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -339,6 +355,7 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.free_occluders();
         self.free_effect_shaders();
         self.clear_terrain_lod();
         self.collision.free();
@@ -507,6 +524,7 @@ impl CellStreamerNode {
                 true
             }
         });
+        self.free_departed_occluders(departed);
         self.bounds = self
             .instances
             .iter()
@@ -898,6 +916,30 @@ impl CellStreamerNode {
         out
     }
 
+    /// Terrain surfaces currently submitted to the RenderingServer, with
+    /// their RID and cached material for host-side visual checks.
+    #[func]
+    pub fn terrain_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let Some(path) = instance.arrays.material.diffuse.as_deref() else {
+                continue;
+            };
+            if !path.starts_with("terrain:") {
+                continue;
+            }
+            let key = crate::mesh::MaterialKey::from(&instance.arrays.material);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
@@ -980,6 +1022,7 @@ impl CellStreamerNode {
             server.free_rid(instance.rid);
             drop(instance.mesh);
         }
+        self.free_departed_occluders(&[owner]);
         self.bounds = self
             .instances
             .iter()
@@ -1438,6 +1481,7 @@ impl CellStreamerNode {
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
+        self.free_occluders();
         self.free_effect_shaders();
         self.exterior_cells.clear();
         self.ref_cache.clear();
@@ -1486,6 +1530,9 @@ impl CellStreamerNode {
     ) {
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
+        if self.cell_occluders {
+            self.add_cell_occluder(cell, &loaded.surfaces, scenario);
+        }
         let (groups, remainder) = instancing_candidates(&loaded.surfaces);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
@@ -1612,6 +1659,58 @@ impl CellStreamerNode {
         for instance in self.instances.drain(..) {
             server.free_rid(instance.rid);
             drop(instance.mesh);
+        }
+    }
+
+    fn add_cell_occluder(&mut self, cell: GlobalFormId, surfaces: &[LoadedSurface], scenario: Rid) {
+        let mut server = RenderingServer::singleton();
+        if !server.has_method("occluder_create") || !server.has_method("occluder_set_mesh") {
+            return;
+        }
+        let (vertices, indices) = cell_occluder_mesh(surfaces);
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+        let packed_vertices: PackedVector3Array = vertices
+            .into_iter()
+            .map(|p| Vector3::new(p[0], p[1], p[2]))
+            .collect();
+        let packed_indices: PackedInt32Array = indices.into_iter().collect();
+        let mesh: Rid = server.call("occluder_create", &[]).to();
+        let mesh_args = [
+            mesh.to_variant(),
+            packed_vertices.to_variant(),
+            packed_indices.to_variant(),
+        ];
+        server.call("occluder_set_mesh", &mesh_args);
+        let instance_args = [mesh.to_variant(), scenario.to_variant()];
+        let instance: Rid = server.call("instance_create2", &instance_args).to();
+        server.instance_set_transform(instance, Transform3D::IDENTITY);
+        self.occluders.push(CellOccluder {
+            cell,
+            instance,
+            mesh,
+        });
+    }
+
+    fn free_departed_occluders(&mut self, departed: &[GlobalFormId]) {
+        let mut server = RenderingServer::singleton();
+        self.occluders.retain(|occluder| {
+            if departed.contains(&occluder.cell) {
+                server.free_rid(occluder.instance);
+                server.free_rid(occluder.mesh);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_occluders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for occluder in self.occluders.drain(..) {
+            server.free_rid(occluder.instance);
+            server.free_rid(occluder.mesh);
         }
     }
 

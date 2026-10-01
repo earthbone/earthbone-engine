@@ -35,6 +35,11 @@ pub mod flags {
     pub const WEAPON_DRAWN: u32 = 0x0080_0000;
     pub const NO_COMBAT_ALERT: u32 = 0x0800_0000;
     pub const WEAR_SLEEP_OUTFIT: u32 = 0x2000_0000;
+
+    /// `PKDT` interrupt override values from xEdit's PACK definition.
+    pub const INTERRUPT_OVERRIDE_COMBAT: u8 = 4;
+    /// The `Observe combat behavior` interrupt bit from xEdit's PACK definition.
+    pub const INTERRUPT_OBSERVE_COMBAT: u16 = 1 << 2;
 }
 
 /// `PKDT` preferred speed.
@@ -171,7 +176,7 @@ pub struct LocationData {
     pub radius: i32,
 }
 
-/// `PTDA` target kind.
+/// `PTDA` target kind. xEdit `wbObjectTypeEnum` supplies Object Type values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Reference(u32),
