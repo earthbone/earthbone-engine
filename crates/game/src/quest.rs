@@ -28,6 +28,19 @@ pub mod stage_flags {
     pub const SHUT_DOWN: u8 = 0x04;
 }
 
+pub mod alias_flags {
+    //! Flags on reference and location aliases in a `QUST` record.
+    pub const RESERVES_REFERENCE: u32 = 1 << 0;
+    pub const OPTIONAL: u32 = 1 << 1;
+    pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
+    pub const ALLOW_DEAD: u32 = 1 << 4;
+    pub const IN_LOADED_AREA: u32 = 1 << 5;
+    pub const ALLOW_DISABLED: u32 = 1 << 7;
+    pub const ALLOW_RESERVED: u32 = 1 << 9;
+    pub const ALLOW_DESTROYED: u32 = 1 << 12;
+    pub const CLOSEST: u32 = 1 << 13;
+}
+
 pub mod entry_flags {
     pub const COMPLETE_QUEST: u8 = 0x01;
     pub const FAIL_QUEST: u8 = 0x02;
@@ -100,19 +113,6 @@ pub struct Alias {
 pub enum AliasFill {
     Local(u32),
     External { quest: u32, alias: u32 },
-}
-
-pub mod alias_flags {
-    //! Flags on reference and location aliases in a `QUST` record.
-    pub const RESERVES_REFERENCE: u32 = 1 << 0;
-    pub const OPTIONAL: u32 = 1 << 1;
-    pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
-    pub const ALLOW_DEAD: u32 = 1 << 4;
-    pub const IN_LOADED_AREA: u32 = 1 << 5;
-    pub const ALLOW_DISABLED: u32 = 1 << 7;
-    pub const ALLOW_RESERVED: u32 = 1 << 9;
-    pub const ALLOW_DESTROYED: u32 = 1 << 12;
-    pub const CLOSEST: u32 = 1 << 13;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -442,10 +442,27 @@ pub fn with_objective(rec: Record, index: u16, text: &str) -> Record {
 }
 
 pub fn with_alias(rec: Record, id: u32, name: &str, forced_ref: Option<u32>) -> Record {
+    with_alias_flags(rec, id, name, forced_ref, 0)
+}
+
+/// Add a reference alias with the supplied QUST alias flags.
+///
+/// # Errors
+/// This builder does not return errors.
+///
+/// # Panics
+/// This builder does not panic.
+pub fn with_alias_flags(
+    rec: Record,
+    id: u32,
+    name: &str,
+    forced_ref: Option<u32>,
+    flags: u32,
+) -> Record {
     let rec = rec
         .sub(Tag::new(b"ALST"), id.to_le_bytes())
         .zsub(Tag::new(b"ALID"), name)
-        .sub(Tag::new(b"FNAM"), 0u32.to_le_bytes());
+        .sub(Tag::new(b"FNAM"), flags.to_le_bytes());
     let rec = match forced_ref {
         Some(r) => rec.sub(Tag::new(b"ALFR"), r.to_le_bytes()),
         None => rec,

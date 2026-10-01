@@ -320,6 +320,13 @@ impl World {
                 }
             }
             Handle::Form(id) => match self.tag_of(id).map(|t| *t.as_bytes()) {
+                Some(t) if t == *b"SPEL" => {
+                    if self.spell(id).is_ok_and(|spell| spell.data.cast_type == 3) {
+                        "Scroll"
+                    } else {
+                        "Spell"
+                    }
+                }
                 Some(t) => class_for_tag(&t),
                 None => "Form",
             },
