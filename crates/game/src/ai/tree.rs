@@ -7,7 +7,9 @@
 //! and thread 804089. Choices use the existing saved world RNG.
 
 use super::{conditions_hold, package, template_chain, AiState, Procedure, World};
-use crate::package::{branch_ends, Branch, DataValue, LocationData, Package};
+use crate::combat::Hand;
+use crate::package::{branch_ends, Branch, DataValue, LocationData, Package, Target};
+use crate::world::Alloc;
 use soe_esm::GlobalFormId;
 
 /// A cursor into the preorder branches of a winning template.
@@ -81,6 +83,35 @@ impl Tree {
         }
     }
 
+    fn simultaneous_wait(
+        &self,
+        parent: usize,
+        actor: GlobalFormId,
+        world: &mut World,
+        quest: Option<GlobalFormId>,
+    ) -> Option<(f32, bool)> {
+        let mut child = parent + 1;
+        let mut duration = 0.0_f32;
+        let mut stop_movement = false;
+        let mut indefinite = false;
+        let mut found = false;
+        while child < self.ends[parent] {
+            let branch = self.branches.get(child)?;
+            if branch.child_count != 0 || !branch.kind.eq_ignore_ascii_case("procedure") {
+                return None;
+            }
+            if conditions_hold(world, actor, self.owner, quest, &branch.conditions) {
+                let (seconds, stop) = self.wait_parameters(branch)?;
+                duration = duration.max(seconds);
+                indefinite |= seconds == 0.0;
+                stop_movement |= stop;
+                found = true;
+            }
+            child = self.ends[child];
+        }
+        found.then_some((if indefinite { 0.0 } else { duration }, stop_movement))
+    }
+
     fn patrol_parameters(
         &self,
         branch: &Branch,
@@ -132,10 +163,14 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
+        Some("sit") => Procedure::Sit,
         Some("patrol") => Procedure::Patrol,
+        Some("usemagic") => Procedure::UseMagic,
+        Some("useweapon") => Procedure::UseWeapon,
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
+        Some("shout") => Procedure::Shout,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
@@ -173,7 +208,7 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
     (Procedure::None, None, false)
 }
 
-pub(super) fn start(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
+pub(super) fn start(world: &mut World, actor: GlobalFormId, ai: &mut AiState, alloc: Alloc<'_>) {
     ai.tree = ai
         .package
         .and_then(|id| Tree::load(world, id))
@@ -183,10 +218,10 @@ pub(super) fn start(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             active: false,
             finished: false,
         });
-    enter(world, actor, ai);
+    enter(world, actor, ai, alloc);
 }
 
-pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
+pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, alloc: Alloc<'_>) {
     let Some(mut state) = ai.tree.take() else {
         return;
     };
@@ -217,6 +252,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             .and_then(|raw| world.resolve_from(id, raw))
     });
     let mut checked = None;
+    let mut use_magic_succeeded = false;
     // CONTEXT: An empty repeating branch must yield rather than spin in one tick.
     for _ in 0..=tree.branches.len() {
         if state.finished {
@@ -263,6 +299,30 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             }
             continue;
         }
+        if branch.kind.eq_ignore_ascii_case("simultaneous") && branch.procedure.is_none() {
+            match tree.simultaneous_wait(index, actor, world, quest) {
+                Some((seconds, stop_movement)) => {
+                    state.active = true;
+                    let deadline =
+                        (seconds > 0.0).then_some(world.clock.real_seconds + f64::from(seconds));
+                    super::begin_procedure(
+                        world,
+                        actor,
+                        ai,
+                        Procedure::Wait { stop_movement },
+                        None,
+                    );
+                    ai.wait_until = deadline;
+                }
+                None => {
+                    ai.procedure = Procedure::Unsupported(
+                        "Simultaneous supports only Wait children until AI-87 completion rules are available".into(),
+                    );
+                    state.active = true;
+                }
+            }
+            break;
+        }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
             if branch.child_count == 0 {
                 if branch.repeat_when_complete {
@@ -294,12 +354,93 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
         }
         ai.wait_until = wait_until;
+        if ai.procedure == Procedure::UseMagic {
+            match use_magic(world, actor, ai, &tree, branch, alloc) {
+                Ok(()) => {
+                    use_magic_succeeded = true;
+                    ai.procedure = Procedure::None;
+                }
+                Err(reason) => ai.procedure = Procedure::Unsupported(reason.into()),
+            }
+        }
         break;
     }
     ai.tree = Some(state);
+    if use_magic_succeeded {
+        succeeded(world, ai);
+    }
     if ai.tree.as_ref().is_some_and(|s| s.finished) {
         complete(world, ai);
     }
+}
+
+fn use_magic(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    tree: &Tree,
+    branch: &Branch,
+    alloc: Alloc<'_>,
+) -> Result<(), &'static str> {
+    let (owner, target) = branch
+        .inputs
+        .iter()
+        .find_map(|input| {
+            tree.chain.iter().find_map(|(owner, package)| {
+                let value = package.input(*input as i8)?.value;
+                match value {
+                    DataValue::Target(target) => Some((*owner, target.target)),
+                    _ => None,
+                }
+            })
+        })
+        .ok_or("UseMagic target input is missing")?;
+    let target = match target {
+        Target::Reference(raw) => world.resolve_from(owner, raw),
+        Target::Itself => Some(actor),
+        Target::LinkedReference(raw_keyword) => {
+            let keyword = (raw_keyword != 0)
+                .then(|| world.resolve_from(owner, raw_keyword))
+                .flatten();
+            let mut links = world
+                .reference(actor)
+                .into_iter()
+                .flat_map(|state| state.linked.iter())
+                .filter(|(kind, _)| kind.is_none_or(|kind| Some(kind) == keyword));
+            let first = links.next().map(|(_, target)| *target);
+            if links.next().is_some() {
+                None
+            } else {
+                first
+            }
+        }
+        Target::Alias(id) => ai
+            .alias
+            .and_then(|(quest, _)| world.quest(quest)?.aliases.get(&id).copied().flatten()),
+        _ => None,
+    }
+    .ok_or("UseMagic target did not resolve")?;
+    if !world
+        .actor(target)
+        .is_some_and(|state| !state.dead && !state.ghost)
+    {
+        return Err("UseMagic target is not an eligible actor");
+    }
+    let spell = [Hand::Right, Hand::Left]
+        .into_iter()
+        .find_map(|hand| {
+            let spell = world.hand_spell(actor, hand)?;
+            world
+                .spell(spell)
+                .ok()
+                .filter(|definition| definition.data.spell_type == 0)?;
+            Some(spell)
+        })
+        .ok_or("UseMagic actor has no assigned castable spell")?;
+    world
+        .cast_charged_spell(spell, actor, actor, Some(target), alloc)
+        .map_err(|_| "UseMagic assigned spell could not be cast")?;
+    Ok(())
 }
 
 pub(super) fn patrol_parameters(

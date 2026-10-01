@@ -56,6 +56,8 @@ pub struct Distributed {
     pub what: GlobalFormId,
     /// Resolved from the rule's index or count, at least one.
     pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
     pub on_death: bool,
 }
 
@@ -111,10 +113,14 @@ pub struct ActorDistribution {
     pub base: GlobalFormId,
     /// Resolved form handed to the actor.
     pub what: GlobalFormId,
+    /// Consumer selected from the explicit type or resolved record signature.
+    pub record_type: spid::RecordType,
     /// Parsed rule, including its per-entry chance seed.
     pub distribution: spid::Distribution,
     /// Resolved item count, at least one.
     pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
 }
 
 impl ModDataState {
@@ -148,6 +154,9 @@ pub struct ModDataReport {
     pub skipped_unsupported_filter: usize,
     /// Rules skipped because their chance mode is unsupported.
     pub skipped_unsupported_chance: usize,
+    /// Rules whose record type has no runtime consumer, or whose generic
+    /// `Form` signature cannot be inferred to a supported type.
+    pub skipped_unsupported_consumer: usize,
     /// Lines the parser could not read, reported by the parser itself.
     pub unreadable_lines: usize,
 }
@@ -221,9 +230,10 @@ pub(crate) fn for_actor(
             continue;
         }
         result.push(Distributed {
-            record_type: rule.distribution.record_type,
+            record_type: rule.record_type,
             what: rule.what,
             count: rule.count,
+            package_index: rule.package_index,
             on_death: rule.distribution.on_death,
         });
     }
@@ -258,22 +268,154 @@ fn deterministic_roll(line_seed: u64, player: u64, actor: u64, chance: f32) -> b
     unit * 100.0 < f64::from(chance)
 }
 
-/// True when a distribution carries a filter this module cannot evaluate yet.
-/// Skipping is the safe direction: applying a level filtered rule to every
-/// actor would be worse than not applying it, and the report counts it.
-fn has_unsupported_filter(d: &spid::Distribution) -> bool {
-    let l = &d.levels;
-    let t = &d.traits;
-    l.actor_level.is_some()
-        || !l.skill_levels.is_empty()
-        || !l.skill_weights.is_empty()
-        || t.female.is_some()
-        || t.unique.is_some()
-        || t.summonable.is_some()
-        || t.child.is_some()
-        || t.leveled.is_some()
-        || t.teammate.is_some()
-        || t.starts_dead.is_some()
+fn in_range(value: u32, range: spid::Range) -> bool {
+    range.min <= value && value <= range.max
+}
+
+/// Match SPID level and base traits that can be read from an NPC record.
+fn matches_spid_actor_filters(world: &World, base: GlobalFormId, d: &spid::Distribution) -> bool {
+    let Some(npc) = world.npc(base) else {
+        return false;
+    };
+    let levels = &d.levels;
+    let actor_level = npc.level_for(world.player_level);
+    if levels
+        .actor_level
+        .is_some_and(|range| !in_range(actor_level, range))
+    {
+        return false;
+    }
+    let skills = npc.stats.unwrap_or_default();
+    for filter in &levels.skill_levels {
+        let Some(value) = skills
+            .skills
+            .get(filter.skill as usize)
+            .zip(skills.skill_offsets.get(filter.skill as usize))
+            .map(|(value, offset)| u32::from(*value) + u32::from(*offset))
+        else {
+            return false;
+        };
+        if !in_range(value, filter.range) {
+            return false;
+        }
+    }
+    if !levels.skill_weights.is_empty() {
+        let Some(raw_class) = npc.class else {
+            return false;
+        };
+        let class_id = world.order().resolve(usize::from(base.file), raw_class);
+        let Some(class_record) = world.record(class_id) else {
+            return false;
+        };
+        let Ok(Some(class)) = crate::class::Class::from_record(class_record) else {
+            return false;
+        };
+        for filter in &levels.skill_weights {
+            let Some(value) = class.skill_weights.get(filter.skill as usize) else {
+                return false;
+            };
+            if !in_range(u32::from(*value), filter.range) {
+                return false;
+            }
+        }
+    }
+
+    let traits = &d.traits;
+    if traits
+        .female
+        .is_some_and(|expected| npc.is_female() != expected)
+        || traits
+            .unique
+            .is_some_and(|expected| (npc.config.flags & crate::npc::flags::UNIQUE != 0) != expected)
+        || traits.summonable.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::SUMMONABLE != 0) != expected
+        })
+        || traits.leveled.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::PC_LEVEL_MULT != 0) != expected
+        })
+    {
+        return false;
+    }
+    if traits.child.is_some_and(|expected| {
+        let is_child = npc
+            .race
+            .map(|raw| world.order().resolve(usize::from(base.file), raw))
+            .and_then(|race| world.editor_id(race))
+            .is_some_and(|editor_id| editor_id.contains("RaceChild"));
+        is_child != expected
+    }) {
+        return false;
+    }
+    if traits.teammate.is_some_and(|expected| {
+        let potential_follower_faction = GlobalFormId {
+            file: 0,
+            object: 0x0005_C84D,
+        };
+        let is_teammate = npc.factions.iter().any(|(raw, _)| {
+            world.order().resolve(usize::from(base.file), *raw) == potential_follower_faction
+        });
+        is_teammate != expected
+    }) {
+        return false;
+    }
+    true
+}
+
+fn has_actor_only_filter(d: &spid::Distribution) -> bool {
+    d.traits.starts_dead.is_some()
+}
+
+/// Resolve SPID's generic `Form` type from the winning record signature.
+/// `Skin` and `SleepOutfit` cannot be inferred from signatures, as SPID's
+/// reference documents, because their signatures overlap `Item` and `Outfit`.
+fn inferred_record_type(world: &World, form: GlobalFormId) -> Option<spid::RecordType> {
+    let tag = world.tag_of(form)?;
+    Some(match &tag.0 {
+        b"SPEL" => spid::RecordType::Spell,
+        b"LVSP" => spid::RecordType::LevSpell,
+        b"PERK" => spid::RecordType::Perk,
+        b"SHOU" => spid::RecordType::Shout,
+        b"PACK" | b"FLST" => spid::RecordType::Package,
+        b"OTFT" => spid::RecordType::Outfit,
+        b"KYWD" => spid::RecordType::Keyword,
+        b"FACT" => spid::RecordType::Faction,
+        b"ALCH" | b"AMMO" | b"ARMO" | b"BOOK" | b"INGR" | b"KEYM" | b"LVLI" | b"MISC" | b"SCRL"
+        | b"SLGM" | b"WEAP" => spid::RecordType::Item,
+        _ => return None,
+    })
+}
+
+/// Check that an explicit SPID type names a record signature in its schema.
+fn record_type_matches(world: &World, record_type: spid::RecordType, form: GlobalFormId) -> bool {
+    let Some(tag) = world.tag_of(form) else {
+        return false;
+    };
+    match record_type {
+        spid::RecordType::Form => inferred_record_type(world, form).is_some(),
+        spid::RecordType::Spell => matches!(&tag.0, b"SPEL" | b"LVSP"),
+        spid::RecordType::Perk => tag.0 == *b"PERK",
+        spid::RecordType::Item => matches!(
+            &tag.0,
+            b"ALCH"
+                | b"AMMO"
+                | b"ARMO"
+                | b"BOOK"
+                | b"INGR"
+                | b"KEYM"
+                | b"LVLI"
+                | b"MISC"
+                | b"SCRL"
+                | b"SLGM"
+                | b"WEAP"
+        ),
+        spid::RecordType::Shout => tag.0 == *b"SHOU",
+        spid::RecordType::LevSpell => tag.0 == *b"LVSP",
+        spid::RecordType::Package => matches!(&tag.0, b"PACK" | b"FLST"),
+        spid::RecordType::Outfit | spid::RecordType::SleepOutfit => tag.0 == *b"OTFT",
+        spid::RecordType::Keyword => tag.0 == *b"KYWD",
+        spid::RecordType::Faction => tag.0 == *b"FACT",
+        spid::RecordType::Skin => tag.0 == *b"ARMO",
+    }
 }
 
 /// Reads, resolves and applies every configuration file under `roots`, lowest
@@ -474,13 +616,25 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
         let Some(what) = d.form.resolve(world.order()) else {
             continue;
         };
-        if has_unsupported_filter(d) {
+        let record_type = match d.record_type {
+            spid::RecordType::Form => inferred_record_type(world, what),
+            record_type => Some(record_type),
+        };
+        let Some(record_type) = record_type else {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        };
+        if !record_type_matches(world, record_type, what) {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        }
+        if has_actor_only_filter(d) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
-        let count = match d.index_or_count {
-            spid::IndexOrCount::Count(r) => i32::try_from(r.min.max(1)).unwrap_or(1),
-            spid::IndexOrCount::Index(_) => 1,
+        let (count, package_index) = match d.index_or_count {
+            spid::IndexOrCount::Count(r) => (i32::try_from(r.min.max(1)).unwrap_or(1), None),
+            spid::IndexOrCount::Index(index) => (1, Some(usize::try_from(index).unwrap_or(0))),
         };
         for base in &bases {
             let subject = subject_of(world, *base);
@@ -490,17 +644,35 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
             if !d.forms.matches(world.order(), &subject) {
                 continue;
             }
+            if !matches_spid_actor_filters(world, *base, d) {
+                continue;
+            }
             if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
                 world.mod_data.actor_rules.push(ActorDistribution {
                     base: *base,
                     what,
+                    record_type,
                     distribution: d.clone(),
                     count,
+                    package_index,
                 });
                 continue;
             }
             if !roll(world, d.chance) {
                 report.skipped_by_chance += 1;
+                continue;
+            }
+            if record_type == spid::RecordType::Keyword {
+                if world
+                    .mod_data
+                    .added_keywords
+                    .entry(*base)
+                    .or_default()
+                    .insert(what)
+                {
+                    report.keywords_attached += 1;
+                }
+                report.distributions_applied += 1;
                 continue;
             }
             world
@@ -509,9 +681,10 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 .entry(*base)
                 .or_default()
                 .push(Distributed {
-                    record_type: d.record_type,
+                    record_type,
                     what,
                     count,
+                    package_index,
                     on_death: d.on_death,
                 });
             report.distributions_applied += 1;
@@ -627,6 +800,7 @@ mod tests {
                 record_type: RecordType::Spell,
                 what: id(2),
                 count: 1,
+                package_index: None,
                 on_death: false,
             }],
         );
