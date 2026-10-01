@@ -843,16 +843,134 @@ mod scr_08_adversarial;
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_24_adversarial.rs"]
+mod scr_24_adversarial;
+#[path = "scr_24_effect_shader.rs"]
+mod scr_24_effect_shader;
+#[path = "scr_25_adversarial.rs"]
+mod scr_25_adversarial;
+#[path = "scr_26_adversarial.rs"]
+mod scr_26_adversarial;
+#[path = "scr_27_adversarial.rs"]
+mod scr_27_adversarial;
+#[path = "scr_28_adversarial.rs"]
+mod scr_28_adversarial;
 #[path = "scr_29_adversarial.rs"]
 mod scr_29_adversarial;
 #[path = "scr_29_game_native_contracts.rs"]
 mod scr_29_game_native_contracts;
+#[path = "scr_30_adversarial.rs"]
+mod scr_30_adversarial;
+#[path = "scr_30_game_natives.rs"]
+mod scr_30_game_natives;
+#[path = "scr_31_adversarial.rs"]
+mod scr_31_adversarial;
+#[path = "scr_32_adversarial.rs"]
+mod scr_32_adversarial;
+#[path = "scr_32_game_queries.rs"]
+mod scr_32_game_queries;
+#[path = "scr_33_adversarial.rs"]
+mod scr_33_adversarial;
+#[path = "scr_34_adversarial.rs"]
+mod scr_34_adversarial;
+#[path = "scr_34_keyword_story_events.rs"]
+mod scr_34_keyword_story_events;
+#[path = "scr_35_adversarial.rs"]
+mod scr_35_adversarial;
+#[path = "scr_36_adversarial.rs"]
+mod scr_36_adversarial;
+#[path = "scr_37_adversarial.rs"]
+mod scr_37_adversarial;
+#[path = "scr_37_music_type.rs"]
+mod scr_37_music_type;
+#[path = "scr_38_adversarial.rs"]
+mod scr_38_adversarial;
+#[path = "scr_38_object_reference.rs"]
+mod scr_38_object_reference;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_40_adversarial.rs"]
+mod scr_40_adversarial;
+#[path = "scr_40_object_reference.rs"]
+mod scr_40_object_reference;
+#[path = "scr_41_adversarial.rs"]
+mod scr_41_adversarial;
+#[path = "scr_42_adversarial.rs"]
+mod scr_42_adversarial;
+#[path = "scr_42_object_reference.rs"]
+mod scr_42_object_reference;
 #[path = "scr_43_adversarial.rs"]
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
 mod scr_43_quest_transition_natives;
+#[path = "scr_44_adversarial.rs"]
+mod scr_44_adversarial;
+#[path = "scr_44_scene_action_complete.rs"]
+mod scr_44_scene_action_complete;
+#[path = "scr_45_adversarial.rs"]
+mod scr_45_adversarial;
+#[path = "scr_46_adversarial.rs"]
+mod scr_46_adversarial;
+#[path = "scr_46_shader_particle_geometry.rs"]
+mod scr_46_shader_particle_geometry;
+#[path = "scr_47_adversarial.rs"]
+mod scr_47_adversarial;
+#[path = "scr_48_adversarial.rs"]
+mod scr_48_adversarial;
+#[path = "scr_49_adversarial.rs"]
+mod scr_49_adversarial;
+#[path = "scr_49_utility_frame_rate.rs"]
+mod scr_49_utility_frame_rate;
+#[path = "scr_50_adversarial.rs"]
+mod scr_50_adversarial;
+#[path = "scr_50_utility_runtime_queries.rs"]
+mod scr_50_utility_runtime_queries;
+#[path = "scr_51_adversarial.rs"]
+mod scr_51_adversarial;
+#[path = "scr_51_utility_budgets.rs"]
+mod scr_51_utility_budgets;
+#[path = "scr_52_adversarial.rs"]
+mod scr_52_adversarial;
+#[path = "scr_52_visual_effects.rs"]
+mod scr_52_visual_effects;
+#[path = "scr_53_adversarial.rs"]
+mod scr_53_adversarial;
+#[path = "scr_53_weapon_fire.rs"]
+mod scr_53_weapon_fire;
+#[path = "scr_54_adversarial.rs"]
+mod scr_54_adversarial;
+#[path = "scr_54_weather_set_active.rs"]
+mod scr_54_weather_set_active;
+#[path = "scr_55_adversarial.rs"]
+mod scr_55_adversarial;
+#[path = "scr_56_adversarial.rs"]
+mod scr_56_adversarial;
+#[path = "scr_57_adversarial.rs"]
+mod scr_57_adversarial;
+#[path = "scr_57_native_contract_audit.rs"]
+mod scr_57_native_contract_audit;
+#[path = "scr_58_adversarial.rs"]
+mod scr_58_adversarial;
+#[path = "scr_59_adversarial.rs"]
+mod scr_59_adversarial;
+#[path = "scr_60_adversarial.rs"]
+mod scr_60_adversarial;
+#[path = "scr_61_adversarial.rs"]
+mod scr_61_adversarial;
+#[path = "scr_61_native_contracts.rs"]
+mod scr_61_native_contracts;
+#[path = "scr_62_adversarial.rs"]
+mod scr_62_adversarial;
+#[path = "scr_63_adversarial.rs"]
+mod scr_63_adversarial;
+#[path = "scr_63_contracts.rs"]
+mod scr_63_contracts;
+#[path = "scr_64_adversarial.rs"]
+mod scr_64_adversarial;
+#[path = "scr_65_adversarial.rs"]
+mod scr_65_adversarial;
+#[path = "scr_66_adversarial.rs"]
+mod scr_66_adversarial;
 #[path = "shm_03_live_world.rs"]
 mod shm_03_live_world;
 #[path = "shm_04_actor_world_binding.rs"]

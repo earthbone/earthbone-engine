@@ -171,6 +171,17 @@ impl World {
             .unwrap_or(0)
     }
 
+    /// Add one script-supplied entry to a FormList using the saved-addition
+    /// ordering and duplicate rules.
+    pub fn add_form_list_entry(&mut self, list: GlobalFormId, item: Option<GlobalFormId>) {
+        let Some(item) = item else {
+            return;
+        };
+        if let Some(items) = self.form_list(list) {
+            add_saved_form_list_entries(items, [item]);
+        }
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;
@@ -275,6 +286,74 @@ impl World {
             self.locations.insert(id, LocationState::default());
         }
         self.locations.get_mut(&id)
+    }
+
+    /// Whether a location or one of its descendants belongs to the active cell.
+    #[must_use]
+    pub fn location_is_loaded(&self, id: GlobalFormId) -> bool {
+        if self.tag_of(id) != Some(T(b"LCTN")) {
+            return false;
+        }
+        let Some(cell) = self.loaded_cell else {
+            return false;
+        };
+        let loaded_location = self
+            .record(cell)
+            .filter(|record| record.tag == T(b"CELL"))
+            .and_then(|record| record.find(T(b"XLCN")))
+            .and_then(le_u32)
+            .filter(|raw| *raw != 0)
+            .and_then(|raw| self.resolve_from(cell, raw));
+        loaded_location.is_some_and(|loaded| loaded == id || self.location_is_child(id, loaded))
+    }
+
+    /// Whether a location record lists a placed reference with this ref type.
+    #[must_use]
+    pub fn location_has_ref_type(&self, id: GlobalFormId, ref_type: GlobalFormId) -> bool {
+        self.location_ref_type_entries(id)
+            .any(|(entry_type, _)| entry_type == ref_type)
+    }
+
+    /// Alive and dead actors linked to a location under a reference type.
+    #[must_use]
+    pub fn location_ref_type_counts(&self, id: GlobalFormId, ref_type: GlobalFormId) -> (i32, i32) {
+        let mut alive = 0;
+        let mut dead = 0;
+        for (entry_type, reference) in self.location_ref_type_entries(id) {
+            if entry_type != ref_type || self.tag_of(reference) != Some(T(b"ACHR")) {
+                continue;
+            }
+            if self.actor_ref(reference).is_some_and(|actor| actor.dead) {
+                dead += 1;
+            } else {
+                alive += 1;
+            }
+        }
+        (alive, dead)
+    }
+
+    fn location_ref_type_entries(
+        &self,
+        id: GlobalFormId,
+    ) -> impl Iterator<Item = (GlobalFormId, GlobalFormId)> + '_ {
+        let entries = self
+            .record(id)
+            .filter(|record| record.tag == T(b"LCTN"))
+            .into_iter()
+            .flat_map(|record| {
+                record
+                    .all(T(b"ACSR"))
+                    .chain(record.all(T(b"LCSR")))
+                    .filter(|data| data.len() == 16)
+            });
+        entries.filter_map(move |data| {
+            let ref_type = self.resolve_from(id, le_u32(data)?)?;
+            if self.tag_of(ref_type) != Some(T(b"LCRT")) {
+                return None;
+            }
+            let reference = self.resolve_from(id, le_u32(&data[4..])?)?;
+            Some((ref_type, reference))
+        })
     }
 
     /// `PNAM` of an `LCTN`.
@@ -402,6 +481,22 @@ impl World {
         self.factions.get_mut(&id)
     }
 
+    /// Whether `other` appears in the shared crime faction list linked by
+    /// this faction's `CRGR` subrecord.
+    pub fn faction_in_crime_group(&mut self, faction: GlobalFormId, other: GlobalFormId) -> bool {
+        let Some(group) = self
+            .record(faction)
+            .filter(|record| record.tag == T(b"FACT"))
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(le_u32)
+            .and_then(|raw| self.resolve_from(faction, raw))
+        else {
+            return false;
+        };
+        self.form_list(group)
+            .is_some_and(|members| members.contains(&other))
+    }
+
     /// `FACT.CRVA`, the bounty table `record_witnessed_crime` prices a
     /// crime against. Read straight from the winning record on every call:
     /// unlike `crime_gold_violent`, it never changes at runtime, so caching
@@ -494,5 +589,45 @@ impl World {
             Some(b's') => Value::string(&zstring(data)),
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+    const fn id(file: u16, object: u32) -> GlobalFormId {
+        GlobalFormId { file, object }
+    }
+
+    #[test]
+    fn scr_60_formlist_additions_follow_creation_order_and_skip_duplicates() {
+        let list_id = id(0, 0x800);
+        let authored = id(0, 0x801);
+        let regular = id(0, 0x802);
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag::new(b"FLST"), list_id.object)
+                .sub(Tag::new(b"LNAM"), authored.object.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag::new(b"MISC"), authored.object));
+        plugin.push_top(Record::new(Tag::new(b"MISC"), regular.object));
+        let mut order = LoadOrder::new();
+        order.add("Scr60.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let created = id(super::super::DYNAMIC_FILE, 0x100);
+
+        world.add_form_list_entry(list_id, None);
+        world.add_form_list_entry(list_id, Some(authored));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(created));
+        world.add_form_list_entry(list_id, Some(created));
+
+        assert_eq!(
+            world.form_list(list_id).unwrap(),
+            &[created, authored, regular]
+        );
     }
 }

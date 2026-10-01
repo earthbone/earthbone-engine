@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
-    PlayerNode, Vec3,
+    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
+    PhysicsWorld, PlayerNode, Vec3,
 };
 use godot::obj::WithBaseField;
 use godot::prelude::{GString, Variant};
@@ -106,6 +106,7 @@ impl PlayerNode {
         game.world_mut().change_cell(Some(cell));
         game.run_until_idle(64);
         self.image_space.sync(&game.world());
+        self.effect_shaders.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
         self.main_menu.leave();
@@ -152,6 +153,8 @@ impl PlayerNode {
                 if should_stand {
                     world.stand_from_furniture(player);
                 }
+                let look = self.rig.look_direction();
+                world.camera_look = [look.x, look.y, look.z];
                 world
                     .reference_ref(player)
                     .and_then(|reference| reference.cell)
@@ -174,6 +177,11 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            let shakes = std::mem::take(&mut game.world_mut().camera_shakes);
+            for shake in shakes {
+                self.camera_shake = Some((0.0, shake.duration, shake.strength));
+                self.camera_shake_time = 0.0;
+            }
             self.image_space.sync(&game.world());
             let (hud_cart_mode, requests) = {
                 let mut world = game.world_mut();
@@ -236,6 +244,8 @@ impl PlayerNode {
                 soe_game::world::MenuRequest::Race => {
                     self.show_race_menu();
                 }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
@@ -244,6 +254,9 @@ impl PlayerNode {
             streamer
                 .bind_mut()
                 .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+        }
+        if let Some(game) = &self.game {
+            self.effect_shaders.sync(&game.world());
         }
         self.apply_host_requests();
         if self.main_menu.is_active() {
@@ -309,9 +322,10 @@ impl PlayerNode {
     }
 
     fn apply_host_requests(&mut self) {
-        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
-            std::mem::take(&mut game.world_mut().host_requests)
-        });
+        let requests = self
+            .game
+            .as_mut()
+            .map_or_else(Vec::new, |game| game.world_mut().take_host_requests());
         for request in requests {
             match request {
                 soe_game::world::HostRequest::QuitToMainMenu => {
@@ -324,6 +338,33 @@ impl PlayerNode {
                         "title_sequence_started",
                         &[godot::builtin::Variant::from(GString::from(name.as_str()))],
                     );
+                }
+                soe_game::HostRequest::CameraFirstPerson => {
+                    self.rig.mode = CameraMode::First;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::CameraThirdPerson => {
+                    self.rig.mode = CameraMode::Third;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::FadeOutGame {
+                    fading_out,
+                    black,
+                    seconds_before_fade,
+                    fade_duration,
+                } => {
+                    if !self.game_fade.request(
+                        fading_out,
+                        black,
+                        seconds_before_fade,
+                        fade_duration,
+                    ) {
+                        godot_error!("PlayerNode: rejected invalid Game.FadeOutGame timing");
+                    }
+                    self.refresh_door_fade();
+                }
+                soe_game::HostRequest::Save { automatic } => {
+                    self.write_requested_save(automatic);
                 }
             }
         }
@@ -354,7 +395,6 @@ impl PlayerNode {
         self.main_menu.enter();
         self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
-
     fn prefetch_nearby_interior(&mut self, delta: f64) {
         use crate::interior_prefetch::{APPROACH_RADIUS, SELECTION_INTERVAL};
         self.interior_prefetch.poll();

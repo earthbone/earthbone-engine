@@ -58,6 +58,7 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+pub mod effect_shader;
 mod encounter_zones;
 mod events;
 pub use events::EffectShaderRequest;
@@ -71,6 +72,7 @@ mod inventory_restore;
 mod knockback;
 mod spell_hand;
 mod weapon_hands;
+pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
@@ -79,10 +81,13 @@ mod localization;
 mod locks;
 mod lookup;
 pub mod magic;
+mod music;
 mod npc_restore;
 mod objects;
 mod outfits;
 mod package_navmesh_restore;
+mod performance;
+pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
@@ -112,6 +117,7 @@ mod rng;
 pub(crate) mod save;
 mod save_section_registry;
 mod save_sections;
+mod scr_40;
 mod shim;
 mod shim_runtime;
 mod template_restore;
@@ -123,6 +129,7 @@ pub mod training;
 mod transition;
 mod trigger;
 pub use reference_translation::{RefTranslation, TranslationPath};
+mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use dialogue_scene_restore::DialogueSceneRestoreReport;
@@ -131,6 +138,8 @@ pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use visual_effects::{VisualEffectError, VisualEffectId, VisualEffectInstance};
+pub use weather::WeatherRequest;
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -212,6 +221,10 @@ pub struct RefState {
     /// Remaining health and active DEST stage for this placed object.
     pub destruction_health: Option<f32>,
     pub destruction_stage: i32,
+    /// Set by `ObjectReference.SetNoFavorAllowed` for follower interactions.
+    pub no_favor_allowed: bool,
+    /// Cleared destruction effects do not return on subsequent damage.
+    pub destruction_cleared: bool,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -257,6 +270,8 @@ impl RefState {
             destroyed: false,
             destruction_health: None,
             destruction_stage: -1,
+            no_favor_allowed: false,
+            destruction_cleared: false,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),
@@ -488,6 +503,8 @@ pub enum MenuRequest {
     PrecacheCharGenClear,
     /// Open the player's race and sex selection screen.
     Race,
+    /// Open the training menu for the named actor.
+    Training(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -618,12 +635,23 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 /// One-shot request for a host-owned screen or presentation action.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostRequest {
     /// Tear down gameplay and return to the main menu.
     QuitToMainMenu,
     /// Start the named title sequence on the main menu.
     StartTitleSequence(String),
+    FadeOutGame {
+        fading_out: bool,
+        black: bool,
+        seconds_before_fade: f32,
+        fade_duration: f32,
+    },
+    Save {
+        automatic: bool,
+    },
+    CameraFirstPerson,
+    CameraThirdPerson,
 }
 
 pub struct World {
@@ -632,6 +660,7 @@ pub struct World {
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
+    pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
     pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -697,6 +726,8 @@ pub struct World {
     pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
     pub clock: GameClock,
+    pub(crate) menu_mode: bool,
+    pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
@@ -711,9 +742,15 @@ pub struct World {
     pub message_boxes: Vec<String>,
     /// Screenshot paths requested by Papyrus for the host to capture.
     pub screenshot_requests: Vec<String>,
+    help_message_events: BTreeSet<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Enabled states for movement, fighting, camera, looking, sneaking, menu,
+    /// activation and journal controls, in that order.
+    pub player_control_flags: [bool; 8],
+    /// POV system that last changed the player's camera-switch control.
+    pub player_control_pov_type: i32,
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
@@ -742,11 +779,20 @@ pub struct World {
     pub fast_travel: bool,
     pub player_ai_driven: bool,
     pub in_chargen: bool,
+    /// Whether chargen disables saving.
+    pub chargen_disable_saving: bool,
+    /// Whether chargen should block waiting and show a controls-disabled HUD message.
+    pub chargen_disable_waiting: bool,
+    pub chargen_show_controls_disabled_message: bool,
     /// `Game.SetHudCartMode` state for the host HUD presenter.
     pub hud_cart_mode: bool,
     /// Transient presentation requests raised by global Game natives.
     pub game_ui_requests: Vec<GameUiRequest>,
     pub beast_form: bool,
+    /// Host camera direction in Skyrim axes, refreshed by the player adapter.
+    pub camera_look: [f32; 3],
+    /// One-shot camera effects requested by Papyrus and consumed by the host.
+    pub camera_shakes: Vec<CameraShake>,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
     /// Magic effects made available for new enchantments by disenchanting.
@@ -765,6 +811,8 @@ pub struct World {
     next_sound: i32,
     /// Transient renderer requests for EffectShader Play and Stop.
     pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
+    /// Active `MusicType.Add` entries in the order scripts added them.
+    music_types: Vec<GlobalFormId>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -778,13 +826,20 @@ pub struct World {
     /// A transient reference held by one Telekinesis concentration cast.
     /// Physics handles are host-owned, so this state is never serialized.
     pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
+    pub(crate) visual_effects:
+        BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
+    pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    /// Active shader particle geometries derived from winning SPGD records.
+    pub(crate) shader_particles: shader_particles::ShaderParticleState,
+    pub(crate) effect_shaders: effect_shader::EffectShaderState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
     pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
     pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
+    pub(crate) weather: weather::WeatherState,
 }
 
 impl soe_commonlib_shim::world::ActorValueWorldState for World {
@@ -888,6 +943,14 @@ pub struct BinkOptions {
     pub letterbox: bool,
 }
 
+/// A transient camera shake requested by `Game.ShakeCamera`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraShake {
+    pub source: GlobalFormId,
+    pub strength: f32,
+    pub duration: f32,
+}
+
 impl World {
     pub fn new(order: LoadOrder) -> World {
         Self::from_shared_order(std::sync::Arc::new(order))
@@ -952,6 +1015,8 @@ impl World {
             pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
+            menu_mode: false,
+            frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
@@ -961,8 +1026,11 @@ impl World {
             menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             screenshot_requests: Vec::new(),
+            help_message_events: BTreeSet::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            player_control_flags: [true; 8],
+            player_control_pov_type: 0,
             player_controls: true,
             camera_controls: CameraControls::default(),
             ini: HashMap::new(),
@@ -982,9 +1050,14 @@ impl World {
             fast_travel: true,
             player_ai_driven: false,
             in_chargen: false,
+            chargen_disable_saving: false,
+            chargen_disable_waiting: false,
+            chargen_show_controls_disabled_message: false,
             hud_cart_mode: false,
             game_ui_requests: Vec::new(),
             beast_form: false,
+            camera_look: [0.0, 1.0, 0.0],
+            camera_shakes: Vec::new(),
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
             learned_enchantment_effects: BTreeSet::new(),
@@ -996,9 +1069,11 @@ impl World {
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             effect_shader_requests: Vec::new(),
+            music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
+            known_dialogue_topics: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
@@ -1009,11 +1084,16 @@ impl World {
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,
             telekinesis_grab: None,
+            visual_effects: BTreeMap::new(),
+            next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            shader_particles: shader_particles::ShaderParticleState::default(),
+            effect_shaders: effect_shader::EffectShaderState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),
             detection_events: Vec::new(),
+            weather: weather::WeatherState::default(),
         }
     }
 
@@ -1043,6 +1123,17 @@ impl World {
     /// Take pending host screenshot paths in request order.
     pub fn take_screenshot_requests(&mut self) -> Vec<String> {
         std::mem::take(&mut self.screenshot_requests)
+    }
+
+    /// Drain operations that must be carried out by the active host.
+    ///
+    /// # Errors
+    /// This method does not fail.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
+        std::mem::take(&mut self.host_requests)
     }
 }
 

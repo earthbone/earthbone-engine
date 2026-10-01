@@ -41,6 +41,9 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
     Section { name: "DLG-19", write: write_scene_action_progress, read: read_scene_action_progress },
+    Section { name: "SCR-48", write: crate::dialogue::write_known_topics, read: crate::dialogue::read_known_topics },
+    Section { name: "SCR-24", write: |world, writer, _pool| world.write_effect_shader_section(writer), read: |world, reader, _table| world.read_effect_shader_section(reader) },
+    Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -54,6 +57,32 @@ fn read_pending_script_calls(
 
 fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::training::write_training_sessions(world, writer);
+}
+
+fn write_scr_60_game_flags(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    for enabled in world.player_control_flags {
+        writer.bool(enabled);
+    }
+    writer.i32(world.player_control_pov_type);
+    writer.bool(world.chargen_disable_saving);
+    writer.bool(world.chargen_disable_waiting);
+    writer.bool(world.chargen_show_controls_disabled_message);
+}
+
+fn read_scr_60_game_flags(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    for enabled in &mut world.player_control_flags {
+        *enabled = reader.bool()?;
+    }
+    world.player_control_pov_type = reader.i32()?;
+    world.chargen_disable_saving = reader.bool()?;
+    world.chargen_disable_waiting = reader.bool()?;
+    world.chargen_show_controls_disabled_message = reader.bool()?;
+    world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
+    Ok(())
 }
 
 fn read_training_sessions(
@@ -220,6 +249,7 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "HST-16", write: write_reference_translation, read: read_reference_translation },
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
+    super::scr_40::SECTION,
 ];
 
 fn write_vampire_lord_state(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
