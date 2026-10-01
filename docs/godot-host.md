@@ -2489,7 +2489,7 @@ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --display-driver waylan
 The local `engine-refs/skyui/src/HUDWidgets/skyui/widgets/meter/MeterWidget.as`
 and `engine-refs/skyui/src/Common/skyui/components/Meter.as` informed the
 0-to-1 bounded fill. SkyUI keeps a meter hidden until `initCommit` and permits
-fill-direction, color, flash and animation settings; this native HUD displays
+fill-direction, color, flash and animation settings. This native HUD displays
 the three meters when gameplay starts and does not implement those Scaleform
 widget calls. `MiniMapWidget.as` reads a player angle separately from a
 compass angle. The native compass currently centers `PlayerNode` camera yaw,
