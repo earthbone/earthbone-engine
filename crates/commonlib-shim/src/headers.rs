@@ -479,8 +479,8 @@ public:
     virtual std::optional<TESFurnitureEvent> furniture_event(ActorHandle actor) const = 0;
 };
 
-struct UnsupportedHook { const char* name; const char* reason; };
-inline constexpr UnsupportedHook UNSUPPORTED_VTABLE_HOOK{
+struct UnsupportedEventHook { const char* name; const char* reason; };
+inline constexpr UnsupportedEventHook UNSUPPORTED_VTABLE_HOOK{
     "vtable and call-site hooks target Skyrim machine code, which this engine does not use",
     "vtable and call-site hooks target Skyrim machine code, which this engine does not use"};
 using FormID = std::uint32_t;
@@ -543,8 +543,8 @@ private:
     EventSource<LocationDiscovery> location_discovery_;
 };
 
-struct HookResult { bool installed; UnsupportedHook unsupported; };
-inline HookResult install_hook(UnsupportedHook hook) noexcept { return {false, hook}; }
+struct HookResult { bool installed; UnsupportedEventHook unsupported; };
+inline HookResult install_hook(UnsupportedEventHook hook) noexcept { return {false, hook}; }
 
 enum class ScriptEvent {
     CellFullyLoaded, ContainerChanged, Death, EnterBleedout, FormDelete,
