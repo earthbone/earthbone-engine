@@ -11,12 +11,11 @@
 //! can only express that way, and accept the open format wherever an author
 //! has a choice.
 //!
-//! Almost nothing here is a decoder of our own. Vorbis is `lewton`, Opus is
-//! `opus-decoder`, WAV is `hound`, and the WMA bitstream is ffmpeg behind the
-//! [`wma::WmaDecoder`] trait and an off-by-default feature. What is written
-//! here is the container work nobody has packaged: the FUZ split, the LIP
-//! body and the xWMA reader, each credited in `docs/audio.md` to whatever
-//! open implementation it follows.
+//! Most codecs come from existing libraries. Vorbis is `lewton`, Opus is
+//! `opus-decoder`, WAV is `hound`, and WMA v2 is `oxideav-wma` behind the
+//! [`wma::WmaDecoder`] trait. What is written here is the container work
+//! nobody has packaged: the FUZ split, the LIP body and the xWMA reader, each
+//! credited in `docs/audio.md` to its source.
 //!
 //! Nothing here plays audio. Decoding to [`Pcm`] is where this crate stops,
 //! and playback belongs to an existing device crate in the host.

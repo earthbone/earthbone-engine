@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Player skill use and skill-up requirements from AVIF AVSK and GMST records.
+//! Player skill use and character level requirements from AVIF AVSK and GMST records.
 //! The AVSK field order follows TES5Edit and UESP's AVIF layout. The improve
 //! curve follows SKSE's `GetExperienceForLevel` implementation and the CK
-//! `ActorValueInfo` script contract.
+//! `Game` and `ActorValueInfo` script contracts. Character thresholds use the
+//! two XP-level GMSTs documented by the CK `Game` script and local SKSE source.
 
 use std::collections::BTreeMap;
 
@@ -35,6 +36,12 @@ pub enum Error {
     /// The required skill curve setting was absent or invalid.
     #[error("missing or invalid fSkillUseCurve")]
     Curve,
+    /// The actor or level-up game settings could not produce a valid threshold.
+    #[error("missing or invalid character level threshold")]
+    LevelThreshold,
+    /// No level-up choice was available or the selected attribute was invalid.
+    #[error("invalid level-up choice")]
+    LevelChoice,
     /// Usage or the resulting saved state was non-finite or out of range.
     #[error("invalid skill experience")]
     Experience,
@@ -109,6 +116,111 @@ fn curve_setting(world: &World) -> Result<f32, Error> {
 }
 
 impl World {
+    /// Experience required for this actor's next character level.
+    ///
+    /// The threshold uses `fXPLevelUpBase + level * fXPLevelUpMult`.
+    ///
+    /// # Errors
+    /// Returns an error when the actor or either setting is absent or invalid.
+    pub fn character_experience_to_next_level(&self, actor_id: GlobalFormId) -> Result<f32, Error> {
+        let actor = self.actor_ref(actor_id).ok_or(Error::Actor(actor_id))?;
+        let base = level_setting(self, "fXPLevelUpBase")?;
+        let multiplier = level_setting(self, "fXPLevelUpMult")?;
+        let threshold = base + actor.level as f32 * multiplier;
+        if threshold.is_finite() && threshold > 0.0 {
+            Ok(threshold)
+        } else {
+            Err(Error::LevelThreshold)
+        }
+    }
+
+    /// Add character experience and award a choice for every crossed threshold.
+    ///
+    /// # Errors
+    /// Rejects missing actors, invalid experience or invalid level settings
+    /// without changing actor progression state.
+    pub fn advance_character_experience(
+        &mut self,
+        actor_id: GlobalFormId,
+        amount: f32,
+    ) -> Result<(), Error> {
+        if !amount.is_finite() || amount < 0.0 {
+            return Err(Error::Experience);
+        }
+        self.actor(actor_id).ok_or(Error::Actor(actor_id))?;
+        let base = level_setting(self, "fXPLevelUpBase")?;
+        let multiplier = level_setting(self, "fXPLevelUpMult")?;
+        let actor = self.actor_ref(actor_id).ok_or(Error::Actor(actor_id))?;
+        if !actor.character_experience.is_finite() || actor.character_experience < 0.0 {
+            return Err(Error::Experience);
+        }
+        let mut level = actor.level;
+        let mut experience = actor.character_experience + amount;
+        let mut choices = actor.level_up_choices;
+        if !experience.is_finite() {
+            return Err(Error::Experience);
+        }
+        while level < u32::MAX {
+            let threshold = base + level as f32 * multiplier;
+            if !threshold.is_finite() || threshold <= 0.0 {
+                return Err(Error::LevelThreshold);
+            }
+            if experience < threshold {
+                break;
+            }
+            if choices == u32::MAX {
+                return Err(Error::LevelChoice);
+            }
+            experience -= threshold;
+            level += 1;
+            choices += 1;
+        }
+        let actor = self.actor(actor_id).ok_or(Error::Actor(actor_id))?;
+        actor.level = level;
+        actor.character_experience = experience;
+        actor.level_up_choices = choices;
+        if self.is_player_reference(actor_id) {
+            self.player_level = level;
+        }
+        Ok(())
+    }
+
+    /// Number of unspent attribute choices earned by this actor.
+    #[must_use]
+    pub fn level_up_choices(&self, actor_id: GlobalFormId) -> Option<u32> {
+        self.actor_ref(actor_id).map(|actor| actor.level_up_choices)
+    }
+
+    /// Spend one available choice to increase Health, Magicka or Stamina by 10.
+    ///
+    /// # Errors
+    /// Returns an error when no choice is available or the attribute is not one
+    /// of the three level-up attributes. State is unchanged on failure.
+    pub fn choose_level_up_attribute(
+        &mut self,
+        actor_id: GlobalFormId,
+        attribute: &str,
+    ) -> Result<(), Error> {
+        let canonical = match attribute.to_ascii_lowercase().as_str() {
+            "health" => "health",
+            "magicka" => "magicka",
+            "stamina" => "stamina",
+            _ => return Err(Error::LevelChoice),
+        };
+        let actor = self.actor(actor_id).ok_or(Error::Actor(actor_id))?;
+        if actor.level_up_choices == 0 {
+            return Err(Error::LevelChoice);
+        }
+        let mut values = actor.values.clone();
+        let next = values.get(canonical).base() + 10.0;
+        values
+            .set_base(canonical, next)
+            .map_err(|_| Error::LevelChoice)?;
+        actor.values = values;
+        actor.level_up_choices -= 1;
+        Ok(())
+    }
+
     /// Add recorded use to one actor skill, applying every earned skill level.
     ///
     /// AVIF `AVSK` use multipliers produce usage experience. The skill's
@@ -171,6 +283,13 @@ impl World {
         actor
             .skill_experience
             .insert(skill.to_owned(), next_experience);
+        let skill_ranks_gained = next_level - level;
+        if skill_ranks_gained > 0.0
+            && level_setting(self, "fXPLevelUpBase").is_ok()
+            && level_setting(self, "fXPLevelUpMult").is_ok()
+        {
+            self.advance_character_experience(actor_id, skill_ranks_gained)?;
+        }
         Ok(())
     }
 
@@ -180,6 +299,15 @@ impl World {
         let skill = canonical_skill(name)?;
         self.actor_ref(actor_id)
             .map(|actor| actor.skill_experience.get(skill).copied().unwrap_or(0.0))
+    }
+}
+
+fn level_setting(world: &World, name: &str) -> Result<f32, Error> {
+    let value = world.game_setting(name);
+    match value {
+        Some(Value::Float(value)) if value.is_finite() => Ok(value),
+        Some(Value::Int(value)) => Ok(value as f32),
+        _ => Err(Error::LevelThreshold),
     }
 }
 
@@ -218,5 +346,26 @@ pub(crate) fn read_skill_experience(
         }
     }
     actor.skill_experience = values;
+    Ok(())
+}
+
+/// Write the actor's current-level experience and unspent choices.
+pub(crate) fn write_character_progression(actor: &ActorState, writer: &mut Writer) {
+    writer.f32(actor.character_experience);
+    writer.u32(actor.level_up_choices);
+}
+
+/// Restore current-level experience and unspent choices.
+pub(crate) fn read_character_progression(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let experience = reader.f32()?;
+    let choices = reader.u32()?;
+    if !experience.is_finite() || experience < 0.0 {
+        return Err(VmError::State("invalid PRG-07 character experience".into()));
+    }
+    actor.character_experience = experience;
+    actor.level_up_choices = choices;
     Ok(())
 }

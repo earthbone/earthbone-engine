@@ -263,6 +263,13 @@ track by track. That is the model to reproduce.
   which is how Skyrim gets `FootLeft` and `SoundPlay` events from vanilla
   animations.
 
+`Interpreter::take_events` exposes the graph events delivered during an update.
+`SkinnedActorNode` maps their ids through the behavior graph event table and
+emits each event after uploading the matching pose. `PlayerNode` forwards the
+signal to `Game`, where Papyrus animation listeners and latent
+`WaitForAnimationEvent` calls receive it. Leaving the scene tree reports graph
+unload so outstanding waits can finish false.
+
 ### 5.2 Variable model
 
 - Storage is one `VariableValueSet` per graph instance, initialized from
@@ -554,6 +561,25 @@ past the parent's, and the reference points at the sub-graph's root.
 
 Character properties use a separate name map. Their names and typed infos are
 merged too, and binding type 1 is remapped through that property map.
+
+### Named behavior graph patches
+
+`BehaviorGraph::apply_patches` applies named in-memory edits after a graph has
+been loaded. Patch names sort lexicographically, so the result is independent
+of the order in which the caller discovered patches. Edits within one patch
+keep their declared order. Duplicate or empty names reject those patches.
+Supported edits replace a named clip's animation path or a state machine
+transition destination. A patch is atomic: if one edit is invalid, none of its
+edits are kept. A later patch that writes a different value to the same field
+wins and adds a conflict diagnostic naming both patches and the field. The
+caller receives applied patch names and diagnostics in `BehaviorPatchReport`.
+
+The local Skyrim Behavior Editor README describes merging projects or single
+behavior files. Pandora's `PandoraNativePatchManager` runs collected patches
+serially or in parallel depending on runtime mode. These sources establish the
+merge workflow, but not deterministic conflict handling, so this crate orders
+named patches and reports conflicting writes in its own data model. No
+reference implementation code is used.
 
 ### Input and output bindings
 

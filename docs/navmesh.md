@@ -47,6 +47,19 @@ then intersects every portal to retain triangle-plane height changes. Each point
 has a `point_nodes` owner, so cell changes do not depend on waypoint counts.
 `reachable` floods from a node for connectivity checks.
 
+Runtime callers can register explicit cylinder and axis-aligned box obstacles.
+The query blocks triangles whose projected footprints intersect a registered shape, so
+affected paths use alternate triangles while adjacency and unrelated routes stay
+unchanged. Removing the obstacle restores those routes. Invalid dimensions are
+rejected. The shapes and obstacle handles are runtime state and are not saved.
+This follows the explicit-shape model in local
+`recastnavigation/DetourTileCache/Include/DetourTileCache.h`, whose tile cache
+rebuilds tiles touched by obstacle requests. This graph evaluates affected
+triangles directly instead of rebuilding tiles. Local
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbNVNM` Door Links, stores a triangle,
+Pathing Door CRC and door reference. That metadata does not supply obstacle
+geometry, so callers must provide a shape.
+
 The algorithm is adapted from local recastnavigation's
 `Detour/Source/DetourNavMeshQuery.cpp`, `findStraightPath` and `appendPortals`
 with all crossings. This Rust adaptation retains the source notice in

@@ -14,6 +14,75 @@
 //! target and the one vanilla audio was in before it was compressed anyway.
 
 use soe_audio::Pcm;
+use soe_esm::GlobalFormId;
+
+/// Tracks the cell and record that own the current ambience stream.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct AmbienceOwner {
+    cell: Option<GlobalFormId>,
+    descriptor: Option<GlobalFormId>,
+    path: Option<String>,
+}
+
+impl AmbienceOwner {
+    /// Replace the active ambience owner, returning whether playback changed.
+    pub fn set(&mut self, track: Option<&soe_game::ambience::Track>) -> bool {
+        let next = track.map(|track| (track.cell, track.descriptor, track.path.as_str()));
+        let current = self
+            .cell
+            .zip(self.descriptor)
+            .zip(self.path.as_deref())
+            .map(|((cell, descriptor), path)| (cell, descriptor, path));
+        if current == next {
+            return false;
+        }
+        self.cell = track.map(|track| track.cell);
+        self.descriptor = track.map(|track| track.descriptor);
+        self.path = track.map(|track| track.path.clone());
+        true
+    }
+}
+
+#[cfg(test)]
+mod ambience_owner_tests {
+    use super::*;
+
+    fn track(cell: u32, descriptor: u32, path: &str) -> soe_game::ambience::Track {
+        soe_game::ambience::Track {
+            cell: GlobalFormId {
+                file: 0,
+                object: cell,
+            },
+            descriptor: GlobalFormId {
+                file: 0,
+                object: descriptor,
+            },
+            path: path.to_owned(),
+        }
+    }
+
+    #[test]
+    fn aud_09_cell_transition_starts_eligible_ambience() {
+        let mut owner = AmbienceOwner::default();
+        assert!(owner.set(Some(&track(0x100, 0x200, r"Music\Test.wav"))));
+        assert_eq!(
+            owner.cell,
+            Some(GlobalFormId {
+                file: 0,
+                object: 0x100
+            })
+        );
+        assert_eq!(owner.path.as_deref(), Some(r"Music\Test.wav"));
+    }
+
+    #[test]
+    fn aud_09_departed_cell_releases_its_ambience_descriptor() {
+        let mut owner = AmbienceOwner::default();
+        owner.set(Some(&track(0x100, 0x200, r"Music\Test.wav")));
+        assert!(owner.set(None));
+        assert_eq!(owner, AmbienceOwner::default());
+    }
+}
 
 /// Largest magnitude a 16 bit sample can hold without wrapping to negative.
 const I16_PEAK: f32 = 32767.0;
@@ -118,6 +187,47 @@ pub struct Playing {
     pub started: u64,
 }
 
+/// Linear two-slot music fade progress, independent of the Godot node layer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MusicFade {
+    from_level: f32,
+    elapsed: f32,
+    fade_in: f32,
+    fade_out: f32,
+}
+
+impl MusicFade {
+    /// Start at the current outgoing level. Abrupt transitions have no ramp.
+    #[must_use]
+    pub fn new(from_level: f32, fade_in: f32, fade_out: f32, abrupt: bool) -> Self {
+        Self {
+            from_level: from_level.clamp(0.0, 1.0),
+            elapsed: 0.0,
+            fade_in: if abrupt { 0.0 } else { fade_in.max(0.0) },
+            fade_out: if abrupt { 0.0 } else { fade_out.max(0.0) },
+        }
+    }
+
+    /// Return outgoing and incoming linear gains and whether both ramps ended.
+    pub fn advance(&mut self, seconds: f32) -> (f32, f32, bool) {
+        if seconds.is_finite() && seconds > 0.0 {
+            self.elapsed += seconds;
+        }
+        let outgoing = if self.fade_out == 0.0 {
+            0.0
+        } else {
+            self.from_level * (1.0 - (self.elapsed / self.fade_out).clamp(0.0, 1.0))
+        };
+        let incoming = if self.fade_in == 0.0 {
+            1.0
+        } else {
+            (self.elapsed / self.fade_in).clamp(0.0, 1.0)
+        };
+        let finished = self.elapsed >= self.fade_in.max(self.fade_out);
+        (outgoing, incoming, finished)
+    }
+}
+
 /// A fixed set of playback slots.
 ///
 /// Fixed because the alternative is one node per sound with nothing bounding
@@ -150,10 +260,7 @@ impl VoicePool {
     /// How many are playing right now.
     #[must_use]
     pub fn busy(&self) -> usize {
-        self.slots
-            .iter()
-            .map(|slot| usize::from(slot.is_some()))
-            .sum()
+        self.slots.iter().flatten().count()
     }
 
     /// Picks the slot a new sound of `kind` should use, or `None` when every

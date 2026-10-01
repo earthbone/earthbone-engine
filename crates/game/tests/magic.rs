@@ -47,20 +47,24 @@ mod bound_weapon;
 mod calm;
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/cure_paralysis.rs"]
+mod cure_paralysis;
 #[path = "magic/disarm.rs"]
 mod disarm;
 #[path = "magic/invisibility.rs"]
 mod invisibility;
 #[path = "magic/mag_03_concentration.rs"]
 mod mag_03_concentration;
-#[path = "magic/mag_09_cast_cost.rs"]
-mod mag_09_cast_cost;
 #[path = "magic/mag_22_hand_cast.rs"]
 mod mag_22_hand_cast;
 #[path = "magic/mag_41_telekinesis.rs"]
 mod mag_41_telekinesis;
+#[path = "magic/mag_67_vampire_lord.rs"]
+mod mag_67_vampire_lord;
 #[path = "magic/mag_70_conditions.rs"]
 mod mag_70_conditions;
+#[path = "magic/mag_73.rs"]
+mod mag_73;
 #[path = "magic/scroll.rs"]
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]
@@ -1934,13 +1938,14 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    // The extra 6 bytes beyond the old 70 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. `without_exclusive_branches` already strips
-    // each actor's and reference's own mid-stream section table.
-    old.truncate(old.len() - 76);
-    old[4..6].copy_from_slice(&8u16.to_le_bytes());
+    // Detection's unconditional pool count and the world-level section table
+    // are removed by retaining the v8-sized prefix below.
+    legacy::truncate_to_version(&mut old, 8, |candidate| {
+        fixture(0, 1, 0.0, 10)
+            .world_mut()
+            .load_state(candidate)
+            .is_ok()
+    });
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().active_effects().count(), 0);
@@ -1952,9 +1957,30 @@ fn corrupt_effect_data_leaves_the_live_world_unchanged() {
     cast(&mut game, SPELL, OTHER).unwrap();
     let before = game.world().state_hash();
     let mut bytes = game.world().save_state();
-    let offset = bytes.len() - 20;
+    let effect = game.world().active_effects().next().unwrap().clone();
+    let mut marker = effect.id.0.to_le_bytes().to_vec();
+    for form in [effect.spell, effect.effect] {
+        marker.extend_from_slice(&form.file.to_le_bytes());
+        marker.extend_from_slice(&form.object.to_le_bytes());
+    }
+    marker.extend_from_slice(&effect.effect_index.to_le_bytes());
+    marker.extend_from_slice(&effect.source.file.to_le_bytes());
+    marker.extend_from_slice(&effect.source.object.to_le_bytes());
+    marker.push(u8::from(effect.caster.is_some()));
+    if let Some(caster) = effect.caster {
+        marker.extend_from_slice(&caster.file.to_le_bytes());
+        marker.extend_from_slice(&caster.object.to_le_bytes());
+    }
+    marker.extend_from_slice(&effect.target.file.to_le_bytes());
+    marker.extend_from_slice(&effect.target.object.to_le_bytes());
+    let offset = legacy::unique_offset(&bytes, &marker) + marker.len();
     bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
-    assert!(game.world_mut().load_state(&bytes).is_err());
+    assert!(game
+        .world_mut()
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid active effect state"));
     assert_eq!(game.world().state_hash(), before);
 }
 

@@ -19,6 +19,13 @@ pub struct ImageSpaceLayer {
     pub age: f64,
 }
 
+/// One authored IMAD curve sampled at a normalized modifier age.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageSpaceCurveSample {
+    pub channel: [u8; 4],
+    pub values: Vec<f32>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Fade {
     elapsed: f64,
@@ -109,6 +116,79 @@ impl ImageSpaceState {
     }
 }
 
+fn sample_curve(
+    record: &soe_esm::Record,
+    header: &[u8],
+    channel: [u8; 4],
+    count_offset: usize,
+    color: bool,
+    time: f32,
+) -> Result<Option<Vec<f32>>, VmError> {
+    let tag = T(&channel);
+    let count = u32::from_le_bytes(
+        header[count_offset..count_offset + 4]
+            .try_into()
+            .map_err(|_| VmError::State("truncated IMAD curve count".into()))?,
+    ) as usize;
+    let mut entries = record.all(tag);
+    let Some(data) = entries.next() else {
+        if count == 0 {
+            return Ok(None);
+        }
+        return Err(VmError::State("missing IMAD curve data".into()));
+    };
+    if entries.next().is_some() {
+        return Err(VmError::State("duplicate IMAD curve data".into()));
+    }
+    let stride = if color { 20 } else { 8 };
+    if data.len() != count.saturating_mul(stride) || count == 0 {
+        return Err(VmError::State("invalid IMAD curve size".into()));
+    }
+    let mut keys = Vec::with_capacity(count);
+    let mut previous = None;
+    for key in data.chunks_exact(stride) {
+        let (words, _) = key.as_chunks::<4>();
+        let values: Vec<f32> = words
+            .iter()
+            .map(|chunk| {
+                let bits = u32::from_le_bytes(*chunk);
+                let value = f32::from_bits(bits);
+                value
+                    .is_finite()
+                    .then_some(value)
+                    .ok_or_else(|| VmError::State("non-finite IMAD curve value".into()))
+            })
+            .collect::<Result<_, _>>()?;
+        let key_time = values[0];
+        if previous.is_some_and(|last| last > key_time) {
+            return Err(VmError::State("unordered IMAD curve keys".into()));
+        }
+        previous = Some(key_time);
+        keys.push((key_time, values[1..].to_vec()));
+    }
+    let sample_time = time.clamp(keys[0].0, keys[keys.len() - 1].0);
+    let upper = keys.partition_point(|(key_time, _)| *key_time < sample_time);
+    let (left, right) = if upper == 0 {
+        (&keys[0], &keys[0])
+    } else if upper == keys.len() {
+        (&keys[keys.len() - 1], &keys[keys.len() - 1])
+    } else {
+        (&keys[upper - 1], &keys[upper])
+    };
+    let amount = if right.0 == left.0 {
+        0.0
+    } else {
+        (sample_time - left.0) / (right.0 - left.0)
+    };
+    Ok(Some(
+        left.1
+            .iter()
+            .zip(&right.1)
+            .map(|(from, to)| from + (to - from) * amount)
+            .collect(),
+    ))
+}
+
 impl World {
     /// Snapshot in application order, with the crossfade chain last.
     pub fn image_space_layers(&self) -> Vec<ImageSpaceLayer> {
@@ -118,6 +198,75 @@ impl World {
             .chain(&self.image_space.chain)
             .cloned()
             .collect()
+    }
+
+    /// Sample the authored curves for an active modifier at normalized time.
+    ///
+    /// Float curves use linear interpolation between adjacent keys. Color
+    /// curves return red, green, blue and alpha in the record's stored range.
+    pub fn image_space_curve_samples(
+        &self,
+        modifier: GlobalFormId,
+        time: f32,
+    ) -> Result<Vec<ImageSpaceCurveSample>, VmError> {
+        if !time.is_finite() {
+            return Err(VmError::State("non-finite image-space curve time".into()));
+        }
+        let winner = self
+            .order
+            .winner_ref(modifier)
+            .ok_or_else(|| VmError::State("missing image-space modifier".into()))?;
+        let record = self.order.record(winner);
+        if record.tag != T(b"IMAD") || record.flags & 0x20 != 0 {
+            return Err(VmError::State("invalid image-space modifier".into()));
+        }
+        let header = record
+            .find(T(b"DNAM"))
+            .filter(|data| data.len() == 244)
+            .ok_or_else(|| VmError::State("invalid IMAD data size".into()))?;
+
+        let definitions: &[([u8; 4], usize, bool)] = &[
+            (*b"TNAM", 176, true),
+            (*b"BNAM", 180, false),
+            (*b"VNAM", 184, false),
+            (*b"RNAM", 188, false),
+            (*b"SNAM", 192, false),
+            (*b"UNAM", 196, false),
+            (*b"WNAM", 212, false),
+            (*b"XNAM", 216, false),
+            (*b"YNAM", 220, false),
+            (*b"NAM1", 228, false),
+            (*b"NAM2", 232, false),
+            (*b"NAM3", 236, true),
+            (*b"NAM4", 240, false),
+        ];
+        let mut samples = Vec::new();
+        for &(channel, count_offset, color) in definitions {
+            sample_curve(record, header, channel, count_offset, color, time)?
+                .into_iter()
+                .for_each(|values| samples.push(ImageSpaceCurveSample { channel, values }));
+        }
+        for index in 0..21 {
+            for part in 0..2 {
+                let channel = [index as u8 + part * 0x40, b'I', b'A', b'D'];
+                let count_offset = 8 + index * 8 + usize::from(part) * 4;
+                if let Some(values) =
+                    sample_curve(record, header, channel, count_offset, false, time)?
+                {
+                    samples.push(ImageSpaceCurveSample { channel, values });
+                }
+            }
+        }
+        Ok(samples)
+    }
+
+    /// Return the normalized age used to sample an active layer's curves.
+    pub fn image_space_layer_time(&self, layer: &ImageSpaceLayer) -> Result<f32, VmError> {
+        match self.image_space_duration(layer.modifier)? {
+            Some(duration) if duration > 0.0 => Ok((layer.age / duration).clamp(0.0, 1.0) as f32),
+            Some(_) => Ok(1.0),
+            None => Ok(0.0),
+        }
     }
 
     fn image_space_duration(&self, modifier: GlobalFormId) -> Result<Option<f64>, VmError> {

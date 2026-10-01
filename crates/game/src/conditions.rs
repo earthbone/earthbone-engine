@@ -4,6 +4,7 @@
 //! wbConditions/wbConditionFunctions. CK documents the state queries and
 //! conditional Papyrus variables. See docs/game.md for the implemented set.
 
+use crate::detection::DetectionLevel;
 use crate::package::DataValue;
 use crate::{inventory::Field, Handle, World};
 use soe_esm::{
@@ -92,6 +93,12 @@ pub enum Error {
     PackageContext(GlobalFormId),
     #[error("condition requires the subject's current location {0}")]
     LocationContext(GlobalFormId),
+    #[error("condition function {function} has no usable runtime contract: {reason}")]
+    UnavailableState { function: u16, reason: &'static str },
+    #[error("condition function {0} has no usable runtime contract: {1}")]
+    UnavailableContractReason(u16, &'static str),
+    #[error("condition function {0} requires unavailable runtime context")]
+    Context(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -190,20 +197,36 @@ pub fn supports_function(function: u16) -> bool {
             | 403
             | 566
             | 74
+            | 84
             | 136
             | 182
             | 264
             | 289
+            | 323
             | 359
+            | 338
             | 448
             | 543
             | 560
+            | 571
+            | 579
+            | 595
+            | 596
+            | 602
             | 606
+            | 627
+            | 632
             | 629
             | 630
             | 639
             | 655
             | 659
+            | 254
+            | 258
+            | 259
+            | 261
+            | 365
+            | 410
             | 683
             | 698
             | 704
@@ -282,6 +305,31 @@ pub fn supports_function(function: u16) -> bool {
             | 111
             | 125
             | 127
+            | 513
+            | 580
+            | 694
+            | 707
+            | 710
+            | 676
+            | 99
+            | 142
+            | 159
+            | 162
+            | 163
+            | 175
+            | 24
+            | 35
+            | 45
+            | 61
+            | 77
+            | 372
+            | 391
+            | 414
+            | 415
+            | 416
+            | 426
+            | 432
+            | 463
     )
 }
 
@@ -427,6 +475,10 @@ fn no_second_parameter(c: &Condition) -> Result<(), Error> {
     }
 }
 
+fn first_parameter_only(c: &Condition) -> Result<(), Error> {
+    no_second_parameter(c)
+}
+
 /// Mutagen Skyrim.Constants.Player is reserved even without a placed ACHR record.
 fn resolve_reference(
     world: &mut World,
@@ -527,6 +579,59 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        24 => {
+            no_parameter(c)?;
+            let actor_scale = if world.actor(subject).is_some() {
+                let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+                world
+                    .actor_controller_scale(base)
+                    .map_err(|_| Error::Form(subject))?
+            } else {
+                1.0
+            };
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted || !reference.scale.is_finite() {
+                return Err(Error::Form(subject));
+            }
+            reference.scale * actor_scale
+        }
+        27 | 36 | 39 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "the local CK corpus does not define a runtime contract",
+            ));
+        }
+        35 => {
+            no_parameter(c)?;
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted {
+                return Err(Error::Form(subject));
+            }
+            boolean(!reference.enabled)
+        }
+        45 => {
+            let observer = resolve_reference(world, context.owner, raw)?;
+            if world.actor(subject).is_none() || world.actor(observer).is_none() {
+                return Err(Error::Form(if world.actor(subject).is_none() {
+                    subject
+                } else {
+                    observer
+                }));
+            }
+            boolean(
+                world
+                    .awareness(observer, subject)
+                    .is_some_and(|awareness| awareness.level == DetectionLevel::Combat),
+            )
+        }
+        61 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.alerted)
+        }
+        77 => {
+            no_parameter(c)?;
+            world.random_int(0, 99) as f32
+        }
         6 | 8 => {
             no_second_parameter(c)?;
             let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
@@ -693,6 +798,32 @@ fn function_value(
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
         }
+        99 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            let (position, heading) = world
+                .reference(subject)
+                .map(|reference| (reference.position, reference.rotation[2]))
+                .ok_or(Error::Form(subject))?;
+            let target = world
+                .reference(other)
+                .map(|reference| reference.position)
+                .ok_or(Error::Form(other))?;
+            let dx = target[0] - position[0];
+            let dy = target[1] - position[1];
+            let bearing = dy.atan2(dx).to_degrees();
+            let heading = heading.to_degrees();
+            (heading - bearing + 180.0).rem_euclid(360.0) - 180.0
+        }
+        142 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            crate::ai::movement_speed(world, subject, crate::package::speed::WALK)
+        }
         476 => {
             no_parameter(c)?;
             if world.actor(subject).is_none() {
@@ -700,6 +831,36 @@ fn function_value(
             }
             let base = world.base_of(subject).ok_or(Error::Form(subject))?;
             boolean(world.actor_base(base).ok_or(Error::Form(base))?.protected)
+        }
+        159 => {
+            no_parameter(c)?;
+            boolean(furniture_marker_type(world, subject, 1)?)
+        }
+        162 | 163 => {
+            let furniture = if c.function == 162 {
+                resolve_reference(world, context.owner, raw)?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"FURN"))?
+            };
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let Some((current, _)) = world.furniture_seat(subject) else {
+                if world.actor(subject).is_none() {
+                    return Err(Error::Form(subject));
+                }
+                return Ok(0.0);
+            };
+            if c.function == 162 {
+                boolean(current == furniture)
+            } else {
+                boolean(world.reference_ref(current).and_then(|r| r.base) == Some(furniture))
+            }
+        }
+        175 => {
+            no_parameter(c)?;
+            let player = world.player();
+            boolean(furniture_marker_type(world, player, 2)?)
         }
         493 => {
             if c.parameters[1] != 0 {
@@ -723,6 +884,13 @@ fn function_value(
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        84 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let base = resolve(world, context.owner, raw, Some(*b"NPC_"))?;
+            world.actor_base(base).ok_or(Error::Form(base))?.dead_count as f32
+        }
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
             boolean(
@@ -1130,9 +1298,205 @@ fn function_value(
                 .and_then(|actor| actor.relationships.get(&other).copied())
                 .unwrap_or(0) as f32
         }
+        513 => {
+            // xEdit identifies a placed NPC parameter. The CK dump has no
+            // condition page, so match the runtime combat target relation
+            // exposed by Actor.GetCombatTarget: the subject targets the
+            // parameter actor.
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let target = resolve_reference(world, context.owner, raw)?;
+            if world.actor(target).is_none() {
+                return Err(Error::Form(target));
+            }
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .combat_target
+                    == Some(target),
+            )
+        }
+        702 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "the runtime tracks stagger state, but no recoil state",
+            ));
+        }
+        705 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "CK does not define the actor-to-actor help decision",
+            ));
+        }
+        707 => {
+            no_parameter_second(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let target = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .combat_target;
+            let Some(target) = target else {
+                return Ok(0.0);
+            };
+            if world.actor(target).is_none() {
+                return Err(Error::Form(target));
+            }
+            boolean(world.has_keyword(target, keyword))
+        }
+        709 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "the runtime does not model combat group membership",
+            ));
+        }
+        710 => {
+            no_parameter(c)?;
+            let package = world.actor(subject).ok_or(Error::Form(subject))?.ai.package;
+            boolean(package.is_some_and(|id| {
+                crate::ai::package(world, id)
+                    .is_some_and(|pack| pack.has_flag(crate::package::flags::IGNORE_COMBAT))
+            }))
+        }
+        719 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "CK names hostility but does not define its faction and crime rules",
+            ));
+        }
+        254 | 365 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let value = if c.function == 254 {
+                world.race_is_playable(base)
+            } else {
+                world.race_is_child(base)
+            }
+            .ok_or(Error::Form(base))?;
+            boolean(value)
+        }
+        258 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            if world.actor(other).is_none() {
+                return Err(Error::Form(other));
+            }
+            let association = resolve(world, context.owner, c.parameters[1], Some(*b"ASTP"))?;
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let second = world.base_of(other).ok_or(Error::Form(other))?;
+            boolean(world.actors_have_association(first, second, association))
+        }
+        259 | 261 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = if c.function == 259 && raw == 0 {
+                None
+            } else {
+                let other = resolve_reference(world, context.owner, raw)?;
+                if world.actor(other).is_none() {
+                    return Err(Error::Form(other));
+                }
+                Some(other)
+            };
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let matched = if c.function == 259 {
+                let second = other
+                    .map(|other| world.base_of(other).ok_or(Error::Form(other)))
+                    .transpose()?;
+                world.actors_have_family_relationship(first, second)
+            } else {
+                let other = other.ok_or(Error::Form(subject))?;
+                let second = world.base_of(other).ok_or(Error::Form(other))?;
+                world.actors_have_parent_relationship(first, second)
+            };
+            boolean(matched)
+        }
+        410 => {
+            let first = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            let second = resolve(world, context.owner, c.parameters[1], Some(*b"FACT"))?;
+            world
+                .faction(first)
+                .ok_or(Error::Form(first))?
+                .reactions
+                .get(&second)
+                .copied()
+                .unwrap_or(crate::world::reaction::NEUTRAL) as f32
+        }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;
             boolean(world.alias_ref(quest, raw) == Some(subject))
+        }
+        571 => {
+            no_second_parameter(c)?;
+            let spell = casting_spell(world, subject, c.function, raw)?;
+            let current = world.concentration_spell(subject);
+            match spell.filter(|spell| Some(*spell) == current) {
+                Some(spell) => {
+                    world
+                        .spell(spell)
+                        .map_err(|_| Error::Form(spell))?
+                        .data
+                        .cast_type as f32
+                }
+                None => 0.0,
+            }
+        }
+        579 => {
+            no_second_parameter(c)?;
+            let shout = resolve(world, context.owner, raw, Some(*b"SHOU"))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.equipped_shout == Some(shout))
+        }
+        595 => {
+            let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
+            let source = casting_spell(world, subject, c.function, c.parameters[1])?;
+            boolean(source == Some(spell) && world.concentration_spell(subject) == Some(spell))
+        }
+        596 => {
+            let source = casting_spell(world, subject, c.function, raw)?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            let has_keyword = if let Some(spell) = source {
+                let definition = world.spell(spell).map_err(|_| Error::Form(spell))?;
+                definition.effects.iter().any(|effect| {
+                    world
+                        .resolve_from(spell, effect.base_effect)
+                        .is_some_and(|effect| world.has_keyword(effect, keyword))
+                })
+            } else {
+                false
+            };
+            boolean(has_keyword)
+        }
+        602 => {
+            no_second_parameter(c)?;
+            if raw > 2 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "ward animation state is not supplied by the host",
+            ));
+        }
+        627 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "dual-cast animation state is not tracked",
+            ));
+        }
+        632 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(world.is_concentration_casting(subject))
         }
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
@@ -1197,6 +1561,60 @@ fn function_value(
         72 => {
             let base = resolve(world, context.owner, raw, None)?;
             boolean(world.base_of(subject) == Some(base))
+        }
+        372 => {
+            let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let members = world.form_list(list).ok_or(Error::Form(list))?;
+            boolean(members.contains(&base))
+        }
+        414 => {
+            let reference = world
+                .resolve_from(context.owner, raw)
+                .ok_or(Error::Form(context.owner))?;
+            if raw == 0
+                || !matches!(world.tag_of(reference), Some(Tag(tag)) if tag == *b"ACHR" || tag == *b"REFR")
+            {
+                return Err(Error::Form(reference));
+            }
+            boolean(
+                world
+                    .reference(reference)
+                    .is_some_and(|state| !state.deleted),
+            )
+        }
+        391 | 415 | 416 => {
+            no_parameter(c)?;
+            return Err(Error::Context(c.function));
+        }
+        426 => {
+            let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let source = world
+                .actor_component_source(subject, crate::npc::template::TRAITS)
+                .map_err(|_| Error::Form(subject))?;
+            let voice = world
+                .record(source)
+                .and_then(|record| record.find(Tag(*b"VTCK")))
+                .and_then(|bytes| {
+                    (bytes.len() >= 4)
+                        .then(|| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                })
+                .and_then(|raw| world.resolve_from(source, raw));
+            boolean(voice == Some(voice_type))
+        }
+        432 => {
+            if raw == 0 || i32::try_from(raw).is_err() {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.type_code(base) == raw as i32)
+        }
+        463 => {
+            resolve_reference(world, context.owner, raw)?;
+            return Err(Error::Context(c.function));
         }
         74 => {
             let global = resolve(world, context.owner, raw, Some(*b"GLOB"))?;
@@ -1267,13 +1685,30 @@ fn function_value(
         }
         264 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
-            boolean(
-                world
-                    .actor(subject)
-                    .is_some_and(|actor| actor.spells.contains(&spell)),
-            )
+            boolean(world.has_spell(subject, spell))
         }
         289 => boolean(world.actor(subject).is_some_and(|actor| actor.in_combat)),
+        323 => {
+            // An engaged actor without a current target is still searching.
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if !actor.in_combat {
+                0.0
+            } else if actor.combat_target.is_some() {
+                1.0
+            } else {
+                2.0
+            }
+        }
+        338 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .reference(subject)
+                    .ok_or(Error::Form(subject))?
+                    .ignore_friendly_hits,
+            )
+        }
         359 => {
             let wanted = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(world.current_location(subject).is_some_and(|current| {
@@ -1425,6 +1860,18 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,
+        672 | 673 | 674 | 678 | 697 | 701 => {
+            unavailable_combat_query(world, context.owner, subject, c)?
+        }
+        676 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "active voice variation is not tracked",
+            ));
+        }
         636 => {
             no_parameter(c)?;
             if world
@@ -1627,6 +2074,47 @@ fn no_parameter_tail(c: &Condition) -> Result<(), Error> {
     }
 }
 
+/// Resolve an equipped casting source. Voice and instant sources have no
+/// spell selection in the current runtime model.
+fn casting_spell(
+    world: &mut World,
+    subject: GlobalFormId,
+    function: u16,
+    source: u32,
+) -> Result<Option<GlobalFormId>, Error> {
+    world.actor(subject).ok_or(Error::Form(subject))?;
+    match source {
+        0 => Ok(world.hand_spell(subject, crate::combat::Hand::Left)),
+        1 => Ok(world.hand_spell(subject, crate::combat::Hand::Right)),
+        2 | 3 => Ok(None),
+        _ => Err(Error::Parameter(function, source)),
+    }
+}
+
+fn furniture_marker_type(
+    world: &mut World,
+    actor: GlobalFormId,
+    marker_type: u16,
+) -> Result<bool, Error> {
+    let Some((furniture, marker)) = world.furniture_seat(actor) else {
+        if world.actor(actor).is_none() {
+            return Err(Error::Form(actor));
+        }
+        return Ok(false);
+    };
+    let reference = world.reference(furniture).ok_or(Error::Form(furniture))?;
+    let base = reference.base.ok_or(Error::Form(furniture))?;
+    let record = world.record(base).ok_or(Error::Form(base))?;
+    if record.tag != Tag(*b"FURN") {
+        return Err(Error::Form(base));
+    }
+    Ok(record
+        .all(Tag(*b"FNPR"))
+        .nth(usize::from(marker))
+        .and_then(|data| data.get(..2))
+        .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
+}
+
 /// Shared actor queries keep package and gameplay predicates on the same state.
 pub(crate) fn actor_query(
     world: &mut World,
@@ -1640,6 +2128,25 @@ pub(crate) fn actor_query(
         .is_none_or(|reference| reference.deleted)
     {
         return Err(Error::Form(subject));
+    }
+    if matches!(function, 580 | 694) {
+        if parameter != 0 {
+            return Err(Error::Parameter(function, parameter));
+        }
+        let value = match function {
+            580 => {
+                let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+                actor.unconscious && !actor.dead
+            }
+            694 => {
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .no_bleedout_recovery
+            }
+            _ => return Err(Error::Function(function)),
+        };
+        return Ok(boolean(value));
     }
     if function == 408 {
         let other = resolve_reference(world, owner, parameter)?;
@@ -1670,6 +2177,55 @@ pub(crate) fn actor_query(
     } else {
         Err(Error::NonFinite)
     }
+}
+
+fn unavailable_combat_query(
+    world: &mut World,
+    owner: GlobalFormId,
+    subject: GlobalFormId,
+    c: &Condition,
+) -> Result<f32, Error> {
+    if world
+        .reference(subject)
+        .is_none_or(|reference| reference.deleted)
+    {
+        return Err(Error::Form(subject));
+    }
+    let parameter = c.parameters[0];
+    match c.function {
+        672..=674 | 701 => no_parameter(c)?,
+        678 => {
+            first_parameter_only(c)?;
+            let actor = resolve_reference(world, owner, parameter)?;
+            if world.actor(actor).is_none() {
+                return Err(Error::Form(actor));
+            }
+        }
+        697 => {
+            first_parameter_only(c)?;
+            resolve(world, owner, parameter, Some(*b"KYWD"))?;
+        }
+        _ => return Err(Error::Function(c.function)),
+    }
+    world.actor(subject).ok_or(Error::Form(subject))?;
+    let reason = match c.function {
+        672 => "the runtime has no live attack-state producer",
+        673 => "MeleeHit records confirmed contacts, not the active animation state",
+        674 => "the runtime does not track the actor's last hostile identity",
+        678 => "no damage forecast contract is documented for this condition",
+        697 => "the runtime has no active attack type to compare with the keyword",
+        701 => {
+            return Err(Error::UnavailableContractReason(
+                c.function,
+                "the local CK corpus does not define IsStaggered condition behavior",
+            ));
+        }
+        _ => return Err(Error::Function(c.function)),
+    };
+    Err(Error::UnavailableState {
+        function: c.function,
+        reason,
+    })
 }
 
 fn no_parameter_second(c: &Condition) -> Result<(), Error> {
