@@ -2526,11 +2526,12 @@ DLG-07 adds IsIntimidatedbyPlayer (116) and GetIntimidateSuccess (655). Both
 take no parameter in `wbDefinitionsTES5.pas` and
 `Raw_Function_Data.wikitext`, so a nonzero value in either parameter slot is
 rejected with `Error::Parameter`. The intimidated flag reads the
-LastBribedIntimidated actor value that also backs SetBribed, and the success
-check compares the player's Speechcraft against the subject's Confidence
-(AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an
-approximation of the CK wiki's "Mod Player Intimidation" perk entry point
-formula, which the engine does not run yet. The Papyrus native
+LastBribedIntimidated actor value that also backs SetBribed. The success
+check returns `Error::StateContract(655)` when the subject has no Confidence
+actor value and `Error::Unavailable(655)` otherwise. The local CK
+`WillIntimidateSucceed_-_Actor.wikitext` points to the "Mod Player Intimidation"
+perk entry point formula, which the engine does not run yet. Speechcraft and
+Confidence alone cannot supply that result. The Papyrus native
 `WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
 LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
