@@ -191,6 +191,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "AI-43", write: write_trespassing, read: read_trespassing },
 ];
 
 fn write_stagger_metadata(
@@ -286,6 +287,23 @@ fn read_werewolf_transform(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     super::magic::read_werewolf_transform(state, reader)
+}
+
+fn write_trespassing(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.bool(state.trespassing);
+}
+
+fn read_trespassing(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    state.trespassing = reader.bool()?;
+    Ok(())
 }
 
 fn write_package_overrides(

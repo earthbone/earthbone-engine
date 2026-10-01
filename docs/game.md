@@ -365,6 +365,19 @@ perpetrator set and the faction's violent bounty are updated through the
 existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
 remain later work.
 
+**Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
+`LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
+Actor` and `SetIntimidated - Actor`. `IsTrespassing` (145) reads the subject's
+runtime `trespassing` flag, which is saved in the `AI-43` actor section.
+`GetIsCrimeFaction`
+(152) compares the subject's crime faction with its required `FACT` parameter,
+matching CK `GetCrimeFaction - Actor`. These predicates reject nonzero unused
+parameters and invalid actor or faction context. The trespassing flag is also
+included in the world state hash. `GetCrime` (122),
+`GetTrespassWarningLevel` (144), `IsPCAMurderer` (176),
+`GetAmountSoldStolen` (190) and `GetIgnoreCrime` (192) remain unsupported with
+`conditions::Error::Function`: TES5Edit gives their signatures, but the local
+CK corpus supplies no usable return contract for these condition functions.
 **Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
 crime faction at one in-game day per 100 gold of bounty, rounded up and
 capped at seven days. It advances the shared clock, clears that faction's
@@ -1127,6 +1140,15 @@ fixtures, parameter and actor-context errors, and diagnostics for untracked
 queries. The fixtures use synthetic records and do not need installed game
 data.
 
+AI-52 implements condition 309, `IsXBox`, as false for this PC runtime and
+rejects either nonzero parameter. Conditions 224 `GetVATSMode`, 235
+`GetVatsTargetHeight`, 381 `GetHasNote`, 407 `GetVATSValue`, 427
+`GetPlantedExplosive`, 473 `GetIsAlignment` and 515 `GetVATSRightAreaFree`
+remain unsupported and return explicit condition errors. The AI package
+evaluator counts those functions as unsupported. xEdit's
+`wbDefinitionsTES5.pas` supplies their IDs and parameter types. No individual
+CK condition pages for these functions exist in the local CK corpus, so the
+engine does not infer their runtime values.
 AI-66 adds `GetWithinDistance` (639), using the run-on subject's position,
 the parameter reference's position and the parameter float as an inclusive
 distance threshold. xEdit's `wbConditionFunctions` and UESP's
@@ -2109,6 +2131,10 @@ The condition evaluator implements these CTDA function IDs:
 598, 600, 601, 603, 604, 605, 606, 610, 625, 626, 629, 630, 635, 636,
 639, 640, 651, 655, 659, 660, 675, 683, 691, 692, 693, 696, 698, 699,
 704, 706, 711, 713, 718, 721, 723, 724, 730, 731, 734, 735.
+AI-50 also implements functions 263, 306, 398, 465, 597 and 624. The
+integrated condition evaluator supports ordered AND/OR groups, numeric or
+global comparisons, explicit references and caller-supplied quest aliases.
+Reserved PlayerRef resolves to the runtime player even without a placed record.
 
 This is a bounded set, not the full CTDA contract. Evaluation supports ordered
 AND/OR groups, numeric or global comparisons, explicit references and
@@ -2280,6 +2306,33 @@ Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
 VTYP and form-type links. The CK corpus does not document the four unavailable
 runtime states, and CMB-17 currently stores actor combat targets without a
 shared combat-group identity.
+
+AI-44 implements crime CTDA functions 193, 375, 376 and 402. `GetPCExpelled`
+reads the referenced faction's player-expelled flag. The crime-gold functions
+read that faction's violent or nonviolent bounty, and accept a zero faction
+parameter as the subject's crime faction. `IsBribedbyPlayer` reads the
+subject's `LastBribedIntimidated` actor value, the state currently shared with
+intimidation. The xEdit function table defines the form and unused-parameter
+slots. The CK `SetBribed` page defines the actor outcome, and the evaluator
+rejects nonzero unused parameters and unavailable actor or faction context.
+Functions 195, 282, 366 and 373 return `conditions::Error::Contract`: the CK
+corpus has no usable query contract for faction-murder counts, stolen-horse
+state or stolen-item value, and the runtime does not store those totals or
+flags. They are not inferred from bounty or inventory totals. See
+`crates/game/tests/ai_44_crime_conditions.rs` for positive, negative and
+invalid-context fixtures.
+AI-50 adds `IsWeaponOut` from actor draw state, `IsActorUsingATorch` from an
+equipped carryable `LIGH`, `IsWeaponInList` from assigned weapon hands,
+`GetKeywordItemCount` from the shared inventory totals, `GetEquippedItemType`
+from the CK hand values, and `GetInContainer` from an item's base-form count in
+the referenced container. The CK `GetEquippedItemType_-_Actor.wikitext` page
+defines hand arguments 0 and 1 and return values 0 through 12. xEdit's
+`wbDefinitionsTES5.pas` supplies the CTDA function ids and parameter types.
+The CK corpus has no usable semantic contract for conditions 479
+`GetIsUsedItemEquipType` and 487 `IsCarryable`, so evaluation returns a typed
+condition contract diagnostic for those ids. AI-50 fixtures cover true, false,
+and invalid form or hand contexts for the implemented functions, and the
+diagnostic paths for both source gaps.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
@@ -4418,6 +4471,45 @@ scene action and favor values, invalid actors and slots, and explicit errors
 for the four conditions without a usable local contract. No saved state or
 save version changed.
 
+## Compatibility condition batch AI-42
+
+GetSKSEVersion (1024), GetSKSEVersionMinor (1025), GetSKSEVersionBeta (1026)
+and GetSKSERelease (1027) are parameterless condition functions. The engine
+returns zero for each component because it does not load an SKSE runtime, so
+conditions can test for SKSE absence. Nonzero integer parameters are errors.
+The CK corpus has no pages defining these SKSE-added condition functions.
+ClearInvalidRegistrations (1028) is also parameterless in xEdit and Mutagen,
+but SKSE documents it as cleanup of invalid update registrations rather than
+as a query. Evaluating it returns `NoConditionContract` instead of mutating VM
+registrations from a condition. All five still require the evaluator's normal
+run-on subject context.
+
+The function IDs come from xEdit `wbDefinitionsTES5.pas` and the parameter
+types from Mutagen Skyrim condition data. SKSE's save-load hook and change log
+document registration cleanup. The source corpus defines no CK return contract
+for the added checks, so the zero-version result expresses that SKSE is absent
+from this runtime rather than claiming an SKSE version.
+
+## Location condition batch AI-54
+
+The condition evaluator supports GetWantBlocking (0), GetLocked (5),
+GetInSameCell (32), GetLockLevel (65), IsPlayerInRegion (117),
+IsInMyOwnedCell (146), HasSameEditorLocAsRef (180), and
+HasSameEditorLocAsRefAlias (181). They read shared actor and reference state,
+the player's current cell region list, CELL ownership, authored editor
+locations, and the named quest alias. GetWantBlocking reads the actor's live
+block stance also used by combat. Region membership reads the CELL `XCLR`
+list. Editor-location matching applies the supplied keyword to the common
+location. No condition adds state or changes save data.
+
+xEdit `wbConditionFunctions` supplies the function identities and parameter
+types. CK `GetLockLevel` and `IsLocked` define the corresponding reference
+values. The remaining CK function pages are absent from the local corpus, so
+their behavior follows the named condition and its typed record fields.
+Missing actor, reference, player-cell, quest-alias, or form context returns a
+typed condition error. A malformed unused parameter is rejected. Synthetic
+coverage is in `tests/ai_54_location_conditions.rs`.
+
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
@@ -4498,6 +4590,27 @@ The contracts follow local xEdit `wbDefinitionsTES5.pas`, UESP
 results, actor and non-actor contexts, both invalid parameter slots and the
 three unavailable animation queries. SOEW version 36 stores the swimming,
 running and mount flags, with older saves loading them as false.
+
+## Legacy condition batch AI-53
+
+IsPS3 (520) has no parameters and returns false in this Skyrim Open Engine
+runtime, which does not run on PlayStation 3. The evaluator rejects nonzero
+parameter slots and invalid run-on context. Both the gameplay condition and
+package evaluators use this result.
+
+The VATS area-free functions 516 to 518 and target-visible functions 522 to
+525 remain unsupported. xEdit identifies their first parameter as a placed
+reference. The local CK function reference does not specify the result
+semantics, and this runtime has no VATS selection or targeting state to query.
+Gameplay condition evaluation returns `Error::Function` for these functions.
+Package conditions fail closed and increment the existing unsupported-function
+diagnostic.
+
+Sources are xEdit `wbDefinitionsTES5.pas` and the CK wiki's
+`Function_Reference.wikitext`. Mutagen's local `ConditionDatas.xml` confirms
+which VATS condition fields store a reference and marks the other fields as
+unused. The `ai_53_legacy_conditions` tests cover platform comparisons,
+parameter and run-on validation, both evaluator paths and VATS diagnostics.
 
 ### Sequential package validation
 
@@ -5807,3 +5920,25 @@ log.
 checks that the path is queued once and consumed. The headless Godot check is
 `godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
 the host gameplay runtime and checks the resulting PNG file.
+
+## Equipment conditions, AI-49
+
+CTDA functions 41, 48, 102, 103, 108 and 109 read the subject actor's
+equipped forms. Clothing value totals equipped ARMO records whose BOD2/BODT
+type is clothing, gold counts `Gold001` in inventory, torch conditions require
+an equipped LIGH with DATA flag 0x0002, and shield conditions check shield-slot
+ARMO records. UESP `LIGH.wikitext` names 0x0002 as "Can be carried". The local
+CK corpus has no condition page for `IsTorchOut`, so this follows that authored
+light flag rather than treating every LIGH as a torch. The weapon
+queries use the right hand before the left. The IDs and parameter types come
+from xEdit `wbConditionFunctions` in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The Papyrus Extender condition parser
+also confirms the ActorValue and FormType parameter encodings. Armor and
+weapon fields use the transient views in `combat/records.rs`.
+
+The CK wiki dump has no contract pages for these CTDA function names.
+`GetIsUsedItem` and `GetIsUsedItemType` therefore return
+`conditions::Error::UsedItemContext`: runtime state does not retain the
+action's used item, and the local CK corpus does not define a substitute
+interpretation. Invalid subjects and malformed equipment records fail with
+typed condition errors.

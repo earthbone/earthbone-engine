@@ -534,6 +534,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     }
     h.f64(a.stagger_magnitude);
     opt_form(h, a.stagger_direction);
+    h.bool(a.trespassing);
     h.u32(a.days_in_jail);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {

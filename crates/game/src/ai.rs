@@ -734,6 +734,7 @@ fn function_value(
             crate::conditions::actor_query(world, package_id, subject, c.function, c.param1).ok()?
         }
         18 => world.calendar().hour as f32,
+        309 | 520 if c.param1 == 0 && c.param2 == 0 => 0.0,
         32 => {
             let r = form(world, c.param1)?;
             let a = cell_of(world, subject);

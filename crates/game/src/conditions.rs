@@ -99,8 +99,14 @@ pub enum Error {
     UnavailableContractReason(u16, &'static str),
     #[error("condition function {0} requires unavailable runtime context")]
     Context(u16),
+    #[error("condition function {0} requires a used-item action context")]
+    UsedItemContext(u16),
+    #[error("condition function {0} cannot read its equipment record")]
+    EquipmentRecord(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
+    #[error("condition function {0} has no usable query contract")]
+    NoConditionContract(u16),
 }
 
 /// AND groups of OR-linked predicates, evaluated in file order with short circuiting.
@@ -167,6 +173,7 @@ pub fn supports_function(function: u16) -> bool {
             | 434
             | 435
             | 731
+            | 309
             | 128
             | 277
             | 408
@@ -192,9 +199,12 @@ pub fn supports_function(function: u16) -> bool {
             | 73
             | 80
             | 116
+            | 145
+            | 152
             | 225
             | 315
             | 403
+            | 520
             | 566
             | 74
             | 84
@@ -218,6 +228,14 @@ pub fn supports_function(function: u16) -> bool {
             | 632
             | 629
             | 630
+            | 41
+            | 48
+            | 102
+            | 103
+            | 108
+            | 109
+            | 246
+            | 247
             | 639
             | 655
             | 659
@@ -330,6 +348,21 @@ pub fn supports_function(function: u16) -> bool {
             | 426
             | 432
             | 463
+            | 1024
+            | 1025
+            | 1026
+            | 1027
+            | 1028
+            | 193
+            | 375
+            | 376
+            | 402
+            | 263
+            | 306
+            | 398
+            | 465
+            | 597
+            | 624
     )
 }
 
@@ -467,7 +500,7 @@ fn no_parameter(c: &Condition) -> Result<(), Error> {
     }
 }
 
-fn no_second_parameter(c: &Condition) -> Result<(), Error> {
+fn one_parameter(c: &Condition) -> Result<(), Error> {
     if c.parameters[1] == 0 {
         Ok(())
     } else {
@@ -476,7 +509,7 @@ fn no_second_parameter(c: &Condition) -> Result<(), Error> {
 }
 
 fn first_parameter_only(c: &Condition) -> Result<(), Error> {
-    no_second_parameter(c)
+    no_parameter_second(c)
 }
 
 /// Mutagen Skyrim.Constants.Player is reserved even without a placed ACHR record.
@@ -633,7 +666,7 @@ fn function_value(
             world.random_int(0, 99) as f32
         }
         6 | 8 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
             if axis >= 3 {
                 return Err(Error::Parameter(c.function, raw));
@@ -649,7 +682,7 @@ fn function_value(
             }
         }
         10 | 11 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
             if axis >= 3 {
                 return Err(Error::Parameter(c.function, raw));
@@ -824,6 +857,90 @@ fn function_value(
             }
             crate::ai::movement_speed(world, subject, crate::package::speed::WALK)
         }
+        0 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.blocking)
+        }
+        5 => {
+            no_parameter(c)?;
+            boolean(world.reference(subject).ok_or(Error::Form(subject))?.locked)
+        }
+        32 => {
+            one_parameter(c)?;
+            let other = resolve_reference(world, context.owner, raw)?;
+            let subject_cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            let other_cell = world.reference(other).ok_or(Error::Form(other))?.cell;
+            boolean(subject_cell.is_some() && subject_cell == other_cell)
+        }
+        65 => {
+            no_parameter(c)?;
+            world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .lock_level as f32
+        }
+        117 => {
+            one_parameter(c)?;
+            let region = resolve(world, context.owner, raw, Some(*b"REGN"))?;
+            let player = world.player();
+            let cell = world
+                .reference(player)
+                .ok_or(Error::Form(player))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_ref = world.order().winner_ref(cell).ok_or(Error::Form(cell))?;
+            let record = world.order().record(cell_ref);
+            let cell_data = soe_esm::records::cell::Cell::from_record(record, false)
+                .map_err(|_| Error::Form(cell))?;
+            boolean(
+                cell_data
+                    .regions
+                    .iter()
+                    .any(|raw_region| world.order().resolve(cell_ref.file, *raw_region) == region),
+            )
+        }
+        146 => {
+            no_parameter(c)?;
+            let cell = world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_owner = world.cell_state(cell).ok_or(Error::Form(cell))?.owner;
+            let owned = cell_owner.is_some_and(|owner| {
+                world.base_of(subject) == Some(owner)
+                    || world
+                        .actor(subject)
+                        .is_some_and(|actor| actor.factions.contains_key(&owner))
+            });
+            boolean(owned)
+        }
+        180 | 181 => {
+            let (reference, keyword) = if c.function == 180 {
+                (
+                    resolve_reference(world, context.owner, raw)?,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            } else {
+                let quest = context.quest.ok_or(Error::Target(5))?;
+                let alias = world.alias_ref(quest, raw).ok_or(Error::Target(5))?;
+                if world
+                    .reference(alias)
+                    .is_none_or(|reference| reference.deleted)
+                {
+                    return Err(Error::Form(alias));
+                }
+                (
+                    alias,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            };
+            let subject_location = world.editor_location(subject);
+            let other_location = world.editor_location(reference);
+            boolean(subject_location.is_some_and(|location| {
+                Some(location) == other_location && world.has_keyword(location, keyword)
+            }))
+        }
         476 => {
             no_parameter(c)?;
             if world.actor(subject).is_none() {
@@ -883,6 +1000,42 @@ fn function_value(
             }
         }
         18 => world.calendar().hour as f32,
+        41 => {
+            no_parameter(c)?;
+            let items: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut total = 0i32;
+            for item in items {
+                let Some(record) = world.record(item) else {
+                    return Err(Error::EquipmentRecord(c.function));
+                };
+                if record.tag != Tag(*b"ARMO") {
+                    continue;
+                }
+                let armor = crate::combat::records::Armor::from_record(record)
+                    .map_err(|_| Error::EquipmentRecord(c.function))?;
+                if armor.kind == Some(2) {
+                    total = total
+                        .checked_add(armor.value.ok_or(Error::EquipmentRecord(c.function))?)
+                        .ok_or(Error::EquipmentRecord(c.function))?;
+                }
+            }
+            total as f32
+        }
+        48 => {
+            no_parameter(c)?;
+            world.reference(subject).ok_or(Error::Form(subject))?;
+            let gold = world.form("Gold001").unwrap_or(GlobalFormId {
+                file: 0,
+                object: 0xF,
+            });
+            inventory_count(world, subject, gold, &mut Vec::new())? as f32
+        }
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
         84 => {
             if c.parameters[1] != 0 {
@@ -890,6 +1043,67 @@ fn function_value(
             }
             let base = resolve(world, context.owner, raw, Some(*b"NPC_"))?;
             world.actor_base(base).ok_or(Error::Form(base))?.dead_count as f32
+        }
+        102 | 103 => {
+            no_parameter(c)?;
+            let items: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut equipped = false;
+            for item in items {
+                let tag = world.tag_of(item);
+                if c.function == 102 && is_equipped_torch(world, item) {
+                    equipped = true;
+                    break;
+                }
+                if c.function == 103 && tag == Some(Tag(*b"ARMO")) {
+                    let record = world
+                        .record(item)
+                        .ok_or(Error::EquipmentRecord(c.function))?;
+                    let armor = crate::combat::records::Armor::from_record(record)
+                        .map_err(|_| Error::EquipmentRecord(c.function))?;
+                    if armor.slots & 0x200 != 0 {
+                        equipped = true;
+                        break;
+                    }
+                }
+            }
+            boolean(equipped)
+        }
+        108 | 109 => {
+            let (right, left) = {
+                let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+                (actor.right_weapon, actor.left_weapon)
+            };
+            let equipped = right.or(left);
+            let Some(weapon) = equipped else {
+                if c.function == 108 {
+                    no_parameter(c)?;
+                    return Ok(0.0);
+                }
+                if c.parameters[1] != 0 {
+                    return Err(Error::Parameter(c.function, c.parameters[1]));
+                }
+                return Ok(0.0);
+            };
+            let record = world
+                .record(weapon)
+                .ok_or(Error::EquipmentRecord(c.function))?;
+            let data = crate::combat::records::Weapon::from_record(record)
+                .map_err(|_| Error::EquipmentRecord(c.function))?;
+            if c.function == 108 {
+                no_parameter(c)?;
+                f32::from(data.animation)
+            } else {
+                if c.parameters[1] != 0 {
+                    return Err(Error::Parameter(c.function, c.parameters[1]));
+                }
+                boolean(data.skill >= 0 && data.skill as u32 == raw)
+            }
         }
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
@@ -910,7 +1124,7 @@ fn function_value(
             boolean(parameter_cell == Some(cell))
         }
         250 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(
                 world
@@ -933,16 +1147,16 @@ fn function_value(
             boolean(world.cell_state(cell).ok_or(Error::Form(cell))?.owner == owner)
         }
         310 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let wanted = resolve(world, context.owner, raw, Some(*b"WRLD"))?;
             boolean(reference_worldspace(world, subject) == Some(wanted))
         }
         325 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             package_location_condition(world, subject, c, raw)?
         }
         445 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let zone = resolve(world, context.owner, raw, Some(*b"ECZN"))?;
             let subject_zone = world
                 .encounter_zone(subject)
@@ -950,7 +1164,7 @@ fn function_value(
             boolean(subject_zone == Some(zone))
         }
         446 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             if raw > 2 {
                 return Err(Error::Parameter(c.function, raw));
             }
@@ -965,7 +1179,7 @@ fn function_value(
             return Err(Error::Unavailable(c.function));
         }
         561 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
             let record = world.record(subject).ok_or(Error::Form(subject))?;
             let matches = record
@@ -976,7 +1190,7 @@ fn function_value(
             boolean(matches)
         }
         562 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             let location = world
                 .current_location(subject)
@@ -984,7 +1198,7 @@ fn function_value(
             boolean(world.keywords(location).contains(&keyword))
         }
         563 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
             let location = world
                 .current_location(subject)
@@ -1003,12 +1217,12 @@ fn function_value(
             boolean(matches)
         }
         565 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(world.editor_location(subject) == Some(location))
         }
         567 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             if !world.alias_is_location(context.quest.ok_or(Error::Target(5))?, raw) {
                 return Err(Error::Target(5));
             }
@@ -1029,7 +1243,7 @@ fn function_value(
             location_ref_type_count(world, location, ref_type, c.function == 591)?
         }
         598 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1114,12 +1328,12 @@ fn function_value(
             boolean(world.keywords(location).contains(&keyword))
         }
         625 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let _location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             return Err(Error::Unavailable(c.function));
         }
         626 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1131,7 +1345,7 @@ fn function_value(
             return Err(Error::Unavailable(c.function));
         }
         651 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             let location = world
                 .current_location(subject)
@@ -1187,6 +1401,86 @@ fn function_value(
             // flag. No setter exists yet, so this reads the LastBribedIntimidated
             // actor value that backs both the bribe and intimidate flags: a
             // nonzero value means an attempt against this actor already landed.
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
+        1024..=1027 => {
+            no_parameter(c)?;
+            0.0
+        }
+        1028 => {
+            no_parameter(c)?;
+            return Err(Error::NoConditionContract(c.function));
+        }
+        145 => {
+            // CK IsTrespassing - Actor defines this as the subject's current
+            // trespassing state. The world retains that state per actor.
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .trespassing,
+            )
+        }
+        152 => {
+            // Actor.GetCrimeFaction returns the faction this actor reports
+            // crimes to. GetIsCrimeFaction tests that same relationship.
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .crime_faction
+                    == Some(faction),
+            )
+        }
+        193 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            boolean(
+                world
+                    .faction(faction)
+                    .ok_or(Error::Form(faction))?
+                    .player_expelled,
+            )
+        }
+        // CONTEXT: CK has no usable query contract for these functions. The
+        // runtime also lacks faction murder counts, stolen-item totals and
+        // the horse-theft flag, so do not infer values from bounty or inventory.
+        101 | 195 | 282 | 366 | 373 | 479 | 487 | 552 => {
+            return Err(Error::Contract(c.function));
+        }
+        375 | 376 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = if raw == 0 {
+                world
+                    .actor(subject)
+                    .and_then(|actor| actor.crime_faction)
+                    .ok_or(Error::Form(subject))?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"FACT"))?
+            };
+            let state = world.faction(faction).ok_or(Error::Form(faction))?;
+            if c.function == 375 {
+                state.crime_gold_violent as f32
+            } else {
+                state.crime_gold_nonviolent as f32
+            }
+        }
+        402 => {
             no_parameter(c)?;
             boolean(
                 world
@@ -1261,6 +1555,19 @@ fn function_value(
                 .and_then(|reference| reference.cell)
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
+        }
+        309 => {
+            // CONTEXT: xEdit declares no parameters. The CK corpus has no page
+            // for this legacy platform predicate. This runtime targets PC, so
+            // its Xbox query is false.
+            no_parameter(c)?;
+            0.0
+        }
+        520 => {
+            // Skyrim Open Engine does not run on the PlayStation 3. xEdit
+            // identifies this condition as parameterless.
+            no_parameter(c)?;
+            0.0
         }
         225 | 315 => {
             // DLG-07 established current Speechcraft as the condition value.
@@ -1434,7 +1741,7 @@ fn function_value(
             boolean(world.alias_ref(quest, raw) == Some(subject))
         }
         571 => {
-            no_second_parameter(c)?;
+            no_parameter_second(c)?;
             let spell = casting_spell(world, subject, c.function, raw)?;
             let current = world.concentration_spell(subject);
             match spell.filter(|spell| Some(*spell) == current) {
@@ -1449,7 +1756,7 @@ fn function_value(
             }
         }
         579 => {
-            no_second_parameter(c)?;
+            no_parameter_second(c)?;
             let shout = resolve(world, context.owner, raw, Some(*b"SHOU"))?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(actor.equipped_shout == Some(shout))
@@ -1475,7 +1782,7 @@ fn function_value(
             boolean(has_keyword)
         }
         602 => {
-            no_second_parameter(c)?;
+            no_parameter_second(c)?;
             if raw > 2 {
                 return Err(Error::Parameter(c.function, raw));
             }
@@ -1501,6 +1808,16 @@ fn function_value(
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
             inventory_count(world, subject, item, &mut Vec::new())? as f32
+        }
+        246 | 247 => {
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if c.function == 246 {
+                let _ = resolve(world, context.owner, raw, None)?;
+            }
+            return Err(Error::UsedItemContext(c.function));
         }
         56 | 58 | 59 | 543 => {
             let quest = resolve(world, context.owner, raw, Some(*b"QUST"))?;
@@ -1629,7 +1946,57 @@ fn function_value(
                     .is_some_and(|actor| actor.equipped.contains(&item)),
             )
         }
-        101 | 552 => return Err(Error::Contract(c.function)),
+        263 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .weapon_drawn,
+            )
+        }
+        306 => {
+            no_parameter(c)?;
+            let equipped = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect::<Vec<_>>();
+            boolean(
+                equipped
+                    .into_iter()
+                    .any(|item| is_equipped_torch(world, item)),
+            )
+        }
+        398 => {
+            let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
+            let weapons = world.actor(subject).ok_or(Error::Form(subject))?;
+            let hands = [weapons.left_weapon, weapons.right_weapon];
+            let forms = world.form_list(list).cloned().ok_or(Error::Form(list))?;
+            boolean(
+                hands
+                    .into_iter()
+                    .flatten()
+                    .any(|weapon| forms.contains(&weapon)),
+            )
+        }
+        465 => {
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            inventory_count(world, subject, keyword, &mut Vec::new())? as f32
+        }
+        597 => {
+            if raw > 1 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            equipped_item_type(world, subject, raw == 0)? as f32
+        }
+        624 => {
+            let container = resolve_reference(world, context.owner, raw)?;
+            let base = world.base_of(subject).unwrap_or(subject);
+            boolean(world.item_count(container, base) > 0)
+        }
         214 => {
             no_parameter_tail(c)?;
             let effect = resolve(world, context.owner, raw, Some(*b"MGEF"))?;
@@ -1716,7 +2083,7 @@ fn function_value(
             }))
         }
         360 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let quest = context.quest.ok_or(Error::Target(5))?;
             if !world.alias_is_location(quest, raw) {
                 return Err(Error::Target(5));
@@ -1796,7 +2163,7 @@ fn function_value(
             boolean(world.distance(subject, other) <= maximum_distance)
         }
         444 => {
-            no_second_parameter(c)?;
+            one_parameter(c)?;
             let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
             let locations = world.form_list(list).ok_or(Error::Form(list))?.clone();
             boolean(world.current_location(subject).is_some_and(|current| {
@@ -2017,6 +2384,82 @@ fn function_value(
         644 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
+}
+
+fn is_equipped_torch(world: &World, item: GlobalFormId) -> bool {
+    let Some(record) = world
+        .record(item)
+        .filter(|record| record.tag == Tag(*b"LIGH"))
+    else {
+        return false;
+    };
+    let Some(flags) = record
+        .find(Tag(*b"DATA"))
+        .and_then(|data| data.get(12..16))
+        .and_then(|data| data.try_into().ok())
+        .map(u32::from_le_bytes)
+    else {
+        return false;
+    };
+    flags & 2 != 0
+}
+
+fn equipped_item_type(
+    world: &mut World,
+    actor: GlobalFormId,
+    left_hand: bool,
+) -> Result<u8, Error> {
+    let state = world.actor(actor).ok_or(Error::Form(actor))?;
+    let (spell, weapon) = if left_hand {
+        (state.left_spell, state.left_weapon)
+    } else {
+        (state.right_spell, state.right_weapon)
+    };
+    if spell.is_some() {
+        return Ok(9);
+    }
+    let Some(weapon) = weapon else {
+        return Ok(0);
+    };
+    let Some(record) = world.record(weapon).filter(|record| !record.is_deleted()) else {
+        return Err(Error::Form(weapon));
+    };
+    match record.tag.as_bytes() {
+        b"WEAP" => {
+            let animation = record
+                .find(Tag(*b"DNAM"))
+                .and_then(|data| data.first())
+                .copied()
+                .ok_or(Error::Form(weapon))?;
+            match animation {
+                0 => Ok(0),
+                1..=4 => Ok(animation),
+                5 => Ok(5),
+                6 => Ok(6),
+                7 => Ok(7),
+                8 => Ok(8),
+                9 => Ok(12),
+                _ => Err(Error::Form(weapon)),
+            }
+        }
+        b"ARMO" => {
+            let slots = record
+                .find(Tag(*b"BOD2"))
+                .or_else(|| record.find(Tag(*b"BODT")))
+                .and_then(|data| data.get(..4))
+                .and_then(|data| data.try_into().ok())
+                .map(u32::from_le_bytes)
+                .ok_or(Error::Form(weapon))?;
+            Ok(if slots & (1 << 8) != 0 { 10 } else { 0 })
+        }
+        b"LIGH" => Ok(if is_equipped_torch(world, weapon) {
+            11
+        } else {
+            0
+        }),
+        b"SCRL" | b"SPEL" => Ok(9),
+        _ => Err(Error::Form(weapon)),
+    }
 }
 
 fn weapon_animation_type(world: &World, item: GlobalFormId) -> Result<u8, Error> {
