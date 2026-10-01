@@ -42,7 +42,7 @@ extended declarations in `skse64/scripts/modified/LeveledItem.psc` and
 | LeveledItem.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
 | LeveledItem.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
 | LeveledItem.GetChanceNone | SKSE returns the list chance-none value | Registered |
-| LeveledItem.SetChanceNone | SKSE sets the list chance-none value | Registered, constrained to the record's 0 to 100 range |
+| LeveledItem.SetChanceNone | SKSE sets the list chance-none byte | Registered, stores the supplied value's low byte |
 | LeveledItem.GetChanceGlobal | SKSE returns the list's chance-global form | Missing; record-backed support belongs to PRG-05, the leveled-item selection owner |
 | LeveledItem.SetChanceGlobal | SKSE stores the list's chance-global form | Missing; same PRG-05 ownership, since it needs record override and saved-state handling |
 | LeveledActor.AddForm | SKSE accepts `Form, level` | Registered; count defaults to one |

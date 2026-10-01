@@ -774,7 +774,8 @@ Their CK contracts are described by
   and returns after a message-box button is selected. The current game layer
   queues the `DNAM` record text according to the `MESG` message-box flag in
   `message_boxes` or `notifications`; it does not format numeric placeholders
-  or wait for a selected button, and currently returns button 0.
+  or wait for a selected button. It returns button 0 for queued message boxes
+  and -1 for notifications, following the CK contract for non-message-boxes.
   `Message.ShowAsHelpMessage` currently queues
   a notification and does not track event, interval, duration or occurrence
   state. `Message.ResetHelpMessage` is registered as a global stub. The CK

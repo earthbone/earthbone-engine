@@ -2533,16 +2533,15 @@ fn objective_globals_count_to_a_target() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// Message.Show puts a message-box flagged message in the box queue and
-/// any other in the notification queue, returning the button index (0),
-/// ShowAsHelpMessage is a notification.
+/// Message.Show reports button 0 for a queued message box and -1 for a
+/// notification, while ShowAsHelpMessage queues a notification.
 #[test]
 fn scr_66_messages_show_by_their_flag() {
     let mut g = game();
     let boxed = obj(&mut g, "BoxMessage");
     let note = obj(&mut g, "NoteMessage");
     assert_eq!(call(&mut g, &boxed, "Show", &[]), Value::Int(0));
-    assert_eq!(call(&mut g, &note, "Show", &[]), Value::Int(0));
+    assert_eq!(call(&mut g, &note, "Show", &[]), Value::Int(-1));
     call(
         &mut g,
         &note,

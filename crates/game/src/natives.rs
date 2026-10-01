@@ -2189,7 +2189,7 @@ fn game(vm: &mut Vm, w: &Shared) {
                 *enabled = true;
             }
         }
-        if call.args.get(2).map_or(true, Value::as_bool) {
+        if call.args.get(2).is_none_or(Value::as_bool) {
             world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
         }
         world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
@@ -2202,7 +2202,7 @@ fn game(vm: &mut Vm, w: &Shared) {
                 *enabled = false;
             }
         }
-        if call.args.get(2).map_or(false, Value::as_bool) {
+        if call.args.get(2).is_some_and(Value::as_bool) {
             world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
         }
         world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
@@ -2968,8 +2968,8 @@ fn cell(vm: &mut Vm, w: &Shared) {
 }
 
 fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
-    // Show: a message box when the DNAM flag says so, a notification
-    // otherwise. The button index is 0 since nobody clicks here.
+    // Show queues a message box or notification. Without a selected button,
+    // notifications report -1 while queued message boxes report button 0.
     method!(vm, w, "Message", "Show", |world, call, me| {
         let body = world
             .description_of(me)
@@ -2982,10 +2982,11 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             .is_some_and(|f| f & 1 != 0);
         if boxed {
             world.message_boxes.push(body);
+            i(0)
         } else {
             world.notifications.push(body);
+            i(-1)
         }
-        i(0)
     });
     method!(vm, w, "Message", "ShowAsHelpMessage", |world, call, me| {
         let body = world

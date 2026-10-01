@@ -1355,7 +1355,7 @@ mod tests {
         moves("player_ai_driven", flags, |w| w.player_ai_driven = true);
         moves("in_chargen", flags, |w| w.in_chargen = true);
         moves("chargen_disable_waiting", flags, |w| {
-            w.chargen_disable_waiting = true
+            w.chargen_disable_waiting = true;
         });
         moves("chargen_show_controls_disabled_message", flags, |w| {
             w.chargen_show_controls_disabled_message = true;
