@@ -6,7 +6,9 @@ use soe_game::Game;
 use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: 0, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
@@ -21,14 +23,23 @@ fn fixture() -> Game {
 
 fn call(game: &mut Game, name: &str, args: &[Value]) {
     let script = format!("Scr24Adv{name}{}", game.vm.time().to_bits());
-    let mut function = FunctionBuilder::new("Run", "None").global().param("shader", "EffectShader");
+    let mut function = FunctionBuilder::new("Run", "None")
+        .global()
+        .param("shader", "EffectShader");
     let mut operands = vec![s(name), ident("shader"), ident("unused")];
     for (i, _) in args.iter().enumerate() {
         let param = format!("a{i}");
         function = function.param(&param, "Var");
         operands.push(ident(&param));
     }
-    let bytes = ScriptBuilder::new(&script, "").function(function.ins(CallMethod, operands).ins(Return, vec![none()]).build()).bytes();
+    let bytes = ScriptBuilder::new(&script, "")
+        .function(
+            function
+                .ins(CallMethod, operands)
+                .ins(Return, vec![none()])
+                .build(),
+        )
+        .bytes();
     game.load_script(&bytes).unwrap();
     let mut values = vec![Value::Object(game.object_of_form(id(1)))];
     values.extend_from_slice(args);
@@ -59,8 +70,14 @@ fn scr_24_zero_negative_and_repeated_stop_have_distinct_pair_semantics() {
 fn scr_24_expiry_removes_only_its_playback_and_save_retains_other_infinite_pair() {
     let mut original = fixture();
     let first = Value::Object(original.object_of_form(id(2)));
-    original.world_mut().play_effect_shader(id(1), id(2), 0.25).unwrap();
-    original.world_mut().play_effect_shader(id(4), id(3), -1.0).unwrap();
+    original
+        .world_mut()
+        .play_effect_shader(id(1), id(2), 0.25)
+        .unwrap();
+    original
+        .world_mut()
+        .play_effect_shader(id(4), id(3), -1.0)
+        .unwrap();
     call(&mut original, "Play", &[first, Value::Float(0.25)]);
     let saved = original.save_state().unwrap();
     let mut restored = fixture();

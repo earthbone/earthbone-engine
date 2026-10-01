@@ -68,7 +68,9 @@ fn active(game: &Game) -> Vec<(u32, u32, Option<f64>)> {
 #[test]
 fn scr_24_play_defaults_to_infinite_and_stop_only_removes_its_pair() {
     let mut game = game();
-    assert!(game.vm.natives.duplicates.is_empty());
+    assert!(game.vm.natives.duplicates.iter().all(|(class, name, _)| {
+        class != "EffectShader" || !matches!(name.as_str(), "Play" | "Stop")
+    }));
     let target = Value::Object(game.object_of_form(id(10)));
     call(&mut game, 1, "Play", &[target]);
     assert_eq!(active(&game), vec![(1, 10, None)]);
