@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -13,12 +13,6 @@ use soe_save::atomic::{fault, Step};
 
 fn fixture() -> Game {
     Game::new(LoadOrder::new())
-}
-
-fn destination() -> PathBuf {
-    std::env::var_os("SOE_TST06_PATH")
-        .map(PathBuf::from)
-        .expect("child destination is set")
 }
 
 #[test]
