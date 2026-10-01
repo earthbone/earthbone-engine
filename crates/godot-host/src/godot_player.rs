@@ -111,6 +111,7 @@ pub struct PlayerNode {
     image_space: crate::image_space::ImageSpaceStack,
     image_space_renderer: crate::image_space::renderer::BaseRenderer,
     image_space_tint: Option<ImageSpaceTintView>,
+    presented_hud_cart_mode: bool,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     dialogue_voice_slot: Option<i32>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -180,6 +181,7 @@ impl INode3D for PlayerNode {
             image_space: crate::image_space::ImageSpaceStack::default(),
             image_space_renderer: crate::image_space::renderer::BaseRenderer::default(),
             image_space_tint: None,
+            presented_hud_cart_mode: false,
             sound_bank: None,
             dialogue_voice_slot: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
@@ -384,6 +386,28 @@ impl PlayerNode {
     /// Emitted after closing and releasing owned content controls.
     #[signal]
     fn menu_closed();
+
+    /// A Game native changed the HUD cart-mode flag.
+    #[signal]
+    fn hud_cart_mode_changed(enabled: bool);
+
+    /// A Game native requested the race and sex editor.
+    #[signal]
+    fn race_menu_requested();
+
+    /// A Game native requested a screen blood effect.
+    #[signal]
+    fn screen_blood_requested(value: i32);
+
+    /// A Game native requested Bink playback with its authored options.
+    #[signal]
+    fn bink_requested(
+        file_name: GString,
+        interruptible: bool,
+        mute_audio: bool,
+        mute_music: bool,
+        letterbox: bool,
+    );
 
     #[func]
     fn input_focus_lost(&mut self) {
