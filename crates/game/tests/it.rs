@@ -825,6 +825,10 @@ mod sav_54_adversarial;
 mod sav_54_breaker_adversarial;
 #[path = "sav_56_provenance.rs"]
 mod sav_56_provenance;
+#[path = "sav_57_adversarial.rs"]
+mod sav_57_adversarial;
+#[path = "sav_57_breaker_adversarial.rs"]
+mod sav_57_breaker_adversarial;
 #[path = "sav_57_preflight.rs"]
 mod sav_57_preflight;
 #[path = "sav_58_adversarial.rs"]
