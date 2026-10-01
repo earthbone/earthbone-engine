@@ -9,13 +9,21 @@
 //! `Section { name: "MAG-39", write: magic::write_summons, read: magic::read_summons },`.
 //! The lists skip rustfmt so it never splits an entry across lines.
 
+use super::save::FormReader;
 use super::save_sections::Section;
 use super::{ActorState, RefState, World};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::VmError;
 
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
+    Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
+    Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
+    Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
+    Section { name: "SAV-50", write: write_woop_mgef_section, read: read_woop_mgef_section },
     Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
@@ -27,13 +35,101 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::magic::SAVE_SECTION,
 ];
 
+fn write_player_level(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.u32(world.player_level);
+}
+
+fn read_player_level(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    world.player_level = reader.u32()?;
+    Ok(())
+}
+
+fn write_character_progression(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::super::progression::write_character_progression(state, writer);
+}
+
+fn read_character_progression(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::super::progression::read_character_progression(state, reader)
+}
+
+fn write_days_in_jail(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::crime::write_days_in_jail(state, writer);
+}
+
+fn read_days_in_jail(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::crime::read_days_in_jail(state, reader)
+}
+
+fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_base_object_section(world, writer);
+}
+
+fn read_base_object_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_base_object_section(world, reader)
+}
+
+fn write_static_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_static_object_section(world, writer);
+}
+
+fn read_static_object_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_static_object_section(world, reader)
+}
+
+fn write_appa_idlm_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_appa_idlm_section(world, writer);
+}
+
+fn read_appa_idlm_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_appa_idlm_section(world, reader)
+}
+
+fn write_woop_mgef_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_woop_mgef_section(world, writer);
+}
+
+fn read_woop_mgef_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_woop_mgef_section(world, reader)
+}
+
 /// Sections read and written once per actor, at the end of every actor
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
+    Section { name: "AI-21", write: super::save::write_driver_state_section, read: super::save::read_driver_state_section },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
+    Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
+    Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },

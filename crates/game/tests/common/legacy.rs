@@ -5,15 +5,14 @@ use soe_game::world::World;
 
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
-/// Strips the exclusive dialogue branch version 24 added, the stagger end
-/// time version 29 added, the witnessed crime set version 31 added, the hand
-/// spell fields version 32 added and the movement flags version 36 added, so
-/// fixtures built against any older header see none of those fields' bytes.
-/// Also strips the named save-section table
+/// Strips the exclusive dialogue branch version 24 added, the stagger end time
+/// version 29 added, the witnessed crime set version 31 added and the hand
+/// spell fields version 32 added, as well as the post-version-33 AI section.
+/// It also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
-/// that reference's record too, so both records end exactly where a
-/// pre-version-37 writer would have left them.
+/// that reference's record too. It also reduces world-level section payloads
+/// to the empty table expected by legacy fixture offsets.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -256,6 +255,13 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     bytes
 }
 
+/// Strip the post-version-33 AI section and the paired reference sections
+/// while retaining the actor fields used by version 28 and later fixtures.
+#[allow(dead_code)]
+pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
+    without_ref_sections(world, actors)
+}
+
 /// Strip the named save-section table version 37 appends to a standalone
 /// reference's own record, and version 36 movement flags from a paired actor.
 /// `without_exclusive_branches` only locates this
@@ -380,6 +386,48 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
         cursor += 4 + payload_len;
     }
     cursor - start
+}
+
+/// Normalize a version 37 fixture to an empty world-level section table.
+#[allow(dead_code)]
+pub fn empty_world_sections(bytes: &mut Vec<u8>) {
+    normalize_world_sections(bytes);
+}
+
+#[allow(dead_code)]
+pub fn world_section_growth(bytes: &[u8]) -> usize {
+    let mut normalized = bytes.to_vec();
+    normalize_world_sections(&mut normalized);
+    bytes.len() - normalized.len()
+}
+
+/// Return the number of trailing bytes a versioned reader rejects before the
+/// first prefix it accepts. The callback should parse with a fresh fixture.
+#[allow(dead_code)]
+pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
+    (0..=bytes.len())
+        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
+        .expect("a legacy save prefix is accepted")
+}
+
+#[allow(dead_code)]
+pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
+    let offsets: Vec<_> = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(offsets.len(), 1, "save marker is not unique");
+    offsets[0]
+}
+
+#[allow(dead_code)]
+pub fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
 /// Remove the world save-section table appended at the end of a version 37
