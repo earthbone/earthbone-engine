@@ -386,9 +386,8 @@ impl Game {
                     .sum();
                 if distance_squared <= f64::from(range).powi(2) {
                     nearby.insert(actor);
-                    let already_greeting = active_speaker == Some(actor);
-                    if (!self.greeting_range_actors.contains(&actor) || force_greet)
-                        && !already_greeting
+                    if !self.greeting_range_actors.contains(&actor)
+                        || (force_greet && active_speaker != Some(actor))
                     {
                         entering.push(actor);
                     }
