@@ -343,6 +343,8 @@ pub struct ActorState {
     pub graph_ints: BTreeMap<String, i32>,
     /// `SetAllowFlying`, the Dawnguard dragon riding flag.
     pub allow_flying: bool,
+    /// Live flying state reported by actor movement, using CK states 0 to 4.
+    pub flying_state: Option<u8>,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
     /// The furniture reference and zero-based marker currently reserved by
