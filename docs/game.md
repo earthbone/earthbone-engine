@@ -4416,7 +4416,6 @@ host rendering of the route are not implemented by this runtime API.
 objective eligibility and expiry with synthetic records. The check names no
 vanilla record, so it has no `SKYRIM_DATA`-gated case.
 
-
 `ObjectReference.InterruptCast` clears a pending fire-and-forget charge or
 concentration session for that reference. Beginning either session applies no
 effects and spends no magicka. Releasing a fire-and-forget session calls the
