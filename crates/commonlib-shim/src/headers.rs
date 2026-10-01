@@ -212,6 +212,15 @@ struct UnsupportedHook { const char* name; const char* reason; };
 inline constexpr UnsupportedHook UNSUPPORTED_VTABLE_HOOK{
     "vtable and call-site hooks target Skyrim machine code, which this engine does not use",
     "vtable and call-site hooks target Skyrim machine code, which this engine does not use"};
+using FormID = std::uint32_t;
+
+struct TESQuestStartStopEvent {
+    FormID formID;
+    bool started;
+    bool failed;
+    std::uint16_t pad06;
+};
+static_assert(sizeof(TESQuestStartStopEvent) == 0x8);
 
 enum class NotifyControl { Continue, Stop };
 

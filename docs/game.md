@@ -32,6 +32,10 @@ week 6 to 9 gate.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+- `World::add_quest_start_stop_sink` registers an MIT shim event listener.
+  Successful `Start`, `Stop`, and stage-driven quest transitions emit the
+  resolved runtime FormID and the resulting failed state. The event source
+  observes the existing quest state and does not keep a second quest copy.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, and alias

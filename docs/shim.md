@@ -86,7 +86,10 @@ The RE and SKSE interface declarations are source-level headers only. They do no
 bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
-keyword.
+keyword. `RE::TESQuestStartStopEvent` matches CommonLib's 8-byte form id, started flag, failed
+flag and two-byte padding layout. The Rust shim event carries the resolved runtime form id and
+the quest's failed state. `soe-game` emits it after successful start and stop transitions through
+the MIT event sink API.
 
 `SKSE/Plugin.h` declares a small native module entry point for source adaptations. A module
 exports `SOEPlugin_Manifest` with an ABI version, name and the names of unsupported hooks, plus
@@ -146,9 +149,10 @@ module through the new entry point and checks its unsupported hook report. SHM-2
 five typed event payload contracts and checks sink dispatch against synthetic state fixtures.
 SHM-22 checks the additional payload contracts, live-state receiver calls and unsupported hook
 results in Rust and C++ fixtures.
-Runtime event production is not wired to these channels, and no surveyed plugin has been
-compiled against the headers or loaded. The declarations are not linked to engine behavior.
-The counts are token counts,
+SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline rejection
+marker. A game integration test checks that live quest start and failed-stop transitions reach
+the MIT sink with current state. No surveyed plugin has been compiled against the headers or
+loaded, and the generated declarations are not linked to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

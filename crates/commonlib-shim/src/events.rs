@@ -170,6 +170,13 @@ pub const fn request_hook(kind: HookKind) -> Result<(), HookError> {
 
 /// An in-process event source. Sinks run in registration order and delivery
 /// stops at the first sink that returns `Stop`.
+/// The CommonLib `RE::TESQuestStartStopEvent` payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuestStartStopEvent {
+    pub form_id: crate::form::FormId,
+    pub started: bool,
+    pub failed: bool,
+}
 pub struct EventSource<E> {
     sinks: Vec<Box<dyn EventSink<E>>>,
 }
