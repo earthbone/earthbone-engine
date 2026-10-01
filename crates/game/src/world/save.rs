@@ -1284,12 +1284,21 @@ impl World {
                                 reference.base != base || reference.is_actor || reference.deleted
                             })
                     }
+                    40 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"HAZD")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base
+                                    || reference.owner != owner
+                                    || reference.is_actor
+                                    || reference.deleted
+                            })
+                    }
                     _ => true,
                 };
                 if invalid {
                     return Err(VmError::State("invalid summoned actor state".into()));
                 }
-            } else if matches!(definition.data.archetype, 12 | 18) && version >= 33 {
+            } else if matches!(definition.data.archetype, 12 | 18 | 40) && version >= 33 {
                 return Err(VmError::State("spawn effect without reference".into()));
             }
             if effect.restore_owner.is_some() {
