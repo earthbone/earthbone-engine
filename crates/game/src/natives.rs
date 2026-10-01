@@ -4441,8 +4441,8 @@ mod tests {
             .collect();
         assert_eq!(
             method_inventory,
-            ["Show", "ShowAsHelpMessage"],
-            "Message instance bindings must match the CK contract"
+            ["Show", "ShowAsHelpMessage", "ResetHelpMessage"],
+            "Message instance bindings must include the SCR-36 ResetHelpMessage alias"
         );
         let globals = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
         let global_inventory: Vec<_> = globals
