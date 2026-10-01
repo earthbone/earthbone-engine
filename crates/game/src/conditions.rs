@@ -251,7 +251,9 @@ pub fn supports_function(function: u16) -> bool {
             | 246
             | 247
             | 639
+            | 654
             | 655
+            | 656
             | 659
             | 254
             | 258
@@ -1767,7 +1769,7 @@ fn function_value(
         550 => {
             let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
             let slot = c.parameters[1];
-            let Some(completed) = world.scene_action_complete(scene, slot) else {
+            let Some(completed) = world.scene_action_slot_complete(scene, slot) else {
                 return Err(Error::Parameter(c.function, slot));
             };
             boolean(completed)
@@ -1795,6 +1797,22 @@ fn function_value(
                 .and_then(|reference| reference.cell)
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
+        }
+        654 => {
+            // GetBribeSuccess observes the player's bribe outcome. The CK
+            // SetBribed/IsBribed contract stores bribed and intimidated
+            // outcomes in LastBribedIntimidated, which is also used by
+            // IsIntimidatedbyPlayer (function 116).
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
         }
         309 => {
             // CONTEXT: xEdit declares no parameters. The CK corpus has no page
@@ -2604,31 +2622,21 @@ fn function_value(
             // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
             // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
             // perk entry point for the real formula, which this engine does not run
-            // yet (the native is still a stub in natives.rs). This approximates the
-            // same shape without the entry point: the player's Speechcraft against
-            // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
-            // the 0 to 100 skill range.
+            // yet (the native is still a stub in natives.rs). Do not approximate
+            // the authored perk formula with a Speechcraft and Confidence threshold.
             no_parameter(c)?;
-            let player = world.player();
-            let speechcraft = world
-                .actor(player)
-                .ok_or(Error::Form(player))?
-                .values
-                .get("speechcraft")
-                .current();
             let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-            if subject_actor.values.contains("confidence") {
-                let confidence = subject_actor.values.get("confidence").current();
-                boolean(speechcraft >= confidence * 25.0)
-            } else {
-                // No AIDT subrecord on the speaker's NPC_ record: the
-                // source has made no claim about Confidence at all, so
-                // reading the unset default (0.0, Cowardly) would treat a
-                // record silent on the point as the easiest possible
-                // target to intimidate. Fail closed instead (see
-                // dlg_07_missing_aidt_adversarial.rs).
-                boolean(false)
+            if !subject_actor.values.contains("confidence") {
+                // No AIDT subrecord on the speaker's NPC_ record means the
+                // condition has no usable actor-value contract for this form.
+                return Err(Error::StateContract(c.function));
             }
+            return Err(Error::Unavailable(c.function));
+        }
+        656 => {
+            // CK Actor.IsArrested reports the actor's current arrest state.
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,
@@ -2960,6 +2968,29 @@ fn furniture_marker_type(
         .nth(usize::from(marker))
         .and_then(|data| data.get(..2))
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
+}
+
+/// Approximate the player's intimidation result using Speechcraft and target
+/// Confidence. The perk entry point that supplies the complete formula is
+/// not implemented yet.
+pub(crate) fn will_intimidate_succeed(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<bool, Error> {
+    let player = world.player();
+    let speechcraft = world
+        .actor(player)
+        .ok_or(Error::Form(player))?
+        .values
+        .get("speechcraft")
+        .current();
+    let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+    if subject_actor.values.contains("confidence") {
+        let confidence = subject_actor.values.get("confidence").current();
+        Ok(speechcraft >= confidence * 25.0)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

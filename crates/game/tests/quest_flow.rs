@@ -567,7 +567,11 @@ fn a_second_native_provider_loses_collisions_and_is_told() {
 
 #[test]
 fn the_scenario_harness_runs_the_same_flow_against_a_captured_log() {
-    let dir = std::env::temp_dir().join(format!("soe-game-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "soe-game-{}-{}",
+        module_path!(),
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("Papyrus.0.log");
     std::fs::write(
