@@ -97,6 +97,10 @@ fn effect(flags: u32, archetype: u32, av: u32, constant: bool) -> Record {
     effect_with_associated_item(flags, archetype, av, constant, 0)
 }
 
+fn scroll_effect() -> Record {
+    effect(2, 0, 24, false)
+}
+
 fn effect_with_associated_item(
     flags: u32,
     archetype: u32,
@@ -172,6 +176,12 @@ fn location_effect() -> Record {
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+fn scroll_spell(form: u32, magnitude: f32, duration: u32) -> Record {
+    let mut scroll = spell(form, 0, false, magnitude, duration);
+    put(&mut scroll.subrecords[0].data, 16, 3);
+    scroll
 }
 
 fn spell_for_effect(form: u32, effect_form: u32, magnitude: f32, duration: u32) -> Record {
@@ -2032,6 +2042,73 @@ fn native(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
     let thread = game.vm.call_global(&script, "Run", &values).unwrap();
     game.run_until_idle(64);
     game.vm.thread_result(thread).unwrap()
+}
+
+#[test]
+fn scr_45_scroll_cast_uses_source_target_and_applies_the_scroll_effect() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+    let target = Value::Object(g.object_of_form(id(ACTOR)));
+
+    assert_eq!(
+        native(&mut g, scroll, "Cast", &[source, target.clone()]),
+        Value::None
+    );
+    assert_eq!(
+        g.world().spell_casts,
+        vec![(id(SPELL), id(SOURCE), Some(id(ACTOR)))]
+    );
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 120.0);
+    let world = g.world();
+    let active = world.active_effects().next().unwrap();
+    assert_eq!(active.spell, id(SPELL));
+    assert_eq!(active.source, id(SOURCE));
+    assert_eq!(active.caster, Some(id(SOURCE)));
+    assert_eq!(active.target, id(ACTOR));
+    drop(world);
+    assert!(g.vm.log.messages().is_empty());
+}
+
+#[test]
+fn scr_45_scroll_cast_logs_missing_target_and_rejects_non_scroll_records() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll_object = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+
+    native(&mut g, scroll_object, "Cast", &[source, Value::None]);
+    assert!(
+        g.vm.log
+            .contains("Scroll.Cast: spell requires an actor target"),
+        "{:?}",
+        g.vm.log.messages()
+    );
+    assert_eq!(g.world().active_effects().count(), 0);
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+
+    let ordinary = spell(SPELL + 1, 1, false, 20.0, 10);
+    let mut ordinary_game = self::game(plugin(effect(2, 0, 24, false), vec![ordinary]));
+    let shared = ordinary_game.shared_world();
+    let error = shared
+        .borrow_mut()
+        .cast_scroll_from_record(
+            id(SPELL + 1),
+            id(SOURCE),
+            Some(id(ACTOR)),
+            &mut |name, class| ordinary_game.vm.create_object_of(name, class),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        MagicError::Unsupported("not a scroll cast")
+    ));
+    assert_eq!(ordinary_game.world().active_effects().count(), 0);
+    assert_eq!(
+        ordinary_game.world_mut().actor_value(id(ACTOR), "health"),
+        100.0
+    );
 }
 
 #[test]

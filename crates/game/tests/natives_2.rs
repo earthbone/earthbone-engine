@@ -45,6 +45,7 @@ const MARKER: u32 = 0x909;
 const MARKER_BASE: u32 = 0x90A;
 const GUARD: u32 = 0x90B;
 const GUARD_BASE: u32 = 0x90C;
+const GUARD_REF_TYPE: u32 = 0xA31;
 const OUTFIT: u32 = 0x90D;
 const THIEVES: u32 = 0x90E;
 const SHARED_CRIME_GROUP: u32 = 0x9A0;
@@ -129,6 +130,10 @@ fn location(id: u32, edid: &str, parent: Option<u32>) -> Record {
     }
 }
 
+fn location_ref_type_entry(ref_type: u32, reference: u32, cell: u32) -> Vec<u8> {
+    [le(ref_type), le(reference), le(cell), [0; 4]].concat()
+}
+
 fn interior(p: &mut Plugin, cell: Record, refs: Vec<Record>) -> Group {
     let id = cell.form_id;
     let cell = p.push_record(cell);
@@ -152,9 +157,13 @@ fn test_plugin() -> Plugin {
         ..Default::default()
     });
     p.push_top(Record::new(T(b"KYWD"), HOLD_KEYWORD).zsub(EDID, "LocTypeHold"));
+    p.push_top(Record::new(T(b"LCRT"), GUARD_REF_TYPE).zsub(EDID, "GuardRefType"));
     p.push_top(location(HOLD_LOC, "HoldLoc", None).sub(T(b"KWDA"), le(HOLD_KEYWORD)));
     p.push_top(location(TOWN_LOC, "TownLoc", Some(HOLD_LOC)));
-    p.push_top(location(INN_LOC, "InnLoc", Some(TOWN_LOC)));
+    p.push_top(location(INN_LOC, "InnLoc", Some(TOWN_LOC)).sub(
+        T(b"ACSR"),
+        location_ref_type_entry(GUARD_REF_TYPE, GUARD, INN_CELL),
+    ));
     p.push_top(location(OTHER_TOWN_LOC, "OtherTownLoc", Some(HOLD_LOC)));
     p.push_top(Record::new(T(b"PERK"), PERK).zsub(EDID, "TestPerk"));
     p.push_top(
@@ -229,7 +238,11 @@ fn test_plugin() -> Plugin {
             .sub(T(b"LNAM"), le(CYCLIC_LIST)),
     );
     p.push_top(Record::new(T(b"CONT"), CHEST_BASE).zsub(EDID, "QueryChest"));
-    p.push_top(Record::new(T(b"SPEL"), FLAMES).zsub(EDID, "Flames"));
+    p.push_top(
+        Record::new(T(b"SPEL"), FLAMES)
+            .zsub(EDID, "Flames")
+            .sub(T(b"SPIT"), vec![0; 36]),
+    );
     p.push_top(
         Record::new(T(b"LVLI"), LOOT_LIST)
             .zsub(EDID, "LootList")
@@ -1392,6 +1405,96 @@ fn locations_know_their_parents() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// Location.IsLoaded follows the active cell's XLCN, including its parent
+/// locations, and stays false for an unloaded or invalid location.
+#[test]
+fn scr_35_location_is_loaded_tracks_active_cell() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let town = obj(&mut g, "TownLoc");
+    let hold = obj(&mut g, "HoldLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+
+    assert_eq!(call(&mut g, &inn, "IsLoaded", &[]), Value::Bool(false));
+    let cell = g.form("InnCell").unwrap();
+    g.world_mut().load_cell(cell);
+    assert_eq!(call(&mut g, &inn, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &town, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &hold, "IsLoaded", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &other, "IsLoaded", &[]), Value::Bool(false));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Location.HasRefType reads the location's ACSR and LCSR entries and
+/// returns false for a different form type, absent type or wrong argument.
+#[test]
+fn scr_35_location_has_ref_type_reads_authored_entries() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let ref_type = obj(&mut g, "GuardRefType");
+    let absent = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[ref_type]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[absent.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[Value::None]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasRefType", &[absent]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// The count methods count linked ACHR references by LCRT and observe the
+/// runtime actor death flag. Invalid and unrelated form arguments return 0.
+#[test]
+fn scr_35_location_ref_type_counts_follow_actor_state() {
+    let mut g = game();
+    let inn = obj(&mut g, "InnLoc");
+    let ref_type = obj(&mut g, "GuardRefType");
+    let keyword = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[ref_type.clone()]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[ref_type.clone()]),
+        Value::Int(0)
+    );
+    let guard = g.form("GuardRef").unwrap();
+    g.world_mut().actor(guard).unwrap().dead = true;
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[ref_type.clone()]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[ref_type]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[keyword.clone()]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeDeadCount", &[Value::None]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "GetRefTypeAliveCount", &[keyword]),
+        Value::Int(0)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// GetCurrentLocation is the cell's location, GetEditorLocation "obtains
 /// this reference's editor Location" and does not follow a MoveTo,
 /// IsInLocation "checks to see if this object is in the specified
@@ -2514,6 +2617,49 @@ fn anm_58_graph_events_resume_named_waits_true() {
     );
 }
 
+/// `WaitForAnimationEvent` takes the event name from its sole argument and
+/// waits on the called reference, matching names without case sensitivity.
+#[test]
+fn scr_41_wait_for_animation_event_uses_reference_and_event_argument() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let thread = wait_for_animation_thread(&mut g, &sender, "finished");
+
+    let unrelated = g.form("MarkerRef").unwrap();
+    g.report_animation_event(unrelated, "finished");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "other");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "FINISHED");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), Some(Value::Bool(true)));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// A disabled reference and an unloaded animation graph finish the wait
+/// with false.
+#[test]
+fn scr_41_wait_for_animation_event_reports_false_when_unavailable() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let unloaded = wait_for_animation_thread(&mut g, &sender, "finished");
+    g.animation_graph_unloaded(source);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(unloaded), Some(Value::Bool(false)));
+
+    let disabled = wait_for_animation_thread(&mut g, &sender, "finished");
+    call(&mut g, &sender, "DisableNoWait", &[]);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(disabled), Some(Value::Bool(false)));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 #[test]
 fn anm_58_graph_unload_and_reference_disable_resume_false() {
     let mut g = game();
@@ -2853,6 +2999,63 @@ fn scr_66_messages_show_by_their_flag() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn scr_36_reset_help_message_global_reenables_event_notification() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [
+        Value::string("Jump"),
+        Value::Float(1.0),
+        Value::Float(1.0),
+        Value::Int(1),
+    ];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note"]);
+
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Message",
+            "ResetHelpMessage",
+            &[Value::string("Jump")]
+        ),
+        Value::None
+    );
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note", "Hello note"]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_36_reset_help_message_method_uses_event_argument() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [Value::string("Activate")];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(call(&mut g, &note, "ResetHelpMessage", &args), Value::None);
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note", "Hello note"]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_36_reset_help_message_empty_event_is_a_noop() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [Value::string("")];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(
+        call_global(&mut g, "Message", "ResetHelpMessage", &args),
+        Value::None
+    );
+    assert!(g.world().notifications.is_empty());
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// Scene.Start marks it playing and delivers OnBegin to the scene's
 /// scripts, Stop delivers OnEnd, IsPlaying reads the flag.
 #[test]
@@ -2908,6 +3111,36 @@ fn sounds_and_spells_are_recorded() {
     );
     assert_eq!(g.world().spell_casts, vec![(f, gd, Some(p)), (f, gd, None)]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Spell.Preload and Spell.Unload take no arguments. The game validates the
+/// spell record and reports the missing art-resource system without changing
+/// cast or active-effect state.
+#[test]
+fn scr_47_spell_art_methods_report_missing_resource_system() {
+    let mut g = game();
+    let flames = obj(&mut g, "Flames");
+    let spells_before = g.world().spell_casts.clone();
+    let effects_before = g.world().active_effects().count();
+
+    assert_eq!(call(&mut g, &flames, "Preload", &[]), Value::None);
+    assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
+
+    let traces = g.traces();
+    assert!(
+        traces
+            .iter()
+            .any(|line| { line == "Spell.Preload: spell art resource loading is unsupported" }),
+        "{traces:?}"
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|line| { line == "Spell.Unload: spell art resource loading is unsupported" }),
+        "{traces:?}"
+    );
+    assert_eq!(g.world().spell_casts, spells_before);
+    assert_eq!(g.world().active_effects().count(), effects_before);
 }
 
 /// The Game flags: fast travel, AI driven, chargen, beast form, words

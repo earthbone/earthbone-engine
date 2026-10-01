@@ -893,12 +893,62 @@ mod scr_31_adversarial;
 mod scr_32_adversarial;
 #[path = "scr_32_game_queries.rs"]
 mod scr_32_game_queries;
+#[path = "scr_33_adversarial.rs"]
+mod scr_33_adversarial;
+#[path = "scr_34_adversarial.rs"]
+mod scr_34_adversarial;
+#[path = "scr_34_keyword_story_events.rs"]
+mod scr_34_keyword_story_events;
+#[path = "scr_35_adversarial.rs"]
+mod scr_35_adversarial;
+#[path = "scr_36_adversarial.rs"]
+mod scr_36_adversarial;
+#[path = "scr_37_adversarial.rs"]
+mod scr_37_adversarial;
+#[path = "scr_37_music_type.rs"]
+mod scr_37_music_type;
+#[path = "scr_38_adversarial.rs"]
+mod scr_38_adversarial;
+#[path = "scr_38_object_reference.rs"]
+mod scr_38_object_reference;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_40_adversarial.rs"]
+mod scr_40_adversarial;
+#[path = "scr_40_object_reference.rs"]
+mod scr_40_object_reference;
+#[path = "scr_41_adversarial.rs"]
+mod scr_41_adversarial;
+#[path = "scr_42_adversarial.rs"]
+mod scr_42_adversarial;
+#[path = "scr_42_object_reference.rs"]
+mod scr_42_object_reference;
 #[path = "scr_43_adversarial.rs"]
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
 mod scr_43_quest_transition_natives;
+#[path = "scr_44_adversarial.rs"]
+mod scr_44_adversarial;
+#[path = "scr_44_scene_action_complete.rs"]
+mod scr_44_scene_action_complete;
+#[path = "scr_45_adversarial.rs"]
+mod scr_45_adversarial;
+#[path = "scr_46_adversarial.rs"]
+mod scr_46_adversarial;
+#[path = "scr_46_shader_particle_geometry.rs"]
+mod scr_46_shader_particle_geometry;
+#[path = "scr_47_adversarial.rs"]
+mod scr_47_adversarial;
+#[path = "scr_48_adversarial.rs"]
+mod scr_48_adversarial;
+#[path = "scr_49_adversarial.rs"]
+mod scr_49_adversarial;
+#[path = "scr_49_utility_frame_rate.rs"]
+mod scr_49_utility_frame_rate;
+#[path = "scr_50_adversarial.rs"]
+mod scr_50_adversarial;
+#[path = "scr_50_utility_runtime_queries.rs"]
+mod scr_50_utility_runtime_queries;
 #[path = "scr_51_adversarial.rs"]
 mod scr_51_adversarial;
 #[path = "scr_51_utility_budgets.rs"]

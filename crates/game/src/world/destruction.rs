@@ -88,6 +88,15 @@ impl World {
         if !damage.is_finite() || damage <= 0.0 {
             return;
         }
+        if self.reference(reference).is_none() {
+            return;
+        }
+        if self
+            .reference_ref(reference)
+            .is_some_and(|state| state.destruction_cleared)
+        {
+            return;
+        }
         let Some((maximum, stages)) = destruction_data(self, reference) else {
             return;
         };
@@ -145,27 +154,22 @@ impl World {
         }
     }
 
-    /// Restore the authored model and health, reporting the reset stage.
-    pub fn clear_destruction(&mut self, reference: GlobalFormId, alloc: Alloc<'_>) {
+    /// Clear destruction effects without firing a stage-change event.
+    pub fn clear_destruction(&mut self, reference: GlobalFormId, _alloc: Alloc<'_>) {
+        if self.reference(reference).is_none() {
+            return;
+        }
         let Some((maximum, _)) = destruction_data(self, reference) else {
             return;
         };
         let Some(state) = self.reference(reference) else {
             return;
         };
-        let previous = state.destruction_stage;
         state.destruction_health = Some(maximum);
         state.destruction_stage = -1;
         state.destroyed = false;
         state.enabled = true;
-        if previous >= 0 {
-            let object = self.object_of(Handle::Form(reference), alloc);
-            self.pending.push(Pending::Event {
-                object,
-                name: "OnDestructionStageChanged".into(),
-                args: vec![Value::Int(-1)],
-            });
-        }
+        state.destruction_cleared = true;
     }
 }
 

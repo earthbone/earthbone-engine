@@ -90,6 +90,36 @@ fn form_value(
     ret(world.form_value(id, alloc!(call)))
 }
 
+fn keyword_story_event(
+    world: &World,
+    keyword: GlobalFormId,
+    args: &[Value],
+) -> crate::quest::state::StoryEvent {
+    use crate::quest::state::{StoryEvent, StoryParameter};
+
+    let reference = |index: usize, kind| StoryParameter::Reference {
+        kind,
+        reference: args.get(index).and_then(|value| world.form_arg(value)),
+    };
+    let integer =
+        |index: usize| StoryParameter::Integer(args.get(index).map_or(0, Value::as_int) as u32);
+    StoryEvent {
+        id: world.runtime_id(keyword),
+        code: *b"SCRP",
+        parameters: vec![
+            StoryParameter::Reference {
+                kind: 2,
+                reference: Some(keyword),
+            },
+            reference(0, 4),
+            reference(1, 0),
+            reference(2, 0),
+            integer(3),
+            integer(4),
+        ],
+    }
+}
+
 macro_rules! method {
     ($vm:expr, $w:expr, $class:expr, $name:expr, |$world:ident, $call:ident, $me:ident| $body:expr) => {{
         let w = $w.clone();
@@ -199,6 +229,8 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    music_type(vm, world);
+    shader_particle_geometry(vm, world);
     effect_shader(vm, world);
     weapon(vm, world);
     weather(vm, world);
@@ -490,6 +522,17 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         vm,
         w,
         "ObjectReference",
+        "SetNoFavorAllowed",
+        |world, call, me| {
+            let allowed = call.args.first().is_none_or(Value::as_bool);
+            let _ = world.set_no_favor_allowed(me, allowed);
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
         "DamageObject",
         |world, call, me| {
             world.damage_object(me, call.arg(0).as_float(), alloc!(call));
@@ -587,6 +630,28 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 );
                 i(0)
             }
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsFurnitureInUse",
+        |world, call, me| {
+            let ignore_reservations = call.args.first().is_some_and(Value::as_bool);
+            b(!ignore_reservations && world.furniture_marker_in_use(me, None))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsFurnitureMarkerInUse",
+        |world, call, me| {
+            let marker = u16::try_from(call.arg(0).as_int()).ok();
+            let ignore_reservations = call.arg(1).as_bool();
+            b(!ignore_reservations
+                && marker.is_some_and(|marker| world.furniture_marker_in_use(me, Some(marker))))
         }
     );
     method!(
@@ -1086,7 +1151,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 return none();
             };
             if let Some(horse) = world.reference(horse) {
-                horse.position = position;
+                let yaw = rotation[2];
+                horse.position = [
+                    position[0] + yaw.sin() * 100.0,
+                    position[1] - yaw.cos() * 100.0,
+                    position[2],
+                ];
                 horse.rotation = rotation;
                 horse.cell = cell;
             }
@@ -2668,6 +2738,90 @@ fn debug(vm: &mut Vm, w: &Shared) {
 }
 
 fn utility(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Utility", "IsInMenuMode", |world, _call| b(
+        world.menu_mode
+    ));
+    global!(vm, w, "Utility", "CaptureFrameRate", |world, call| {
+        let Value::Int(frame_count) = call.arg(0) else {
+            call.log.push(
+                call.time,
+                "Utility.CaptureFrameRate requires an integer frame count",
+            );
+            return s("");
+        };
+        match world.frame_rate.capture_recent(frame_count) {
+            Ok(result) => s(&result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                s("")
+            }
+        }
+    });
+    global!(vm, w, "Utility", "StartFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.start() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "EndFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.end() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "GetAverageFrameRate", |world, call| {
+        match world.frame_rate.average() {
+            Ok(result) => f(result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                f(0.0)
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMinFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMinFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        match world.frame_rate.minimum() {
+            Ok(result) => f(result),
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMinFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMaxFrameRate", |world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetMaxFrameRate expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        match world.frame_rate.maximum() {
+            Ok(result) => f(result),
+            Err(_) => {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetMaxFrameRate: beta frame-rate capture is unavailable",
+                );
+                none()
+            }
+        }
+    });
     global!(vm, w, "Utility", "RandomInt", |world, call| {
         let (min, max) = (
             call.args.first().map_or(0, Value::as_int),
@@ -2690,21 +2844,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
     ));
     vm.natives.register_global(
         "Utility",
-        "GetBudgetCount",
-        Box::new(|_| i(ENGINE_BUDGETS.len() as i32)),
-    );
-    vm.natives.register_global(
-        "Utility",
-        "GetBudgetName",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .map_or_else(|| s(""), |budget| s(budget.0))
-        }),
-    );
-    vm.natives.register_global(
-        "Utility",
         "GetCurrentBudget",
         Box::new(|call| {
             let index = call.arg(0).as_int();
@@ -2723,6 +2862,38 @@ fn utility(vm: &mut Vm, w: &Shared) {
                 .is_some_and(|budget| budget.2))
         }),
     );
+    // These queries depend on engine services that are not available in the
+    // shared World. Keep their unsupported state visible to Papyrus instead
+    // of returning the quiet `None` used by the old stub registrations.
+    for (name, arity, reason) in [
+        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
+        ("GetBudgetCount", 0, "memory tracking is unavailable"),
+        ("GetBudgetName", 1, "memory tracking is unavailable"),
+    ] {
+        let reason = reason.to_owned();
+        global!(vm, w, "Utility", name, |_world, call| {
+            if call.args.len() != arity {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.{name} expects {arity} argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return none();
+            }
+            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
+                );
+                return none();
+            }
+            call.log
+                .push(call.time, format!("error: Utility.{name}: {reason}"));
+            none()
+        });
+    }
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -2807,6 +2978,36 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Keyword", "GetString", |world, call, me| s(&world
         .editor_id(me)
         .unwrap_or_default()));
+    method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
+        let event = keyword_story_event(world, me, &call.args);
+        let mut alloc = |name: &str, class: &str| call.create_object(name, class);
+        match world.send_story_event_without_vm(&event, &mut alloc) {
+            Ok(_) => none(),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Keyword.SendStoryEvent: {error}"));
+                none()
+            }
+        }
+    });
+    method!(
+        vm,
+        w,
+        "Keyword",
+        "SendStoryEventAndWait",
+        |world, call, me| {
+            let event = keyword_story_event(world, me, &call.args);
+            let mut alloc = |name: &str, class: &str| call.create_object(name, class);
+            match world.send_story_event_without_vm(&event, &mut alloc) {
+                Ok(started) => b(!started.is_empty()),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("Keyword.SendStoryEventAndWait: {error}"));
+                    b(false)
+                }
+            }
+        }
+    );
     method!(vm, w, "Cell", "IsInterior", |world, call, me| b(world
         .record(me)
         .is_some_and(|r| r.placement.world.is_none())));
@@ -2960,6 +3161,33 @@ fn location(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Location", "IsCleared", |world, call, me| b(world
         .location(me)
         .is_some_and(|l| l.cleared)));
+    method!(vm, w, "Location", "IsLoaded", |world, _call, me| b(
+        world.location_is_loaded(me)
+    ));
+    method!(vm, w, "Location", "HasRefType", |world, call, me| {
+        let Some(ref_type) = world
+            .form_arg(&call.arg(0))
+            .filter(|form| world.tag_of(*form) == Some(Tag::new(b"LCRT")))
+        else {
+            return b(false);
+        };
+        b(world.location_has_ref_type(me, ref_type))
+    });
+    for (name, dead) in [
+        ("GetRefTypeAliveCount", false),
+        ("GetRefTypeDeadCount", true),
+    ] {
+        method!(vm, w, "Location", name, |world, call, me| {
+            let Some(ref_type) = world
+                .form_arg(&call.arg(0))
+                .filter(|form| world.tag_of(*form) == Some(Tag::new(b"LCRT")))
+            else {
+                return i(0);
+            };
+            let counts = world.location_ref_type_counts(me, ref_type);
+            i(if dead { counts.1 } else { counts.0 })
+        });
+    }
     method!(vm, w, "Location", "SetCleared", |world, call, me| {
         let on = call.args.first().is_none_or(Value::as_bool);
         if let Some(l) = world.location(me) {
@@ -3354,7 +3582,15 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             .description_of(me)
             .or_else(|| world.name_of(me))
             .unwrap_or_default();
-        world.notifications.push(body);
+        world.show_help_message(&text(&call.arg(0)), body);
+        none()
+    });
+    method!(vm, w, "Message", "ResetHelpMessage", |world, call, _me| {
+        world.reset_help_message(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Message", "ResetHelpMessage", |world, call| {
+        world.reset_help_message(&text(&call.arg(0)));
         none()
     });
     for name in ["Start", "ForceStart"] {
@@ -3370,6 +3606,9 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
         .scenes
         .contains(&me)));
+    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| b(
+        world.scene_action_complete(me, call.arg(0).as_int())
+    ));
     method!(vm, w, "Sound", "Play", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return i(0);
@@ -3411,6 +3650,29 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Scroll", "Cast", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let target = world.form_arg(&call.arg(1));
+        world.spell_casts.push((me, source, target));
+        if let Err(error) = world.cast_scroll_from_record(me, source, target, alloc!(call)) {
+            call.log.push(call.time, format!("Scroll.Cast: {error}"));
+        }
+        none()
+    });
+    for name in ["Preload", "Unload"] {
+        method!(vm, w, "Spell", name, |world, call, me| {
+            match world.spell(me) {
+                Ok(_) => call.log.push(
+                    call.time,
+                    format!("Spell.{name}: spell art resource loading is unsupported"),
+                ),
+                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            }
+            none()
+        });
+    }
 }
 
 /// Shipped ImageSpaceModifier methods keep ordinary and crossfade lifetimes apart.
@@ -3464,6 +3726,54 @@ fn image_space(vm: &mut Vm, w: &Shared) {
     );
 }
 
+/// `MusicType.Add` and `Remove` update the shared world's active music list.
+fn music_type(vm: &mut Vm, w: &Shared) {
+    for (name, add) in [("Add", true), ("Remove", false)] {
+        method!(vm, w, "MusicType", name, |world, call, me| {
+            let result = if add {
+                world.add_music_type(me)
+            } else {
+                world.remove_music_type(me)
+            };
+            if let Err(error) = result {
+                call.log
+                    .push(call.time, format!("MusicType.{name}: {error}"));
+            }
+            none()
+        });
+    }
+}
+
+/// Shipped ShaderParticleGeometry methods operate on the SPGD-backed host
+/// effect state. The float is the fade time in seconds.
+fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Apply",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Remove",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+}
 /// Shipped EffectShader calls retain target and duration in the shared world.
 fn effect_shader(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "EffectShader", "Play", |world, call, me| {
@@ -4194,6 +4504,14 @@ fn dlc(vm: &mut Vm, w: &Shared) {
 /// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
 /// are what the DLC scripts reach for most after the base classes.
 fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Topic", "Add", |world, call, me| {
+        if let Err(error) = world.add_dialogue_topic(me) {
+            call.log
+                .push(call.time, format!("error: Topic.Add: {error}"));
+        }
+        none()
+    });
+
     // CONTEXT: INFO ownership follows its DIAL group, not previous-topic links.
     for class in ["Scene", "Package", "TopicInfo"] {
         method!(vm, w, class, "GetOwningQuest", |world, call, me| {
@@ -4310,7 +4628,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
     let bools: &[(&str, &str, bool)] = &[
-        ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
@@ -4325,6 +4642,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Keyword", "SendStoryEventAndWait", false),
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
+        ("Cell", "IsAttached", true),
+        ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
@@ -4337,11 +4656,7 @@ fn stubs(vm: &mut Vm) -> usize {
         }
         n += 1;
     }
-    let ints: &[(&str, &str, i32)] = &[
-        ("Actor", "GetSitState", 0),
-        ("Location", "GetRefTypeAliveCount", 0),
-        ("Location", "GetRefTypeDeadCount", 0),
-    ];
+    let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
     for (class, name, value) in ints {
         let global = *class == "Game";
         let v = *value;
@@ -4358,7 +4673,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
-        ("ObjectReference", "SetNoFavorAllowed"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
@@ -4377,9 +4691,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Keyword", "SendStoryEvent"),
+        ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
-        ("Spell", "Preload"),
-        ("Spell", "Unload"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "StartCannibal"),
@@ -4392,6 +4705,10 @@ fn stubs(vm: &mut Vm) -> usize {
         ("MusicType", "Remove"),
         ("Topic", "Add"),
         ("Scroll", "Cast"),
+        ("Actor", "DoCombatSpellApply"),
+        ("Actor", "MoveToPackageLocation"),
+        ("Actor", "WillIntimidateSucceed"),
+        ("Cell", "Reset"),
     ];
     for (class, name) in methods_none {
         vm.natives
@@ -4416,7 +4733,6 @@ fn stubs(vm: &mut Vm) -> usize {
         // Werewolf crime, jail time and sun-gaze image space are not implemented.
         ("Game", "SendWereWolfTransformation"),
         ("Game", "SetSunGazeImageSpaceModifier"),
-        ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
         ("Utility", "CaptureFrameRate"),
         ("Utility", "StartFrameRateCapture"),
@@ -4425,6 +4741,17 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Utility", "GetMinFrameRate"),
         ("Utility", "GetMaxFrameRate"),
         ("Utility", "GetCurrentMemory"),
+        ("Debug", "QuitGame"),
+        ("Debug", "CenterOnCell"),
+        ("Debug", "CloseUserLog"),
+        ("Debug", "SetGodMode"),
+        ("Debug", "ToggleAI"),
+        ("Debug", "ToggleCollisions"),
+        ("Debug", "DumpAliasData"),
+        ("Debug", "DebugChannelNotify"),
+        ("Debug", "SetFootIK"),
+        ("Debug", "ShowRefPosition"),
+        ("Debug", "MoveToCell"),
     ];
     for (class, name) in globals_none {
         vm.natives
@@ -4641,8 +4968,8 @@ mod tests {
             .collect();
         assert_eq!(
             method_inventory,
-            ["Show", "ShowAsHelpMessage"],
-            "Message instance bindings must match the CK contract"
+            ["Show", "ShowAsHelpMessage", "ResetHelpMessage"],
+            "Message instance bindings must include the SCR-36 ResetHelpMessage alias"
         );
         let globals = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
         let global_inventory: Vec<_> = globals

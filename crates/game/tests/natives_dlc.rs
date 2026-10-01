@@ -1416,13 +1416,12 @@ fn place_actor_at_me_makes_one_actor() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// VisualEffect and music calls the DLC scripts make most often remain quiet
-/// stubs. EffectShader playback is covered by the SCR-24 contract tests.
+/// VisualEffect and reference calls remain quiet stubs. EffectShader playback
+/// is covered by the SCR-24 contract tests.
 #[test]
 fn the_effect_systems_take_their_calls_quietly() {
     let mut g = game();
     let effect = obj(&mut g, "VampireChangeFX");
-    let music = obj(&mut g, "SoulCairnMusic");
     let vampire = obj(&mut g, "VampireRef");
     call(
         &mut g,
@@ -1431,8 +1430,6 @@ fn the_effect_systems_take_their_calls_quietly() {
         &[vampire.clone(), Value::Float(2.0)],
     );
     call(&mut g, &effect, "Stop", &[vampire.clone()]);
-    call(&mut g, &music, "Add", &[]);
-    call(&mut g, &music, "Remove", &[]);
     call(&mut g, &vampire, "Reset", &[]);
     call(&mut g, &vampire, "StopTranslation", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
