@@ -35,20 +35,43 @@ fn fixture() -> (Game, GlobalFormId) {
         .auto_property("Pages", "String[]", soe_papyrus::asm::none())
         .function(
             FunctionBuilder::new("OnInit", "None")
-                .ins(CallMethod, vec![s("OnConfigInit"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         )
         .function(
             FunctionBuilder::new("OpenConfig", "None")
-                .ins(CallMethod, vec![s("SetPage"), ident("self"), ident("::nonevar"), s(""), soe_papyrus::asm::i(-1)])
-                .ins(CallMethod, vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SetPage"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s(""),
+                        soe_papyrus::asm::i(-1),
+                    ],
+                )
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         )
         .function(
             FunctionBuilder::new("SetPage", "None")
                 .param("page", "String")
                 .param("index", "Int")
-                .ins(CallMethod, vec![s("OnPageReset"), ident("self"), ident("::nonevar"), ident("page")])
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("OnPageReset"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        ident("page"),
+                    ],
+                )
                 .build(),
         )
         .function(FunctionBuilder::new("CloseConfig", "None").build())
@@ -61,15 +84,28 @@ fn fixture() -> (Game, GlobalFormId) {
             FunctionBuilder::new("OnConfigInit", "None")
                 .ins(PropSet, vec![s("ModName"), ident("self"), s("Edge Config")])
                 .ins(ArrayCreate, vec![ident("::pages"), soe_papyrus::asm::i(2)])
-                .ins(ArraySetElement, vec![ident("::pages"), soe_papyrus::asm::i(0), s("")])
-                .ins(ArraySetElement, vec![ident("::pages"), soe_papyrus::asm::i(1), s("Second")])
+                .ins(
+                    ArraySetElement,
+                    vec![ident("::pages"), soe_papyrus::asm::i(0), s("")],
+                )
+                .ins(
+                    ArraySetElement,
+                    vec![ident("::pages"), soe_papyrus::asm::i(1), s("Second")],
+                )
                 .ins(PropSet, vec![s("Pages"), ident("self"), ident("::pages")])
                 .build(),
         )
         .function(
             FunctionBuilder::new("OnPageReset", "None")
                 .param("page", "String")
-                .ins(IAdd, vec![ident("reset_count"), ident("reset_count"), soe_papyrus::asm::i(1)])
+                .ins(
+                    IAdd,
+                    vec![
+                        ident("reset_count"),
+                        ident("reset_count"),
+                        soe_papyrus::asm::i(1),
+                    ],
+                )
                 .ins(Assign, vec![ident("last_page"), ident("page")])
                 .build(),
         )

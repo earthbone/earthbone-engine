@@ -104,12 +104,10 @@ fn ui_06_refreshes_each_meter_after_only_its_actor_value_changes() {
     let mut game = Game::new(order);
     let player = game.player();
 
-    for (name, changed) in [
-        ("health", 0),
-        ("magicka", 1),
-        ("stamina", 2),
-    ] {
-        game.world_mut().damage_actor_value(player, name, 20.0).unwrap();
+    for (name, changed) in [("health", 0), ("magicka", 1), ("stamina", 2)] {
+        game.world_mut()
+            .damage_actor_value(player, name, 20.0)
+            .unwrap();
         let snapshot = Snapshot::read(&mut game, player, 0.0);
         let meters = [snapshot.health, snapshot.magicka, snapshot.stamina];
         for (index, meter) in meters.into_iter().enumerate() {

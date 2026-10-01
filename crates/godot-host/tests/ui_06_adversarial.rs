@@ -16,16 +16,24 @@ fn ui_06_restore_and_maximum_changes_are_reflected_on_the_next_hud_read() {
     {
         let mut world = game.world_mut();
         world.damage_actor_value(player, "health", 80.0).unwrap();
-        world.mod_temporary_actor_value(player, "health", 50.0).unwrap();
+        world
+            .mod_temporary_actor_value(player, "health", 50.0)
+            .unwrap();
     }
 
     let damaged = Snapshot::read(&mut game, player, 0.0);
-    assert_eq!((damaged.health.current, damaged.health.maximum), (70.0, 150.0));
+    assert_eq!(
+        (damaged.health.current, damaged.health.maximum),
+        (70.0, 150.0)
+    );
 
     game.world_mut()
         .restore_actor_value(player, "health", 80.0)
         .unwrap();
     let restored = Snapshot::read(&mut game, player, 0.0);
-    assert_eq!((restored.health.current, restored.health.maximum), (150.0, 150.0));
+    assert_eq!(
+        (restored.health.current, restored.health.maximum),
+        (150.0, 150.0)
+    );
     assert_eq!(restored.health.fraction, 1.0);
 }
