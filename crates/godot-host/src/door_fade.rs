@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 /// Timed Papyrus fade request, sharing the player's existing overlay.
+#[cfg(any(feature = "godot", test))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct GameFade {
     delay: f32,
@@ -15,6 +16,7 @@ pub(crate) struct GameFade {
     black: bool,
 }
 
+#[cfg(any(feature = "godot", test))]
 impl GameFade {
     /// Install a timed fade. Invalid durations leave the active fade unchanged.
     pub(crate) fn request(
