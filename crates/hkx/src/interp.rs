@@ -3790,7 +3790,10 @@ mod tests {
 
         vm.nodes[1].enabled = Some(false);
         let disabled = vm.update(1.0).pose[0].rotation;
-        assert_eq!(disabled, second);
+        assert_eq!(disabled, QsTransform::IDENTITY.rotation);
+
+        vm.nodes[1].enabled = Some(true);
+        assert_eq!(vm.update(0.5).pose[0].rotation, first);
     }
 
     #[test]

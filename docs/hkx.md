@@ -101,7 +101,7 @@ referenceCount).
   animationBindingIndex 112, mode 114, flags 115. `hkbClipTrigger` is 32
   bytes: localTime 0, event 8, relativeToEndOfClip 24, acyclic 25,
   isAnnotation 26.
-- `hkbTimerModifier`: enable 72, alarmTimeSeconds 80, alarmEvent 88;
+- `hkbTimerModifier`: enable 72, alarmTimeSeconds 80, alarmEvent 88.
   secondsElapsed at 104 is `SERIALIZE_IGNORED`.
 - `hkbBlenderGenerator`: referencePoseWeightThreshold 72, blendParameter 76,
   minCyclicBlendParameter 80, maxCyclicBlendParameter 84,
@@ -429,6 +429,7 @@ What each node does:
 - `hkbRotateCharacterModifier` accumulates `degreesPerSecond` times
   `speedMultiplier` and elapsed frame time while enabled, then applies the
   resulting angle around `axisOfRotation` to the generated root orientation.
+  Disabling it passes through the child pose. Reactivation resets the angle.
   Its serialized fields and offsets follow
   `serde-hkx/assets/classes/hkbRotateCharacterModifier.json`.
 - `hkbEventsFromRangeModifier` reads its bound `inputValue` and ordered
@@ -667,9 +668,9 @@ operator function results, random replay and malformed-input limits.
 The installed-data survey visits 428 behavior graphs and 814 guarded
 transitions. It checks every serialized expression/string condition appears
 in the decoded graph. Two draugr conditions refer to the undeclared variable
-`SpeedSampled`, and one troll guard contains `staggerMagnitude > .3 , < .7`.
-These three inputs stay closed and are asserted as exact diagnostics. ANM-50
-requires runtime evidence for the comma syntax. The initial survey guessed
+`SpeedSampled` and stay closed, asserted as exact diagnostics. The troll guard
+containing `staggerMagnitude > .3 , < .7` now compiles under the comma rule
+described above. The initial survey guessed
 more than 1,000 guards and failed that count check. The final coverage check
 compares serialized conditions directly instead of using that guessed count.
 

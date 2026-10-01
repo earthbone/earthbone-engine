@@ -578,8 +578,7 @@ fn anm_01_shipped_transition_expressions_are_decoded_and_diagnosed() {
     assert_eq!(failures, [
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled < 5.0: UnknownSymbol(\"SpeedSampled\")",
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled >= 5.0: UnknownSymbol(\"SpeedSampled\")",
-        "meshes/actors/troll/behaviors/trollbehavior.hkx: (staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7): Syntax(79)",
-    ], "undeclared draugr variable and ANM-50 comma comparison stay closed");
+    ], "undeclared draugr variable stays closed and the troll comma guard compiles");
 }
 
 #[test]

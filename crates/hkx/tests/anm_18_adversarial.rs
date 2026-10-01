@@ -67,6 +67,7 @@ fn linear_clip(name: &str, lo: f32, hi: f32) -> Clip {
 fn offset_range_endpoints_apply_zero_and_full_authored_offset() {
     let bytes = graph_bytes(&Root::Blender { parametric: false }, "base", "offset");
     let mut graph = BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
+    let offset_variable_index = graph.data.variable_names.len() as i32;
     graph.data.variable_names.push("OffsetValue".into());
     graph.data.variable_infos.push(VariableInfo {
         role: 0,
@@ -95,7 +96,7 @@ fn offset_range_endpoints_apply_zero_and_full_authored_offset() {
         bindings: Some(VariableBindingSet {
             bindings: vec![Binding {
                 member_path: "fOffsetVariable".into(),
-                variable_index: 2,
+                variable_index: offset_variable_index,
                 bit_index: -1,
                 binding_type: 0,
             }],
