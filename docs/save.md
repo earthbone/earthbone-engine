@@ -1249,16 +1249,17 @@ source-defined fields for these three record types. Each has an optional
 six-byte form-flags section. BOOK also reports the value, full-name, teaches
 skill and read markers. KEYM reports the value and full-name markers. NOTE
 reports its read marker. Those named marker fields consume no payload bytes in
-xEdit's `wbNull` schema. The decoders reject reserved flag bits and truncated
-form flags. Bytes after the defined fields remain an opaque suffix and are
-written back unchanged. This retains corpus data such as the byte `08` on a
+xEdit's `wbNull` schema. Bits xEdit labels `UnnamedFlag` are retained without
+interpretation, as are bytes after the defined fields. The decoders reject
+truncated form flags. This retains corpus data such as the byte `08` on a
 BOOK carrying only the read marker, whose meaning is not defined by xEdit.
 FallrimTools keeps these payloads raw, and UESP documents the outer
 change-form framing rather than these record layouts. The corpus test accounts
 for every BOOK, NOTE and KEYM change in the external save set and checks exact
-payload re-encoding. SAV-35 covers each subset of the source-defined flags,
-checks that zero-byte markers work without a payload, rejects each truncated
-form-flags prefix and checks suffix preservation for all three record types.
+flag and payload re-encoding. SAV-35 covers each subset of the source-defined
+flags, checks that unnamed flag bits survive typed decoding, verifies that
+zero-byte markers work without a payload, rejects each truncated form-flags
+prefix and checks suffix preservation for all three record types.
 
 ## ACTI, TACT and DOOR changes
 

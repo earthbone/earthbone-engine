@@ -111,7 +111,7 @@ fn sav_35_typed_flags_expose_each_named_marker() {
 }
 
 #[test]
-fn sav_35_rejects_truncated_form_flags_and_reserved_bits() {
+fn sav_35_rejects_truncated_form_flags_and_retains_unnamed_bits() {
     for (kind, change_flags) in [
         (13, flags::FORM | flags::BOOK_TEACHES | flags::BOOK_READ),
         (25, flags::FORM | flags::VALUE | flags::FULL_NAME),
@@ -125,8 +125,11 @@ fn sav_35_rejects_truncated_form_flags_and_reserved_bits() {
         }
     }
 
-    for (kind, reserved) in [(13, 1 << 3), (25, 1 << 3), (28, 1 << 1)] {
-        assert!(decoded(&form(kind, reserved, vec![])).is_err());
+    for (kind, unnamed) in [(13, 1 << 3), (25, 1 << 3), (28, 1 << 1)] {
+        let change = form(kind, unnamed, vec![]);
+        let (rebuilt_flags, bytes) = decoded(&change).unwrap();
+        assert_eq!(rebuilt_flags, unnamed);
+        assert!(bytes.is_empty());
     }
 }
 

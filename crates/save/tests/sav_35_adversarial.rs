@@ -31,12 +31,22 @@ fn sav_35_unnamed_xedit_flag_bits_survive_typed_roundtrip() {
                 continue;
             }
             let change = form(kind, mask, vec![]);
-            let rebuilt = match kind {
-                13 => change.book_change().unwrap().unwrap().change_flags(),
-                25 => change.key_change().unwrap().unwrap().change_flags(),
-                _ => change.note_change().unwrap().unwrap().change_flags(),
+            let (rebuilt, unnamed) = match kind {
+                13 => {
+                    let typed = change.book_change().unwrap().unwrap();
+                    (typed.change_flags(), typed.unnamed_flags)
+                }
+                25 => {
+                    let typed = change.key_change().unwrap().unwrap();
+                    (typed.change_flags(), typed.unnamed_flags)
+                }
+                _ => {
+                    let typed = change.note_change().unwrap().unwrap();
+                    (typed.change_flags(), typed.unnamed_flags)
+                }
             };
             assert_eq!(rebuilt, mask, "kind={kind} bit={bit}");
+            assert_eq!(unnamed, mask, "kind={kind} bit={bit}");
         }
     }
 }

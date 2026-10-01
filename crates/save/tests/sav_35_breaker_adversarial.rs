@@ -181,6 +181,28 @@ fn sav_35_breaker_external_corpus_reencodes_every_matching_change() {
                 change.form.raw(),
                 change.change_flags
             );
+            let (known_flags, unnamed_flags) = match change.record_type() {
+                "BOOK" => {
+                    let typed = change.book_change().unwrap().unwrap();
+                    (flags::BOOK_KNOWN, typed.unnamed_flags)
+                }
+                "KEYM" => {
+                    let typed = change.key_change().unwrap().unwrap();
+                    (flags::KEY_KNOWN, typed.unnamed_flags)
+                }
+                "NOTE" => {
+                    let typed = change.note_change().unwrap().unwrap();
+                    (flags::NOTE_KNOWN, typed.unnamed_flags)
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                unnamed_flags,
+                change.change_flags & !known_flags,
+                "{} {} unnamed flags",
+                change.record_type(),
+                change.form.raw()
+            );
             *count += 1;
         }
     }
