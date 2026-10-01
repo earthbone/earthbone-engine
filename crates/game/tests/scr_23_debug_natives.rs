@@ -148,9 +148,11 @@ fn scr_23_player_move_to_and_wait_moves_player_to_reference() {
         "String",
         Value::string("MissingReference"),
     );
-    assert!(game.vm.log.messages().iter().any(|message| message
-        .to_string()
-        .contains("destination reference not found")));
+    assert!(game.vm.log.messages().iter().any(|message| {
+        message
+            .to_string()
+            .contains("destination reference not found")
+    }));
 }
 
 #[test]

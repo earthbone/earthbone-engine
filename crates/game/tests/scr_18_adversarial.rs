@@ -20,12 +20,41 @@ fn scr_18_empty_authored_filter_is_returned_as_a_valid_form_list() {
     order.add("Scr18Empty.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let script = "Scr18EmptyProbe";
-    let bytes = ScriptBuilder::new(script, "Form").function(FunctionBuilder::new("Run", "Var").global().param("base", "ActorBase").local("result", "Var").ins(CallMethod, vec![s("GetGiftFilter"), ident("base"), ident("result")]).ins(Return, vec![ident("result")]).build()).bytes();
+    let bytes = ScriptBuilder::new(script, "Form")
+        .function(
+            FunctionBuilder::new("Run", "Var")
+                .global()
+                .param("base", "ActorBase")
+                .local("result", "Var")
+                .ins(
+                    CallMethod,
+                    vec![s("GetGiftFilter"), ident("base"), ident("result")],
+                )
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
+        .bytes();
     game.load_script(&bytes).unwrap();
-    let base = game.object_of_form(GlobalFormId { file: 0, object: BASE });
-    let result = game.vm.call_global(script, "Run", &[Value::Object(base)]).unwrap();
+    let base = game.object_of_form(GlobalFormId {
+        file: 0,
+        object: BASE,
+    });
+    let result = game
+        .vm
+        .call_global(script, "Run", &[Value::Object(base)])
+        .unwrap();
     game.run_until_idle(64);
-    let filter = game.object_of_form(GlobalFormId { file: 0, object: FILTER });
+    let filter = game.object_of_form(GlobalFormId {
+        file: 0,
+        object: FILTER,
+    });
     assert_eq!(game.vm.thread_result(result), Some(Value::Object(filter)));
-    assert!(game.world_mut().form_list(GlobalFormId { file: 0, object: FILTER }).unwrap().is_empty());
+    assert!(game
+        .world_mut()
+        .form_list(GlobalFormId {
+            file: 0,
+            object: FILTER
+        })
+        .unwrap()
+        .is_empty());
 }
