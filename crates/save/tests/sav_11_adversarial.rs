@@ -9,9 +9,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CORPUS: &str =
-    "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
-
 fn form(kind: u8, flags: u32, data: Vec<u8>, uncompressed_len: u32) -> ChangeForm {
     ChangeForm {
         form: RefId::from_bytes([0x40, 1, 2]),
@@ -102,10 +99,12 @@ fn sav_11_compressed_payload_is_inflated_and_malformed_stream_rejected() {
 
 #[test]
 fn sav_11_external_corpus_accounts_for_projectile_subtypes_and_payload_bytes() {
-    let root =
-        std::env::var_os("SOE_TEST_SAVES").map_or_else(|| PathBuf::from(CORPUS), PathBuf::from);
+    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
+        eprintln!("SOE_TEST_SAVES unset, skipping SAV-11 corpus survey");
+        return;
+    };
     let mut paths = Vec::new();
-    collect(&root, &mut paths);
+    collect(Path::new(&root), &mut paths);
     paths.sort();
     if paths.is_empty() {
         eprintln!("no external saves found, skipping SAV-11 corpus survey");

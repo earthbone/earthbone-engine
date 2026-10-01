@@ -35,7 +35,7 @@ use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraHostState, CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
-use crate::door_fade::DoorFade;
+use crate::door_fade::{DoorFade, GameFade};
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
@@ -107,6 +107,7 @@ pub struct PlayerNode {
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
+    pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     /// One server body per loaded actor, rebuilt from the shared World on
@@ -117,6 +118,7 @@ pub struct PlayerNode {
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     presented_hud_cart_mode: bool,
+    effect_shaders: crate::effect_shader::EffectShaderStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     dialogue_voice_slot: Option<i32>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -124,8 +126,10 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
+    game_fade: GameFade,
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
     exterior: Option<exterior::ExteriorRuntime>,
@@ -133,6 +137,8 @@ pub struct PlayerNode {
     interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
     camera_state: CameraHostState,
+    camera_shake: Option<(f32, f32, f32)>,
+    camera_shake_time: f32,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
@@ -158,6 +164,7 @@ pub struct PlayerNode {
     appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
     quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
+    objective_map_snapshot: Option<Vec<crate::objective_map::Marker>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     crafting_bench: Option<GlobalFormId>,
@@ -189,6 +196,7 @@ impl INode3D for PlayerNode {
             game: None,
             animation_source: None,
             player_appearance: None,
+            pending_debug_latents: Vec::new(),
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
@@ -196,6 +204,7 @@ impl INode3D for PlayerNode {
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             presented_hud_cart_mode: false,
+            effect_shaders: crate::effect_shader::EffectShaderStack::default(),
             sound_bank: None,
             dialogue_voice_slot: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
@@ -203,14 +212,18 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            swing_doors: HashMap::new(),
             loaded_cell: None,
             door_fade: DoorFade::default(),
+            game_fade: GameFade::default(),
             door_fade_view: None,
             exterior: None,
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
             interior_prefetch_elapsed: 0.0,
             camera: None,
             camera_state: CameraHostState::default(),
+            camera_shake: None,
+            camera_shake_time: 0.0,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
@@ -231,6 +244,7 @@ impl INode3D for PlayerNode {
             appearance_choice: None,
             menu_view: None,
             quest_journal_snapshot: None,
+            objective_map_snapshot: None,
             mcm_config: None,
             container_menu: None,
             crafting_bench: None,
@@ -366,12 +380,16 @@ impl INode3D for PlayerNode {
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }
+        if self.menu.title() == Some("Map") {
+            self.refresh_objective_map();
+        }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
             let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
             let (feet, height) = self.motion.sample(fraction);
+            self.update_camera_shake(delta as f32);
             self.place_camera(feet, height);
         }
         if let Some(game) = self.game.as_mut() {
@@ -570,6 +588,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
+                self.clear_swing_doors();
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
                     self.register_actions();
@@ -577,6 +596,7 @@ impl PlayerNode {
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
+                self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
                 self.exterior = None;
                 self.game_streamer = None;
                 true
@@ -608,6 +628,7 @@ impl PlayerNode {
         self.data_source = Some(source);
         self.game = None;
         self.image_space = crate::image_space::ImageSpaceStack::default();
+        self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
         self.exterior = None;
         self.game_streamer = Some(streamer);
         true
@@ -632,6 +653,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
+        self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -659,6 +681,7 @@ impl PlayerNode {
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
         self.door_fade = DoorFade::default();
+        self.game_fade = GameFade::default();
         self.refresh_door_fade();
         self.interior_prefetch.invalidate();
         self.melee_contact.cancel();
@@ -1010,6 +1033,23 @@ impl PlayerNode {
         result
     }
 
+    /// Current EffectShader applications for host presentation diagnostics.
+    #[func]
+    pub fn gameplay_effect_shaders(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        for playback in self.effect_shaders.playbacks() {
+            let mut row = VarDictionary::new();
+            row.set("shader", &GString::from(&playback.shader.to_string()));
+            row.set("target", &GString::from(&playback.target.to_string()));
+            row.set("infinite", playback.remaining.is_none());
+            if let Some(remaining) = playback.remaining {
+                row.set("remaining", remaining);
+            }
+            result.push(&row);
+        }
+        result
+    }
+
     /// Logical cell currently represented by the host.
     #[func]
     pub fn gameplay_cell(&self) -> GString {
@@ -1071,6 +1111,52 @@ impl PlayerNode {
             result.push(&row);
         }
         result
+    }
+
+    /// Unlocked non-teleport doors in the current cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_swing_doors(&self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell), Some(source)) =
+            (&self.game, self.loaded_cell, &self.data_source)
+        else {
+            return Array::new();
+        };
+        let world = game.world();
+        let mut result = Array::new();
+        for id in source.cell_index().references(cell).iter().copied() {
+            let Some(reference_record) = source.order().winner(id) else {
+                continue;
+            };
+            if reference_record.find(soe_esm::Tag::new(b"XTEL")).is_some() {
+                continue;
+            }
+            let Some(record_ref) = source.order().winner_ref(id) else {
+                continue;
+            };
+            let Ok(reference) = soe_esm::records::refr::Refr::from_record(reference_record) else {
+                continue;
+            };
+            let base = source.order().resolve(record_ref.file, reference.base);
+            if source
+                .order()
+                .winner(base)
+                .is_none_or(|record| record.tag != soe_esm::Tag::new(b"DOOR"))
+                || world.reference_ref(id).is_some_and(|state| state.locked)
+            {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Number of animated swing doors currently attached to the player.
+    #[func]
+    pub fn swing_door_count(&self) -> i32 {
+        i32::try_from(self.swing_doors.len()).unwrap_or(i32::MAX)
     }
 
     /// Drive the same activation path from a runtime harness using a resolved FormID.
@@ -1398,15 +1484,23 @@ impl PlayerNode {
     fn advance_door_fade(&mut self, delta: f64) {
         if delta.is_finite() && delta > 0.0 {
             self.door_fade.advance(Duration::from_secs_f64(delta));
+            self.game_fade.advance(delta as f32);
             self.refresh_door_fade();
         }
     }
 
     fn refresh_door_fade(&mut self) {
-        let opacity = self.door_fade.opacity();
+        let door_opacity = self.door_fade.opacity();
+        let game_opacity = self.game_fade.opacity();
+        let (opacity, black) = if game_opacity > door_opacity {
+            (game_opacity, self.game_fade.is_black())
+        } else {
+            (door_opacity, true)
+        };
         if let Some(view) = &mut self.door_fade_view {
+            let channel = if black { 0.0 } else { 1.0 };
             view.overlay
-                .set_color(Color::from_rgba(0.0, 0.0, 0.0, opacity));
+                .set_color(Color::from_rgba(channel, channel, channel, opacity));
             view.overlay.set_visible(opacity > 0.0);
         }
     }
@@ -1424,6 +1518,32 @@ impl PlayerNode {
     /// Place the camera where the rig says, converting into Godot's space.
     fn update_camera(&mut self) {
         self.place_camera(self.feet(), self.capsule_height());
+    }
+
+    fn update_camera_shake(&mut self, delta: f32) {
+        let offsets = if let Some((elapsed, duration, strength)) = self.camera_shake {
+            let next = elapsed + delta.max(0.0);
+            if next >= duration {
+                self.camera_shake = None;
+                self.camera_shake_time = 0.0;
+                (0.0, 0.0)
+            } else {
+                self.camera_shake = Some((next, duration, strength));
+                self.camera_shake_time += delta.max(0.0);
+                let fade = (1.0 - next / duration.max(f32::EPSILON)).clamp(0.0, 1.0);
+                let phase = self.camera_shake_time * 38.0;
+                (
+                    strength * fade * 0.012 * phase.sin(),
+                    strength * fade * 0.012 * (phase * 1.37).cos(),
+                )
+            }
+        } else {
+            (0.0, 0.0)
+        };
+        if let Some(camera) = &mut self.camera {
+            camera.set_h_offset(offsets.0);
+            camera.set_v_offset(offsets.1);
+        }
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {

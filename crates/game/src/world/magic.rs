@@ -775,6 +775,25 @@ impl World {
         Ok(Spell::from_record(&spell_record, localized)?)
     }
 
+    /// Whether any effect in a spell uses a hostile magic effect.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the spell or one of its referenced effects is
+    /// missing or malformed.
+    pub fn spell_is_hostile(&self, id: GlobalFormId) -> Result<bool, MagicError> {
+        let spell = self.spell(id)?;
+        for entry in spell.effects {
+            let effect = self
+                .resolve_from(id, entry.base_effect)
+                .ok_or(MagicError::Missing(id))?;
+            if self.magic_effect(effect)?.data.flags & HOSTILE != 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
         let record = self.record(id).ok_or(MagicError::Missing(id))?;
@@ -1733,6 +1752,44 @@ impl World {
         self.apply_prepared_effects(prepared, alloc)
     }
 
+    /// Execute the scroll cast exposed by Papyrus `Scroll.Cast`.
+    ///
+    /// The source also receives caster credit. This VM native does not consume
+    /// an inventory item, matching the shipped script method contract.
+    ///
+    /// # Errors
+    /// Returns an error before applying effects when the record is not a
+    /// scroll or its delivery and effects need an unsupported path.
+    pub fn cast_scroll_from_record(
+        &mut self,
+        scroll: GlobalFormId,
+        source: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if self.tag_of(scroll) != Some(T(b"SPEL"))
+            || !self
+                .spell(scroll)
+                .is_ok_and(|definition| definition.data.cast_type == 3)
+        {
+            return Err(MagicError::Unsupported("not a scroll cast"));
+        }
+        let prepared = self.prepare_spell(
+            scroll,
+            source,
+            Some(source),
+            target,
+            CastDelivery::Scroll,
+            None,
+            true,
+        )?;
+        self.break_invisibility(source, &mut *alloc);
+        let applied = self.apply_prepared_effects(prepared, &mut *alloc)?;
+        let scroll_value = self.form_value(Some(scroll), &mut *alloc);
+        self.form_event(source, "OnSpellCast", vec![scroll_value], &mut *alloc);
+        Ok(applied)
+    }
+
     /// Cast the selected scroll and consume one item after its effects apply.
     ///
     /// # Errors
@@ -2012,7 +2069,7 @@ impl World {
         line_of_sight_clear: bool,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
         let scroll = cast_delivery == CastDelivery::Scroll;
-        let definition = if scroll {
+        let definition = if scroll && self.tag_of(spell) == Some(super::T(b"SCRL")) {
             self.scroll(spell)?
         } else {
             self.spell(spell)?
@@ -3725,7 +3782,7 @@ impl World {
     ) -> Result<GlobalFormId, MagicError> {
         let keyword = self
             .resolve_from(effect, definition.data.associated_item)
-            .ok_or(MagicError::Missing(effect))?;
+            .ok_or(MagicError::Unsupported("peak value keyword"))?;
         if self.tag_of(keyword) != Some(super::T(b"KYWD")) {
             return Err(MagicError::Unsupported("peak value keyword"));
         }

@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
 use super::{Session, State};
@@ -14,6 +14,34 @@ use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
 use crate::World;
+
+pub(crate) fn write_known_topics(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    w.len(world.known_dialogue_topics.len());
+    for topic in &world.known_dialogue_topics {
+        write_form_id(w, *topic);
+    }
+}
+
+pub(crate) fn read_known_topics(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let mut topics = BTreeSet::new();
+    for _ in 0..r.len()? {
+        let topic = read_form_id(r)?;
+        let valid = world
+            .record(topic)
+            .is_some_and(|record| !record.is_deleted())
+            && world.dialogue_topic(topic).is_ok()
+            && world.owning_quest(topic).is_some();
+        if !valid || !topics.insert(topic) {
+            return Err(VmError::State("invalid SCR-48 dialogue topic".into()));
+        }
+    }
+    world.known_dialogue_topics = topics;
+    Ok(())
+}
 
 impl World {
     /// The do-all repeat history is its own version 28 block at the end of the

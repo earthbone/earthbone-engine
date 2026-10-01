@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use soe_esm::LoadOrder;
+use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::{CallStatic, Return};
+use soe_papyrus::Value;
+
+fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
+    let script_name = format!("Scr50{}", game.vm.time().to_bits());
+    let mut function = FunctionBuilder::new("Run", "Var")
+        .global()
+        .local("result", "Var");
+    let mut operands = vec![s("Utility"), s(name), ident("result")];
+    for (index, _) in args.iter().enumerate() {
+        let argument = format!("arg{index}");
+        function = function.param(&argument, "Var");
+        operands.push(ident(&argument));
+    }
+    let bytes = ScriptBuilder::new(&script_name, "")
+        .function(
+            function
+                .ins(CallStatic, operands)
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&bytes).unwrap();
+    let thread = game.vm.call_global(&script_name, "Run", args).unwrap();
+    assert!(game.run_until_idle(64));
+    game.vm.thread_result(thread).unwrap_or(Value::None)
+}
+
+#[test]
+fn scr_50_beta_frame_rate_queries_report_missing_capture_provider() {
+    let mut game = Game::new(LoadOrder::new());
+    for name in ["GetMinFrameRate", "GetMaxFrameRate"] {
+        assert_eq!(call(&mut game, name, &[]), Value::None);
+        assert!(game.vm.log.contains(&format!(
+            "Utility.{name}: beta frame-rate capture is unavailable"
+        )));
+    }
+}
+
+#[test]
+fn scr_50_memory_queries_report_missing_tracking_provider() {
+    let mut game = Game::new(LoadOrder::new());
+    for name in ["GetCurrentMemory", "GetBudgetCount"] {
+        assert_eq!(call(&mut game, name, &[]), Value::None);
+        assert!(game
+            .vm
+            .log
+            .contains(&format!("Utility.{name}: memory tracking is unavailable")));
+    }
+}
+
+#[test]
+fn scr_50_budget_name_validates_index_and_reports_missing_tracking() {
+    let mut game = Game::new(LoadOrder::new());
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Bool(true)]),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetName expects an integer budget index"));
+
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(0)]),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetName: memory tracking is unavailable"));
+}
+
+#[test]
+fn scr_50_global_queries_reject_unexpected_arguments() {
+    let mut game = Game::new(LoadOrder::new());
+    assert_eq!(
+        call(&mut game, "GetMaxFrameRate", &[Value::Int(1)]),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetMaxFrameRate expects 0 argument(s), got 1"));
+    assert_eq!(
+        call(&mut game, "GetBudgetCount", &[Value::Int(0)]),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetCount expects 0 argument(s), got 1"));
+}

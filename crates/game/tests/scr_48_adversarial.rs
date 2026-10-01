@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
+fn id(n: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object: n }
+}
+#[test]
+fn scr_48_known_topic_set_is_idempotent_across_repeated_add_and_save_load() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(
+        Record::new(Tag(*b"QUST"), 0x800)
+            .sub(Tag(*b"DNAM"), vec![0; 12])
+            .sub(Tag(*b"NEXT"), [])
+            .sub(Tag(*b"INDX"), [0, 0, 0, 0]),
+    );
+    let topic = Record::new(Tag(*b"DIAL"), 0x900)
+        .sub(Tag(*b"QNAM"), 0x800u32.to_le_bytes())
+        .sub(Tag(*b"DATA"), [0, 0, 0, 0])
+        .sub(Tag(*b"SNAM"), *b"CUST");
+    let info = Record::new(Tag(*b"INFO"), 0xA00)
+        .sub(Tag(*b"ENAM"), [0, 0, 0, 0])
+        .sub(Tag(*b"TRDT"), vec![0; 24])
+        .zsub(Tag(*b"NAM1"), "Hello");
+    let mut top = Group::new(GroupKind::Top(Tag(*b"DIAL")));
+    top.entries.push(Entry::Record(p.push_record(topic)));
+    let mut children = Group::new(GroupKind::TopicChildren(0x900));
+    children.entries.push(Entry::Record(p.push_record(info)));
+    top.entries.push(Entry::Group(children));
+    p.groups.push(top);
+    let mut order = LoadOrder::new();
+    order.add("D.esm", p).unwrap();
+    let g = Game::new(order);
+    g.world_mut().add_dialogue_topic(id(0x900)).unwrap();
+    g.world_mut().add_dialogue_topic(id(0x900)).unwrap();
+    let saved = g.world().save_state();
+    g.world_mut().load_state(&saved).unwrap();
+    assert_eq!(saved, g.world().save_state());
+    g.world_mut().add_dialogue_topic(id(0x900)).unwrap();
+}

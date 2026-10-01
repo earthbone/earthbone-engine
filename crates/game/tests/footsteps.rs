@@ -3,8 +3,7 @@
 
 //! Footstep selection from plugin records, including sparse DLC defaults.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::footsteps::{material_name_hash, Footsteps, Gait};
