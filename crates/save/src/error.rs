@@ -95,7 +95,7 @@ pub enum Error {
     #[error("invalid list change data: {reason}")]
     List { reason: String },
 
-    #[error("invalid typed record change data: {reason}")]
+    #[error("invalid record change data: {reason}")]
     RecordChange { reason: String },
 
     #[error("invalid CELL, ECZN or LCTN change data: {reason}")]

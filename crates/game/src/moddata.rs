@@ -22,8 +22,8 @@
 //!   A reference may not be loaded at start, so swaps are held and applied
 //!   when the reference is built.
 //! - **Open Animation Replacer** picks animations by condition, which is not
-//!   world state at all. Its trees are counted in the report and left for the
-//!   animation system.
+//!   world state at all. Its submods are retained by `Game` for runtime path
+//!   selection and counted in the report.
 //!
 //! # Order
 //!
@@ -34,11 +34,14 @@
 //! # Chance
 //!
 //! Ordinary SPID chances use the world's seeded generator per matching NPC
-//! base. SPID's trailing `!` requests a deterministic per-actor choice, whose
-//! seed and actor lifecycle are not implemented. Fractional deterministic
-//! rules are counted as unsupported. Zero and 100 percent remain exact.
-//! KID's deterministic target seed is also not reproduced yet. See
-//! `docs/moddata.md` for these compatibility limits.
+//! base. SPID's trailing `!` requests a deterministic per-actor choice. Those
+//! rules are evaluated when an actor is built from its reference ID and are
+//! keyed from the entry value, player runtime ID and actor runtime ID. SPID
+//! uses the save character ID instead of the player FormID. Zero and 100
+//! percent remain exact.
+//! KID chance uses its keyword editor ID and target FormID as a deterministic
+//! seed. Exclusive groups prevent adding a keyword when another group member
+//! is already present on the record.
 
 use crate::world::World;
 use soe_esm::{GlobalFormId, Tag};
@@ -53,6 +56,8 @@ pub struct Distributed {
     pub what: GlobalFormId,
     /// Resolved from the rule's index or count, at least one.
     pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
     pub on_death: bool,
 }
 
@@ -86,9 +91,36 @@ pub struct ModDataState {
     pub added_keywords: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// What each `NPC_` base was handed, applied when its actor is built.
     pub distributed: BTreeMap<GlobalFormId, Vec<Distributed>>,
+    /// Fractional deterministic SPID rules, evaluated for each actor instance.
+    pub actor_rules: Vec<ActorDistribution>,
     /// Base object replacements, applied when a reference is built.
     pub base_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// Per-reference chance for a base swap when BOS supplies a chance call.
+    pub base_swap_chances: BTreeMap<GlobalFormId, soe_moddata::bos::PropertyChance>,
+    /// Replacements for explicitly named references, before base swaps.
+    pub reference_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// Per-reference chance for an explicit reference swap.
+    pub reference_swap_chances: BTreeMap<GlobalFormId, soe_moddata::bos::PropertyChance>,
+    /// BOS property overrides, applied when a reference is built.
+    pub properties: BTreeMap<GlobalFormId, soe_moddata::bos::Properties>,
     pub report: ModDataReport,
+}
+
+/// A resolved SPID distribution whose chance depends on an actor reference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorDistribution {
+    /// NPC base selected by the rule filters.
+    pub base: GlobalFormId,
+    /// Resolved form handed to the actor.
+    pub what: GlobalFormId,
+    /// Consumer selected from the explicit type or resolved record signature.
+    pub record_type: spid::RecordType,
+    /// Parsed rule, including its per-entry chance seed.
+    pub distribution: spid::Distribution,
+    /// Resolved item count, at least one.
+    pub count: i32,
+    /// Zero-based NPC package-list insertion position for package rules.
+    pub package_index: Option<usize>,
 }
 
 impl ModDataState {
@@ -115,13 +147,16 @@ pub struct ModDataReport {
     pub distributions_applied: usize,
     pub swap_rules: usize,
     pub oar_trees: usize,
-    /// Rules a chance roll dropped.
+    /// Chance checks that rejected a candidate.
     pub skipped_by_chance: usize,
     /// Rules carrying a level or trait filter, which are not evaluated yet, so
     /// the rule is skipped rather than applied to the wrong actors.
     pub skipped_unsupported_filter: usize,
-    /// Deterministic fractional chances need per-actor distribution support.
+    /// Rules skipped because their chance mode is unsupported.
     pub skipped_unsupported_chance: usize,
+    /// Rules whose record type has no runtime consumer, or whose generic
+    /// `Form` signature cannot be inferred to a supported type.
+    pub skipped_unsupported_consumer: usize,
     /// Lines the parser could not read, reported by the parser itself.
     pub unreadable_lines: usize,
 }
@@ -167,22 +202,220 @@ fn subject_of(world: &World, id: GlobalFormId) -> Subject {
     }
 }
 
-/// True when a distribution carries a filter this module cannot evaluate yet.
-/// Skipping is the safe direction: applying a level filtered rule to every
-/// actor would be worse than not applying it, and the report counts it.
-fn has_unsupported_filter(d: &spid::Distribution) -> bool {
-    let l = &d.levels;
-    let t = &d.traits;
-    l.actor_level.is_some()
-        || !l.skill_levels.is_empty()
-        || !l.skill_weights.is_empty()
-        || t.female.is_some()
-        || t.unique.is_some()
-        || t.summonable.is_some()
-        || t.child.is_some()
-        || t.leveled.is_some()
-        || t.teammate.is_some()
-        || t.starts_dead.is_some()
+/// Distributions applicable to one actor reference, including stable SPID
+/// chances whose result depends on its runtime FormID.
+pub(crate) fn for_actor(
+    world: &World,
+    actor: GlobalFormId,
+    base: GlobalFormId,
+) -> Vec<Distributed> {
+    let mut result = world.mod_data.for_base(base).to_vec();
+    let subject = subject_of(world, base);
+    let player = u64::from(world.order().runtime_id(GlobalFormId {
+        file: 0,
+        object: crate::world::PLAYER_OBJECT,
+    }));
+    let actor_id = u64::from(world.order().runtime_id(actor));
+    for rule in &world.mod_data.actor_rules {
+        if rule.base != base
+            || !rule.distribution.strings.matches(world.order(), &subject)
+            || !rule.distribution.forms.matches(world.order(), &subject)
+            || !deterministic_roll(
+                rule.distribution.line_seed,
+                player,
+                actor_id,
+                rule.distribution.chance,
+            )
+        {
+            continue;
+        }
+        result.push(Distributed {
+            record_type: rule.record_type,
+            what: rule.what,
+            count: rule.count,
+            package_index: rule.package_index,
+            on_death: rule.distribution.on_death,
+        });
+    }
+    result
+}
+
+fn deterministic_roll(line_seed: u64, player: u64, actor: u64, chance: f32) -> bool {
+    if chance >= 100.0 {
+        return true;
+    }
+    if chance <= 0.0 {
+        return false;
+    }
+    let mut seed = line_seed;
+    for value in [player, actor] {
+        seed ^= value
+            .wrapping_add(0x9e37_79b9)
+            .wrapping_add(seed << 6)
+            .wrapping_add(seed >> 2);
+    }
+    let mut value = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^= value >> 31;
+    if value == 0 {
+        value = 0x9E37_79B9_7F4A_7C15;
+    }
+    value ^= value << 13;
+    value ^= value >> 7;
+    value ^= value << 17;
+    let unit = (value >> 11) as f64 / (1_u64 << 53) as f64;
+    unit * 100.0 < f64::from(chance)
+}
+
+fn in_range(value: u32, range: spid::Range) -> bool {
+    range.min <= value && value <= range.max
+}
+
+/// Match SPID level and base traits that can be read from an NPC record.
+fn matches_spid_actor_filters(world: &World, base: GlobalFormId, d: &spid::Distribution) -> bool {
+    let Some(npc) = world.npc(base) else {
+        return false;
+    };
+    let levels = &d.levels;
+    let actor_level = npc.level_for(world.player_level);
+    if levels
+        .actor_level
+        .is_some_and(|range| !in_range(actor_level, range))
+    {
+        return false;
+    }
+    let skills = npc.stats.unwrap_or_default();
+    for filter in &levels.skill_levels {
+        let Some(value) = skills
+            .skills
+            .get(filter.skill as usize)
+            .zip(skills.skill_offsets.get(filter.skill as usize))
+            .map(|(value, offset)| u32::from(*value) + u32::from(*offset))
+        else {
+            return false;
+        };
+        if !in_range(value, filter.range) {
+            return false;
+        }
+    }
+    if !levels.skill_weights.is_empty() {
+        let Some(raw_class) = npc.class else {
+            return false;
+        };
+        let class_id = world.order().resolve(usize::from(base.file), raw_class);
+        let Some(class_record) = world.record(class_id) else {
+            return false;
+        };
+        let Ok(Some(class)) = crate::class::Class::from_record(class_record) else {
+            return false;
+        };
+        for filter in &levels.skill_weights {
+            let Some(value) = class.skill_weights.get(filter.skill as usize) else {
+                return false;
+            };
+            if !in_range(u32::from(*value), filter.range) {
+                return false;
+            }
+        }
+    }
+
+    let traits = &d.traits;
+    if traits
+        .female
+        .is_some_and(|expected| npc.is_female() != expected)
+        || traits
+            .unique
+            .is_some_and(|expected| (npc.config.flags & crate::npc::flags::UNIQUE != 0) != expected)
+        || traits.summonable.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::SUMMONABLE != 0) != expected
+        })
+        || traits.leveled.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::PC_LEVEL_MULT != 0) != expected
+        })
+    {
+        return false;
+    }
+    if traits.child.is_some_and(|expected| {
+        let is_child = npc
+            .race
+            .map(|raw| world.order().resolve(usize::from(base.file), raw))
+            .and_then(|race| world.editor_id(race))
+            .is_some_and(|editor_id| editor_id.contains("RaceChild"));
+        is_child != expected
+    }) {
+        return false;
+    }
+    if traits.teammate.is_some_and(|expected| {
+        let potential_follower_faction = GlobalFormId {
+            file: 0,
+            object: 0x0005_C84D,
+        };
+        let is_teammate = npc.factions.iter().any(|(raw, _)| {
+            world.order().resolve(usize::from(base.file), *raw) == potential_follower_faction
+        });
+        is_teammate != expected
+    }) {
+        return false;
+    }
+    true
+}
+
+fn has_actor_only_filter(d: &spid::Distribution) -> bool {
+    d.traits.starts_dead.is_some()
+}
+
+/// Resolve SPID's generic `Form` type from the winning record signature.
+/// `Skin` and `SleepOutfit` cannot be inferred from signatures, as SPID's
+/// reference documents, because their signatures overlap `Item` and `Outfit`.
+fn inferred_record_type(world: &World, form: GlobalFormId) -> Option<spid::RecordType> {
+    let tag = world.tag_of(form)?;
+    Some(match &tag.0 {
+        b"SPEL" => spid::RecordType::Spell,
+        b"LVSP" => spid::RecordType::LevSpell,
+        b"PERK" => spid::RecordType::Perk,
+        b"SHOU" => spid::RecordType::Shout,
+        b"PACK" | b"FLST" => spid::RecordType::Package,
+        b"OTFT" => spid::RecordType::Outfit,
+        b"KYWD" => spid::RecordType::Keyword,
+        b"FACT" => spid::RecordType::Faction,
+        b"ALCH" | b"AMMO" | b"ARMO" | b"BOOK" | b"INGR" | b"KEYM" | b"LVLI" | b"MISC" | b"SCRL"
+        | b"SLGM" | b"WEAP" => spid::RecordType::Item,
+        _ => return None,
+    })
+}
+
+/// Check that an explicit SPID type names a record signature in its schema.
+fn record_type_matches(world: &World, record_type: spid::RecordType, form: GlobalFormId) -> bool {
+    let Some(tag) = world.tag_of(form) else {
+        return false;
+    };
+    match record_type {
+        spid::RecordType::Form => inferred_record_type(world, form).is_some(),
+        spid::RecordType::Spell => matches!(&tag.0, b"SPEL" | b"LVSP"),
+        spid::RecordType::Perk => tag.0 == *b"PERK",
+        spid::RecordType::Item => matches!(
+            &tag.0,
+            b"ALCH"
+                | b"AMMO"
+                | b"ARMO"
+                | b"BOOK"
+                | b"INGR"
+                | b"KEYM"
+                | b"LVLI"
+                | b"MISC"
+                | b"SCRL"
+                | b"SLGM"
+                | b"WEAP"
+        ),
+        spid::RecordType::Shout => tag.0 == *b"SHOU",
+        spid::RecordType::LevSpell => tag.0 == *b"LVSP",
+        spid::RecordType::Package => matches!(&tag.0, b"PACK" | b"FLST"),
+        spid::RecordType::Outfit | spid::RecordType::SleepOutfit => tag.0 == *b"OTFT",
+        spid::RecordType::Keyword => tag.0 == *b"KYWD",
+        spid::RecordType::Faction => tag.0 == *b"FACT",
+        spid::RecordType::Skin => tag.0 == *b"ARMO",
+    }
 }
 
 /// Reads, resolves and applies every configuration file under `roots`, lowest
@@ -204,9 +437,10 @@ pub fn apply(world: &mut World, roots: &[PathBuf]) -> ModDataReport {
     files.sort_by(|a, b| a.1.file_name().cmp(&b.1.file_name()));
 
     let mut report = ModDataReport::default();
+    let kid_exclusions = kid_exclusions(world, &files);
     for (kind, path) in &files {
         match kind {
-            ConfigKind::Kid => apply_kid(world, path, &mut report),
+            ConfigKind::Kid => apply_kid(world, path, &kid_exclusions, &mut report),
             ConfigKind::Distr => apply_spid(world, path, &mut report),
             ConfigKind::Swap => apply_bos(world, path, &mut report),
         }
@@ -238,7 +472,51 @@ fn roll(world: &mut World, chance: f32) -> bool {
     world.random_float(0.0, 100.0) < chance
 }
 
-fn apply_kid(world: &mut World, path: &Path, report: &mut ModDataReport) {
+fn kid_exclusions(
+    world: &World,
+    files: &[(ConfigKind, PathBuf)],
+) -> BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>> {
+    let mut groups: BTreeMap<String, BTreeSet<GlobalFormId>> = BTreeMap::new();
+    for (_, path) in files.iter().filter(|(kind, _)| *kind == ConfigKind::Kid) {
+        let Ok(file) = kid::KidFile::read(path) else {
+            continue;
+        };
+        for group in file.exclusive_groups {
+            let keywords = groups.entry(group.name).or_default();
+            for form in group.include {
+                if let Some(id) = form.resolve(world.order()) {
+                    if world.tag_of(id) == Some(Tag::new(b"KYWD")) {
+                        keywords.insert(id);
+                    }
+                }
+            }
+            for form in group.exclude {
+                if let Some(id) = form.resolve(world.order()) {
+                    if world.tag_of(id) == Some(Tag::new(b"KYWD")) {
+                        keywords.remove(&id);
+                    }
+                }
+            }
+        }
+    }
+    let mut exclusions = BTreeMap::<GlobalFormId, BTreeSet<GlobalFormId>>::new();
+    for members in groups.values() {
+        for keyword in members {
+            exclusions
+                .entry(*keyword)
+                .or_default()
+                .extend(members.iter().copied().filter(|member| member != keyword));
+        }
+    }
+    exclusions
+}
+
+fn apply_kid(
+    world: &mut World,
+    path: &Path,
+    exclusions: &BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    report: &mut ModDataReport,
+) {
     let Ok(file) = kid::KidFile::read(path) else {
         return;
     };
@@ -248,16 +526,24 @@ fn apply_kid(world: &mut World, path: &Path, report: &mut ModDataReport) {
         let Some(keyword) = rule.keyword.resolve(world.order()) else {
             continue;
         };
-        if !roll(world, rule.chance) {
-            report.skipped_by_chance += 1;
-            continue;
-        }
         let tag = tag_of(rule.item_type);
         let candidates: Vec<GlobalFormId> =
             world.order().winners_of(tag).map(|(id, _)| id).collect();
         for id in candidates {
+            if !kid_chance_passes(world, keyword, id, rule.chance) {
+                report.skipped_by_chance += 1;
+                continue;
+            }
             let subject = subject_of(world, id);
             if !rule.filters.matches(world.order(), &subject) {
+                continue;
+            }
+            if exclusions.get(&keyword).is_some_and(|excluded| {
+                world
+                    .keywords(id)
+                    .iter()
+                    .any(|item| excluded.contains(item))
+            }) {
                 continue;
             }
             if world
@@ -270,6 +556,48 @@ fn apply_kid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 report.keywords_attached += 1;
             }
         }
+    }
+}
+
+fn kid_chance_passes(
+    world: &World,
+    keyword: GlobalFormId,
+    target: GlobalFormId,
+    chance: f32,
+) -> bool {
+    if chance >= 100.0 {
+        return true;
+    }
+    if chance <= 0.0 {
+        return false;
+    }
+    let item_form_id = world.runtime_id(target);
+    let editor_id = world.editor_id(keyword).unwrap_or_default();
+    let seed = kid_seed(&editor_id, item_form_id);
+    let mut random = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    random = (random ^ (random >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    random = (random ^ (random >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    random ^= random >> 31;
+    let unit = (random >> 11) as f64 / (1_u64 << 53) as f64;
+    unit <= f64::from(chance / 100.0)
+}
+
+fn kid_seed(keyword_editor_id: &str, item_form_id: u32) -> u64 {
+    let keyword_hash = keyword_editor_id
+        .bytes()
+        .fold(0x811C_9DC5_u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
+    szudzik_pair(u64::from(keyword_hash), u64::from(item_form_id))
+}
+
+fn szudzik_pair(left: u64, right: u64) -> u64 {
+    if left >= right {
+        left.wrapping_mul(left)
+            .wrapping_add(left)
+            .wrapping_add(right)
+    } else {
+        left.wrapping_add(right.wrapping_mul(right))
     }
 }
 
@@ -288,17 +616,25 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
         let Some(what) = d.form.resolve(world.order()) else {
             continue;
         };
-        if has_unsupported_filter(d) {
+        let record_type = match d.record_type {
+            spid::RecordType::Form => inferred_record_type(world, what),
+            record_type => Some(record_type),
+        };
+        let Some(record_type) = record_type else {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        };
+        if !record_type_matches(world, record_type, what) {
+            report.skipped_unsupported_consumer += 1;
+            continue;
+        }
+        if has_actor_only_filter(d) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
-        if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
-            report.skipped_unsupported_chance += 1;
-            continue;
-        }
-        let count = match d.index_or_count {
-            spid::IndexOrCount::Count(r) => i32::try_from(r.min.max(1)).unwrap_or(1),
-            spid::IndexOrCount::Index(_) => 1,
+        let (count, package_index) = match d.index_or_count {
+            spid::IndexOrCount::Count(r) => (i32::try_from(r.min.max(1)).unwrap_or(1), None),
+            spid::IndexOrCount::Index(index) => (1, Some(usize::try_from(index).unwrap_or(0))),
         };
         for base in &bases {
             let subject = subject_of(world, *base);
@@ -308,8 +644,35 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
             if !d.forms.matches(world.order(), &subject) {
                 continue;
             }
+            if !matches_spid_actor_filters(world, *base, d) {
+                continue;
+            }
+            if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
+                world.mod_data.actor_rules.push(ActorDistribution {
+                    base: *base,
+                    what,
+                    record_type,
+                    distribution: d.clone(),
+                    count,
+                    package_index,
+                });
+                continue;
+            }
             if !roll(world, d.chance) {
                 report.skipped_by_chance += 1;
+                continue;
+            }
+            if record_type == spid::RecordType::Keyword {
+                if world
+                    .mod_data
+                    .added_keywords
+                    .entry(*base)
+                    .or_default()
+                    .insert(what)
+                {
+                    report.keywords_attached += 1;
+                }
+                report.distributions_applied += 1;
                 continue;
             }
             world
@@ -318,9 +681,10 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 .entry(*base)
                 .or_default()
                 .push(Distributed {
-                    record_type: d.record_type,
+                    record_type,
                     what,
                     count,
+                    package_index,
                     on_death: d.on_death,
                 });
             report.distributions_applied += 1;
@@ -342,17 +706,45 @@ fn apply_bos(world: &mut World, path: &Path, report: &mut ModDataReport) {
             report.skipped_by_chance += 1;
             continue;
         }
-        // A property override keeps its text, see the moddata crate docs, so
-        // only a base replacement changes world state here.
-        if let Change::SwapBase { to } = patch.change {
-            world.mod_data.base_swaps.insert(target, to);
+        match patch.change {
+            Change::SwapBase { to, properties } => {
+                world.mod_data.base_swaps.insert(target, to);
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if let Some(chance) = parsed.chance {
+                    world.mod_data.base_swap_chances.insert(target, chance);
+                } else {
+                    world.mod_data.base_swap_chances.remove(&target);
+                }
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            Change::SwapReference { to, properties } => {
+                world.mod_data.reference_swaps.insert(target, to);
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if let Some(chance) = parsed.chance {
+                    world.mod_data.reference_swap_chances.insert(target, chance);
+                } else {
+                    world.mod_data.reference_swap_chances.remove(&target);
+                }
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            Change::SetProperties { properties } => {
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            _ => {}
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{tag_of, Distributed, ModDataState};
+    use super::{kid_seed, tag_of, Distributed, ModDataState};
     use soe_esm::GlobalFormId;
     use soe_moddata::kid::ItemType;
     use soe_moddata::spid::RecordType;
@@ -408,9 +800,15 @@ mod tests {
                 record_type: RecordType::Spell,
                 what: id(2),
                 count: 1,
+                package_index: None,
                 on_death: false,
             }],
         );
         assert_eq!(state.for_base(id(1)).len(), 1);
+    }
+
+    #[test]
+    fn mod_02_kid_seed_uses_upstream_fnv_and_szudzik_inputs() {
+        assert_eq!(kid_seed("MyKeyword", 0x803), 136_734_229_902_520_693);
     }
 }

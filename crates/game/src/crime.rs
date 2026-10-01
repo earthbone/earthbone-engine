@@ -84,6 +84,41 @@ pub enum CrimeType {
     Werewolf,
 }
 
+/// A choice available when the player is arrested by a crime faction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrestChoice {
+    /// Pay the full bounty from the player's gold.
+    Pay,
+    /// Serve the sentence calculated from the bounty.
+    Jail,
+    /// Keep the bounty and purse unchanged and resist arrest.
+    Resist,
+}
+
+/// Choices currently available for the player's tracked crime faction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrestOptions {
+    /// Current combined violent and nonviolent bounty.
+    pub bounty: i32,
+    /// Whether the player has enough gold to pay the bounty.
+    pub can_pay: bool,
+    /// Whether the bounty can be served in jail.
+    pub can_serve_time: bool,
+    /// Resistance is available for every valid arrest.
+    pub can_resist: bool,
+}
+
+/// Result of resolving one selected arrest choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrestResult {
+    /// The bounty was deducted from the player's purse.
+    Paid { amount: i32 },
+    /// The player served the returned number of days.
+    Jailed { days: u32 },
+    /// The player resisted and arrest accounting did not change.
+    Resisted,
+}
+
 impl CrimeType {
     /// Violent crimes grow `FactionState::crime_gold_violent`, the rest
     /// grow `crime_gold_nonviolent`, the same split
@@ -122,4 +157,12 @@ pub enum Error {
     NoCrimeFaction(GlobalFormId),
     #[error("faction {0} does not track crime")]
     NotTracked(GlobalFormId),
+    #[error("the tracked crime faction does not permit arrest")]
+    ArrestDisabled,
+    #[error("the player has no bounty to resolve")]
+    NoBounty,
+    #[error("the player cannot pay the full crime bounty")]
+    CannotPay,
+    #[error("Gold001 is unavailable for bounty payment")]
+    MissingGold,
 }

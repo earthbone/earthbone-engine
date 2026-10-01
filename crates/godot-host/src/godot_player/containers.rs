@@ -13,6 +13,70 @@ use crate::inventory_menu::{self, Category};
 use super::PlayerNode;
 
 impl PlayerNode {
+    pub(super) fn open_gift_menu(&mut self) -> bool {
+        let Some(request) = self
+            .game
+            .as_ref()
+            .and_then(soe_game::Game::gift_menu_request)
+        else {
+            return false;
+        };
+        let title = self
+            .game
+            .as_ref()
+            .and_then(|game| game.world().name_of(request.giver))
+            .unwrap_or_else(|| "Gift".into());
+        if !self.open_menu(GString::from(&format!("Gift: {title}"))) {
+            return false;
+        }
+        self.gift_menu_content()
+    }
+
+    fn gift_menu_content(&mut self) -> bool {
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(request) = game.gift_menu_request() else {
+            return false;
+        };
+        let entries = inventory_menu::gift_entries(game, &request);
+        let Some(mut content) = self.menu_content() else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        let action = if request.source == request.giver {
+            "Give"
+        } else {
+            "Take"
+        };
+        for entry in entries {
+            let mut button = Button::new_alloc();
+            button.set_text(&format!("{action} {} x{}", entry.name, entry.count));
+            let callback = base.callable("gift_menu_transfer").bindv(&varray![
+                i64::from(entry.item.file),
+                i64::from(entry.item.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+        }
+        if rows.get_child_count() == 0 {
+            let mut empty = Label::new_alloc();
+            empty.set_text("No matching items.");
+            rows.add_child(&empty);
+        }
+        true
+    }
+
     pub(super) fn open_container_menu(&mut self, holder: GlobalFormId) -> bool {
         let title = self
             .game
@@ -84,6 +148,20 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Transfer one selected gift stack through Game's inventory transaction.
+    #[func]
+    pub fn gift_menu_transfer(&mut self, file: i64, object: i64) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let item = GlobalFormId { file, object };
+        let moved = self
+            .game
+            .as_mut()
+            .map_or(0, |game| game.gift_menu_transfer(item, 1));
+        moved > 0 && self.gift_menu_content()
+    }
+
     /// Select a category in the open container's form-backed item list.
     #[func]
     pub fn container_category(&mut self, index: i64) -> bool {

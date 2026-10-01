@@ -83,10 +83,48 @@ struct MovableEntry {
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
     movable: Vec<MovableEntry>,
+    grabbed_reference: Option<GlobalFormId>,
     pub stats: GodotCollisionStats,
 }
 
 impl CellBodies {
+    /// Find the server body carrying a placed reference.
+    pub fn body_for_reference(&self, reference: GlobalFormId) -> Option<Rid> {
+        self.entries
+            .iter()
+            .find(|entry| entry.reference == Some(reference))
+            .map(|entry| entry.body)
+    }
+
+    /// Put a reference body into kinematic mode while the player holds it.
+    pub fn set_held(&self, reference: GlobalFormId, held: bool) -> bool {
+        let Some(body) = self.body_for_reference(reference) else {
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        server.body_set_mode(
+            body,
+            if held {
+                BodyMode::KINEMATIC
+            } else {
+                BodyMode::RIGID
+            },
+        );
+        true
+    }
+
+    /// Move a held reference body by a Godot-space offset from its authored pose.
+    pub fn move_held(&self, reference: GlobalFormId, offset: Vector3) -> bool {
+        let Some(body) = self.body_for_reference(reference) else {
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        let mut transform = Transform3D::IDENTITY;
+        transform.origin = offset;
+        server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
+        true
+    }
+
     /// Every live body's RID, in insertion order. Diagnostic callers may
     /// inspect these handles, but must not free them, `free` owns that.
     pub fn body_rids(&self) -> impl Iterator<Item = Rid> + '_ {
@@ -112,6 +150,70 @@ impl CellBodies {
         for entry in &self.movable {
             world.reference(entry.reference);
         }
+    }
+
+    /// Put one resident movable body into host-controlled motion.
+    pub fn grab_movable_reference(&mut self, reference: GlobalFormId) -> bool {
+        if self.grabbed_reference.is_some() {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(entry.body, BodyMode::KINEMATIC);
+        self.grabbed_reference = Some(reference);
+        true
+    }
+
+    /// Move the held body to a Skyrim-space position through PhysicsServer3D.
+    pub fn move_grabbed_reference(&mut self, position: [f32; 3]) -> bool {
+        let Some(reference) = self.grabbed_reference else {
+            return false;
+        };
+        if !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            self.grabbed_reference = None;
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        let Ok(mut transform) = server
+            .body_get_state(entry.body, BodyState::TRANSFORM)
+            .try_to::<Transform3D>()
+        else {
+            return false;
+        };
+        let godot = crate::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
+        transform.origin = Vector3::new(godot.x, godot.y, godot.z);
+        server.body_set_state(entry.body, BodyState::TRANSFORM, &transform.to_variant());
+        true
+    }
+
+    /// Return the held body to rigid simulation, preserving its last pose.
+    pub fn release_movable_reference(&mut self, reference: GlobalFormId) -> bool {
+        if self.grabbed_reference != Some(reference) {
+            return false;
+        }
+        let Some(entry) = self
+            .movable
+            .iter_mut()
+            .find(|entry| entry.reference == reference && entry.body.is_valid())
+        else {
+            self.grabbed_reference = None;
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(entry.body, BodyMode::RIGID);
+        self.grabbed_reference = None;
+        true
     }
 
     /// Sample live rigid-body positions for host diagnostics.
@@ -157,6 +259,7 @@ impl CellBodies {
             }
         }
         self.stats = GodotCollisionStats::default();
+        self.grabbed_reference = None;
     }
 
     /// Pushes a tracked reference's current placement and visibility to the
@@ -342,8 +445,34 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     out
 }
 
+/// Adds placed static colliders while retaining reference identity for grabbing.
+pub fn add_placed_query_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
+    let _span = soe_trace::Span::new("host.godot_physics", "host");
+    let mut server = PhysicsServer3D::singleton();
+    let mut out = CellBodies::default();
+    for placed in colliders.iter().filter(|p| p.collider.is_static()) {
+        if let Some((body, shapes)) = build_body(
+            &mut server,
+            space,
+            &placed.collider,
+            BodyMode::STATIC,
+            &mut out.stats,
+        ) {
+            out.entries.push(StaticEntry {
+                reference: Some(placed.reference),
+                original: Some(placed.original),
+                source: placed.collider.clone(),
+                synced: None,
+                body,
+                shapes,
+            });
+        }
+    }
+    out
+}
+
 /// Adds placed static and movable collision to `space`, keeping each body's
-/// owning reference and load-time placement for runtime synchronization.
+/// reference and load-time placement for grabbing and runtime synchronization.
 pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
     let _span = soe_trace::Span::new("host.godot_physics", "host");
     let mut server = PhysicsServer3D::singleton();
@@ -850,6 +979,25 @@ mod tests {
 
     fn close(a: Vector3, b: Vector3) {
         assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");
+    }
+
+    #[test]
+    fn hst_18_hold_target_offset_uses_skyrim_to_godot_axes() {
+        let authored_hit = Vec3::new(10.0, 20.0, 30.0);
+        let target = Vec3::new(15.0, 26.0, 42.0);
+        let offset = godot_point(Vec3::new(
+            target.x - authored_hit.x,
+            target.y - authored_hit.y,
+            target.z - authored_hit.z,
+        ));
+        close(
+            offset,
+            Vector3::new(
+                5.0 * METRES_PER_UNIT,
+                12.0 * METRES_PER_UNIT,
+                -6.0 * METRES_PER_UNIT,
+            ),
+        );
     }
 
     #[test]

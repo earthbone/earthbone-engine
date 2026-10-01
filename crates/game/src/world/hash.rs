@@ -49,9 +49,8 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
-    /// What the mod data files attached, distributed and swapped. Distribution
-    /// rolls a chance from the world generator, so this part moving between
-    /// two runs of one seed is a real divergence and not noise.
+    /// What the mod data files attached, distributed and swapped, including
+    /// retained actor-specific deterministic distribution rules.
     pub mod_data: u64,
 }
 
@@ -141,7 +140,9 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.position);
     point(h, s.rotation);
     h.f32(s.scale);
+    h.u32(s.record_flags);
     h.bool(s.enabled);
+    h.bool(s.persistent);
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
@@ -187,6 +188,14 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    match s.destruction_health {
+        Some(health) => {
+            h.u8(1);
+            h.f32(health);
+        }
+        None => h.u8(0),
+    }
+    h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -204,6 +213,32 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         h.bool(*v);
     }
     h.f32(s.alpha);
+    if let Some(translation) = s.translation {
+        h.u8(1);
+        for value in translation
+            .start_position
+            .into_iter()
+            .chain(translation.target_position)
+            .chain(translation.start_rotation)
+            .chain(translation.target_rotation)
+        {
+            h.f32(value);
+        }
+        h.f32(translation.speed);
+        h.f32(translation.max_rotation_speed);
+        match translation.path {
+            super::TranslationPath::Linear => h.u8(0),
+            super::TranslationPath::Spline { tangent_magnitude } => {
+                h.u8(1);
+                h.f32(tangent_magnitude);
+            }
+        }
+        h.f32(translation.elapsed);
+        h.f32(translation.duration);
+        h.bool(translation.almost_complete_fired);
+    } else {
+        h.u8(0);
+    }
 }
 
 fn form_set(h: &mut StateHasher, set: &BTreeSet<GlobalFormId>) {
@@ -276,10 +311,11 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
     }
     match &a.procedure {
-        Procedure::None => h.u8(0),
+        Procedure::None | Procedure::UseMagic => h.u8(0),
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
+        Procedure::Flee => h.u8(19),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());
@@ -293,9 +329,44 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
+        Procedure::Guard => h.u8(20),
+        Procedure::UseWeapon => h.u8(22),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
+            h.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                h.f64(until);
+            }
+        }
+        Procedure::Hover => {
+            h.u8(7);
+            h.f32(a.hover_height);
+        }
+        Procedure::Follow => h.u8(21),
+        Procedure::ForceGreet => h.u8(23),
+        Procedure::DialogueActivate => h.u8(16),
+        Procedure::HoldPosition => h.u8(11),
+        Procedure::Orbit { height } => {
+            h.u8(12);
+            h.f32(*height);
+        }
+        Procedure::Escort => h.u8(13),
+        Procedure::Activate => h.u8(14),
+        Procedure::Find => h.u8(15),
+        Procedure::Sit => h.u8(18),
+        Procedure::UseIdleMarker { marker } => {
+            h.u8(9);
+            if let Some(marker) = marker {
+                h.u8(1);
+                h.u16(marker.file);
+                h.u32(marker.object);
+            } else {
+                h.u8(0);
+            }
+        }
+        Procedure::Shout => {
+            h.u8(17);
             h.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
                 h.f64(until);
@@ -316,6 +387,10 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         opt_form(h, *c);
     }
     h.bool(a.arrived);
+    h.bool(a.force_greet_started);
+    h.bool(a.activate_started);
+    opt_form(h, a.found_reference);
+    h.bool(a.dialogue_activate_started);
     h.bool(a.sleeping);
     opt_form(h, a.bed);
     opt_point(h, a.center);
@@ -351,6 +426,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.u32(a.level);
     opt_form(h, a.race);
     h.bool(a.unconscious);
+    h.u8(match a.ragdoll_forced {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    });
     h.bool(a.doing_favor);
     h.map(&a.factions, |h, k, v| {
         form(h, *k);
@@ -369,7 +449,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
+        a.sprinting,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -398,11 +482,18 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.graph_ints.len());
+    for (k, v) in &a.graph_ints {
+        h.str(k);
+        h.i32(*v);
+    }
     h.len(a.skill_experience.len());
     for (skill, experience) in &a.skill_experience {
         h.str(skill);
         h.f32(*experience);
     }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -423,12 +514,24 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some(expression) = a.expression_override {
+        h.bool(true);
+        h.u32(u32::from(expression.mood));
+        h.u32(u32::from(expression.strength));
+    } else {
+        h.bool(false);
+    }
     if let Some((furniture, marker)) = a.furniture_seat {
         h.bool(true);
         form(h, furniture);
         h.u16(marker);
     } else {
         h.bool(false);
+    }
+    h.u32(a.days_in_jail);
+    h.bool(a.voice_recovery_until.is_some());
+    if let Some(until) = a.voice_recovery_until {
+        h.f64(until);
     }
 }
 
@@ -437,6 +540,11 @@ fn quest_state(h: &mut StateHasher, q: &QuestState) {
     h.bool(q.completed);
     h.bool(q.failed);
     h.bool(q.active);
+    h.u8(match q.lifecycle_task {
+        None => 0,
+        Some(crate::quest::state::LifecycleTask::Starting) => 1,
+        Some(crate::quest::state::LifecycleTask::Stopping) => 2,
+    });
     h.u16(q.current);
     h.u16(q.highest);
     h.len(q.done.len());
@@ -481,6 +589,8 @@ impl World {
         h.u32(self.next_dynamic);
         opt_form(&mut h, self.player);
         h.u32(self.player_level);
+        h.u32(self.training_sessions_this_level);
+        h.u32(self.training_session_level);
         let objects = h.finish();
 
         let mut h = StateHasher::new();
@@ -596,6 +706,21 @@ impl World {
                         h.value(a);
                     }
                 }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
             }
         }
         let pending = h.finish();
@@ -629,6 +754,17 @@ impl World {
         for (id, name) in &self.animation_events {
             form(&mut h, *id);
             h.str(name);
+        }
+        h.len(self.animation_waiters.len());
+        for waiter in &self.animation_waiters {
+            form(&mut h, waiter.source);
+            h.str(&waiter.event);
+            h.u64(waiter.latent.0);
+        }
+        h.len(self.completed_animation_waits.len());
+        for (latent, result) in &self.completed_animation_waits {
+            h.u64(latent.0);
+            h.bool(*result);
         }
         h.bool(self.player_controls);
         let output = h.finish();
@@ -748,6 +884,7 @@ impl World {
         }
         form_set(&mut h, &self.words_taught);
         form_set(&mut h, &self.words_unlocked);
+        form_set(&mut h, &self.learned_enchantment_effects);
         h.len(self.achievements.len());
         for a in &self.achievements {
             h.i32(*a);
@@ -781,11 +918,22 @@ impl World {
             form(&mut h, *source);
             opt_form(&mut h, *target);
         }
+        h.len(self.spell_casts_in_progress.len());
+        for (caster, cast) in &self.spell_casts_in_progress {
+            form(&mut h, *caster);
+            form(&mut h, cast.spell);
+            opt_form(&mut h, cast.target);
+            h.u8(match cast.kind {
+                super::magic::SpellCastKind::FireAndForget => 0,
+                super::magic::SpellCastKind::Concentration => 1,
+            });
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
+        crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
@@ -827,10 +975,41 @@ impl World {
                 h.bool(d.on_death);
             }
         }
+        h.len(self.mod_data.actor_rules.len());
+        for rule in &self.mod_data.actor_rules {
+            form(&mut h, rule.base);
+            form(&mut h, rule.what);
+            h.str(&format!("{:?}", rule.record_type));
+            h.u64(rule.distribution.line_seed);
+            h.f32(rule.distribution.chance);
+            h.i32(rule.count);
+            h.str(&format!("{:?}", rule.distribution));
+        }
         h.len(self.mod_data.base_swaps.len());
         for (from, to) in &self.mod_data.base_swaps {
             form(&mut h, *from);
             form(&mut h, *to);
+        }
+        for (from, chance) in &self.mod_data.base_swap_chances {
+            form(&mut h, *from);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        h.len(self.mod_data.reference_swaps.len());
+        for (reference, to) in &self.mod_data.reference_swaps {
+            form(&mut h, *reference);
+            form(&mut h, *to);
+        }
+        for (reference, chance) in &self.mod_data.reference_swap_chances {
+            form(&mut h, *reference);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        for (target, properties) in &self.mod_data.properties {
+            form(&mut h, *target);
+            h.str(&format!("{properties:?}"));
         }
         let mod_data = h.finish();
 
@@ -899,6 +1078,7 @@ mod tests {
                 aliases: HashMap::new(),
                 journal: crate::quest::state::Journal::default(),
                 runtime: crate::quest::state::Runtime::default(),
+                lifecycle_task: None,
             },
         );
         w
@@ -1137,6 +1317,9 @@ mod tests {
         moves("words_unlocked", flags, |w| {
             w.words_unlocked.insert(id(9));
         });
+        moves("learned_enchantment_effects", flags, |w| {
+            w.learned_enchantment_effects.insert(id(9));
+        });
         moves("achievements", flags, |w| w.achievements.push(3));
         moves("last_ridden_horse", flags, |w| {
             w.last_ridden_horse = Some(id(9));
@@ -1155,6 +1338,16 @@ mod tests {
         moves("next_sound", scenes, |w| w.next_sound = 1);
         moves("spell_casts", scenes, |w| {
             w.spell_casts.push((id(8), id(1), None));
+        });
+        moves("spell_casts_in_progress", scenes, |w| {
+            w.spell_casts_in_progress.insert(
+                id(1),
+                super::super::magic::SpellCast {
+                    spell: id(8),
+                    target: Some(id(9)),
+                    kind: super::super::magic::SpellCastKind::FireAndForget,
+                },
+            );
         });
     }
 }

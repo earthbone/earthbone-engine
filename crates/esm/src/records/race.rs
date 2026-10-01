@@ -76,8 +76,12 @@ impl Race {
     /// name is not a phoneme or the file stopped before reaching it.
     #[must_use]
     pub fn weights_for(&self, phoneme: &str) -> Option<&[f32]> {
-        let i = PHONEMES.iter().position(|p| *p == phoneme)?;
-        self.phoneme_weights.get(i).map(Vec::as_slice)
+        for (index, name) in PHONEMES.iter().enumerate() {
+            if *name == phoneme {
+                return self.phoneme_weights.get(index).map(Vec::as_slice);
+            }
+        }
+        None
     }
 
     /// True when every phoneme has a row and every row covers every target,
@@ -98,7 +102,11 @@ mod tests {
     use super::*;
 
     fn weights(v: &[f32]) -> Vec<u8> {
-        v.iter().flat_map(|f| f.to_le_bytes()).collect()
+        let mut bytes = Vec::with_capacity(std::mem::size_of_val(v));
+        for value in v {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes
     }
 
     fn built() -> Record {

@@ -20,9 +20,11 @@
 #![allow(clippy::unwrap_used)]
 
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::time::Instant;
 
 use crate::pex::{Function, Object, Opcode, Operand, Script};
 use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
@@ -51,6 +53,9 @@ pub const MAX_ARRAY_LEN: usize = 1 << 20;
 /// script legitimately builds.
 pub const MAX_STRING_LEN: usize = 1 << 20;
 
+/// The scheduler keeps results for this many most recently completed threads.
+pub const MAX_COMPLETED_THREAD_HISTORY: usize = 4096;
+
 mod collection;
 mod dispatch;
 mod execution;
@@ -70,6 +75,7 @@ pub enum VmError {
         class: String,
         name: String,
     },
+    IncompatibleScript(String),
     Pex(String),
     /// A saved state that cannot be read or does not match the loaded scripts.
     State(String),
@@ -90,6 +96,9 @@ impl fmt::Display for VmError {
             VmError::UnknownObject(o) => write!(f, "object {} does not exist", o.0),
             VmError::UnknownFunction { class, name } => {
                 write!(f, "{class} has no function {name}")
+            }
+            VmError::IncompatibleScript(script) => {
+                write!(f, "script {script} differs from the saved definition")
             }
             VmError::Pex(e) => write!(f, "{e}"),
             VmError::State(e) => write!(f, "saved state: {e}"),
@@ -169,6 +178,8 @@ pub struct NativeCall<'a> {
     latent_counter: &'a mut u64,
     objects: &'a mut HashMap<ObjectId, GameObject>,
     next_object: &'a mut u64,
+    profiling: Rc<RefCell<Profiler>>,
+    thread_id: ThreadId,
 }
 
 impl NativeCall<'_> {
@@ -199,6 +210,109 @@ impl NativeCall<'_> {
     pub fn object_name(&self, id: ObjectId) -> Option<&str> {
         self.objects.get(&id).map(|o| o.name.as_str())
     }
+    /// Start timing Papyrus functions defined by a script name.
+    pub fn start_script_profiling(&mut self, script: &str) {
+        let target = script.to_ascii_lowercase();
+        let mut profiler = self.profiling.borrow_mut();
+        profiler.start(ProfileScope::Script(target));
+    }
+    /// Stop script profiling and write the collected Chrome trace profile.
+    pub fn stop_script_profiling(&mut self, script: &str) -> std::io::Result<()> {
+        self.profiling
+            .borrow_mut()
+            .stop(&ProfileScope::Script(script.to_ascii_lowercase()))
+    }
+    /// Start timing functions on the current Papyrus thread's call stack.
+    pub fn start_stack_profiling(&mut self) {
+        let mut profiler = self.profiling.borrow_mut();
+        profiler.start(ProfileScope::Stack(self.thread_id));
+    }
+    /// Stop profiling the current Papyrus thread's call stack.
+    pub fn stop_stack_profiling(&mut self) -> std::io::Result<()> {
+        self.profiling
+            .borrow_mut()
+            .stop(&ProfileScope::Stack(self.thread_id))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProfileScope {
+    Script(String),
+    Stack(ThreadId),
+}
+
+#[derive(Default)]
+struct Profiler {
+    active: Option<(ProfileScope, std::time::Instant)>,
+    functions: std::collections::BTreeMap<String, (u64, u64)>,
+    output_dir: Option<std::path::PathBuf>,
+}
+
+impl Profiler {
+    fn start(&mut self, scope: ProfileScope) {
+        self.active = Some((scope, Instant::now()));
+        self.functions.clear();
+    }
+    fn stop(&mut self, scope: &ProfileScope) -> std::io::Result<()> {
+        let Some((active, started)) = self.active.take() else {
+            return Ok(());
+        };
+        if &active != scope {
+            self.active = Some((active, started));
+            return Ok(());
+        }
+        let dir = self
+            .output_dir
+            .clone()
+            .or_else(|| std::env::var_os("SOE_PROFILE_DIR").map(Into::into))
+            .unwrap_or_else(|| std::path::PathBuf::from("logs/Script/Profiling"));
+        std::fs::create_dir_all(&dir)?;
+        let filename = match scope {
+            ProfileScope::Script(name) => name.clone(),
+            ProfileScope::Stack(id) => format!("stack-{}", id.0),
+        };
+        let safe_filename: String = filename
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = dir.join(format!(
+            "soe-{safe_filename}-{}.json",
+            started.elapsed().as_nanos()
+        ));
+        let mut events = Vec::new();
+        for (name, (calls, elapsed)) in &self.functions {
+            events.push(format!("{{\"name\":\"{}\",\"cat\":\"papyrus.profile\",\"ph\":\"X\",\"ts\":0,\"dur\":{:.3},\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"duration_ns\":{}}}}}", json_escape(name), *elapsed as f64 / 1000.0, calls, elapsed));
+        }
+        std::fs::write(
+            path,
+            format!("{{\"traceEvents\":[{}]}}\n", events.join(",")),
+        )
+    }
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04x}", character as u32);
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 pub type NativeFn = Box<dyn FnMut(&mut NativeCall<'_>) -> NativeReturn>;
@@ -323,6 +437,7 @@ pub struct GameObject {
 struct Frame {
     /// Transient coverage state, omitted from saves and state hashes.
     coverage_recorded: bool,
+    profile_recorded: bool,
     instance: Option<InstanceId>,
     self_object: Option<ObjectId>,
     /// The script that defines the running function, for `CallParent`.
@@ -365,6 +480,8 @@ pub struct Vm {
     time: f64,
     menu_time: f64,
     game_hours: f64,
+    profiling: Rc<RefCell<Profiler>>,
+    suspended_state: Option<Vec<u8>>,
 }
 
 impl Vm {
@@ -376,10 +493,16 @@ impl Vm {
         self.time
     }
 
+    /// Set the directory used by Papyrus script and stack profiles.
+    pub fn set_profile_directory(&mut self, path: impl Into<std::path::PathBuf>) {
+        self.profiling.borrow_mut().output_dir = Some(path.into());
+    }
+
     // ----- loading -----
 
     pub fn load(&mut self, script: Script) {
         self.load_with_fingerprint(script, None);
+        let _ = self.resume_suspended_state();
     }
 
     fn load_with_fingerprint(&mut self, script: Script, source_fingerprint: Option<[u8; 32]>) {
@@ -438,7 +561,36 @@ impl Vm {
     pub fn load_bytes(&mut self, data: &[u8]) -> Result<(), VmError> {
         let script = crate::pex::parse(data).map_err(|e| VmError::Pex(e.to_string()))?;
         self.load_with_fingerprint(script, Some(Sha256::digest(data).into()));
+        let _ = self.resume_suspended_state()?;
         Ok(())
+    }
+
+    /// Whether saved VM state is waiting for compatible script definitions.
+    #[must_use]
+    pub fn has_suspended_state(&self) -> bool {
+        self.suspended_state.is_some()
+    }
+
+    /// Try to reconnect the preserved state after loading more scripts.
+    ///
+    /// # Errors
+    /// The suspended bytes are malformed or otherwise invalid for this VM.
+    pub fn resume_suspended_state(&mut self) -> Result<bool, VmError> {
+        let Some(bytes) = self.suspended_state.clone() else {
+            return Ok(false);
+        };
+        match self.load_state_inner(&bytes) {
+            Ok(()) => {
+                self.suspended_state = None;
+                Ok(true)
+            }
+            Err(
+                VmError::UnknownScript(_)
+                | VmError::UnknownFunction { .. }
+                | VmError::IncompatibleScript(_),
+            ) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     /// Loaded script names and SHA-256 PEX source fingerprints, sorted by
@@ -838,6 +990,7 @@ impl Vm {
         }
         Frame {
             coverage_recorded: false,
+            profile_recorded: false,
             instance,
             self_object,
             script,

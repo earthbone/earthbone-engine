@@ -227,6 +227,7 @@ fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmErro
     }
     q.runtime = runtime;
     q.journal = journal;
+    q.lifecycle_task = None;
     Ok(())
 }
 
@@ -259,6 +260,55 @@ pub(super) fn read_quest_aux(
             .get_mut(&id)
             .ok_or_else(|| bad("unknown quest extension"))?;
         read_aux(r, q)?;
+    }
+    Ok(())
+}
+
+pub(super) fn write_lifecycle_tasks(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let tasks: BTreeMap<_, _> = world
+        .quests
+        .iter()
+        .filter_map(|(id, quest)| quest.lifecycle_task.map(|task| (*id, task)))
+        .collect();
+    if tasks.is_empty() {
+        return;
+    }
+    w.len(tasks.len());
+    for (id, task) in tasks {
+        write_form_id(w, id);
+        w.u8(match task {
+            crate::quest::state::LifecycleTask::Starting => 1,
+            crate::quest::state::LifecycleTask::Stopping => 2,
+        });
+    }
+}
+
+pub(super) fn read_lifecycle_tasks_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    let mut seen = BTreeSet::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate lifecycle task"));
+        }
+        let task = match r.u8()? {
+            1 => crate::quest::state::LifecycleTask::Starting,
+            2 => crate::quest::state::LifecycleTask::Stopping,
+            _ => return Err(bad("invalid quest lifecycle task")),
+        };
+        let quest = world
+            .quests
+            .get_mut(&id)
+            .ok_or_else(|| bad("lifecycle task names an unknown quest"))?;
+        quest.lifecycle_task = Some(task);
     }
     Ok(())
 }

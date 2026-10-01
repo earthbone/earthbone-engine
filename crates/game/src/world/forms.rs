@@ -42,6 +42,135 @@ pub(super) fn add_saved_form_list_entries(
 }
 
 impl World {
+    /// Whether an actor base's race carries the RACE DATA Playable flag.
+    pub fn race_is_playable(&mut self, actor: GlobalFormId) -> Option<bool> {
+        let race = self.actor_base(actor)?.race?;
+        let rec = self
+            .record(race)
+            .filter(|record| record.tag == T(b"RACE"))?;
+        let data = rec.find(T(b"DATA"))?;
+        // The seven skill boosts occupy two bytes each, followed by two
+        // unknown bytes, four height and weight floats, then the flags.
+        let flags = data.get(32..36)?;
+        Some(u32::from_le_bytes(flags.try_into().ok()?) & 1 != 0)
+    }
+
+    /// Whether an actor base's race carries the RACE DATA Child flag.
+    pub fn race_is_child(&mut self, actor: GlobalFormId) -> Option<bool> {
+        let race = self.actor_base(actor)?.race?;
+        let rec = self
+            .record(race)
+            .filter(|record| record.tag == T(b"RACE"))?;
+        let data = rec.find(T(b"DATA"))?;
+        let flags = data.get(32..36)?;
+        Some(u32::from_le_bytes(flags.try_into().ok()?) & 4 != 0)
+    }
+
+    /// Whether a winning RELA record connects two actor bases with an ASTP.
+    /// Relationship direction is ignored because association membership is
+    /// mutual, while parent checks use the authored direction separately.
+    pub fn actors_have_association(
+        &self,
+        first: GlobalFormId,
+        second: GlobalFormId,
+        association: GlobalFormId,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            if data.len() < 16 {
+                return false;
+            }
+            let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+            let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+            let assoc = self.resolve_from(id, le_u32(&data[12..16]).unwrap_or(0));
+            assoc == Some(association)
+                && ((parent == Some(first) && child == Some(second))
+                    || (parent == Some(second) && child == Some(first)))
+        })
+    }
+
+    /// Whether two actor bases have a relationship whose association is marked
+    /// Family Association in ASTP DATA. With no second actor, any family link
+    /// for the first actor is sufficient.
+    pub fn actors_have_family_relationship(
+        &self,
+        actor: GlobalFormId,
+        other: Option<GlobalFormId>,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            if data.len() < 16 {
+                return false;
+            }
+            let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+            let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+            let linked = parent == Some(actor) || child == Some(actor);
+            let paired = other.is_none_or(|other| {
+                (parent == Some(actor) && child == Some(other))
+                    || (parent == Some(other) && child == Some(actor))
+            });
+            let association = self.resolve_from(id, le_u32(&data[12..16]).unwrap_or(0));
+            linked
+                && paired
+                && association
+                    .and_then(|association| self.record(association))
+                    .filter(|record| record.tag == T(b"ASTP") && !record.is_deleted())
+                    .and_then(|record| record.find(T(b"DATA")))
+                    .and_then(le_u32)
+                    .is_some_and(|flags| flags & 1 != 0)
+        })
+    }
+
+    /// Whether the authored RELA direction names `parent` and `child`.
+    pub fn actors_have_parent_relationship(
+        &self,
+        parent: GlobalFormId,
+        child: GlobalFormId,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            data.len() >= 8
+                && self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0)) == Some(parent)
+                && self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0)) == Some(child)
+        })
+    }
+
+    /// Return an item's authored gold value for gift favor accounting.
+    pub fn item_value(&self, id: GlobalFormId) -> i32 {
+        let Some(record) = self.record(id) else {
+            return 0;
+        };
+        let tag = record.tag.as_bytes();
+        let (subrecord, offset) = match tag {
+            b"WEAP" | b"ARMO" | b"MISC" | b"INGR" => (T(b"DATA"), 0),
+            b"AMMO" => (T(b"DATA"), 12),
+            b"BOOK" => (T(b"DATA"), 8),
+            b"ALCH" => (T(b"ENIT"), 0),
+            _ => return 0,
+        };
+        let Some(data) = record.find(subrecord) else {
+            return 0;
+        };
+        data.get(offset..offset + 4)
+            .map(|bytes| i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).max(0))
+            .unwrap_or(0)
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;
@@ -252,14 +381,15 @@ impl World {
     /// A `FACT` record: `XNAM` relations and the crime tracking flag.
     pub fn faction(&mut self, id: GlobalFormId) -> Option<&mut FactionState> {
         if !self.factions.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if rec.tag != T(b"FACT") {
                 return None;
             }
             let mut st = FactionState::default();
             for x in rec.all(T(b"XNAM")).filter(|d| d.len() >= 12) {
-                let other = self.order.resolve(rref.file, le_u32(x).unwrap_or(0));
+                let Some(other) = self.resolve_from(id, le_u32(x).unwrap_or(0)) else {
+                    continue;
+                };
                 let combat = i32::from_le_bytes([x[8], x[9], x[10], x[11]]);
                 st.reactions.insert(other, combat);
             }

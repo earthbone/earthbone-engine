@@ -4,7 +4,8 @@
 //! objectives, and aliases. Layout from `wbRecord(QUST)` in
 //! `wbDefinitionsTES5.pas`. The subrecords come in order and the meaning of
 //! `FNAM` depends on whether an objective or an alias is open, so the reader
-//! is a small state machine over the subrecord list.
+//! is a small state machine over the subrecord list. `ALFL` is the specific
+//! location fill defined by xEdit and UESP's QUST format page.
 
 use soe_esm::records::gameplay::Condition;
 use soe_esm::records::Text;
@@ -63,11 +64,18 @@ pub struct Objective {
     pub index: u16,
     pub flags: u32,
     pub text: Option<Text>,
-    /// `(alias id, flags)` per QSTA target.
-    pub targets: Vec<(i32, u32)>,
+    pub targets: Vec<ObjectiveTarget>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One QSTA alias and its conditions for an objective marker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectiveTarget {
+    pub alias: i32,
+    pub compass_marker_ignores_locks: bool,
+    pub conditions: Vec<Condition>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Alias {
     pub id: u32,
     pub name: String,
@@ -76,8 +84,35 @@ pub struct Alias {
     pub location: bool,
     /// `ALFR`: the reference the alias holds from the start.
     pub forced_ref: Option<u32>,
+    /// `ALFL`: the location the alias holds from the start.
+    pub forced_location: Option<u32>,
     /// `ALPC`: packages the alias puts on its actor, in order.
     pub packages: Vec<u32>,
+    /// `ALCO` selects Create Reference to Object rather than a placed reference.
+    pub creates_reference: bool,
+    /// `CTDA` predicates in the alias's Match Conditions block.
+    pub match_conditions: Vec<Condition>,
+    /// Alias dependency used by the reference or location alias fill type.
+    pub fill: Option<AliasFill>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AliasFill {
+    Local(u32),
+    External { quest: u32, alias: u32 },
+}
+
+pub mod alias_flags {
+    //! Flags on reference and location aliases in a `QUST` record.
+    pub const RESERVES_REFERENCE: u32 = 1 << 0;
+    pub const OPTIONAL: u32 = 1 << 1;
+    pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
+    pub const ALLOW_DEAD: u32 = 1 << 4;
+    pub const IN_LOADED_AREA: u32 = 1 << 5;
+    pub const ALLOW_DISABLED: u32 = 1 << 7;
+    pub const ALLOW_RESERVED: u32 = 1 << 9;
+    pub const ALLOW_DESTROYED: u32 = 1 << 12;
+    pub const CLOSEST: u32 = 1 << 13;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +166,28 @@ impl Quest {
                 && Condition::push(rec, sub, &mut q.dialogue_conditions)?
             {
                 continue;
+            }
+            if matches!(section, Section::Alias) {
+                if let Some(alias) = q.aliases.last_mut() {
+                    if Condition::push(rec, sub, &mut alias.match_conditions)? {
+                        continue;
+                    }
+                }
+            }
+            if matches!(section, Section::Objective)
+                && q.objectives
+                    .last()
+                    .is_some_and(|objective| !objective.targets.is_empty())
+            {
+                if let Some(target) = q
+                    .objectives
+                    .last_mut()
+                    .and_then(|objective| objective.targets.last_mut())
+                {
+                    if Condition::push(rec, sub, &mut target.conditions)? {
+                        continue;
+                    }
+                }
             }
             let d = sub.data.as_slice();
             match sub.tag.as_bytes() {
@@ -191,10 +248,11 @@ impl Quest {
                         return Err(short("QSTA"));
                     }
                     if let Some(o) = q.objectives.last_mut() {
-                        o.targets.push((
-                            i32::from_le_bytes([d[0], d[1], d[2], d[3]]),
-                            u32::from_le_bytes([d[4], d[5], d[6], d[7]]),
-                        ));
+                        o.targets.push(ObjectiveTarget {
+                            alias: i32::from_le_bytes([d[0], d[1], d[2], d[3]]),
+                            compass_marker_ignores_locks: d[4] != 0,
+                            conditions: Vec::new(),
+                        });
                     }
                 }
                 b"ALST" | b"ALLS" => {
@@ -207,7 +265,11 @@ impl Quest {
                         flags: 0,
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
+                        forced_location: None,
                         packages: Vec::new(),
+                        creates_reference: false,
+                        match_conditions: Vec::new(),
+                        fill: None,
                     });
                     section = Section::Alias;
                 }
@@ -218,6 +280,11 @@ impl Quest {
                     if let Some(a) = q.aliases.last_mut() {
                         a.packages
                             .push(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALCO" => {
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.creates_reference = true;
                     }
                 }
                 b"ALID" => {
@@ -231,6 +298,43 @@ impl Quest {
                     }
                     if let Some(a) = q.aliases.last_mut() {
                         a.forced_ref = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALFL" => {
+                    if d.len() < 4 {
+                        return Err(short("ALFL"));
+                    }
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.forced_location = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALFA" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            a.fill = Some(AliasFill::Local(u32::from_le_bytes([
+                                d[0], d[1], d[2], d[3],
+                            ])));
+                        }
+                    }
+                }
+                b"ALEQ" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            a.fill = Some(AliasFill::External {
+                                quest: u32::from_le_bytes([d[0], d[1], d[2], d[3]]),
+                                alias: 0,
+                            });
+                        }
+                    }
+                }
+                b"ALEA" => {
+                    if d.len() >= 4 {
+                        if let Some(a) = q.aliases.last_mut() {
+                            let alias = u32::from_le_bytes([d[0], d[1], d[2], d[3]]);
+                            if let Some(AliasFill::External { alias: value, .. }) = &mut a.fill {
+                                *value = alias;
+                            }
+                        }
                     }
                 }
                 b"ALED" => section = Section::Header,

@@ -13,6 +13,7 @@ use soe_game::{
         Difficulty, Error, MeleeHit,
     },
     inventory::{Extra, Stack},
+    world::magic::MagicError,
     Game, Handle,
 };
 use soe_papyrus::{
@@ -261,6 +262,44 @@ fn template_fixture(
 }
 fn close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
+}
+
+#[test]
+fn mag_34_melee_hit_ends_attacker_invisibility() {
+    let mut data = vec![0; 152];
+    put(&mut data, 64, 11);
+    put(&mut data, 80, 1);
+    let mut spell_data = vec![0; 36];
+    put(&mut spell_data, 16, 1);
+    let invisibility = Record::new(Tag(*b"MGEF"), 0xB10).sub(Tag(*b"DATA"), data);
+    let spell = Record::new(Tag(*b"SPEL"), 0xB11)
+        .sub(Tag(*b"SPIT"), spell_data)
+        .sub(Tag(*b"EFID"), 0xB10_u32.to_le_bytes())
+        .sub(
+            Tag(*b"EFIT"),
+            [
+                1.0_f32.to_le_bytes(),
+                0_u32.to_le_bytes(),
+                20_u32.to_le_bytes(),
+            ]
+            .concat(),
+        );
+    let mut game = fixture(vec![invisibility, spell]);
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(0xB11),
+            id(0x14),
+            Some(id(0x14)),
+            None,
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(game.world().is_invisible(id(0x14)));
+
+    game.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(!game.world().is_invisible(id(0x14)));
 }
 
 #[test]
@@ -1036,7 +1075,7 @@ fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
                 assert!(result.health_damage.is_finite());
                 accepted += 1;
             }
-            Err(Error::Unsupported(reason)) => {
+            Err(Error::Unsupported(reason) | Error::Magic(MagicError::Unsupported(reason))) => {
                 *excluded.entry(reason).or_insert(0) += 1;
             }
             Err(error) => panic!("{form}: {error}"),

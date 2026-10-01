@@ -57,6 +57,8 @@ pub struct CellCollision {
     pub stats: CollisionStats,
     /// Placed references owning each body. Several bodies may belong to one reference.
     pub references: HashMap<BodyId, GlobalFormId>,
+    /// Selected placed colliders, retaining reference ids for host queries.
+    pub placed: Vec<PlacedCollider>,
 }
 
 /// One placed collision shape with the reference identity used by activation.
@@ -87,6 +89,15 @@ impl DataSource {
             stats.primitives += world.primitive_count() - before;
             stats.bodies += 1;
         }
+        let placed = colliders
+            .iter()
+            .filter(|placed| placed.collider.is_static())
+            .map(|placed| PlacedCollider {
+                reference: placed.reference,
+                collider: placed.collider.clone(),
+                original: placed.original,
+            })
+            .collect();
         Ok(CellCollision {
             colliders: colliders
                 .into_iter()
@@ -96,6 +107,7 @@ impl DataSource {
             world,
             stats,
             references,
+            placed,
         })
     }
 

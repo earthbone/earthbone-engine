@@ -113,6 +113,7 @@ impl World {
         for cell in entering {
             let cold = !self.cell_is_resident(cell);
             out.loaded += self.prefetch_cell(cell);
+            self.mark_cell_3d_loaded(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -157,6 +158,7 @@ impl World {
         for cell in unique {
             let cold = !self.cell_is_resident(cell);
             loaded += self.prefetch_cell(cell);
+            self.mark_cell_3d_loaded(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -248,6 +250,14 @@ impl World {
         built
     }
 
+    fn mark_cell_3d_loaded(&mut self, cell: GlobalFormId) {
+        for id in self.cell_reference_ids(cell) {
+            if self.refs.contains_key(&id) {
+                self.loaded_3d_references.insert(id);
+            }
+        }
+    }
+
     /// Whether the cell's 3D is in memory, which is what decides
     /// `OnCellLoad`.
     ///
@@ -266,12 +276,29 @@ impl World {
         self.streamed_cells.contains(&cell)
     }
 
+    /// Whether a reference currently has 3D through its streamed cell.
+    ///
+    /// The host reports cell resource arrivals and departures through the
+    /// streaming-cell APIs. This query uses that derived residency set, not
+    /// whether a reference was merely built by a form lookup. Visibility and
+    /// room-bound culling do not change the result while the cell stays
+    /// resident. Disabled references have no loaded 3D.
+    #[must_use]
+    pub fn is_reference_3d_loaded(&self, id: GlobalFormId) -> bool {
+        self.refs
+            .get(&id)
+            .is_some_and(|reference| reference.enabled && self.loaded_3d_references.contains(&id))
+    }
+
     /// Drop what `cell` owns and nothing else. Returns the count dropped and
     /// the count kept because dropping would have lost something.
     pub fn unload_cell(&mut self, cell: GlobalFormId) -> (usize, usize) {
         let player = self.player();
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
+        for id in self.cell_reference_ids(cell) {
+            self.loaded_3d_references.remove(&id);
+        }
         let ids = self.cell_temporary_ids(cell);
         let (mut dropped, mut kept) = (0, 0);
         for id in ids {
@@ -465,6 +492,9 @@ impl World {
     /// group rather than its temporary one. A persistent child outlives the
     /// cell, so an unload leaves it alone.
     pub fn is_persistent_child(&mut self, cell: GlobalFormId, id: GlobalFormId) -> bool {
+        if let Some(reference) = self.refs.get(&id) {
+            return reference.persistent;
+        }
         if self.order.cell_index().is_none() {
             self.order.build_cell_index();
         }

@@ -24,12 +24,14 @@ use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
-    Shader, ShaderMaterial, StandardMaterial3D,
+    Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
-use crate::batch::{batch_surfaces, instancing_candidates, BatchMember, InstanceGroup};
+use crate::batch::{
+    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
+};
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
 };
@@ -42,6 +44,13 @@ use crate::units::{
     SkyrimPos,
 };
 use soe_physics::{Iso, Vec3};
+
+fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
+    let encoded = u64::try_from(encoded).ok()?;
+    let file = u16::try_from(encoded >> 32).ok()?;
+    let object = u32::try_from(encoded & 0xffff_ffff).ok()?;
+    (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
+}
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
@@ -71,16 +80,25 @@ pub struct CellStreamerNode {
     /// benchmark compares against.
     #[export]
     batch_surfaces: bool,
+    /// Add one server-side occluder from the four largest opaque surfaces
+    /// in each cell. Godot versions without 3D occluder server methods skip it.
+    #[export]
+    cell_occluders: bool,
     streamer: Option<CellStreamer>,
     /// Set by `load_data`. `stream_cell` needs this before it can read a
     /// real cell, the synthetic streaming above never touches it.
     data_source: Option<Arc<DataSource>>,
+    chargen_cache: crate::data_source::ChargenCache,
     data_load: Option<JoinHandle<Result<DataSource, crate::data_source::DataSourceError>>>,
     /// One entry per `RenderingServer` instance `stream_cell` or
     /// `stream_exterior` created, in creation order. The scene tree never
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// The occlusion mesh and instance RIDs owned by each streamed cell.
+    occluders: Vec<CellOccluder>,
+    /// Temporary shader visuals keyed by their authored shader and target.
+    effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -102,6 +120,8 @@ pub struct CellStreamerNode {
     /// without re-resolving `get_world_3d` itself.
     collision_space: Option<Rid>,
     collision_cell: Option<GlobalFormId>,
+    /// Host joints between linked references, released with either endpoint.
+    tethers: crate::godot_tether::TetherConstraints,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -161,6 +181,12 @@ struct Instance {
     arrays: SurfaceArrays,
 }
 
+struct CellOccluder {
+    cell: GlobalFormId,
+    instance: Rid,
+    mesh: Rid,
+}
+
 /// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
 /// with the placement already baked into its vertices, or a `MultiMesh`
 /// sharing one local-space `ArrayMesh` across a `Transform3D` per placement.
@@ -177,6 +203,16 @@ struct Instance {
 enum InstanceMesh {
     Array(Gd<ArrayMesh>),
     Multi(Gd<MultiMesh>),
+}
+
+/// One transient RenderingServer visual and the resources it references.
+#[allow(dead_code)]
+struct EffectShaderInstance {
+    rid: Rid,
+    mesh: Gd<SphereMesh>,
+    material: Gd<StandardMaterial3D>,
+    remaining: Option<f32>,
+    cell: Option<GlobalFormId>,
 }
 
 impl Drop for CellStreamerNode {
@@ -302,10 +338,14 @@ impl INode3D for CellStreamerNode {
             max_unloads_per_tick: d.max_unloads_per_tick as i32,
             focus: None,
             batch_surfaces: true,
+            cell_occluders: false,
             streamer: None,
             data_source: None,
+            chargen_cache: crate::data_source::ChargenCache::default(),
             data_load: None,
             instances: Vec::new(),
+            occluders: Vec::new(),
+            effect_shaders: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -314,6 +354,7 @@ impl INode3D for CellStreamerNode {
             last_collision_stats: VarDictionary::new(),
             collision_space: None,
             collision_cell: None,
+            tethers: crate::godot_tether::TetherConstraints::default(),
             ref_cache: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
@@ -326,8 +367,11 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.free_occluders();
+        self.free_effect_shaders();
         self.clear_terrain_lod();
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.ref_cache.clear();
@@ -353,6 +397,110 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    /// Apply queued game requests and advance finite shader durations.
+    pub(crate) fn sync_effect_shaders(
+        &mut self,
+        world: &soe_game::World,
+        requests: Vec<soe_game::world::EffectShaderRequest>,
+        delta: f32,
+    ) {
+        let mut server = RenderingServer::singleton();
+        for request in requests {
+            let key = (request.shader, request.target);
+            if !request.playing {
+                if let Some(effect) = self.effect_shaders.remove(&key) {
+                    server.free_rid(effect.rid);
+                }
+                continue;
+            }
+            let Some(placement) = world.ref_placement(request.target) else {
+                continue;
+            };
+            let Some(scenario) = self.scenario() else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(effect) = self.effect_shaders.get_mut(&key) {
+                effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.cell = world
+                    .reference_ref(request.target)
+                    .and_then(|reference| reference.cell);
+                server.instance_set_transform(effect.rid, transform);
+                continue;
+            }
+            let mut mesh = SphereMesh::new_gd();
+            mesh.set_radius(0.75);
+            mesh.set_height(1.5);
+            let mut material = StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_transparency(Transparency::ALPHA);
+            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            material.set_feature(Feature::EMISSION, true);
+            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            server.instance_set_transform(rid, transform);
+            server.instance_geometry_set_material_override(rid, material.get_rid());
+            self.effect_shaders.insert(
+                key,
+                EffectShaderInstance {
+                    rid,
+                    mesh,
+                    material,
+                    remaining: (request.duration >= 0.0).then_some(request.duration),
+                    cell: world
+                        .reference_ref(request.target)
+                        .and_then(|reference| reference.cell),
+                },
+            );
+        }
+        self.effect_shaders.retain(|(_, target), effect| {
+            let Some(placement) = world.ref_placement(*target).filter(|p| p.visible) else {
+                server.free_rid(effect.rid);
+                return false;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            server.instance_set_transform(effect.rid, transform);
+            effect.cell = world
+                .reference_ref(*target)
+                .and_then(|reference| reference.cell);
+            let Some(remaining) = effect.remaining.as_mut() else {
+                return true;
+            };
+            *remaining -= delta.max(0.0);
+            if *remaining <= 0.0 {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_effect_shaders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, effect) in self.effect_shaders.drain() {
+            server.free_rid(effect.rid);
+        }
+    }
+
     pub(crate) fn shared_source(&self) -> Option<Arc<DataSource>> {
         self.data_source.clone()
     }
@@ -373,6 +521,14 @@ impl CellStreamerNode {
             self.add_cell(cell.id, &cell.loaded, scenario, &mut totals);
         }
         let mut server = RenderingServer::singleton();
+        self.effect_shaders.retain(|_, effect| {
+            if effect.cell.is_some_and(|cell| departed.contains(&cell)) {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
         self.instances.retain(|instance| {
             if departed.contains(&instance.cell) {
                 server.free_rid(instance.rid);
@@ -381,6 +537,7 @@ impl CellStreamerNode {
                 true
             }
         });
+        self.free_departed_occluders(departed);
         self.bounds = self
             .instances
             .iter()
@@ -423,6 +580,18 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        let stale_tethers: Vec<_> = self
+            .tether_endpoints()
+            .into_iter()
+            .filter(|id| {
+                world
+                    .ref_placement(*id)
+                    .is_none_or(|placement| !placement.visible)
+            })
+            .collect();
+        for id in stale_tethers {
+            self.tethers.release_reference(id);
+        }
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
@@ -510,6 +679,10 @@ impl CellStreamerNode {
             instance.mesh = InstanceMesh::Array(new_mesh);
         }
     }
+
+    fn tether_endpoints(&self) -> Vec<GlobalFormId> {
+        self.tethers.endpoints()
+    }
 }
 
 #[godot_api]
@@ -547,6 +720,43 @@ impl CellStreamerNode {
         }
     }
 
+    /// Creates the cart-to-horse host pin joint once both rigid bodies are
+    /// resident. This node owns the joint RID and frees it with either form.
+    #[func]
+    pub fn tether_bodies(
+        &mut self,
+        cart_form: i64,
+        horse_form: i64,
+        cart_body: Rid,
+        horse_body: Rid,
+        cart_pivot: Vector3,
+        horse_pivot: Vector3,
+    ) -> bool {
+        let Some(cart) = tether_form_id(cart_form) else {
+            return false;
+        };
+        let Some(horse) = tether_form_id(horse_form) else {
+            return false;
+        };
+        self.tethers
+            .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot)
+    }
+
+    /// Explicitly removes every tether touching a reference.
+    #[func]
+    pub fn untether_reference(&mut self, file: i32, object: i64) -> i32 {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return 0;
+        };
+        self.tethers
+            .release_reference(GlobalFormId { file, object }) as i32
+    }
+
+    #[func]
+    pub fn tether_count(&self) -> i32 {
+        self.tethers.link_count() as i32
+    }
+
     #[func]
     pub fn resident_count(&self) -> i32 {
         self.streamer
@@ -559,6 +769,59 @@ impl CellStreamerNode {
         self.streamer
             .as_ref()
             .is_some_and(|s| s.is_resident(CellCoord::new(cell_x, cell_y)))
+    }
+
+    /// Load race menu head part models and chargen morph files into the host cache.
+    pub fn precache_chargen(&mut self, game: &soe_game::Game) -> bool {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamer: chargen cache requires loaded game data");
+            return false;
+        };
+        match crate::data_source::ChargenCache::load(source, game) {
+            Ok(cache) => {
+                self.chargen_cache = cache;
+                true
+            }
+            Err(error) => {
+                godot_error!("CellStreamer: precaching chargen data failed: {error}");
+                false
+            }
+        }
+    }
+
+    /// Release race menu models and morph files retained by `precache_chargen`.
+    pub fn precache_chargen_clear(&mut self) {
+        self.chargen_cache.clear();
+    }
+
+    /// Number of retained chargen asset files, for stream residency diagnostics.
+    #[func]
+    pub fn chargen_resident_count(&self) -> i32 {
+        self.chargen_cache.file_count() as i32
+    }
+
+    /// Number of retained chargen TRI morph files.
+    #[func]
+    pub fn chargen_morph_count(&self) -> i32 {
+        self.chargen_cache.morph_count() as i32
+    }
+
+    /// Number of retained chargen NIF model files.
+    #[func]
+    pub fn chargen_model_count(&self) -> i32 {
+        self.chargen_cache.model_count() as i32
+    }
+
+    /// Number of chargen asset paths absent from the active data VFS.
+    #[func]
+    pub fn chargen_missing_count(&self) -> i32 {
+        self.chargen_cache.missing_count() as i32
+    }
+
+    /// Retained chargen asset bytes, for stream memory diagnostics.
+    #[func]
+    pub fn chargen_resident_bytes(&self) -> i64 {
+        self.chargen_cache.resident_bytes() as i64
     }
 
     /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and
@@ -664,13 +927,90 @@ impl CellStreamerNode {
                 return -1;
             }
         };
+        self.draw_editor_cell(cell_id, &loaded, &editor_id.to_string(), false)
+    }
+
+    /// Rows for the editor's worldspace and cell tree. Each row carries a
+    /// resolved cell id so duplicate editor ids remain individually selectable.
+    #[func]
+    pub fn editor_cell_tree(&self) -> Array<VarDictionary> {
+        let mut rows = Array::new();
+        let Some(source) = self.data_source.as_ref() else {
+            return rows;
+        };
+        for cell in source.editor_cells() {
+            let mut row = VarDictionary::new();
+            row.set("id", cell.id.as_str());
+            row.set("name", cell.name.as_str());
+            row.set("world_id", cell.world_id.as_deref().unwrap_or(""));
+            row.set("world_name", cell.world_name.as_deref().unwrap_or(""));
+            row.set("interior", cell.interior);
+            row.set("x", cell.x.unwrap_or_default());
+            row.set("y", cell.y.unwrap_or_default());
+            row.set("references", cell.references as i64);
+            rows.push(&row);
+        }
+        rows
+    }
+
+    /// Clears the shared scene view and opens the selected cell by resolved
+    /// form id. This avoids ambiguous editor ids and uses the same cell loader
+    /// as `stream_cell`.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn open_cell_id(&mut self, cell_form_id: GString) -> i32 {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamerNode::open_cell_id: load_data was not called");
+            return -1;
+        };
+        let Some((file, object)) =
+            cell_form_id
+                .to_string()
+                .split_once(':')
+                .and_then(|(file, object)| {
+                    Some((
+                        file.parse::<u16>().ok()?,
+                        u32::from_str_radix(object, 16).ok()?,
+                    ))
+                })
+        else {
+            return -1;
+        };
+        let cell_id = GlobalFormId { file, object };
+        let order = source.shared_order();
+        let Some(record) = order.winner(cell_id) else {
+            return -1;
+        };
+        if record.tag != soe_esm::tag::CELL {
+            return -1;
+        }
+        let loaded = match source.stream_cell_id(cell_id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                godot_error!("CellStreamerNode::open_cell_id: {e}");
+                return -1;
+            }
+        };
+        self.draw_editor_cell(cell_id, &loaded, &cell_form_id.to_string(), true)
+    }
+
+    fn draw_editor_cell(
+        &mut self,
+        cell_id: GlobalFormId,
+        loaded: &LoadedCell,
+        label: &str,
+        replace: bool,
+    ) -> i32 {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        if replace {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals::default();
-        totals.cell_list.push(editor_id.to_string());
-        self.add_cell(cell_id, &loaded, scenario, &mut totals);
+        totals.cell_list.push(label.to_owned());
+        self.add_cell(cell_id, loaded, scenario, &mut totals);
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
     }
@@ -772,6 +1112,30 @@ impl CellStreamerNode {
         out
     }
 
+    /// Terrain surfaces currently submitted to the RenderingServer, with
+    /// their RID and cached material for host-side visual checks.
+    #[func]
+    pub fn terrain_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let Some(path) = instance.arrays.material.diffuse.as_deref() else {
+                continue;
+            };
+            if !path.starts_with("terrain:") {
+                continue;
+            }
+            let key = crate::mesh::MaterialKey::from(&instance.arrays.material);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
@@ -854,6 +1218,7 @@ impl CellStreamerNode {
             server.free_rid(instance.rid);
             drop(instance.mesh);
         }
+        self.free_departed_occluders(&[owner]);
         self.bounds = self
             .instances
             .iter()
@@ -1309,9 +1674,12 @@ impl CellStreamerNode {
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
+        self.free_occluders();
+        self.free_effect_shaders();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
@@ -1359,6 +1727,9 @@ impl CellStreamerNode {
     ) {
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
+        if self.cell_occluders {
+            self.add_cell_occluder(cell, &loaded.surfaces, scenario);
+        }
         let (groups, remainder) = instancing_candidates(&loaded.surfaces);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
@@ -1485,6 +1856,58 @@ impl CellStreamerNode {
         for instance in self.instances.drain(..) {
             server.free_rid(instance.rid);
             drop(instance.mesh);
+        }
+    }
+
+    fn add_cell_occluder(&mut self, cell: GlobalFormId, surfaces: &[LoadedSurface], scenario: Rid) {
+        let mut server = RenderingServer::singleton();
+        if !server.has_method("occluder_create") || !server.has_method("occluder_set_mesh") {
+            return;
+        }
+        let (vertices, indices) = cell_occluder_mesh(surfaces);
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+        let packed_vertices: PackedVector3Array = vertices
+            .into_iter()
+            .map(|p| Vector3::new(p[0], p[1], p[2]))
+            .collect();
+        let packed_indices: PackedInt32Array = indices.into_iter().collect();
+        let mesh: Rid = server.call("occluder_create", &[]).to();
+        let mesh_args = [
+            mesh.to_variant(),
+            packed_vertices.to_variant(),
+            packed_indices.to_variant(),
+        ];
+        server.call("occluder_set_mesh", &mesh_args);
+        let instance_args = [mesh.to_variant(), scenario.to_variant()];
+        let instance: Rid = server.call("instance_create2", &instance_args).to();
+        server.instance_set_transform(instance, Transform3D::IDENTITY);
+        self.occluders.push(CellOccluder {
+            cell,
+            instance,
+            mesh,
+        });
+    }
+
+    fn free_departed_occluders(&mut self, departed: &[GlobalFormId]) {
+        let mut server = RenderingServer::singleton();
+        self.occluders.retain(|occluder| {
+            if departed.contains(&occluder.cell) {
+                server.free_rid(occluder.instance);
+                server.free_rid(occluder.mesh);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_occluders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for occluder in self.occluders.drain(..) {
+            server.free_rid(occluder.instance);
+            server.free_rid(occluder.mesh);
         }
     }
 

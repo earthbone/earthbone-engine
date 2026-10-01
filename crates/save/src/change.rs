@@ -459,7 +459,7 @@ impl ChangeForm {
         if self.record_type() != "ALCH" {
             return Ok(None);
         }
-        self.base_object_change("ALCH change").map(Some)
+        self.base_object_change_fields("ALCH change").map(Some)
     }
 
     /// Decode ENCH form flags and base-object change markers.
@@ -470,10 +470,10 @@ impl ChangeForm {
         if self.record_type() != "ENCH" {
             return Ok(None);
         }
-        self.base_object_change("ENCH change").map(Some)
+        self.base_object_change_fields("ENCH change").map(Some)
     }
 
-    fn base_object_change(&self, region: &'static str) -> Result<BaseObjectChange> {
+    fn base_object_change_fields(&self, region: &'static str) -> Result<BaseObjectChange> {
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, region);
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -483,6 +483,9 @@ impl ChangeForm {
             value_changed: self.change_flags & 2 != 0,
             fullname_changed: self.change_flags & 4 != 0,
             other_flags: self.change_flags & !7,
+            base_object_value_changed: false,
+            base_object_fullname_changed: false,
+            unnamed_flags: 0,
         })
     }
     /// Decode the saved package flags and their zero-byte markers.
@@ -524,6 +527,40 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
+        }))
+    }
+    /// Decode the source-defined WOOP payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn word_of_power_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("WOOP")
+    }
+
+    /// Decode the source-defined MGEF payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn magic_effect_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("MGEF")
+    }
+
+    fn word_magic_change(&self, expected: &'static str) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != expected {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "base object change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(BaseObjectChange {
+            form_flags,
+            value_changed: self.change_flags & (1 << 1) != 0,
+            fullname_changed: self.change_flags & (1 << 2) != 0,
+            other_flags: self.change_flags & !0b111,
+            base_object_value_changed: self.change_flags & (1 << 1) != 0,
+            base_object_fullname_changed: self.change_flags & (1 << 2) != 0,
+            unnamed_flags: self.change_flags & !0b111,
         }))
     }
     /// Decode the CELL fields whose serialized layouts xEdit defines.
@@ -814,23 +851,32 @@ impl IngredientChange {
     }
 }
 
-/// Saved ALCH or ENCH sections. Marker bits carry no payload in xEdit.
+/// Saved base-object sections. Marker bits carry no payload in xEdit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BaseObjectChange {
     pub form_flags: Option<FormFlags>,
+    /// Value marker, also exposed under the legacy WOOP/MGEF field name below.
     pub value_changed: bool,
+    /// Full-name marker, also exposed under the legacy WOOP/MGEF field name below.
     pub fullname_changed: bool,
     /// Bits that xEdit labels unnamed, retained without assigning meaning.
     pub other_flags: u32,
+    /// WOOP/MGEF alias for `value_changed`.
+    pub base_object_value_changed: bool,
+    /// WOOP/MGEF alias for `fullname_changed`.
+    pub base_object_fullname_changed: bool,
+    /// WOOP/MGEF alias for `other_flags`.
+    pub unnamed_flags: u32,
 }
 
 impl BaseObjectChange {
     /// Rebuild all source-defined and unnamed change bits.
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some())
-            | (u32::from(self.value_changed) << 1)
-            | (u32::from(self.fullname_changed) << 2)
+            | (u32::from(self.value_changed || self.base_object_value_changed) << 1)
+            | (u32::from(self.fullname_changed || self.base_object_fullname_changed) << 2)
             | self.other_flags
+            | self.unnamed_flags
     }
 
     /// Rebuild the typed payload.
@@ -1353,6 +1399,9 @@ pub struct RelationshipChange {
     pub created: Option<[RefId; 3]>,
     pub rank: Option<i32>,
 }
+
+/// Compatibility name for the WOOP/MGEF view of [`BaseObjectChange`].
+pub type BaseObjectMarkerChange = BaseObjectChange;
 
 /// Saved PACK fields. Waiting and never-run are zero-byte change markers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

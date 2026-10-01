@@ -794,6 +794,7 @@ pub(crate) fn is_form_id_field(record: Tag, field: Tag) -> bool {
         (Tag(*b"NAVM"), Tag(*b"NNAM")),
         (Tag(*b"STAT"), Tag(*b"DNAM")),
         (Tag(*b"STAT"), Tag(*b"MNAM")),
+        (Tag(*b"NPC_"), Tag(*b"PNAM")),
     ];
     pairs.contains(&(record, field))
 }

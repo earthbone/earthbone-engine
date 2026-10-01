@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;
@@ -40,7 +41,10 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod lockpicking;
+pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
@@ -52,6 +56,7 @@ pub mod save;
 pub mod save_generations;
 pub mod services;
 pub mod sound;
+pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
@@ -147,11 +152,67 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    /// Parsed OAR submods, ordered by descending priority.
+    oar_submods: Vec<soe_moddata::oar::SubMod>,
+    mcm_registered: Vec<GlobalFormId>,
+    mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
+    /// Hands currently held by direct player or scripted cast input.
+    active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
 
+/// Maximum VM instructions executed in one scheduler slice.
+pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
+
+/// Maximum exterior cells the player streamer starts loading per update.
+pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
+
 impl Game {
+    /// Evaluate one objective target's QSTA conditions against the current world and VM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a target condition is unsupported or lacks runtime context.
+    pub fn objective_target_conditions_met(
+        &mut self,
+        quest: GlobalFormId,
+        objective: u16,
+        target_index: usize,
+    ) -> Result<bool, conditions::Error> {
+        let mut world = self.world.borrow_mut();
+        let Some(state) = world.quest_state(quest) else {
+            return Ok(false);
+        };
+        let Some(target) = state
+            .def
+            .objective(objective)
+            .and_then(|definition| definition.targets.get(target_index))
+        else {
+            return Ok(false);
+        };
+        let Some(alias) = u32::try_from(target.alias).ok() else {
+            return Ok(false);
+        };
+        let target_ref = state.aliases.get(&alias).copied().flatten();
+        let conditions = target.conditions.clone();
+        let context = conditions::Context {
+            owner: quest,
+            subject: world.player(),
+            target: target_ref,
+            quest: Some(quest),
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        conditions::evaluate(&mut world, &self.vm, context, &conditions)
+    }
+
     pub fn new(order: LoadOrder) -> Game {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -166,9 +227,13 @@ impl Game {
             world,
             registered,
             bound: None,
-            budget: 100_000,
+            budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
+            oar_submods: Vec::new(),
+            mcm_registered: Vec::new(),
+            mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
+            active_hand_casts: BTreeSet::new(),
         }
     }
 
@@ -304,6 +369,56 @@ impl Game {
         let vm = &self.vm;
         let mut world = self.world.borrow_mut();
         services::resolve_vendor_service(&mut world, vm, faction, merchant)
+    }
+
+    /// Buy an exact quantity from an available vendor, exchanging gold and
+    /// merchandise as one inventory transaction.
+    ///
+    /// `unit_price` is the already-adjusted menu price per item. A caller
+    /// applies the barter multiplier and rounding before calling this method.
+    ///
+    /// # Errors
+    /// Returns an error when vendor service data is invalid or unavailable,
+    /// the item is not listed, the price is invalid, or either holder cannot
+    /// complete the full exchange.
+    pub fn buy_vendor_item(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        unit_price: i32,
+    ) -> Result<(), services::TradeError> {
+        if count <= 0 || unit_price <= 0 {
+            return Err(services::TradeError::Price);
+        }
+        let service = self
+            .resolve_vendor_service(faction, merchant)?
+            .filter(|service| service.available)
+            .ok_or(services::TradeError::Unavailable)?;
+        if service.merchandise.count(item) < count {
+            return Err(services::TradeError::Stock);
+        }
+        let total = count
+            .checked_mul(unit_price)
+            .ok_or(services::TradeError::Price)?;
+        let currency = self.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 0xF,
+        });
+        let player = self.player();
+        let vm = &mut self.vm;
+        self.world.borrow_mut().trade_items_notified(
+            service.merchant_container,
+            item,
+            count,
+            player,
+            currency,
+            total,
+            &mut |name, class| vm.create_object_of(name, class),
+        )?;
+        self.run_until_idle(64);
+        Ok(())
     }
 
     /// Return the selected damage difficulty tier.
@@ -489,7 +604,66 @@ impl Game {
     /// [`Game::start`]: both distributors run once at load, before any script,
     /// which is what the plugins do. See [`crate::moddata`].
     pub fn apply_mod_data(&mut self, roots: &[std::path::PathBuf]) -> moddata::ModDataReport {
-        crate::moddata::apply(&mut self.world.borrow_mut(), roots)
+        let report = crate::moddata::apply(&mut self.world.borrow_mut(), roots);
+        self.oar_submods = roots
+            .iter()
+            .filter_map(|root| soe_moddata::oar::AnimationMod::scan(root).ok())
+            .flat_map(|animation_mod| animation_mod.sub_mods)
+            .collect();
+        self.oar_submods.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then(a.directory.cmp(&b.directory))
+        });
+        report
+    }
+
+    /// Selects the highest-priority OAR replacement for an actor and clip name.
+    ///
+    /// Conditions use the actor base and race from the loaded records. The
+    /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
+    /// Every condition in a submod must pass. A matching replacement is an
+    /// HKX file with the same filename as `original_animation` under that
+    /// submod directory.
+    ///
+    /// # Errors
+    ///
+    /// This query reports unavailable actors, conditions and clips as `None`.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[must_use]
+    pub fn select_oar_animation(
+        &self,
+        actor: GlobalFormId,
+        original_animation: &str,
+    ) -> Option<std::path::PathBuf> {
+        let file_name = Path::new(original_animation).file_name()?;
+        let mut world = self.world.borrow_mut();
+        let base = world.reference(actor)?.base?;
+        let base_state = world.actor_base(base)?;
+        let female = base_state.female;
+        let base_race = base_state.race;
+        let race = world
+            .actor(actor)
+            .and_then(|state| state.race)
+            .or(base_race);
+        let order = world.order();
+
+        for sub_mod in &self.oar_submods {
+            if !sub_mod.condition_groups.iter().all(|group| {
+                group
+                    .iter()
+                    .any(|condition| oar_condition_matches(condition, female, base, race, order))
+            }) {
+                continue;
+            }
+            if let Some(path) = find_oar_clip(&sub_mod.directory, file_name) {
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// The same, from a resolved profile, which already knows its data roots
@@ -521,6 +695,7 @@ impl Game {
             }
         }
         self.run_until_idle(64);
+        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
@@ -565,11 +740,19 @@ impl Game {
                 tabs: vec![hit.attacker, hit.weapon, hit.target],
                 target: Some(hit.target),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
                 target: Some(hit.attacker),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             (
                 perks::entry_point_invocations(
@@ -612,6 +795,64 @@ impl Game {
             direction,
             &mut |name, class| vm.create_object_of(name, class),
         )
+    }
+
+    /// Begin a costed cast from an actor's equipped hand spell.
+    ///
+    /// Repeated begins while that hand remains held do not request another
+    /// cast. Fire-and-forget spells execute on the initial press, while
+    /// concentration spells remain active until the hand is released.
+    ///
+    /// # Errors
+    /// Returns the magic validation, delivery, or magicka error for the spell.
+    pub fn begin_hand_cast(
+        &mut self,
+        actor: soe_esm::GlobalFormId,
+        hand: combat::Hand,
+        target: Option<soe_esm::GlobalFormId>,
+    ) -> Result<bool, world::magic::MagicError> {
+        let key = (actor, hand);
+        if self.active_hand_casts.contains(&key) {
+            return Ok(false);
+        }
+        let spell = self.world.borrow_mut().hand_spell(actor, hand);
+        let Some(spell) = spell else {
+            return Ok(false);
+        };
+        let vm = &mut self.vm;
+        let result = {
+            let mut world = self.world.borrow_mut();
+            if world.spell(spell)?.data.cast_type == 2 {
+                world
+                    .begin_concentration_cast(spell, actor, actor, target, &mut |name, class| {
+                        vm.create_object_of(name, class)
+                    })
+                    .map(|()| Vec::new())
+            } else {
+                world.cast_charged_spell(spell, actor, actor, target, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })
+            }
+        };
+        match result {
+            Ok(_) => {
+                self.active_hand_casts.insert(key);
+                self.run_until_idle(64);
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Release a casting hand after its input is lifted.
+    #[must_use]
+    pub fn end_hand_cast(&mut self, actor: soe_esm::GlobalFormId, hand: combat::Hand) -> bool {
+        let was_active = self.active_hand_casts.remove(&(actor, hand));
+        let stopped_concentration = {
+            let mut world = self.world.borrow_mut();
+            world.is_concentration_casting(actor) && world.release_concentration_cast()
+        };
+        was_active || stopped_concentration
     }
 
     /// Activate a reference the way a player click would, then settle.
@@ -696,12 +937,129 @@ impl Game {
         moved
     }
 
+    /// Return the active host request for a latent `ShowGiftMenu` call.
+    pub fn gift_menu_request(&self) -> Option<world::GiftMenuRequest> {
+        self.world.borrow().gift_menu.clone()
+    }
+
+    /// Move selected gift items through the ordinary notified inventory path.
+    pub fn gift_menu_transfer(&mut self, item: GlobalFormId, count: i32) -> i32 {
+        let Some(request) = self.gift_menu_request() else {
+            return 0;
+        };
+        if let Some(filter) = request.filter {
+            let mut world = self.world.borrow_mut();
+            let items = world.form_list(filter).cloned().unwrap_or_default();
+            let keywords = world.keywords(item);
+            let allowed =
+                items.contains(&item) || items.iter().any(|entry| keywords.contains(entry));
+            if !allowed {
+                return 0;
+            }
+        }
+        let moved = self.transfer_item(request.source, item, count, request.target);
+        if moved > 0 && request.use_favor_points {
+            let value = self.world.borrow_mut().item_value(item);
+            if let Some(active) = self.world.borrow_mut().gift_menu.as_mut() {
+                active.favor_points = active
+                    .favor_points
+                    .saturating_add(value.saturating_mul(moved));
+            }
+        }
+        moved
+    }
+
+    /// Finish the visible gift menu and resume its Papyrus caller.
+    pub fn close_gift_menu(&mut self) -> bool {
+        let Some(request) = self.world.borrow_mut().gift_menu.take() else {
+            return false;
+        };
+        let result = request.favor_points.max(0);
+        self.vm.resolve_latent(request.latent, Value::Int(result));
+        self.run_until_idle(64);
+        true
+    }
+
     /// Deliver an event to a form's scripts and settle.
     pub fn send_event(&mut self, id: GlobalFormId, name: &str, args: &[Value]) -> Vec<ThreadId> {
         let object = self.object_of_form(id);
         let threads = self.vm.send_event(object, name, args);
         self.run_until_idle(64);
         threads
+    }
+
+    /// Updates trigger membership after an actor movement step and runs the
+    /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
+    pub fn update_trigger_actor_position(
+        &mut self,
+        actor: GlobalFormId,
+        cell: Option<GlobalFormId>,
+        from: [f32; 3],
+        to: [f32; 3],
+    ) {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().update_trigger_actor_position(
+            actor,
+            cell,
+            from,
+            to,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+    }
+
+    /// Resume mapped quest story events whose handlers are loaded.
+    ///
+    /// Saved `SCPT` contexts resume through `OnStoryScript`. Their mapped
+    /// arguments remain on the quest if the script has not been loaded yet or
+    /// a mapped reference is unresolved.
+    ///
+    /// # Errors
+    /// This operation currently has no error path.
+    pub fn resume_vanilla_quest_story_events(&mut self) -> usize {
+        let mut resumed = 0;
+        let events = self.world.borrow().saved_story_events();
+        for (id, event) in events {
+            if event.code != *b"SCPT" || event.parameters.len() != 6 {
+                continue;
+            }
+            let (object, args) = {
+                let vm = &mut self.vm;
+                let mut world = self.world.borrow_mut();
+                if event.parameters.iter().any(|parameter| match parameter {
+                    crate::quest::state::StoryParameter::Reference {
+                        reference: Some(reference),
+                        ..
+                    } => !world.exists(*reference),
+                    _ => false,
+                }) {
+                    continue;
+                }
+                let mut args = Vec::with_capacity(event.parameters.len());
+                for parameter in event.parameters {
+                    args.push(match parameter {
+                        crate::quest::state::StoryParameter::Reference { reference, .. } => world
+                            .form_value(reference, &mut |name, class| {
+                                vm.create_object_of(name, class)
+                            }),
+                        crate::quest::state::StoryParameter::Integer(value) => {
+                            Value::Int(i32::from_le_bytes(value.to_le_bytes()))
+                        }
+                    });
+                }
+                let object = world.object_of(Handle::Form(id), &mut |name, class| {
+                    vm.create_object_of(name, class)
+                });
+                (object, args)
+            };
+            let threads = self.vm.send_event(object, "OnStoryScript", &args);
+            if !threads.is_empty() {
+                self.world.borrow_mut().clear_saved_story_event(id);
+                resumed += threads.len();
+            }
+            self.run_until_idle(64);
+        }
+        resumed
     }
 
     pub fn player(&mut self) -> GlobalFormId {
@@ -719,18 +1077,52 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let mut game_hours = 0.0;
         if !menu_mode {
+            self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
             w.advance_clock(real_seconds);
             w.tick_image_space(real_seconds);
+            w.tick_translations(real_seconds, &mut |name, class| {
+                vm.create_object_of(name, class)
+            });
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            for error in errors {
+                vm.log.push(vm.time(), error.to_string());
+            }
+            let errors = w.tick_concentration(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+        }
+        if !menu_mode {
+            let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
+            for (actor, target) in activations {
+                self.activate(target, actor);
+            }
+        }
+        if !menu_mode {
+            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            for (speaker, listener, topic) in greetings {
+                if self.begin_dialogue(speaker, listener).is_err() {
+                    continue;
+                }
+                crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
+                if self.choose_dialogue(topic).is_err() {
+                    self.close_dialogue();
+                }
+            }
+        }
+        if !menu_mode {
+            let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
+            for (speaker, listener) in starts {
+                if self.begin_dialogue(speaker, listener).is_ok() {
+                    crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
+                }
+            }
         }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
@@ -743,6 +1135,20 @@ impl Game {
             }
         }
         self.push_tick_hash();
+    }
+
+    fn resume_quest_lifecycle_tasks(&mut self) {
+        let tasks = self.world.borrow().lifecycle_tasks();
+        for (id, task) in tasks {
+            match task {
+                quest::state::LifecycleTask::Starting => {
+                    self.start_quest(id);
+                }
+                quest::state::LifecycleTask::Stopping => {
+                    self.world.borrow_mut().stop_quest(id);
+                }
+            }
+        }
     }
 
     /// Drain queued events and calls into the VM. Returns how many.
@@ -821,9 +1227,41 @@ impl Game {
                             .push(self.vm.time(), format!("fragment {function}: {e}"));
                     }
                 }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    if let Err(e) = self.vm.call_script(object, &script, &function, &args) {
+                        self.vm
+                            .log
+                            .push(self.vm.time(), format!("fragment {script}.{function}: {e}"));
+                    }
+                }
             }
         }
+        let completed = std::mem::take(&mut self.world.borrow_mut().completed_animation_waits);
+        for (latent, result) in completed {
+            self.vm.resolve_latent(latent, Value::Bool(result));
+        }
         n
+    }
+
+    /// Report one event emitted by a reference's behavior graph to Papyrus
+    /// listeners and any `WaitForAnimationEvent` calls.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        self.world
+            .borrow_mut()
+            .animation_event(source, name, &mut |script, class| {
+                vm.create_object_of(script, class)
+            });
+    }
+
+    /// Complete waits false when the reference's behavior graph unloads.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.world.borrow_mut().animation_graph_unloaded(source);
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
@@ -849,4 +1287,94 @@ impl Game {
             .map(|e| e.message.clone())
             .collect()
     }
+}
+
+fn oar_condition_matches(
+    condition: &soe_moddata::oar::Condition,
+    female: bool,
+    base: GlobalFormId,
+    race: Option<GlobalFormId>,
+    order: &LoadOrder,
+) -> bool {
+    // OAR requires the named SKSE plugin before it evaluates this condition.
+    // The runtime has no SKSE plugin loader for that dependency.
+    if condition
+        .required_plugin
+        .as_deref()
+        .is_some_and(|name| !name.is_empty())
+    {
+        return false;
+    }
+    let result = match condition.name.as_str() {
+        "IsFemale" => Some(female),
+        "IsActorBase" => oar_condition_form(condition, order).map(|form| form == base),
+        "IsRace" => oar_condition_form(condition, order).map(|form| Some(form) == race),
+        _ => None,
+    };
+    result.is_some_and(|value| value != condition.negated)
+}
+
+fn oar_condition_form(
+    condition: &soe_moddata::oar::Condition,
+    order: &LoadOrder,
+) -> Option<GlobalFormId> {
+    let (plugin, raw_id) = if let Some(form) = condition
+        .parameters
+        .get("form")
+        .and_then(|value| value.as_object())
+    {
+        let plugin = form.get("pluginName")?.as_str()?;
+        let raw_id = form.get("formID")?;
+        let raw_id = raw_id
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| raw_id.as_u64().map(|id| format!("0x{id:X}")))?;
+        (plugin.to_string(), raw_id)
+    } else {
+        let raw = condition.parameters.get("raw")?.as_str()?;
+        let (_, argument) = raw.split_once('(')?;
+        let argument = argument.strip_suffix(')')?;
+        let (plugin, raw_id) = argument.split_once('|')?;
+        (
+            plugin.trim().trim_matches('"').to_string(),
+            raw_id.trim().to_string(),
+        )
+    };
+    if plugin.is_empty() {
+        return None;
+    }
+    let raw_id = if raw_id.starts_with("0x") || raw_id.starts_with("0X") {
+        raw_id
+    } else {
+        format!("0x{raw_id}")
+    };
+    let form_ref = soe_moddata::FormRef::parse(&format!("{raw_id}~{plugin}"));
+    form_ref.resolve(order)
+}
+
+fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            if let Some(found) = find_oar_clip(&path, file_name) {
+                return Some(found);
+            }
+        } else if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("hkx"))
+            && path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .eq_ignore_ascii_case(&file_name.to_string_lossy())
+            })
+        {
+            return Some(path);
+        }
+    }
+    None
 }

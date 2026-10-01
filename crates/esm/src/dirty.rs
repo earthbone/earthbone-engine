@@ -64,17 +64,27 @@ impl DirtyReport {
 
     #[must_use]
     pub fn identical_to_master(&self) -> usize {
-        self.plugins.iter().map(|p| p.identical_to_master).sum()
+        let mut count = 0;
+        for plugin in &self.plugins {
+            count += plugin.identical_to_master;
+        }
+        count
     }
 
     #[must_use]
     pub fn deleted_references(&self) -> usize {
-        self.plugins.iter().map(|p| p.deleted_references).sum()
+        let mut total = 0;
+        for plugin in &self.plugins {
+            total += plugin.deleted_references;
+        }
+        total
     }
 
     #[must_use]
     pub fn deleted_navmeshes(&self) -> usize {
-        self.plugins.iter().map(|p| p.deleted_navmeshes).sum()
+        self.plugins
+            .iter()
+            .fold(0, |count, plugin| count + plugin.deleted_navmeshes)
     }
 }
 

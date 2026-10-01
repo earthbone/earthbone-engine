@@ -47,6 +47,19 @@ then intersects every portal to retain triangle-plane height changes. Each point
 has a `point_nodes` owner, so cell changes do not depend on waypoint counts.
 `reachable` floods from a node for connectivity checks.
 
+Runtime callers can register explicit cylinder and axis-aligned box obstacles.
+The query blocks triangles whose projected footprints intersect a registered shape, so
+affected paths use alternate triangles while adjacency and unrelated routes stay
+unchanged. Removing the obstacle restores those routes. Invalid dimensions are
+rejected. The shapes and obstacle handles are runtime state and are not saved.
+This follows the explicit-shape model in local
+`recastnavigation/DetourTileCache/Include/DetourTileCache.h`, whose tile cache
+rebuilds tiles touched by obstacle requests. This graph evaluates affected
+triangles directly instead of rebuilding tiles. Local
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbNVNM` Door Links, stores a triangle,
+Pathing Door CRC and door reference. That metadata does not supply obstacle
+geometry, so callers must provide a shape.
+
 The algorithm is adapted from local recastnavigation's
 `Detour/Source/DetourNavMeshQuery.cpp`, `findStraightPath` and `appendPortals`
 with all crossings. This Rust adaptation retains the source notice in
@@ -320,6 +333,13 @@ and closed-door arrays, each associating a pathing door with a triangle.
 Blocking all edges of that triangle would remove ordinary walkable space,
 not just the doorway connection.
 
+`vanilla::Builder` now resolves each NAVM door REFR through the same load-order
+resolver used for navmesh references and retains its authored `NodeId` in
+`NavGraph::door_nodes`. Invalid triangle indices and unresolved door references
+are omitted from this index. The index is sorted and deduplicated, and it does
+not change pathfinding or triangle walkability. `tests/ai_09.rs` exercises this
+mapping and confirms that a door association does not block its triangle.
+
 Local `recastnavigation/DetourTileCache/Include/DetourTileCache.h` requires
 an explicit cylinder or box obstacle and rebuilds affected tiles. It does
 not recover a swinging door's footprint from an NVNM door association.
@@ -328,9 +348,9 @@ be established before an automatic blocking-door update can be claimed.
 The game already stores lock and logical open state on the shared reference.
 Those fields alone cannot identify which triangle edge the door obstructs.
 
-AI-09 is blocked on HST-01, swinging-door animation and collision, and AI-17,
-dynamic obstacle updates. Its acceptance check still requires closing one
-blocking door to remove only its navigation link and opening to restore it.
-Physical footprint binding and invalidation of already planned routes are
-prerequisites. No door-edge heuristic or runtime implementation was added by
-this research disposition.
+AI-09 still requires HST-01 swinging-door collision and physical footprint
+binding, plus AI-17 dynamic obstacle updates and invalidation of already
+planned routes. Those changes must bind the footprint to the specific crossing
+link before runtime lock or door state can close that link and reopening can
+restore it. `NavGraph::door_nodes` only retains the authored association. It
+does not close a link based on runtime state.

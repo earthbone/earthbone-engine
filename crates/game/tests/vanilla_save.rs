@@ -13,6 +13,9 @@ mod npcs;
 #[path = "vanilla_save/references.rs"]
 mod references;
 
+#[path = "vanilla_save/projectiles.rs"]
+mod projectiles;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 
@@ -22,13 +25,27 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/appa_idlm.rs"]
+mod appa_idlm;
+#[path = "vanilla_save/base_objects.rs"]
+mod base_objects;
+#[path = "vanilla_save/record_changes.rs"]
+mod record_changes;
+
 #[path = "vanilla_save/pack_navmesh.rs"]
 mod pack_navmesh;
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+#[path = "vanilla_save/static_objects.rs"]
+mod static_objects;
+#[path = "vanilla_save/woop_mgef.rs"]
+mod woop_mgef;
+
+#[path = "common/legacy.rs"]
+mod legacy;
 
 #[path = "common/installed.rs"]
 mod installed;
-#[path = "common/legacy.rs"]
-mod legacy;
 
 #[path = "vanilla_save/activators.rs"]
 mod activators;
@@ -383,6 +400,37 @@ fn late_invalid_or_repeated_globals_leave_the_entire_game_unchanged() {
         assert!(game.world_mut().restore_vanilla_globals(&save).is_err());
         assert_eq!(game.save_state().unwrap(), before);
     }
+}
+
+#[test]
+fn sav_09_last_papyrus_pass_error_restores_world_and_vm() {
+    let mut game = Game::new(references::fixture_order());
+    let global = id(3, 0x800);
+    game.world_mut().set_global(global, 7.0);
+    game.vm.create_object("prior VM object");
+    let before = game.save_state().unwrap();
+
+    let mut save = references::fixture();
+    save.form_id_array.push(0x0100_0800);
+    save.table_1.push(GlobalData {
+        kind: GlobalData::GLOBAL_VARIABLES,
+        data: GlobalVariables {
+            variables: vec![GlobalVariable {
+                form: reference(3),
+                value: 42.5,
+            }],
+        }
+        .write()
+        .unwrap(),
+    });
+    save.table_3 = vec![GlobalData {
+        kind: GlobalData::PAPYRUS,
+        data: vec![0xff],
+    }];
+
+    let result = game.restore_vanilla_world_and_vm(&save);
+    assert!(matches!(result, Err(RestoreError::Save(_))), "{result:?}");
+    assert_eq!(game.save_state().unwrap(), before);
 }
 
 #[test]

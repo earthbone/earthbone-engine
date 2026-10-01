@@ -19,6 +19,7 @@ pub struct PatrolState {
     pub current: GlobalFormId,
     pub reverse: bool,
     pub dwell_until: Option<f64>,
+    pub mount: Option<GlobalFormId>,
 }
 
 pub(super) struct Parameters {
@@ -27,6 +28,7 @@ pub(super) struct Parameters {
     radius: f32,
     repeat: bool,
     nearest: bool,
+    horse: bool,
 }
 
 impl Parameters {
@@ -36,18 +38,19 @@ impl Parameters {
         else {
             return Err("Patrol parameter types or omitted inputs, AI-90");
         };
-        if *horse {
-            return Err("mounted Patrol, AI-89");
-        }
         if *static_path {
-            return Err("Patrol StaticPathing, AI-90");
+            return Err("Patrol StaticPathing behavior is unverified, AI-90");
         }
         if !radius.is_finite() || *radius < 0.0 {
             return Err("invalid Patrol radius");
         }
         if !matches!(
             target.target,
-            Target::Reference(_) | Target::LinkedReference(0)
+            Target::Reference(_)
+                | Target::ObjectId(_)
+                | Target::ObjectType(_)
+                | Target::LinkedReference(0)
+                | Target::Alias(_)
         ) {
             return Err("Patrol target mode, AI-91");
         }
@@ -57,6 +60,7 @@ impl Parameters {
             radius: *radius,
             repeat: *repeat,
             nearest: *nearest,
+            horse: *horse,
         })
     }
 }
@@ -242,6 +246,109 @@ fn destination(
     Ok(())
 }
 
+fn owned_available_horse(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
+    let actor_base = world.reference(actor)?.base?;
+    let horse_keyword = world.form("ActorTypeHorse")?;
+    let factions: std::collections::BTreeSet<_> =
+        world.actor(actor)?.factions.keys().copied().collect();
+    let mut candidates: Vec<_> = world
+        .order()
+        .winners_of(T(b"ACHR"))
+        .map(|(id, _)| id)
+        .collect();
+    candidates.sort();
+    let occupied: std::collections::BTreeSet<_> = world
+        .loaded_actors()
+        .into_iter()
+        .filter_map(|id| {
+            world
+                .actor_ref(id)
+                .and_then(|state| state.ai.patrol.as_ref())
+                .and_then(|state| state.mount)
+        })
+        .collect();
+    for horse in candidates {
+        if occupied.contains(&horse) {
+            continue;
+        }
+        let Some((enabled, deleted, base, owner)) = world
+            .reference(horse)
+            .map(|r| (r.enabled, r.deleted, r.base, r.owner))
+        else {
+            continue;
+        };
+        if !enabled
+            || deleted
+            || !owner.is_some_and(|owner| owner == actor_base || factions.contains(&owner))
+        {
+            continue;
+        }
+        let Some(base) = base else {
+            continue;
+        };
+        let race = world
+            .npc(base)
+            .and_then(|npc| npc.race)
+            .and_then(|raw| world.resolve_from(base, raw));
+        if !race.is_some_and(|race| world.keywords(race).contains(&horse_keyword)) {
+            continue;
+        }
+        if world
+            .actor(horse)
+            .is_some_and(|state| !state.dead && !state.unconscious)
+        {
+            return Some(horse);
+        }
+    }
+    None
+}
+
+fn follow_mount(world: &mut World, ai: &mut AiState, actor: GlobalFormId) {
+    let Some(mount) = ai.patrol.as_ref().and_then(|state| state.mount) else {
+        return;
+    };
+    let horse = world.reference(mount).map(|horse| {
+        (
+            horse.enabled,
+            horse.deleted,
+            horse.is_actor,
+            horse.base,
+            horse.owner,
+        )
+    });
+    let rider_base = world.reference(actor).and_then(|rider| rider.base);
+    let rider_factions = world.actor_ref(actor).map(|rider| &rider.factions);
+    let owned = horse.is_some_and(|(_, _, _, _, owner)| {
+        owner.is_some_and(|owner| {
+            Some(owner) == rider_base
+                || rider_factions.is_some_and(|factions| factions.contains_key(&owner))
+        })
+    });
+    let horse_available = horse.is_some_and(|(enabled, deleted, is_actor, base, _)| {
+        enabled && !deleted && is_actor && base.is_some()
+    });
+    let rider_available = world
+        .actor_ref(mount)
+        .is_some_and(|state| !state.dead && !state.unconscious);
+    let available = owned && horse_available && rider_available;
+    if !available {
+        if let Some(state) = &mut ai.patrol {
+            state.mount = None;
+        }
+        return;
+    }
+    let placement = world
+        .reference(actor)
+        .map(|rider| (rider.position, rider.rotation, rider.cell));
+    if let Some((position, rotation, cell)) = placement {
+        if let Some(horse) = world.reference(mount) {
+            horse.position = position;
+            horse.rotation = rotation;
+            horse.cell = cell;
+        }
+    }
+}
+
 fn fail(ai: &mut AiState, reason: &'static str) {
     ai.procedure = Procedure::Unsupported(reason.into());
     ai.patrol = None;
@@ -271,6 +378,14 @@ fn start(
     let start = match params.target {
         Target::Reference(raw) if raw != 0 => world.resolve_from(params.owner, raw),
         Target::LinkedReference(0) => next_link(world, actor)?,
+        Target::ObjectId(raw) if raw != 0 => world
+            .resolve_from(params.owner, raw)
+            .and_then(|base| object_id_start(world, base, &mut std::collections::BTreeSet::new())),
+        Target::ObjectType(kind) => object_type_start(world, kind),
+        Target::Alias(alias) => ai
+            .package
+            .and_then(|package| world.owning_quest(package))
+            .and_then(|quest| world.alias_ref(quest, alias)),
         _ => None,
     }
     .ok_or("Patrol has no route start")?;
@@ -300,15 +415,59 @@ fn start(
         }
     }
     ai.radius = params.radius;
+    let mount = if params.horse {
+        owned_available_horse(world, actor)
+    } else {
+        None
+    };
     destination(world, ai, points[index])?;
     ai.patrol = Some(PatrolState {
         start,
         current: points[index],
         reverse,
         dwell_until: used_terminal.then_some(world.clock.real_seconds),
+        mount,
     });
     ai.arrived = used_terminal;
     Ok(())
+}
+
+fn object_id_start(
+    world: &mut World,
+    object: GlobalFormId,
+    visiting: &mut std::collections::BTreeSet<GlobalFormId>,
+) -> Option<GlobalFormId> {
+    if world.is_reference(object) {
+        return Some(object);
+    }
+    if world.tag_of(object) == Some(T(b"FLST")) {
+        if !visiting.insert(object) {
+            return None;
+        }
+        let items = world.form_list(object)?.clone();
+        let found = items
+            .into_iter()
+            .find_map(|item| object_id_start(world, item, visiting));
+        visiting.remove(&object);
+        return found;
+    }
+    world.references_of_base(object, 1).into_iter().next()
+}
+
+fn object_type_start(world: &World, kind: u32) -> Option<GlobalFormId> {
+    // wbObjectTypeEnum in TES5Edit assigns 8 to Miscellaneous. The other
+    // categories need their own record and subtype filters before selection.
+    if kind != 8 {
+        return None;
+    }
+    let bases: Vec<GlobalFormId> = world
+        .order()
+        .winners_of(T(b"MISC"))
+        .map(|(base, _)| base)
+        .collect();
+    bases
+        .into_iter()
+        .find_map(|base| world.references_of_base(base, 1).into_iter().next())
 }
 
 pub(super) fn tick(world: &mut World, actor: GlobalFormId, ai: &mut AiState, alloc: Alloc<'_>) {
@@ -342,6 +501,14 @@ pub(super) fn prepare(world: &mut World, ai: &mut AiState) {
     if let Err(reason) = result {
         fail(ai, reason);
     }
+}
+
+pub(super) fn follow_mount_after_movement(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &mut AiState,
+) {
+    follow_mount(world, ai, actor);
 }
 
 fn advance(
@@ -412,7 +579,7 @@ fn release_furniture(world: &mut World, actor: GlobalFormId, marker: GlobalFormI
     }
 }
 
-pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {
+pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>, version: u16) {
     w.bool(state.is_some());
     if let Some(state) = state {
         for id in [state.start, state.current] {
@@ -420,6 +587,13 @@ pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {
             w.u32(id.object);
         }
         w.bool(state.reverse);
+        if version >= 35 {
+            w.bool(state.mount.is_some());
+            if let Some(mount) = state.mount {
+                w.u16(mount.file);
+                w.u32(mount.object);
+            }
+        }
         w.bool(state.dwell_until.is_some());
         if let Some(until) = state.dwell_until {
             w.f64(until);
@@ -427,7 +601,7 @@ pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {
     }
 }
 
-pub(super) fn read(r: &mut Reader<'_>) -> Result<PatrolState, VmError> {
+pub(super) fn read(r: &mut Reader<'_>, has_mount: bool) -> Result<PatrolState, VmError> {
     if !r.bool()? {
         return Err(VmError::State("missing Patrol progress".into()));
     }
@@ -440,6 +614,14 @@ pub(super) fn read(r: &mut Reader<'_>) -> Result<PatrolState, VmError> {
         object: r.u32()?,
     };
     let reverse = r.bool()?;
+    let mount = if has_mount && r.bool()? {
+        Some(GlobalFormId {
+            file: r.u16()?,
+            object: r.u32()?,
+        })
+    } else {
+        None
+    };
     let dwell_until = if r.bool()? {
         let until = r.f64()?;
         if !until.is_finite() || until < 0.0 {
@@ -454,5 +636,6 @@ pub(super) fn read(r: &mut Reader<'_>) -> Result<PatrolState, VmError> {
         current,
         reverse,
         dwell_until,
+        mount,
     })
 }
