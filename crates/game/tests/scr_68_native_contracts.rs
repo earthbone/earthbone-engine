@@ -52,7 +52,6 @@ const QUEST_METHODS: &[&str] = &[
 
 const ALIAS_METHODS: &[&str] = &[
     "clear",
-    "forcerefifempty",
     "forcerefto",
     "getactorref",
     "getactorreference",
@@ -65,6 +64,7 @@ const ALIAS_METHODS: &[&str] = &[
 
 const REFERENCE_ALIAS_METHODS: &[&str] = &[
     "addinventoryeventfilter",
+    "forcerefifempty",
     "removeallinventoryeventfilters",
     "removeinventoryeventfilter",
 ];
