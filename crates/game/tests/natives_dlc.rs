@@ -1109,15 +1109,13 @@ fn place_actor_at_me_makes_one_actor() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// The shader, effect and music calls the DLC scripts make most often are
-/// registered and quiet, so a vanilla flow runs past them rather than
+/// The shader and visual effect calls are registered and quiet, so a vanilla flow runs past them rather than
 /// stopping on an unresolved call.
 #[test]
 fn the_effect_systems_take_their_calls_quietly() {
     let mut g = game();
     let shader = obj(&mut g, "BloodShader");
     let effect = obj(&mut g, "VampireChangeFX");
-    let music = obj(&mut g, "SoulCairnMusic");
     let vampire = obj(&mut g, "VampireRef");
     call(
         &mut g,
@@ -1133,8 +1131,6 @@ fn the_effect_systems_take_their_calls_quietly() {
         &[vampire.clone(), Value::Float(2.0)],
     );
     call(&mut g, &effect, "Stop", &[vampire.clone()]);
-    call(&mut g, &music, "Add", &[]);
-    call(&mut g, &music, "Remove", &[]);
     call(&mut g, &vampire, "Reset", &[]);
     call(&mut g, &vampire, "StopTranslation", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));

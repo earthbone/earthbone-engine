@@ -76,6 +76,7 @@ mod localization;
 mod locks;
 mod lookup;
 pub mod magic;
+mod music;
 mod npc_restore;
 mod objects;
 mod outfits;
@@ -753,6 +754,8 @@ pub struct World {
     next_sound: i32,
     /// Transient renderer requests for EffectShader Play and Stop.
     pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
+    /// Active `MusicType.Add` entries in the order scripts added them.
+    music_types: Vec<GlobalFormId>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -929,6 +932,7 @@ impl World {
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             effect_shader_requests: Vec::new(),
+            music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
