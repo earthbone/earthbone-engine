@@ -1213,6 +1213,85 @@ fn faction_relations_write_both_directions() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// `ModReaction` applies its amount to the selected direction only.
+#[test]
+fn scr_25_mod_reaction_changes_selected_direction() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    call(
+        &mut g,
+        &guards,
+        "ModReaction",
+        &[thieves.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves.clone()]),
+        Value::Int(3),
+        "the requested amount must be applied"
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards]),
+        Value::Int(0),
+        "the reverse relation must not change"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// `ModReaction` defaults a missing relation to neutral, ignores a missing
+/// target, and saturates instead of overflowing.
+#[test]
+fn scr_25_mod_reaction_handles_default_missing_target_and_overflow() {
+    let mut g = game();
+    let guards_id = g.form("GuardsFaction").unwrap();
+    let thieves_id = g.form("ThievesFaction").unwrap();
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    call(
+        &mut g,
+        &thieves,
+        "ModReaction",
+        &[guards.clone(), Value::Int(-1)],
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards.clone()]),
+        Value::Int(-1),
+        "an absent relation starts from neutral"
+    );
+    call(
+        &mut g,
+        &thieves,
+        "ModReaction",
+        &[Value::None, Value::Int(8)],
+    );
+    assert_eq!(
+        g.world_mut()
+            .faction(thieves_id)
+            .unwrap()
+            .reactions
+            .get(&guards_id),
+        Some(&-1),
+        "a missing target must leave the existing relation unchanged"
+    );
+    g.world_mut()
+        .faction(guards_id)
+        .unwrap()
+        .reactions
+        .insert(thieves_id, i32::MAX);
+    call(
+        &mut g,
+        &guards,
+        "ModReaction",
+        &[thieves.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves]),
+        Value::Int(i32::MAX),
+        "the reaction must saturate at the integer boundary"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// ModCrimeGold adds to the violent or non-violent bounty and to the
 /// infamy of that kind, GetCrimeGold is both, CanPayCrimeGold checks the
 /// player's gold, PlayerPayCrimeGold takes it and clears the bounty,
