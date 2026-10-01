@@ -23,12 +23,20 @@ mod ai_04_package_fragments;
 mod ai_05_breaker_adversarial;
 #[path = "ai_05_package_flags.rs"]
 mod ai_05_package_flags;
+#[path = "ai_09_adversarial.rs"]
+mod ai_09_adversarial;
+#[path = "ai_09_door_links.rs"]
+mod ai_09_door_links;
 #[path = "ai_12_adversarial.rs"]
 mod ai_12_adversarial;
 #[path = "ai_12_alias_fills.rs"]
 mod ai_12_alias_fills;
 #[path = "ai_14_adversarial.rs"]
 mod ai_14_adversarial;
+#[path = "ai_14_breaker_adversarial.rs"]
+mod ai_14_breaker_adversarial;
+#[path = "ai_14_breaker_adversarial_2.rs"]
+mod ai_14_breaker_adversarial_2;
 #[path = "ai_15_adversarial.rs"]
 mod ai_15_adversarial;
 #[path = "ai_16_adversarial.rs"]

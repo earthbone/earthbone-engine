@@ -156,9 +156,11 @@ impl Tree {
         actor: GlobalFormId,
         world: &mut World,
         quest: Option<GlobalFormId>,
-    ) -> Option<(f32, bool)> {
+    ) -> Option<(f32, bool, Option<u32>)> {
         let mut child = parent + 1;
         let mut duration = 0.0_f32;
+        let mut success_duration = None;
+        let mut success_branch = None;
         let mut stop_movement = false;
         let mut indefinite = false;
         let mut found = false;
@@ -171,12 +173,22 @@ impl Tree {
                 let (seconds, stop) = self.wait_parameters(branch)?;
                 duration = duration.max(seconds);
                 indefinite |= seconds == 0.0;
+                if branch.success_completes_package && seconds > 0.0 {
+                    let replace = success_duration.is_none_or(|current| seconds < current);
+                    if replace {
+                        success_duration = Some(seconds);
+                        success_branch = Some(child as u32);
+                    }
+                }
                 stop_movement |= stop;
                 found = true;
             }
             child = self.ends[child];
         }
-        found.then_some((if indefinite { 0.0 } else { duration }, stop_movement))
+        if let Some(seconds) = success_duration {
+            return Some((seconds, stop_movement, success_branch));
+        }
+        found.then_some((if indefinite { 0.0 } else { duration }, stop_movement, None))
     }
 
     fn patrol_parameters(
@@ -678,7 +690,10 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
         }
         if branch.kind.eq_ignore_ascii_case("simultaneous") && branch.procedure.is_none() {
             match tree.simultaneous_wait(index, actor, world, quest) {
-                Some((seconds, stop_movement)) => {
+                Some((seconds, stop_movement, completion_branch)) => {
+                    if let Some(branch) = completion_branch {
+                        state.branch = branch;
+                    }
                     state.active = true;
                     let deadline =
                         (seconds > 0.0).then_some(world.clock.real_seconds + f64::from(seconds));

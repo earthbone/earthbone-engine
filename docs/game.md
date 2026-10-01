@@ -2056,11 +2056,15 @@ selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
 An immediate `Simultaneous` group of condition-eligible `Wait` procedure
-children starts every timer against the same non-menu clock value. The group
-completes after its longest finite timer. A zero duration keeps it active.
-Changing the winning package cancels the active group with the package cursor.
-Other simultaneous child procedures remain unsupported until the completion
-policy in AI-87 is established from paired authored records.
+children starts every timer against the same non-menu clock value. Without a
+successful child, the group completes after its longest finite timer and
+records package completion once. A finite child with `Success Completes
+Package` ends the tree when its own timer expires, even if another child has a
+longer or indefinite timer. A zero duration keeps the group active when no
+finite successful child completes the package. Changing the winning package
+clears the group cursor and deadline without recording completion. Other
+simultaneous child procedures remain unsupported until the completion policy
+in AI-87 is established from paired authored records.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
 plus the local UESP PACK page. xEdit names the PKDT interrupt override values
@@ -6073,6 +6077,16 @@ exception. It does not specify movement distance or path selection. The engine
 uses its existing AI movement rate and navmesh driver for those details.
 `tests/mag_45_turn_undead.rs` covers eligible and ineligible targets, duration,
 the teammate exception, and installed record lookup when `SKYRIM_DATA` is set.
+
+## Runtime NAVM door links, AI-09
+
+The AI graph keeps NAVM door links as door-reference-to-triangle associations.
+It binds a link when the placed reference position lies inside the associated
+triangle in XY and within 64 units of its surface height. A closed bound door
+blocks that triangle in path searches. An open door restores it. A change to a
+bound door's open state clears cached actor waypoints so movement plans again
+against the current graph. Door triangles that do not contain the placed
+reference position remain unbound.
 
 ## Scroll casting, MAG-18
 

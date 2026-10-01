@@ -26,6 +26,20 @@ reports how many resolved. `vanilla::from_load_order` does that for every winnin
 `NAVM` a filter accepts, resolving FormIDs through the load order, which is how
 a patch that overrides one navmesh still links to the vanilla ones beside it.
 
+Door links remain door-reference-to-triangle associations, as xEdit's
+`wbDefinitionsTES5.pas` and CommonLibSSE-NG's `BSNavmesh.h` describe. The game
+binds an association only when the placed reference position lies inside the
+authored triangle footprint in XY and within 64 units of its surface height.
+This avoids binding an overlapping triangle on another floor. A closed bound
+door blocks that triangle in path queries, and opening it makes the triangle
+traversable again. This does not rewrite triangle edges or block neighboring
+triangles.
+Local `recastnavigation/DetourTileCache/Include/DetourTileCache.h` exposes
+cylinder and box obstacles that request compressed tile rebuilds through
+`update`. This graph uses authored vanilla triangles rather than compressed
+Recast tiles, so it applies door state directly to the associated triangle
+instead of introducing a tile-cache representation.
+
 ## The graph
 
 `NavGraph::find_path` is `A*` over triangle adjacency with centroid distance as the
@@ -177,7 +191,8 @@ was needed.
 
 - No large-creature path policy. Its NAVM flag is retained, but actor size is not
   yet part of navigation queries.
-- No dynamic obstacles or door state, the graph is static.
+- Door links follow the placed door reference position and opened state. Host
+  physics obstacle shapes still need a caller to register and update them.
 - Generation reads render meshes, not `bhk` collision, until `soe-nif` decodes
   those. Interiors are not tested against real data, only Tamriel's exteriors.
 - Generated `NVNM` does not author cover triangles or location CRC. NAVI info
