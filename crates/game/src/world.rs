@@ -268,6 +268,7 @@ pub struct ActorState {
     pub dead: bool,
     pub in_combat: bool,
     pub teammate: bool,
+    pub can_do_favors: bool,
     pub ghost: bool,
     pub essential: bool,
     pub protected: bool,
@@ -518,10 +519,14 @@ pub struct LosListener {
 }
 
 /// Runtime position and completed action slots for one playing scene.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SceneRunState {
     pub phase: u32,
     pub completed_actions: BTreeSet<u32>,
+    pub started_actions: BTreeSet<u32>,
+    pub timer_deadlines: BTreeMap<u32, f64>,
+    pub prior_packages: BTreeMap<GlobalFormId, Option<GlobalFormId>>,
+    pub prior_aliases: BTreeMap<GlobalFormId, Option<(GlobalFormId, u32)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -631,6 +636,7 @@ pub struct World {
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
     actors: HashMap<GlobalFormId, ActorState>,
+    pub(crate) follower_services: BTreeMap<GlobalFormId, crate::services::FollowerServiceState>,
     quests: HashMap<GlobalFormId, QuestState>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
@@ -851,6 +857,7 @@ impl World {
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),
+            follower_services: BTreeMap::new(),
             quests: HashMap::new(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),

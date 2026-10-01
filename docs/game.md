@@ -486,6 +486,17 @@ this runtime, so spell comparisons return false and casting type returns zero.
 Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
 state, dual-cast animation state and active voice variation are not tracked.
 
+**Follower services.** `World::recruit_follower` validates the actor,
+service faction and follow package. It enables teammate status and the
+requested favor permission, joins the faction at rank zero, and adds the
+service package before the actor's ordinary AI candidates. Dismissal restores
+the actor's prior teammate and favor values and its previous rank or absence
+in that faction, then removes the package overlay. The normal alias and base
+package stack remains underneath and becomes eligible again on reevaluation.
+This follows the CK `SetPlayerTeammate - Actor` description of teammate and
+favor flags. SOEW version 37 stores favor permission and active follower
+service ownership, including the values dismissal restores.
+
 **Equipment conditions.** CTDA identities and parameter types follow
 `TES5Edit/Core/wbDefinitionsTES5.pas` and
 `uesp-modfileformat/Raw_Function_Data.wikitext`. CTDA 636 checks the subject
@@ -691,13 +702,36 @@ Their CK contracts are described by
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Version 37 stores each reference's persistent flag. Action
-  slots use zero-based positions from the SCEN action list because two vanilla
-  scenes reuse action numbers. The SCEN layout follows
-  `TES5Edit/Core/wbDefinitionsTES5.pas` and
-  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
-  action dispatch, and the scene flags are not implemented. `Sound.Play`
+  action slots. Version 37 stores each reference's persistent flag and appends
+  named state sections. The `DLG-19` world and actor sections store started
+  action slots, timer deadlines, actor package overrides and prior package
+  assignments. Package actions assign the first listed package to their actor
+  alias and restore its previous package at the action's end phase. Timer
+  actions expire on real time and complete their action slot. Action slots use
+  zero-based positions from the SCEN action list because two vanilla scenes
+  reuse action numbers. The SCEN layout follows xEdit's `wbRecord(SCEN)` and the
+  UESP SCEN page. The local CK corpus's scene index describes scene and timer
+  fragments but does not include their detailed behavior pages. Timer dispatch
+  is implemented, while CTDA evaluation, dialogue action dispatch and scene
+  flags are not. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
+  `Game::start_scene_dialogue_action` dispatches one active Dialogue action by
+  its zero-based position in the SCEN action list. It resolves the speaker alias
+  through the scene's parent quest and starts the action's assigned DIAL through
+  the dialogue selector, including INFO conditions and begin fragments. The
+  host presents each returned line and calls
+  `Game::advance_scene_dialogue_action` after playback. That method advances
+  response lines, runs INFO completion behavior, then marks the SCEN action slot
+  complete and closes the conversation when the line ends. A completed action
+  whose end phase is later remains recorded until that phase can advance. The
+  action must be in its authored phase interval, and the alias must resolve to
+  an actor. The ordered action slot preserves distinct actions even though UESP
+  records overlapping action numbers in two vanilla scenes. xEdit's
+  `wbRecord(SCEN)` defines the action alias, DIAL, and phase interval. The local
+  CK `GetCurrentScene` page documents participant lookup only, so it supplies no
+  action scheduling behavior. This API dispatches dialogue actions when called,
+  it does not automatically schedule scene actions or evaluate scene
+  conditions.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
@@ -1259,6 +1293,15 @@ first procedure before conditions. The parser's `ai_87` paired `Simultaneous`
 fixtures keep `FNAM` clear and set as separate policies, including an unknown
 bit case. Its `SKYRIM_DATA` survey checks that authored Skyrim.esm
 `Simultaneous` procedure records include both policies.
+`ForceGreet` is retained as an active package procedure. Without bound inputs,
+the actor follows the package driver's navmesh path toward the player while no
+greeting conversation is open. When the actor is within dialogue distance and
+has an eligible Player-category ForceGreet topic, the ordinary dialogue
+selector opens it. Closing that conversation completes the active procedure
+branch. Bound target and topic inputs use the assigned greeting path described
+below. Missing bound inputs remain unsupported. The `DLG-14` actor section
+retains the procedure identity in SOEW version 37. The tooling helper
+`procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.
@@ -1886,8 +1929,9 @@ the appearance empty.
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
   procedures, see the Packages section for the rest. Scene phase advancement
-  is action-gated, but action execution, phase and scene CTDA evaluation,
-  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  is action-gated. Package and timer actions execute, but phase and scene CTDA
+  evaluation, dialogue action dispatch, and repeat-while-conditions behavior
+  are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Arrest choice accounting and jail
@@ -2690,8 +2734,9 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, ForceGreet approach
-packages, walk-away topic selection, scene action execution and timers,
+Remaining dialogue work includes missing conditions, ForceGreet target and
+assigned-topic inputs, walk-away topic selection, scene action execution and
+timers,
 barter transactions, complete alias behavior and wider interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.

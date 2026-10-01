@@ -1352,6 +1352,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Patrol => "Patrol".to_string(),
             Procedure::Guard => "Guard".to_string(),
             Procedure::Sit => "Sit".to_string(),
+            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::UseMagic => "UseMagic".to_string(),
             Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
@@ -1359,7 +1360,6 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Follow => "Follow".to_string(),
             Procedure::Escort => "Escort".to_string(),
             Procedure::Orbit { .. } => "Orbit".to_string(),
-            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::DialogueActivate => "DialogueActivate".to_string(),
             Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
             Procedure::HoldPosition => "HoldPosition".to_string(),
@@ -1377,11 +1377,11 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
                 | Procedure::Guard
+                | Procedure::ForceGreet
                 | Procedure::Hover
                 | Procedure::Follow
                 | Procedure::Escort
                 | Procedure::Orbit { .. }
-                | Procedure::ForceGreet
                 | Procedure::DialogueActivate
                 | Procedure::UseIdleMarker { .. }
                 | Procedure::HoldPosition

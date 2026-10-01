@@ -118,8 +118,6 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days and learned magic effects.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-/// Version 36 retains BOS record flags on instantiated references, the active
-/// phase and completed action slots for each scene.
 /// Version 36 retains BOS record flags on instantiated references and the
 /// active phase and completed action slots for each scene.
 /// Version 37 appends named section tables (`save_sections`) to the world,
@@ -127,25 +125,21 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// before 37 have no section tables. This is the last version this constant
 /// will reach. New saved state goes into a section registered in
 /// `save_section_registry` at its owning level.
-/// Version 37 accompanies the provenance-aware native game save envelope
-/// and carries Fallout 4 struct values in saved Papyrus state. World sections
-/// retain base and static object fields, APPA and IDLM fields, WOOP and MGEF
-/// markers, PACK and NAVM markers, script-qualified package fragment calls,
-/// unresolved records, lifecycle tasks and training sessions. Actor sections
-/// retain expression overrides, furniture markers, procedure state, voice
-/// recovery deadlines and progression. Reference sections retain persistence,
-/// record flags and destruction state.
 /// World sections include SAV-53 base-object fields, SAV-42 static-object
 /// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
 /// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
 /// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
 /// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
-/// records and native game-save dependency provenance. AI-88 retains each
-/// actor's reserved furniture marker, AI-36 retains the UseWeapon procedure,
-/// and AI-29 retains voice recovery deadlines. Reference sections retain
-/// persistence, world record flags, reference translation and current
-/// destruction stage through CMB-37. Flee procedure state is retained by the
-/// AI tree cursor and does not require a new section.
+/// records and native game-save dependency provenance. Actor sections retain
+/// expression overrides, furniture markers, procedure state, voice recovery
+/// deadlines and progression. The `DLG-14` actor section retains active
+/// ForceGreet package procedures. The `DLG-17` world and actor sections retain
+/// follower service ownership and favor permission. AI-88 retains each actor's
+/// reserved furniture marker, AI-36 retains the UseWeapon procedure, and AI-29
+/// retains voice recovery deadlines. Reference sections retain persistence,
+/// world record flags, reference translation and current destruction stage
+/// through CMB-37. Flee procedure state is retained by the AI tree cursor and
+/// does not require a new section.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1105,6 +1099,10 @@ impl World {
                         return Err(VmError::State("duplicate completed scene action".into()));
                     }
                 }
+                let started_actions = BTreeSet::new();
+                let timer_deadlines = BTreeMap::new();
+                let prior_packages = BTreeMap::new();
+                let prior_aliases = BTreeMap::new();
                 let scene_record = self.record(id).ok_or_else(|| {
                     VmError::State("scene runtime state names a missing form".into())
                 })?;
@@ -1119,12 +1117,28 @@ impl World {
                             .get(*slot as usize)
                             .is_none_or(|action| action.end_phase != Some(phase))
                     })
+                    || started_actions
+                        .iter()
+                        .any(|slot| scene.actions.get(*slot as usize).is_none())
+                    || timer_deadlines.keys().any(|slot| {
+                        !started_actions.contains(slot)
+                            || !scene.actions.get(*slot as usize).is_some_and(|action| {
+                                matches!(
+                                    action.data,
+                                    soe_esm::records::gameplay::SceneActionData::Timer { .. }
+                                )
+                            })
+                    })
                     || runs
                         .insert(
                             id,
                             super::SceneRunState {
                                 phase,
                                 completed_actions,
+                                started_actions,
+                                timer_deadlines,
+                                prior_packages,
+                                prior_aliases,
                             },
                         )
                         .is_some()
@@ -1174,6 +1188,7 @@ impl World {
         let previous_player_level =
             std::mem::replace(&mut self.player_level, fallback_player_level);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
+        let previous_follower_services = std::mem::take(&mut self.follower_services);
         let section_result = if version >= 37 {
             save_sections::read_sections_with_table(&mut r, "world", self, WORLD_SECTIONS, &table)
         } else {
@@ -1185,11 +1200,12 @@ impl World {
             Ok(())
         };
         let player_level = self.player_level;
-        scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         self.scenes = previous_scenes;
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
+        let follower_services =
+            std::mem::replace(&mut self.follower_services, previous_follower_services);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
@@ -1204,8 +1220,15 @@ impl World {
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
         self.cloak_effects = previous_cloaks;
+        scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         section_result?;
         validation_result?;
+        if follower_services
+            .keys()
+            .any(|actor| !refs.get(actor).is_some_and(|reference| reference.is_actor))
+        {
+            return Err(VmError::State("invalid follower service state".into()));
+        }
         r.expect_end()?;
         for (id, effect) in &active_effects {
             let headless_ability = effect.source == effect.target
@@ -1351,6 +1374,7 @@ impl World {
         self.detection = detection;
         self.learned_enchantment_effects = learned_enchantment_effects;
         self.detection_events.clear();
+        self.follower_services = follower_services;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1478,6 +1502,7 @@ pub(super) fn read_scene_runs(
                     super::SceneRunState {
                         phase,
                         completed_actions,
+                        ..Default::default()
                     },
                 )
                 .is_some()

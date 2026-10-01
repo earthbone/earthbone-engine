@@ -1097,6 +1097,7 @@ impl Game {
             }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
+            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
             w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
                 vm.create_object_of(n, c)
             });
