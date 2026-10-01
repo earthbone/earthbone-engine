@@ -9,7 +9,7 @@ namespace RE {
 enum class UnsupportedHook {
     FormCreation, InventoryMutation, ItemSelection, ItemListUpdate,
     BinaryAddress, VtablePatch, UnsupportedEquipOption,
-    ProjectileRuntime, BinaryPatch
+    ProjectileRuntime, BinaryPatch, ArrowProjectile, LoadFormBuffer, ActivateReferenceChildren
 };
 struct SettingValue {
     enum class Kind { Bool, Int, Float, String };

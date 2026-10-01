@@ -109,6 +109,7 @@ pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
 mod reference_restore;
 mod refs;
+mod shim_extras;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
 pub use refs::RefPlacement;
 mod leveled_items;
@@ -118,6 +119,7 @@ mod save_section_registry;
 mod save_sections;
 mod scr_40;
 mod shim;
+mod shim_runtime;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
@@ -840,6 +842,59 @@ pub struct World {
     pub(crate) weather: weather::WeatherState,
 }
 
+impl soe_commonlib_shim::world::ActorValueWorldState for World {
+    fn actor_value(&self, actor: u32, value: soe_commonlib_shim::world::ActorValue) -> Option<f32> {
+        let id = self
+            .actors
+            .keys()
+            .copied()
+            .find(|id| self.order.runtime_id(*id) == actor)?;
+        let name = crate::actor_values::actor_value_name(i32::try_from(value.0).ok()?)?;
+        Some(self.actors.get(&id)?.values.get(name).current())
+    }
+
+    fn set_actor_value(
+        &mut self,
+        actor: u32,
+        value: soe_commonlib_shim::world::ActorValue,
+        amount: f32,
+    ) -> bool {
+        let Some(id) = self
+            .actors
+            .keys()
+            .copied()
+            .find(|id| self.order.runtime_id(*id) == actor)
+        else {
+            return false;
+        };
+        let Some(name) = i32::try_from(value.0)
+            .ok()
+            .and_then(crate::actor_values::actor_value_name)
+        else {
+            return false;
+        };
+        self.set_actor_value(id, name, amount).is_ok()
+    }
+
+    fn actor_value_name(&self, value: soe_commonlib_shim::world::ActorValue) -> Option<String> {
+        crate::actor_values::actor_value_name(i32::try_from(value.0).ok()?).map(str::to_string)
+    }
+
+    fn actor_value_by_name(&self, name: &str) -> Option<soe_commonlib_shim::world::ActorValue> {
+        crate::actor_values::actor_value_index(name)
+            .and_then(|index| u32::try_from(index).ok())
+            .map(soe_commonlib_shim::world::ActorValue)
+    }
+
+    fn default_object(&self, key: [u8; 4]) -> Option<u32> {
+        crate::footsteps::Footsteps::new(&self.order)
+            .default_object(key)
+            .ok()
+            .flatten()
+            .map(|id| self.order.runtime_id(id))
+    }
+}
+
 /// An impulse queued by a Papyrus reference native for a host actor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorImpulse {
@@ -1203,5 +1258,54 @@ pub fn type_code_for_tag(tag: &[u8; 4]) -> i32 {
         b"FLST" => 91,
         b"LCTN" => 104,
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod shm_05_tests {
+    use super::*;
+    use soe_commonlib_shim::world::{ActorValue, ActorValueWorldState, BgsDefaultObjectManager};
+
+    #[test]
+    fn shm_05_game_world_exposes_live_actor_values_and_record_defaults() {
+        let mut world = World::new(LoadOrder::new());
+        let actor = GlobalFormId {
+            file: DYNAMIC_FILE,
+            object: 0x1234,
+        };
+        let mut state = ActorState::default();
+        state
+            .values
+            .set_base("health", 100.0)
+            .expect("valid actor value fixture");
+        world.actors.insert(actor, state);
+        let mut reference = RefState::new(None);
+        reference.is_actor = true;
+        world.refs.insert(actor, reference);
+
+        let runtime_actor = world.order.runtime_id(actor);
+        assert_eq!(
+            ActorValueWorldState::actor_value_name(&world, ActorValue::HEALTH).as_deref(),
+            Some("health")
+        );
+        assert_eq!(
+            ActorValueWorldState::actor_value_by_name(&world, "HEALTH"),
+            Some(ActorValue::HEALTH)
+        );
+        assert_eq!(
+            ActorValueWorldState::actor_value(&world, runtime_actor, ActorValue::HEALTH),
+            Some(100.0)
+        );
+        assert!(ActorValueWorldState::set_actor_value(
+            &mut world,
+            runtime_actor,
+            ActorValue::HEALTH,
+            75.0
+        ));
+        assert_eq!(
+            ActorValueWorldState::actor_value(&world, runtime_actor, ActorValue::HEALTH),
+            Some(75.0)
+        );
+        assert_eq!(BgsDefaultObjectManager::new(&world).get(*b"GOLD"), None);
     }
 }

@@ -9,6 +9,7 @@
 namespace RE {
 struct FormId {
     std::uint32_t value;
+    friend constexpr bool operator==(FormId, FormId) = default;
     static constexpr std::uint32_t LIGHT_PREFIX = 0xFE;
     static constexpr std::uint32_t LIGHT_LOCAL_MASK = 0x0FFF;
     std::optional<std::uint8_t> slot() const noexcept {

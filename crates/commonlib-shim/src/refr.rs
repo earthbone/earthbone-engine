@@ -1,11 +1,70 @@
 // SPDX-License-Identifier: MIT
 
-//! References and actors: the runtime objects the round-2 `game` crate owns.
-//! The shim names them as handles, since a plugin holds a `RE::ObjectRefHandle`
-//! or `RE::ActorHandle` across frames and the engine decides what backs it.
+//! Reference and actor contracts adapted from the CommonLibSSE-NG reference
+//! headers. The game crate implements them with handles into its shared world.
 
 use crate::form::FormId;
 use crate::ni::NiPoint3;
+
+/// Runtime data exposed by CommonLib's ExtraLeveledItemBase.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ExtraLeveledItemBase {
+    pub leveled_item: FormId,
+}
+
+/// Runtime light override values carried by ExtraLightData.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ExtraLightData {
+    pub fov: f32,
+    pub fade: f32,
+    pub end_distance_cap: f32,
+    pub shadow_depth_bias: f32,
+    pub unknown: u8,
+}
+
+/// A keyword and reference pair from ExtraLinkedRefChildren.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LinkedRefChild {
+    pub keyword: FormId,
+    pub reference: ObjectRefHandle,
+}
+
+/// Map marker data exposed by ExtraMapMarker.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExtraMapMarker {
+    pub name: String,
+    pub flags: u8,
+    pub marker_type: u16,
+}
+
+/// A keyword and unresolved target id from ExtraMissingLinkedRefIDs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MissingLinkedRefId {
+    pub keyword: FormId,
+    pub linked_reference: FormId,
+}
+
+/// Read-only view of the five reference extra-data types in this batch.
+/// Missing values mean the reference has no corresponding extra data.
+pub trait ReferenceExtraData {
+    fn leveled_item_base(&self) -> Option<ExtraLeveledItemBase>;
+    fn light_data(&self) -> Option<ExtraLightData>;
+    fn linked_ref_children(&self) -> &[LinkedRefChild];
+    fn map_marker(&self) -> Option<ExtraMapMarker>;
+    fn missing_linked_ref_ids(&self) -> &[MissingLinkedRefId];
+}
+
+/// Executable-address and vtable hooks have no implementation in this engine.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UnsupportedHook {
+    pub name: &'static str,
+    pub reason: &'static str,
+}
+
+pub const EXTRA_DATA_HOOKS: &[UnsupportedHook] = &[UnsupportedHook {
+    name: "CommonLib extra-data vtable hooks",
+    reason: "Skyrim executable vtables have no target in the Rust engine",
+}];
 
 /// `RE::ObjectRefHandle`: a reference that may have been unloaded since.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -14,6 +73,48 @@ pub struct ObjectRefHandle(pub u32);
 /// `RE::ActorHandle`, the same handle space narrowed to actors.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ActorHandle(pub u32);
+
+/// `RE::ActorPtr`, represented as an optional stable handle rather than a
+/// pointer into engine-owned memory.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ActorPtr(pub Option<ActorHandle>);
+
+/// A read-only snapshot of the `RE::ActorState` fields the runtime models.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ActorState {
+    pub dead: bool,
+    pub unconscious: bool,
+    pub sneaking: bool,
+    pub weapon_drawn: bool,
+    pub blocking: bool,
+}
+
+/// Unsupported binary hooks are returned as data so source ports can fail
+/// explicitly instead of silently installing a no-op.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HookError {
+    AddressPatch,
+    CallDetour,
+    VtableOverride,
+    Trampoline,
+}
+
+/// A rejected operation at the actor compatibility boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ActorApiError {
+    InvalidActor,
+    UnknownForm,
+    UnsupportedOperation,
+}
+
+/// The live engine operations exposed by `RE::ActorEquipManager`.
+pub trait ActorEquipManager {
+    fn equip_object(&mut self, actor: ActorHandle, object: FormId) -> Result<(), ActorApiError>;
+    fn unequip_object(&mut self, actor: ActorHandle, object: FormId) -> Result<(), ActorApiError>;
+    fn reject_hook(&self, hook: HookError) -> Result<(), HookError> {
+        Err(hook)
+    }
+}
 
 impl From<ActorHandle> for ObjectRefHandle {
     fn from(h: ActorHandle) -> Self {
@@ -38,8 +139,10 @@ pub trait ObjectRef {
 /// The `RE::Actor` surface: the object-ref surface plus actor state.
 pub trait Actor: ObjectRef {
     fn actor_handle(&self) -> ActorHandle;
-    fn actor_value(&self, av: ActorValue) -> f32;
-    fn set_actor_value(&mut self, av: ActorValue, value: f32) -> Result<(), Unsupported>;
+    fn actor_ptr(&self) -> ActorPtr;
+    fn state(&self) -> ActorState;
+    fn actor_value(&self, av: ActorValue) -> Result<f32, ActorApiError>;
+    fn set_actor_value(&mut self, av: ActorValue, value: f32) -> Result<(), ActorApiError>;
     fn race(&self) -> FormId;
     fn is_dead(&self) -> bool;
     fn is_player(&self) -> bool;

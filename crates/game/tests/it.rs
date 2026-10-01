@@ -993,6 +993,18 @@ mod scr_72_adversarial;
 mod scr_73_adversarial;
 #[path = "scr_73_native_contract_audit.rs"]
 mod scr_73_native_contract_audit;
+#[path = "shm_03_live_world.rs"]
+mod shm_03_live_world;
+#[path = "shm_04_actor_world_binding.rs"]
+mod shm_04_actor_world_binding;
+#[path = "shm_06_world.rs"]
+mod shm_06_world;
+#[path = "shm_07_bindings.rs"]
+mod shm_07_bindings;
+#[path = "shm_08_live_extra_data.rs"]
+mod shm_08_live_extra_data;
+#[path = "shm_09_live_extras.rs"]
+mod shm_09_live_extras;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 #[path = "shm_12_live_world.rs"]

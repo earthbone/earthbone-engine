@@ -5,10 +5,10 @@
 use soe_commonlib_shim::form::{DataHandler, FileInfo, Form, FormId, FormType};
 use soe_commonlib_shim::ni::NiPoint3;
 use soe_commonlib_shim::refr::{
-    Actor, ActorHandle, ActorValue, ObjectRef, ObjectRefHandle, ObjectRefPtr, Unsupported,
-    WeaponState,
+    Actor, ActorApiError, ActorHandle, ActorPtr, ActorState, ActorValue, ObjectRef,
+    ObjectRefHandle, ObjectRefPtr, Unsupported, WeaponState,
 };
-use soe_commonlib_shim::world::{
+use soe_commonlib_shim::world_runtime::{
     ReanimateEffect, RuntimeState, Setting, SettingValue as RuntimeSettingValue, SitSleepState,
     Sky, UnsupportedWorldHook,
 };
@@ -409,24 +409,37 @@ impl Actor for LiveActor<'_> {
         ActorHandle(self.world.runtime_id(self.id))
     }
 
-    fn actor_value(&self, value: ActorValue) -> f32 {
-        let Some(name) = crate::actor_values::actor_value_name(value.0 as i32) else {
-            return 0.0;
-        };
-        self.world
-            .actor_ref(self.id)
-            .map_or(0.0, |actor| actor.values.get(name).current())
+    fn actor_ptr(&self) -> ActorPtr {
+        ActorPtr(Some(self.actor_handle()))
     }
 
-    fn set_actor_value(&mut self, value: ActorValue, amount: f32) -> Result<(), Unsupported> {
-        let name = crate::actor_values::actor_value_name(value.0 as i32).ok_or(Unsupported {
-            operation: "Actor::SetActorValue for unknown ActorValue",
-        })?;
+    fn state(&self) -> ActorState {
+        self.world
+            .actor_ref(self.id)
+            .map_or_else(ActorState::default, |actor| ActorState {
+                dead: actor.dead,
+                unconscious: actor.unconscious,
+                sneaking: actor.sneaking,
+                weapon_drawn: actor.weapon_drawn,
+                blocking: actor.blocking,
+            })
+    }
+
+    fn actor_value(&self, value: ActorValue) -> Result<f32, ActorApiError> {
+        let name = crate::actor_values::actor_value_name(value.0 as i32)
+            .ok_or(ActorApiError::UnsupportedOperation)?;
+        self.world
+            .actor_ref(self.id)
+            .map(|actor| actor.values.get(name).current())
+            .ok_or(ActorApiError::InvalidActor)
+    }
+
+    fn set_actor_value(&mut self, value: ActorValue, amount: f32) -> Result<(), ActorApiError> {
+        let name = crate::actor_values::actor_value_name(value.0 as i32)
+            .ok_or(ActorApiError::UnsupportedOperation)?;
         self.world
             .set_actor_value(self.id, name, amount)
-            .map_err(|_| Unsupported {
-                operation: "Actor::SetActorValue rejected by runtime validation",
-            })
+            .map_err(|_| ActorApiError::UnsupportedOperation)
     }
 
     fn race(&self) -> FormId {
@@ -819,15 +832,13 @@ mod tests {
         let mut actor = world.commonlib_actor(id).unwrap();
         assert_eq!(actor.form_id(), FormId(0x801));
         assert_eq!(actor.actor_handle(), ActorHandle(0x801));
-        assert_eq!(actor.actor_value(ActorValue::HEALTH), 90.0);
+        assert_eq!(actor.actor_value(ActorValue::HEALTH), Ok(90.0));
         assert_eq!(actor.weapon_state(), WeaponState::Drawn);
         assert_eq!(actor.race(), FormId(0x800));
         actor.set_actor_value(ActorValue::HEALTH, 75.0).unwrap();
-        assert_eq!(actor.actor_value(ActorValue::HEALTH), 75.0);
+        assert_eq!(actor.actor_value(ActorValue::HEALTH), Ok(75.0));
         assert!(actor
             .set_actor_value(ActorValue(u32::MAX), 10.0)
-            .unwrap_err()
-            .operation
-            .contains("unknown ActorValue"));
+            .is_err_and(|error| error == ActorApiError::UnsupportedOperation));
     }
 }

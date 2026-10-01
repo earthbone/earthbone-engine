@@ -1,123 +1,261 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! CommonLib source-level views over the live form and reference state.
-//!
-//! The exposed names follow the local CommonLibSSE-NG headers. The MIT shim
-//! owns the declarations, and this module resolves them through `World`.
+//! CommonLib actor access backed by the shared runtime world. The API follows
+//! the local `Actor.h`, `ActorEquipManager.h` and `ActorState.h` references.
 
-use soe_commonlib_shim::form::{FormId, FormType};
-use soe_commonlib_shim::world::{
-    IFormFactory, InventoryChanges, InventoryEntryData, ItemList, LookupReferenceByHandle,
-    ReferenceKind,
+use soe_commonlib_shim::form::FormId;
+use soe_commonlib_shim::ni::NiPoint3;
+use soe_commonlib_shim::refr::{
+    Actor as ShimActor, ActorApiError, ActorHandle, ActorPtr, ActorState, ActorValue, ObjectRef,
+    Unsupported, WeaponState,
 };
-use soe_esm::{GlobalFormId, Tag};
+use soe_esm::GlobalFormId;
 
-use crate::World;
+use crate::world::World;
 
-/// A requested form factory signature is absent from the loaded form table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum Error {
-    /// The form is not a placed reference in the current world.
-    #[error("reference form does not exist: {0:?}")]
-    Reference(GlobalFormId),
-    /// The handle is not a runtime form identity in the current load order.
-    #[error("reference handle does not resolve: {0:08X}")]
-    Handle(u32),
-    /// The loaded form table has no winner with this signature.
-    #[error("no loaded forms use signature {0:?}")]
-    Factory(FormType),
+pub use crate::commonlib_api::{
+    form_factory, inventory_changes, item_list, lookup_reference_by_handle,
+};
+
+/// A borrowed view of one actor in the form-backed world.
+pub struct WorldActor<'a> {
+    world: &'a mut World,
+    id: GlobalFormId,
 }
 
-/// Describe a factory only when its signature has a loaded record.
-///
-/// # Errors
-/// Returns [`Error::Factory`] when no winning form has the requested type.
-pub fn form_factory(world: &World, signature: [u8; 4]) -> Result<IFormFactory, Error> {
-    let tag = Tag::new(&signature);
-    if world.order().winners_of(tag).next().is_none() {
-        return Err(Error::Factory(FormType(signature)));
-    }
-    Ok(IFormFactory {
-        name: String::from_utf8_lossy(&signature).into_owned(),
-        form_type: FormType(signature),
-    })
-}
-
-/// Read a reference's current inventory from the shared runtime state.
-///
-/// # Errors
-/// Returns [`Error::Reference`] when the form is not a placed reference.
-pub fn inventory_changes(
-    world: &mut World,
-    owner: GlobalFormId,
-) -> Result<InventoryChanges, Error> {
-    let runtime_owner = FormId(world.runtime_id(owner));
-    let inventory = world
-        .reference(owner)
-        .ok_or(Error::Reference(owner))?
-        .inventory
-        .clone();
-    let mut entries = Vec::new();
-    let mut totals = Vec::new();
-    for (item, total) in inventory.iter() {
-        totals.push((FormId(world.runtime_id(*item)), total));
-        let stacks = inventory.stacks(*item);
-        let mut represented = 0_i32;
-        for stack in stacks {
-            represented = represented.saturating_add(stack.count());
-            entries.push(InventoryEntryData {
-                object: FormId(world.runtime_id(*item)),
-                count_delta: stack.count(),
-                extra_types: stack.extras().iter().map(|extra| extra.kind).collect(),
-                worn: stack.worn(),
-            });
+impl<'a> WorldActor<'a> {
+    /// Resolve an actor reference by its runtime FormID.
+    pub fn resolve(world: &'a mut World, form: FormId) -> Option<Self> {
+        let id = global(world, form)?;
+        if !world.reference(id)?.is_actor {
+            return None;
         }
-        let remainder = total.saturating_sub(represented);
-        if remainder > 0 {
-            entries.push(InventoryEntryData {
-                object: FormId(world.runtime_id(*item)),
-                count_delta: remainder,
-                extra_types: Vec::new(),
-                worn: false,
-            });
-        }
+        world.actor(id)?;
+        Some(Self { world, id })
     }
-    Ok(InventoryChanges {
-        owner: runtime_owner,
-        entries,
-        totals,
-    })
+
+    /// Runtime FormID used by the CommonLib-facing handle.
+    pub fn handle(&self) -> ActorHandle {
+        ActorHandle(self.world.order().runtime_id(self.id))
+    }
 }
 
-/// Project inventory entries into a menu-neutral item list.
-///
-/// # Errors
-/// Returns [`Error::Reference`] when the owner is not a placed reference.
-pub fn item_list(world: &mut World, owner: GlobalFormId) -> Result<ItemList, Error> {
-    let changes = inventory_changes(world, owner)?;
-    Ok(ItemList {
-        items: changes.entries,
-    })
+fn global(world: &World, form: FormId) -> Option<GlobalFormId> {
+    if form.0 >> 24 == 0xFF {
+        let id = GlobalFormId {
+            file: soe_esm::CREATED_FILE,
+            object: form.0 & 0x00FF_FFFF,
+        };
+        return world.exists(id).then_some(id);
+    }
+    world
+        .order()
+        .winners()
+        .map(|(id, _)| id)
+        .find(|id| world.order().runtime_id(*id) == form.0)
 }
 
-/// Resolve a shim handle represented by a runtime FormID to live reference state.
-///
-/// # Errors
-/// Returns [`Error::Reference`] when the handle is absent or names a non-reference form.
-pub fn lookup_reference_by_handle(
-    world: &mut World,
-    handle: FormId,
-) -> Result<LookupReferenceByHandle, Error> {
-    let id = world
-        .from_runtime_id(handle.0)
-        .ok_or(Error::Handle(handle.0))?;
-    let reference = world.reference(id).ok_or(Error::Reference(id))?;
-    Ok(LookupReferenceByHandle {
-        form_id: handle,
-        kind: if reference.is_actor {
-            ReferenceKind::Actor
+fn actor_value_name(value: ActorValue) -> Option<&'static str> {
+    match value.0 {
+        24 => Some("health"),
+        25 => Some("magicka"),
+        26 => Some("stamina"),
+        _ => None,
+    }
+}
+
+impl ObjectRef for WorldActor<'_> {
+    fn handle(&self) -> soe_commonlib_shim::refr::ObjectRefHandle {
+        self.handle().into()
+    }
+
+    fn form_id(&self) -> FormId {
+        FormId(self.world.order().runtime_id(self.id))
+    }
+
+    fn base(&self) -> FormId {
+        FormId(
+            self.world
+                .reference_ref(self.id)
+                .and_then(|reference| reference.base)
+                .map_or(0, |base| self.world.order().runtime_id(base)),
+        )
+    }
+
+    fn position(&self) -> NiPoint3 {
+        let position = self
+            .world
+            .reference_ref(self.id)
+            .map_or([0.0; 3], |reference| reference.position);
+        NiPoint3::new(position[0], position[1], position[2])
+    }
+
+    fn rotation(&self) -> NiPoint3 {
+        let rotation = self
+            .world
+            .reference_ref(self.id)
+            .map_or([0.0; 3], |reference| reference.rotation);
+        NiPoint3::new(rotation[0], rotation[1], rotation[2])
+    }
+
+    fn parent_cell(&self) -> Option<FormId> {
+        self.world
+            .reference_ref(self.id)
+            .and_then(|reference| reference.cell)
+            .map(|cell| FormId(self.world.order().runtime_id(cell)))
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.world
+            .reference_ref(self.id)
+            .is_some_and(|reference| !reference.enabled)
+    }
+
+    fn is_deleted(&self) -> bool {
+        self.world
+            .reference_ref(self.id)
+            .is_some_and(|reference| reference.deleted)
+    }
+
+    fn set_base(&mut self, base: FormId) -> Result<(), Unsupported> {
+        let base = global(self.world, base).ok_or(Unsupported {
+            operation: "TESObjectREFR::SetBaseObject received an unknown form",
+        })?;
+        let reference = self.world.reference(self.id).ok_or(Unsupported {
+            operation: "TESObjectREFR::SetBaseObject received an invalid reference",
+        })?;
+        reference.base = Some(base);
+        Ok(())
+    }
+}
+
+impl ShimActor for WorldActor<'_> {
+    fn actor_handle(&self) -> ActorHandle {
+        self.handle()
+    }
+
+    fn actor_ptr(&self) -> ActorPtr {
+        ActorPtr(Some(self.handle()))
+    }
+
+    fn state(&self) -> ActorState {
+        self.world
+            .actor_ref(self.id)
+            .map_or_else(ActorState::default, |state| ActorState {
+                dead: state.dead,
+                unconscious: state.unconscious,
+                sneaking: state.sneaking,
+                weapon_drawn: state.weapon_drawn,
+                blocking: state.blocking,
+            })
+    }
+
+    fn actor_value(&self, value: ActorValue) -> Result<f32, ActorApiError> {
+        let name = actor_value_name(value).ok_or(ActorApiError::UnsupportedOperation)?;
+        self.world
+            .actor_ref(self.id)
+            .map(|state| state.values.get(name).current())
+            .ok_or(ActorApiError::InvalidActor)
+    }
+
+    fn set_actor_value(&mut self, value: ActorValue, amount: f32) -> Result<(), ActorApiError> {
+        let name = actor_value_name(value).ok_or(ActorApiError::UnsupportedOperation)?;
+        self.world
+            .set_actor_value(self.id, name, amount)
+            .map_err(|_| ActorApiError::UnsupportedOperation)
+    }
+
+    fn race(&self) -> FormId {
+        FormId(
+            self.world
+                .actor_ref(self.id)
+                .and_then(|state| state.race)
+                .map_or(0, |race| self.world.order().runtime_id(race)),
+        )
+    }
+
+    fn is_dead(&self) -> bool {
+        self.world
+            .actor_ref(self.id)
+            .is_some_and(|state| state.dead)
+    }
+
+    fn is_player(&self) -> bool {
+        self.world.is_player(self.id)
+    }
+
+    fn weapon_state(&self) -> WeaponState {
+        if self
+            .world
+            .actor_ref(self.id)
+            .is_some_and(|state| state.weapon_drawn)
+        {
+            WeaponState::Drawn
         } else {
-            ReferenceKind::Reference
-        },
-    })
+            WeaponState::Sheathed
+        }
+    }
+
+    fn add_spell(&mut self, spell: FormId) -> bool {
+        let Some(spell) = global(self.world, spell) else {
+            return false;
+        };
+        self.world
+            .actor(self.id)
+            .is_some_and(|state| state.spells.insert(spell))
+    }
+
+    fn add_perk(&mut self, perk: FormId) -> bool {
+        let Some(perk) = global(self.world, perk) else {
+            return false;
+        };
+        self.world
+            .actor(self.id)
+            .is_some_and(|state| state.perks.insert(perk))
+    }
+
+    fn add_item(&mut self, item: FormId, count: u32) -> bool {
+        let Some(item) = global(self.world, item) else {
+            return false;
+        };
+        if count == 0 {
+            return false;
+        }
+        self.world
+            .add_item(self.id, item, count.min(i32::MAX as u32) as i32);
+        true
+    }
+}
+
+/// The game implementation of the shim's CommonLib equip manager surface.
+pub struct WorldActorEquipManager<'a> {
+    world: &'a mut World,
+}
+
+impl<'a> WorldActorEquipManager<'a> {
+    pub fn new(world: &'a mut World) -> Self {
+        Self { world }
+    }
+
+    fn actor_id(&self, handle: ActorHandle) -> Option<GlobalFormId> {
+        global(self.world, FormId(handle.0))
+    }
+}
+
+impl soe_commonlib_shim::refr::ActorEquipManager for WorldActorEquipManager<'_> {
+    fn equip_object(&mut self, actor: ActorHandle, object: FormId) -> Result<(), ActorApiError> {
+        let actor = self.actor_id(actor).ok_or(ActorApiError::InvalidActor)?;
+        let object = global(self.world, object).ok_or(ActorApiError::UnknownForm)?;
+        self.world
+            .equip_item(actor, object)
+            .map_err(|_| ActorApiError::UnsupportedOperation)
+    }
+
+    fn unequip_object(&mut self, actor: ActorHandle, object: FormId) -> Result<(), ActorApiError> {
+        let actor = self.actor_id(actor).ok_or(ActorApiError::InvalidActor)?;
+        let object = global(self.world, object).ok_or(ActorApiError::UnknownForm)?;
+        self.world
+            .unequip_item(actor, object)
+            .map_err(|_| ActorApiError::UnsupportedOperation)
+    }
 }

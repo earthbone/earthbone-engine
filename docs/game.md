@@ -1,5 +1,11 @@
 # soe-game: the runtime form table and the first natives
 
+The MIT CommonLib shim's `WorldState` implementation reads and writes actor
+values in the existing actor component store for actors already built in the
+world. It resolves actor-value indices through the vanilla actor-value name
+table. Its default-object lookup reads DOBJ records through the footstep
+record view and returns the resolved FormID. It does not cache either result.
+
 `ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
 regional sound entry's `RDMO` when the cell has none. It returns eligible
 single-track `ANAM` paths for host playback, following MUST conditions and
@@ -34,6 +40,20 @@ corresponding Papyrus form object when a host value is present, and return
 
 ## What is in it
 
+`commonlib_world` implements the MIT shim's save/load and leveled-list
+contracts on `World`. Its calculated entries resolve LVLI FormIDs through the
+load order, retain supported COED owner, rank, global and condition data, and
+use the same stateful RNG path as native leveled-list rolls.
+Beam projectile impacts and Havok character-controller flags return named
+unsupported-hook results because the runtime has no corresponding state.
+
+The CommonLib shim's read-only extra-data adapter borrows a live inventory
+stack and resolves stored `GlobalFormId` values through its current load order.
+It exposes enchantment identity and charge, hotkey slot, and leveled-creature
+base links to the MIT API. The serialized stack does not retain the runtime
+enchantment removal flag, so that field is returned as unknown. Malformed
+layouts and unsupported mutation hooks do not produce editable extra data.
+
 - `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
   stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
   mutation, and Scaleform item-list selection and refresh return typed unsupported results.
@@ -57,6 +77,10 @@ corresponding Papyrus form object when a host value is present, and return
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+- `world/shim_extras`: CommonLib extra-data views over reference teleport
+  destinations and inventory outfit/poison extras. Missing reference IDs and
+  north rotation have no authoritative runtime field and are reported as
+  unsupported by the shim adapter.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
@@ -107,6 +131,11 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   aliases with forced references, and each objective target's alias, lock
   marker flag and CTDA conditions, plus local or external alias dependencies.
 - `natives`: the base game's natives, closed over the shared world.
+- `commonlib`: the SHM-04 CommonLib actor adapter. It resolves runtime
+  FormIDs into the load order and reads or changes actor values, inventory,
+  death flags, race and equipment through the same `World` state Papyrus
+  uses. Its equip manager reports invalid handles and unsupported equipment
+  as errors.
 - `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
   resolved RFCT and placed-reference forms. Calls stack, finite durations
   expire on unpaused game ticks, and `Stop` removes all matching instances.
@@ -134,6 +163,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   also starts the quests flagged Start Game Enabled, `tick` advances time,
   `activate` and `send_event` do what a player or the engine would, `pump`
   drains what natives queued.
+- `world::shim`: provides MIT CommonLib views over the existing calendar,
+  loaded actor components, DOBJ records and quest alias assignments. It does
+  not store duplicate state. Activate-reference-children is explicitly
+  unsupported because the runtime has no matching child activation data.
 - The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
   reanimation effects from this same `World`. Sit and sleep animation state is
   not stored by the runtime, so the adapter reports it as unsupported. Binary
@@ -3724,6 +3757,14 @@ The survey establishes record dependencies and the direct-cast rejection
 boundary.
 
 ### Direct active-effect foundation
+
+The MIT CommonLib shim adapter in `shim_world` reads actor critical stages,
+actor-value components, the AI driver's current package and procedure, authored
+`XAPR` activation parents and live active-effect applications from `World`.
+Activation-parent FormIDs resolve in the owning reference's load-order context.
+Unavailable actor, reference and effect identities produce typed shim errors.
+Engine-internal `AIProcess` hooks that need a character controller or scene
+node produce an unsupported-hook error.
 
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts,

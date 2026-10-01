@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_commonlib_shim::world::{PlayerCharacter, ProcessLists, WorldState};
+use soe_commonlib_shim::world::{PlayerCharacter, ProcessLists};
+use soe_commonlib_shim::world_runtime::WorldState;
 use soe_esm::plugin::{FileHeader, Plugin, Record};
 use soe_esm::{GlobalFormId, LoadOrder, Tag};
 use soe_game::Game;

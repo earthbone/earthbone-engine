@@ -50,6 +50,7 @@ and events next, everything below the line waits on a runtime that does not exis
 | Group | Types | SPID | BOS | PO3 | TDM | No header | Engine |
 |---|---|---|---|---|---|---|---|
 | Forms and record enums | 86 | 23 | 12 | 78 | 15 | 16 | Bound now. `soe-esm` carries every record as subrecords and six typed views, the rest of the typed views are per-record work. |
+| References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Bound through the `game` crate's shared world. The runtime object model Papyrus sees is the same one these types describe. |
 | References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Partial, round 2 `game` crate. SHM-12 binds inventory factory descriptors, inventory views and reference handle lookup. The rest remains planned. |
 | Papyrus VM | 11 | 3 | 0 | 11 | 3 | 11 | Bound now. `soe-papyrus` has the native registry with the first-registered-wins rule, `StaticFunctionTag` and the stack and handle ids map onto its thread and object ids. |
 | Conditions | 4 | 0 | 0 | 4 | 2 | 3 | Bound. `CONDITIONITEMOBJECT`, `CONDITION_ITEM_DATA`, `TESConditionItem` and `TESCondition` pass condition calls through the MIT `ConditionRuntime` trait. `soe-game` reads its live world and VM. Unsupported copy hooks return a typed error. |
@@ -82,6 +83,23 @@ The payload layouts follow alandtse CommonLibSSE-NG's
 headers do not connect these channels to runtime producers. The game must
 raise them when those mechanics are implemented.
 
+SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
+read-only snapshot of the states the runtime currently tracks. The
+`ActorEquipManager` surface equips and unequips through the live world. The
+`game` crate implements these traits over its shared `World`, including actor
+values, race, death state, inventory and equipment. Handles contain runtime
+FormIDs and resolve against the load order on access. The current adapter
+supports Health, Magicka and Stamina actor values. Unsupported actor handles,
+forms and equipment records return errors. Address patches, call detours,
+vtable overrides and trampolines are explicit `HookError` variants with no
+implementation path.
+
+The declarations follow the names and responsibilities in the local
+CommonLibSSE-NG-alandtse headers `RE/A/Actor.h`,
+`RE/A/ActorEquipManager.h`, `RE/A/ActorState.h` and
+`RE/B/BSPointerHandle.h`. The shim keeps its own safe Rust API and does not
+copy those headers' implementation details.
+
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. The world view
 binds settings, calendar hour, and active MGEF effects with the reanimation archetype to the
@@ -91,6 +109,10 @@ mapping follows the local CommonLibSSE-NG `ReanimateEffect.h`, `EffectArchetypes
 `ActorState.h`, `Setting.h`, `Sky.h` and `TES.h` declarations. These declarations remain
 source-level contracts without a C ABI. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
+The RE and SKSE interface declarations are source-level headers only. They do not provide engine
+bindings or a C ABI. Selected contracts are implemented by adapters in the game crate. The
+separate `SKSE/Plugin.h` entry point lets the loader validate and call adapted shared libraries,
+but does not provide engine interfaces.
 The RE and SKSE interface declarations are source-level headers and do not provide engine
 bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
 Condition methods delegate to `ConditionRuntime`. The game implementation evaluates against the
@@ -110,6 +132,114 @@ entry point. It rejects an unnamed hook, a missing export, an invalid manifest a
 entry point. The loader does not supply engine interfaces. Its ABI is separate from SKSE's
 Windows DLL ABI.
 
+`RE/World.h` exposes a `WorldState` contract for actor critical stages,
+actor-value modifier components, the selected AI package and procedure,
+authored `XAPR` activation parents, and active-effect applications. The game
+adapter binds those calls to live `World` state. Engine-internal `AIProcess`
+hooks that require character controllers or scene nodes return an explicit
+unsupported-hook error. Critical-stage reads return a value or an explicit
+unsupported-state error, so a missing actor cannot appear as the default stage.
+
+`Actor::actor_ptr` requires each provider to return its optional handle. A
+stale actor handle can therefore be represented as an empty pointer result.
+
+## SHM-05 world contracts
+
+`RE/World.h` exposes `ActorValueList` reads and writes through an `ActorValueWorldState`
+provider. Its name and index lookups use the game's vanilla actor-value name
+table. Actor reads and writes map FormIDs to the existing component store.
+`BGSDefaultObjectManager::get` reads winning DOBJ data through the
+footstep record view and returns its resolved FormID. These calls delegate to
+the provider on each call, so they do not keep a second copy of actor or
+record state.
+
+The API scope follows `CommonLibSSE-NG-alandtse/include/RE/A/ActorValues.h`,
+`ActorValueList.h`, `ArrowProjectile.h`,
+`CommonLibSSE-NG-alandtse/include/RE/B/BGSDefaultObjectManager.h`, and
+`BGSLoadFormBuffer.h`. The game-side DOBJ adapter accepts the record key used
+by the engine's DOBJ data rather than exposing CommonLib's numeric default
+object enum.
+
+ArrowProjectile save, load and impact hooks return
+`UnsupportedHook::ArrowProjectile`. `BGSLoadFormBuffer` version and form reads
+return `UnsupportedHook::LoadFormBuffer`. The projectile requires runtime
+behavior and vtable callbacks that are not implemented. Skyrim's binary save
+buffer is not the engine's `FormReader` and is not exposed as a shim buffer.
+The C++ fixture compiles and executes the supported provider dispatch and
+checks the unsupported hook identifiers.
+
+The world API binds `BGSSaveLoadGame` and `BGSSaveLoadManager` to the
+world's engine save bytes, and `CALCED_OBJECT` form, count and supported COED
+metadata to record-backed LVLI selection. The `BeamProjectile::AddImpact` and
+`bhkCharacterController::flags` hooks return named unsupported-hook results
+because aimed projectile delivery and per-character Havok state have no
+runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
+values. Change-map queries and filename-based save catalog operations also
+return named unsupported-hook results. The generated headers and fixtures check this
+source-level API. The C++ save fixture also changes live payload state, loads
+the saved bytes, and verifies the payload is restored. The shim has no C ABI,
+so C++ declarations alone cannot call into the Rust engine from a compiled
+binary.
+
+## SHM-07 world contracts
+
+The world API includes `Calendar`, `Character`, `DEFAULT_OBJECTS`,
+`ExtraActivateRefChildren` and `ExtraAliasInstanceArray` contracts. The game
+adapts calendar values, loaded actor state, resolved DOBJ entries and attached
+quest aliases from its existing world tables. Alias results are sorted by
+quest and alias id. Default-object lookup preserves malformed-record errors.
+The runtime has no activate-children extra state, so that call returns an
+explicit unsupported-hook result. These contracts do not expose CommonLib
+memory layouts or executable hooks.
+
+## Extra-data stack views (SHM-08)
+
+`RE/ExtraData.h` exposes read-only views for `ExtraDataList`, the selected
+`ExtraDataType` values, `ExtraEnchantment`, `ExtraHotkey` and
+`ExtraLeveledCreature`. The game crate adapts its live inventory `Stack` and
+the active load order to this MIT API. Enchantment identity and charge,
+hotkey slot, and original/template actor-base identities are read from that
+stack. `remove_on_unequip` is optional because the engine stack save model
+does not retain CommonLib's runtime flag. Invalid field layouts return no
+typed view. Hotkey values outside slots 0 to 7 are represented as unbound.
+
+Adding, removing or changing enchantment extras remains unsupported because
+those operations mutate engine-owned stack state. Their C++ declarations carry
+explicit unsupported reasons. The API does not copy or retain stack state.
+The declarations follow `CommonLibSSE-NG-alandtse/include/RE/E/ExtraDataList.h`,
+`ExtraDataTypes.h`, `ExtraEnchantment.h`, `ExtraHotkey.h` and
+`ExtraLeveledCreature.h`. The CommonLib implementation confirms enchantment
+equality includes its runtime removal flag and hotkey's unbound value is -1.
+The reference-extra API names `ExtraLeveledItemBase`, `ExtraLightData`,
+`ExtraLinkedRefChildren`, `ExtraMapMarker` and `ExtraMissingLinkedRefIDs` with
+read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
+implements for those values. Missing optional values mean the reference has no
+such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
+supported by this engine.
+`World::shim_reference_extras` supplies the game adapter for those five views.
+It borrows the world, reads XLIB, XLIG and map-marker fields through current
+records, and includes live marker names and visibility flags. Incoming links
+are derived from loaded reference state. Missing links are targets absent
+from the form table, rather than merely unloaded references. Derived link
+arrays are sorted and retained only for the lifetime of the world borrow.
+This does not import additional ESS reference extras or expose mutation hooks.
+Field identities follow the local CommonLibSSE-NG-alandtse headers
+`include/RE/E/ExtraLeveledItemBase.h`, `ExtraLightData.h`,
+`ExtraLinkedRefChildren.h`, `ExtraMapMarker.h` and `ExtraMissingLinkedRefIDs.h`.
+Record layouts follow local xEdit `Core/wbDefinitionsTES5.pas` REFR definitions.
+The existing record table supplies these fields without another parser.
+`RE/ExtraData.h` also declares the SHM-10 views for `ExtraMissingRefIDs`,
+`ExtraNorthRotation`, `ExtraOutfitItem`, `ExtraPoison` and `ExtraTeleport`.
+The value field names and types were checked against the alandtse CommonLib
+headers `include/RE/E/ExtraMissingRefIDs.h`,
+`include/RE/E/ExtraNorthRotation.h`, `include/RE/E/ExtraOutfitItem.h`,
+`include/RE/E/ExtraPoison.h` and `include/RE/E/ExtraTeleport.h`.
+The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
+absent value. The game adapter reads outfit item, poison and door teleport
+values from shared reference and inventory state. Missing reference IDs and
+north rotation have no runtime backing field and report unsupported. Binary
+hook requests return a diagnostic through `HookRegistry::reject`. Poison
+counts retain CommonLib's unsigned 32-bit range through the Rust and C++ views.
 The first event batch adds typed `DisarmedEvent`, `DragonSoulsGained`,
 `LevelIncrease` and `LocationDiscovery` payloads, with one source for each on
 `ScriptEventSourceHolder`. Payload form identities are the load-order file
@@ -213,6 +343,11 @@ unsupported, and the C++ contract fixture checks that diagnostic.
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
+module through the new entry point and checks its unsupported hook report. The SHM-03 test
+compiles the generated headers, and its game-side test calls the adapter over live actor and AI
+state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust. No sample
+plugin has been compiled against the headers or loaded. The C++ declarations are not linked
+through an FFI bridge. The counts are token counts,
 module through the new entry point and checks its unsupported hook report. SHM-20 compiles the
 five typed event payload contracts and checks sink dispatch against synthetic state fixtures.
 SHM-22 checks the additional payload contracts, live-state receiver calls and unsupported hook
