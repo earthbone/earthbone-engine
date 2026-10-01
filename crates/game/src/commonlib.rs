@@ -6,7 +6,7 @@
 use soe_commonlib_shim::form::FormId;
 use soe_commonlib_shim::ni::NiPoint3;
 use soe_commonlib_shim::refr::{
-    Actor as ShimActor, ActorApiError, ActorHandle, ActorState, ActorValue, ObjectRef,
+    Actor as ShimActor, ActorApiError, ActorHandle, ActorPtr, ActorState, ActorValue, ObjectRef,
 };
 use soe_esm::GlobalFormId;
 
@@ -124,6 +124,10 @@ impl ObjectRef for WorldActor<'_> {
 impl ShimActor for WorldActor<'_> {
     fn actor_handle(&self) -> ActorHandle {
         self.handle()
+    }
+
+    fn actor_ptr(&self) -> ActorPtr {
+        ActorPtr(Some(self.handle()))
     }
 
     fn state(&self) -> ActorState {

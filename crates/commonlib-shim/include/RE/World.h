@@ -83,10 +83,12 @@ struct ActiveEffect {
     double elapsed;
 };
 struct UnsupportedState { const char* message; };
+template <typename T>
+struct Result { std::optional<T> value; std::optional<UnsupportedState> error; };
 class WorldState {
 public:
     virtual ~WorldState() = default;
-    virtual ACTOR_CRITICAL_STAGE critical_stage(FormId actor) = 0;
+    virtual Result<ACTOR_CRITICAL_STAGE> critical_stage(FormId actor) = 0;
     virtual bool set_critical_stage(FormId actor, ACTOR_CRITICAL_STAGE stage) = 0;
     virtual float actor_value_modifier(FormId actor, std::uint32_t actorValue, ACTOR_VALUE_MODIFIER modifier) = 0;
     virtual AIProcess ai_process(FormId actor) = 0;

@@ -139,9 +139,7 @@ pub trait ObjectRef {
 /// The `RE::Actor` surface: the object-ref surface plus actor state.
 pub trait Actor: ObjectRef {
     fn actor_handle(&self) -> ActorHandle;
-    fn actor_ptr(&self) -> ActorPtr {
-        ActorPtr(Some(self.actor_handle()))
-    }
+    fn actor_ptr(&self) -> ActorPtr;
     fn state(&self) -> ActorState;
     fn actor_value(&self, av: ActorValue) -> Result<f32, ActorApiError>;
     fn set_actor_value(&mut self, av: ActorValue, value: f32) -> Result<(), ActorApiError>;

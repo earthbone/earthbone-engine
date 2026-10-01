@@ -68,7 +68,7 @@ public:
 class Actor : public ObjectRef {
 public:
     virtual ActorHandle actor_handle() const = 0;
-    virtual ActorPtr actor_ptr() const { return {actor_handle()}; }
+    virtual ActorPtr actor_ptr() const = 0;
     virtual ActorState state() const = 0;
     virtual std::optional<float> actor_value(ActorValue av) const = 0;
     virtual std::optional<ActorApiError> set_actor_value(ActorValue av, float value) = 0;

@@ -137,7 +137,7 @@ public:
 class Actor : public ObjectRef {
 public:
     virtual ActorHandle actor_handle() const = 0;
-    virtual ActorPtr actor_ptr() const { return {actor_handle()}; }
+    virtual ActorPtr actor_ptr() const = 0;
     virtual ActorState state() const = 0;
     virtual std::optional<float> actor_value(ActorValue av) const = 0;
     virtual std::optional<ActorApiError> set_actor_value(ActorValue av, float value) = 0;
@@ -362,10 +362,12 @@ struct ActiveEffect {
     double elapsed;
 };
 struct UnsupportedState { const char* message; };
+template <typename T>
+struct Result { std::optional<T> value; std::optional<UnsupportedState> error; };
 class WorldState {
 public:
     virtual ~WorldState() = default;
-    virtual ACTOR_CRITICAL_STAGE critical_stage(FormId actor) = 0;
+    virtual Result<ACTOR_CRITICAL_STAGE> critical_stage(FormId actor) = 0;
     virtual bool set_critical_stage(FormId actor, ACTOR_CRITICAL_STAGE stage) = 0;
     virtual float actor_value_modifier(FormId actor, std::uint32_t actorValue, ACTOR_VALUE_MODIFIER modifier) = 0;
     virtual AIProcess ai_process(FormId actor) = 0;
@@ -693,10 +695,16 @@ const FILES: &[(&str, &str)] = &[
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Math.h\"\n#include \"RE/World.h\"\n#include \"RE/ExtraData.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    (
+        "RE/Skyrim.h",
+        "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Math.h\"\n#include \"RE/World.h\"\n#include \"RE/ExtraData.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n",
+    ),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/Plugin.h", SKSE_PLUGIN),
-    ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n"),
+    (
+        "SKSE/SKSE.h",
+        "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n",
+    ),
 ];
 
 /// Write every generated header below `root` and return its relative paths.

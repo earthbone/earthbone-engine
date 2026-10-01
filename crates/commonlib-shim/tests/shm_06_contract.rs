@@ -24,11 +24,16 @@ static_assert(std::same_as<decltype(RE::CALCED_OBJECT::form_id), std::uint32_t>)
 static_assert(std::same_as<decltype(RE::CALCED_OBJECT::container_item), RE::ContainerItemExtra>);
 static_assert(static_cast<std::uint32_t>(RE::CHARACTER_FLAGS::kNoCharacterCollisions) == (1u << 27));
 struct Runtime final : RE::WorldBindings {
-    std::vector<std::uint8_t> save_state() const override { return {1, 2, 3}; }
-    bool load_state(const std::vector<std::uint8_t>& bytes, std::string&) override { return !bytes.empty(); }
+    std::vector<std::uint8_t> save_state() const override { return payload; }
+    bool load_state(const std::vector<std::uint8_t>& bytes, std::string& error) override {
+        if (bytes.empty()) { error = "empty payload"; return false; }
+        payload = bytes;
+        return true;
+    }
     std::vector<RE::CALCED_OBJECT> calculate_current_form_list(std::uint32_t, std::uint16_t, std::int16_t, std::string&) override { return {{42, 3}}; }
     RE::NamedUnsupportedHook beam_projectile_impact() const override { return {"BeamProjectile::AddImpact"}; }
     RE::NamedUnsupportedHook character_flags() const override { return {"bhkCharacterController::flags"}; }
+    std::vector<std::uint8_t> payload{1, 2, 3};
 };
 int main() {
     Runtime runtime;
@@ -37,7 +42,8 @@ int main() {
     RE::CharacterControllerFlags flags(runtime);
     std::string error;
     const auto bytes = saves.save();
-    if (!saves.load(bytes, error)) return 1;
+    runtime.payload = {9, 8};
+    if (!saves.load(bytes, error) || saves.save() != bytes) return 1;
     auto result = runtime.calculate_current_form_list(1, 1, 1, error);
     return bytes.size() == 3 && result.at(0).count == 3 &&
         std::string(saves.get_change().name) == "BGSSaveLoadGame::GetChange" &&

@@ -110,7 +110,11 @@ actor-value modifier components, the selected AI package and procedure,
 authored `XAPR` activation parents, and active-effect applications. The game
 adapter binds those calls to live `World` state. Engine-internal `AIProcess`
 hooks that require character controllers or scene nodes return an explicit
-unsupported-hook error.
+unsupported-hook error. Critical-stage reads return a value or an explicit
+unsupported-state error, so a missing actor cannot appear as the default stage.
+
+`Actor::actor_ptr` requires each provider to return its optional handle. A
+stale actor handle can therefore be represented as an empty pointer result.
 
 ## SHM-05 world contracts
 
@@ -145,8 +149,10 @@ because aimed projectile delivery and per-character Havok state have no
 runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
 values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
-source-level API. The shim has no C ABI, so C++ declarations alone cannot call
-into the Rust engine from a compiled binary.
+source-level API. The C++ save fixture also changes live payload state, loads
+the saved bytes, and verifies the payload is restored. The shim has no C ABI,
+so C++ declarations alone cannot call into the Rust engine from a compiled
+binary.
 
 ## SHM-07 world contracts
 
