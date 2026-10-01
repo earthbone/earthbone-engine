@@ -841,7 +841,7 @@ impl PlayerNode {
             None
         };
 
-        self.advance_game(delta);
+        self.advance_game(delta, intent.sprinting);
         let player_motion = if input.is_moving() {
             if input.sprint || self.driver.always_run != input.walk {
                 soe_game::detection::Motion::Running
@@ -1635,6 +1635,7 @@ mod mag_42_tests {
             jump: true,
             crouch: false,
             activate: false,
+            sprinting: false,
         };
         assert_eq!(player_locomotion(intent, true), (Vec3::ZERO, 0.0, false));
     }
@@ -1647,6 +1648,7 @@ mod mag_42_tests {
             jump: true,
             crouch: false,
             activate: false,
+            sprinting: false,
         };
         assert_eq!(
             player_locomotion(intent, false),

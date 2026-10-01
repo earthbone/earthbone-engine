@@ -1955,13 +1955,22 @@ AI-66 adds `GetWithinDistance` (639), using the run-on subject's position,
 the parameter reference's position and the parameter float as an inclusive
 distance threshold. xEdit's `wbConditionFunctions` and UESP's
 `Raw_Function_Data.wikitext` define its reference and float parameters.
-Furniture entry state (614), path target state (619 to 622), movement speed
-(623) and flying state (633) remain explicit unsupported-function diagnostics.
-The shared world has no current entry choice, path target values or flight
-state. The AI-31 Hover drafts are absent from this worktree, so those states
-cannot be read from the runtime yet. The CK `GetFlyingState` page defines
-states 0 to 4, but that contract alone does not provide the missing runtime
-state.
+Furniture entry state (614) and path target angle and speed queries (620 to
+622) remain explicit unsupported-function diagnostics. Path target offset
+(619) and movement speed (623) validate their actor context and xEdit
+parameters, then return a contract diagnostic because the local CK corpus
+defines no usable condition semantics. The CK
+`GetFlyingState` page defines states 0 to 4. Function 633 reads an optional
+live actor flying state, rejects values outside that range, and reports
+unavailable when movement has not supplied a state. That live state is not
+saved and defaults to unavailable after load.
+
+**Known-form conditions, AI-76.** `PlayerKnows` (493) reads the player's
+known-form state for `SPEL`, `ENCH`, `MGEF` and `WOOP` records. Its knowable
+record types follow xEdit's `ptKnowable`. A `SHOU` record is not a word of
+power and returns a typed state-contract error. Spell knowledge remains in the
+player spell set, while other supported form types use the saved known-form
+set.
 
 The MIT CommonLib shim exposes these fields through `CONDITION_ITEM_DATA` and
 delegates condition calls through `ConditionRuntime`. `Game` implements that
@@ -3279,26 +3288,40 @@ the UESP Skyrim Smithing crafting section.
 
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
-`IsBeingRidden_-_Actor.wikitext`. The remaining requested CK pages are absent.
-GetGraphVariableInt (675) reads a named integer in the actor's live graph state,
-case-insensitively, and reports missing names and non-actor subjects. Its
-integer state is transient host input and is not saved.
+`IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
+query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
+`AI-67` actor save section retains that flag. A host or gameplay path must set
+the flag when another actor mounts this actor. GetGraphVariableInt (675) reads
+a named integer in the actor's live graph state, case-insensitively, and
+reports missing names and non-actor subjects. Its integer state is transient
+host input and is not saved.
+`IsInFurnitureState` (644), `GetPathingCurrentSpeedAngle` (684), and
+`IsOnFlyingMount` (730) remain unavailable. xEdit supplies their condition
+parameter types, but the local CK corpus has no usable result contract for
+these condition functions, and the current world has no matching animation,
+axis-angle or flying-mount state.
 The skymp evaluator's unknown-function success and unresolved target mapping
 were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
 compiler confirms conditional auto-property flags on the backing variable.
 
-AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's saved
+AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's
 behavior-graph float map. The condition's `CIS1` name is matched without case
-sensitivity. Missing names and non-actor subjects return explicit errors. CTDA
-568 reads the transient sprint state slot for a live movement driver. This
-worktree does not yet connect host movement input to that slot. The
-other AI-65 functions remain unsupported because their transition or animation
-state is not available in this worktree. Local xEdit identifies their
-parameters, while the CK corpus only documents `IsSprinting` and `IsFlying`
-as live state queries. The AI-31 draft prerequisites are absent here, so no
-cell-crossing, last-idle, flight, movement, relative-angle or furniture
-animation state is inferred from unrelated saved flags.
+sensitivity. Missing names, non-actor subjects and an unexpected second
+parameter return explicit errors. CTDA 568 reads the transient sprint state
+set by the host movement driver when sprint input and movement are active and
+the player is not sneaking. CTDA 594, `GetIsFlying`, reads a transient actor
+flight state supplied by runtime movement. It does not use `allow_flying`,
+which records permission to fly rather than current flight.
+
+CTDA 358, `IsPlayerMovingIntoNewSpace`, 450, `IsLastIdlePlayed`, 584,
+`GetRelativeAngle`, 589, `GetMovementDirection`, and 613,
+`IsFurnitureAnimType`, return `UnavailableContract`. Local xEdit
+`wbDefinitionsTES5.pas` supplies their identities and parameter types. The
+local CK function corpus has usable state-query descriptions for sprinting and
+flying, but no usable behavior contract for the other five functions. Tests
+exercise graph float, sprint and flight comparisons, malformed parameters,
+missing graph variables, invalid actor subjects and explicit diagnostics.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,
@@ -5593,10 +5616,13 @@ dependency or save format was added.
 
 The gameplay CTDA evaluator implements IsProtected (476) from the subject's
 NPC base state and PlayerKnows (493) for spells held in the player's spell
-set. IsProtected rejects parameters and non-actor subjects. PlayerKnows
-rejects malformed forms and extra parameters, compares known spells with the
-player's current spell set, and returns false for an MGEF with no represented
-known state. It returns a state contract diagnostic for other form types.
+set and the player's known-form set for Magic Effects, Words of Power and
+Enchantments. IsProtected rejects
+parameters and non-actor subjects. PlayerKnows rejects malformed forms and
+extra parameters, compares known forms with the matching player state, and
+returns a state contract diagnostic for other form types. The `AI-76` actor
+save section retains known forms across save and load. For an Enchantment, the
+caller must query the base Enchantment that the player knows.
 
 The local xEdit `wbConditionFunctions` table declares these function indices
 and parameter types. CK's `ActorBase_Script.wikitext` documents the protected
@@ -5612,7 +5638,8 @@ cast state. No parallel state or save data is added.
 
 `ai_76_reference_conditions` checks positive and negative results for the
 available contracts, invalid form and parameter cases, missing run-on context,
-and explicit diagnostics for the uncontracted functions.
+and explicit diagnostics for the uncontracted functions. The adversarial MGEF
+case checks a known effect and its saved state.
 
 ## Motion condition batch AI-62
 

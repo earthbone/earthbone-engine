@@ -132,7 +132,7 @@ impl PlayerNode {
         self.sync_game_pose()
     }
 
-    pub(super) fn advance_game(&mut self, delta: f64) {
+    pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
@@ -149,6 +149,9 @@ impl PlayerNode {
                 let mut world = game.world_mut();
                 // The previous frame has already installed the new host resources.
                 world.settle_unload();
+                if let Some(actor) = world.actor(player) {
+                    actor.sprinting = sprinting;
+                }
                 if let Some(reference) = world.reference(player) {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;

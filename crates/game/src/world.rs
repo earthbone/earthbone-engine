@@ -316,6 +316,8 @@ pub struct ActorState {
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
+    /// CK knowable forms whose `Known` flag is set for the player.
+    pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
     /// Explicit weapon slots. The equipment set retains armor and spell membership.
     pub left_weapon: Option<GlobalFormId>,
@@ -340,9 +342,14 @@ pub struct ActorState {
     pub running: bool,
     /// Whether the actor is currently riding a mount.
     pub riding_mount: bool,
+    /// Whether another actor is currently riding this actor.
+    pub being_ridden: bool,
     pub weapon_drawn: bool,
     /// The host movement driver's current sprint state, re-signaled after load.
     pub sprinting: bool,
+    /// Whether the live movement driver currently has the actor in flight.
+    /// This is transient and must be signaled from runtime movement.
+    pub flying: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
     /// re-signals it from the live graph after load, through
@@ -371,6 +378,8 @@ pub struct ActorState {
     pub graph_ints: BTreeMap<String, i32>,
     /// `SetAllowFlying`, the Dawnguard dragon riding flag.
     pub allow_flying: bool,
+    /// Live flying state reported by actor movement, using CK states 0 to 4.
+    pub flying_state: Option<u8>,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
     /// The furniture reference and zero-based marker currently reserved by

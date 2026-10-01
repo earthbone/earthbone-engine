@@ -185,6 +185,12 @@ transforms and reports their largest difference from the cached World pose.
 `PlayerNode` exposes `gameplay_reference_pose`, `set_reference_enabled` and
 `despawn_reference` for host controls and integration checks.
 
+For AI-65, each gameplay input frame passes active sprint intent to the shared
+player actor state. The signal is true only while moving with sprint held and
+is false while standing, after sprint release or while sneaking. This supplies
+the transient state read by CTDA `IsSprinting` (568). The input intent test
+`ai_65_sprint_signal_tracks_movement_and_sneak_state` covers these cases.
+
 `godot/hst_12_movable_test.gd` uses the installed Bannered Mare cell, applies
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
