@@ -20,6 +20,29 @@ LOD and TRI morph data.
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
 
+## Spell and Topic native audit, SCR-71
+
+The registry inventory is method-only: `Spell.Cast`, `Spell.IsHostile`,
+`Spell.RemoteCast`, `Spell.Preload`, `Spell.Unload` and `Topic.Add`. No Spell
+or Topic globals are registered. The SCR-71 registry test checks every listed
+binding and confirms `Topic.Remove` is absent. The local CK wiki corpus has no
+named Spell or Topic native pages. The shipped
+`skse64/scripts/vanilla/Spell.psc` and `Topic.psc` provide the native
+signatures and behavior notes instead.
+
+| Binding | Local contract source and comparison | Implementation and disposition |
+|---|---|---|
+| `Spell.Cast` method | `Spell.psc`: source reference, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext`: calling from an unloaded source cell warns and cannot cast. | Calls `World::cast_spell` with the explicit source reference and credits that source as caster. Supported direct casts execute. The unloaded-source warning is not reproduced because the cast API has no loaded-cell query. Assign that diagnostic to `MAG-02` with delivery integration. Unsupported delivery or effects are logged by the native and remain in the existing magic delivery rows. |
+| `Spell.IsHostile` method | `Spell.psc`: zero arguments and a boolean result. The CK page is absent, so the record rule is inferred from the MGEF hostile flag used by the runtime. | Added in SCR-71. Resolves each attached effect in the spell's plugin context and returns true if any referenced MGEF has the hostile flag. Bad references log and return false. |
+| `Spell.RemoteCast` method | `Spell.psc`: source reference, blame actor, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext` gives the same unloaded-source-cell warning as Cast. | Calls `World::cast_spell` with the explicit source and blame actor. The unloaded-source warning has the same `MAG-02` assignment as Cast. Unsupported delivery or effects are logged and remain in the existing magic delivery rows. |
+| `Spell.Preload` method | `Spell.psc`: no arguments or return value; preloads spell art and warns about misuse and memory use. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Spell.Unload` method | `Spell.psc`: no arguments or return value; unloads spell art previously preloaded and warns about misuse. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Topic.Add` method | `Topic.psc`: no arguments or return value; adds the topic to the list known by the player. | Quiet stub. Owning implementation row: `SCR-48`. |
+
+The previous inventory grouped `Topic` with `MusicType` and listed both Add
+and Remove. The source declares no `Topic.Remove`; the docs now list only
+`Topic.Add`. These sources contain no Spell or Topic global bindings.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares
