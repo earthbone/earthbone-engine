@@ -551,7 +551,7 @@ UI-15 supplies the gift menu and inventory transaction path.
 The registry binds methods by declaring class. Actor also resolves inherited
 ObjectReference and Form methods through the Papyrus class chain. There are no
 global bindings declared on Actor or ActiveMagicEffect. The Effect object's
-own bindings are listed below; each is a method registration, not a Form
+own bindings are listed below. Each is a method registration, not a Form
 registration. CK's corpus has no ActiveMagicEffect function pages, so those
 contracts come from the shipped `skse64/scripts/vanilla/ActiveMagicEffect.psc`
 in `engine-refs`.
@@ -588,11 +588,11 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.GetEquippedShield | Returns the currently equipped shield. | Returns equipped inventory armor whose resolved BOD2 mask includes shield slot 9. | SCR-14. |
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
-| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11; flight state also depends on AI-66. |
-| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem; `abSilent` suppresses the equip message. | Both arguments are ignored; no lock or message state is represented. | No current backlog row owns the lock and message behavior. |
+| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11. Flight state also depends on AI-66. |
+| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | No current backlog row owns the lock and message behavior. |
 
-`Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers;
-the value path reads the shared actor-value components. `Actor.StartSneaking`
+`Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
+The value path reads the shared actor-value components. `Actor.StartSneaking`
 toggles sneaking when called on an already sneaking actor, matching the
 function page note. `Actor.SetRestrained(true)` clears unconscious state,
 matching the mutually exclusive state described by its function page. The
@@ -6185,7 +6185,7 @@ without inherited stdio, environment, arguments or preopened directories.
 
 `Game::activate` and `Game::activate_deferred` dispatch subscribed callbacks
 after the normal activation succeeds. The Rust guest fixture in
-`tests/fixtures/scr_03_mod` builds to `wasm32-wasip2`; its integration test
+`tests/fixtures/scr_03_mod` builds to `wasm32-wasip2`. Its integration test
 subscribes during initialization and advances a synthetic quest from its
 activation callback. The host API currently contains these two operations.
 
