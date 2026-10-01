@@ -116,15 +116,27 @@ fn sav_32_late_invalid_activator_keeps_every_live_record_unchanged() {
 }
 
 #[test]
-fn sav_32_rejects_non_talking_speaker_markers_and_keeps_zero_byte_fields() {
+fn sav_32_retains_non_talking_unnamed_flags_and_keeps_zero_byte_fields() {
     let saved = fixture();
     for form in &saved.change_forms {
         form.activator_change().unwrap().unwrap();
         assert_eq!(form.payload().unwrap().len(), 6);
     }
-    let mut non_talking = saved.change_forms[0].clone();
-    non_talking.change_flags |= 1 << 23;
-    assert!(non_talking.activator_change().is_err());
+    for index in [0, 2] {
+        let mut non_talking = saved.change_forms[index].clone();
+        non_talking.change_flags |= 1 << 23;
+        let decoded = non_talking.activator_change().unwrap().unwrap();
+        assert!(!decoded.speaker_changed);
+        assert_eq!(decoded.other_flags, 1 << 23);
+        assert_eq!(
+            decoded.change_flags(non_talking.record_type()).unwrap(),
+            non_talking.change_flags
+        );
+        assert_eq!(
+            decoded.data_bytes(),
+            non_talking.payload().unwrap().as_ref()
+        );
+    }
 }
 
 #[test]
