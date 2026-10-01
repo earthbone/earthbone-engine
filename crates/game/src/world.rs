@@ -483,6 +483,8 @@ pub enum MenuRequest {
     PrecacheCharGenClear,
     /// Open the player's race and sex selection screen.
     Race,
+    /// Open the training menu for the named actor.
+    Training(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

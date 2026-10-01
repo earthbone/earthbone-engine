@@ -199,14 +199,14 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     active_magic(vm, world);
     image_space(vm, world);
     effect_shader(vm, world);
-    let stubs = stubs(vm, world);
+    let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
 }
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 378;
+pub const NATIVE_COUNT: usize = 380;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2086,6 +2086,32 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = w.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+    }
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let Some(trainer) = world.form_arg(&call.arg(0)).filter(|id| {
+            world
+                .reference(*id)
+                .is_some_and(|reference| reference.is_actor)
+        }) else {
+            return none();
+        };
+        world.menu_requests.push(MenuRequest::Training(trainer));
+        world.request_training_menu(trainer);
+        none()
+    });
     global!(vm, w, "Game", "SetCameraTarget", |world, call| {
         let target = world.form_arg(&call.arg(0));
         if let Some(target) = target.filter(|id| {
@@ -2103,16 +2129,6 @@ fn game(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Game", "SetSittingRotation", |world, call| {
         world.camera_controls.sitting_rotation_degrees = call.arg(0).as_float();
-        none()
-    });
-    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
-        let trainer = match call.arg(0) {
-            Value::Object(object) => world.form_of(object),
-            _ => None,
-        };
-        if let Some(trainer) = trainer {
-            world.request_training_menu(trainer);
-        }
         none()
     });
     global!(vm, w, "Game", "AdvanceSkill", |world, call| {
@@ -3857,23 +3873,8 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm, world: &Shared) -> usize {
+fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
-    for (name, request) in [
-        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
-        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
-    ] {
-        let shared = world.clone();
-        vm.natives.register_global(
-            "Game",
-            name,
-            Box::new(move |_| {
-                shared.borrow_mut().menu_requests.push(request);
-                none()
-            }),
-        );
-        n += 1;
-    }
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsRunning", false),

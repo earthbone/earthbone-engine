@@ -95,12 +95,16 @@ The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
 model field and the NAM0 chargen TRI path.
 
-morph values. It is a menu summary, not rendered character appearance.
-
 `godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
 record and sex button, and confirms through the connected Control callbacks.
 Run it with `SKYRIM_DATA` set and the extension loaded in
 `target/godot-check`.
+
+`Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
+the actor form. Valid trainers also reach the UI-16 presenter through its
+pending request. The host opens the training menu once and consumes the typed
+request without presenting it again. Camera-target and first-person geometry
+requests are applied through the transient camera controls.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the

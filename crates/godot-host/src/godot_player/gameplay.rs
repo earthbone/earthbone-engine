@@ -192,6 +192,8 @@ impl PlayerNode {
                 soe_game::world::MenuRequest::Race => {
                     self.show_race_menu();
                 }
+                // CONTEXT: Valid trainers use the pending request consumed above.
+                soe_game::world::MenuRequest::Training(_) => {}
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
