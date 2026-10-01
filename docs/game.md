@@ -3385,7 +3385,7 @@ after `OnInit`. Routing errors are written to the VM log after the committed
 craft remains successful. `World::take_story_manager_events` transfers queued
 inputs out of the world for an external scheduler instead. Other gameplay
 actions still use the explicit Story Manager API. The COBJ recipe fields
-follow `TES5Edit/Core/wbDefinitionsTES5.pas`; the event name and argument
+follow `TES5Edit/Core/wbDefinitionsTES5.pas`. The event name and argument
 signature follow `ck-wiki/Quest_Script.wikitext` in the local reference corpus.
 
 Tempering, alchemy, enchanting, skill advancement, item instance state and host
