@@ -22,8 +22,7 @@ const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 /// UESP's Combat and Damage pages give power attack stamina cost as an
 /// unnamed formula, no GMST is named on either page: "power attack stamina
 /// cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk
-/// effect)". `validate_combat_actor` already rejects an attacker carrying
-/// any perk entry, so the perk term is always 1 here. "Attack cost
+/// effect)". Stamina-cost perk effects are not applied here. "Attack cost
 /// multiplier" is the race's Attacks entry Stamina Mult field, read through
 /// `PowerAttack`. See docs/combat.md CMB-21.
 const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
@@ -571,16 +570,9 @@ impl World {
     }
 
     fn validate_combat_actor(&mut self, id: GlobalFormId) -> Result<(), Error> {
-        let effect_has_perk = self
-            .active_effects
-            .values()
-            .any(|effect| effect.target == id && effect.granted_perk.is_some());
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
-        }
-        if !actor.perks.is_empty() || effect_has_perk {
-            return Err(Error::Unsupported("perk entry points"));
         }
         for name in [
             "onehandedmodifier",
