@@ -181,6 +181,28 @@ fn anm_09_priority_and_unsupported_conditions_control_selection() {
 }
 
 #[test]
+fn anm_09_disabled_user_override_skips_the_submod() {
+    let fixture = Fixture::new("disabled");
+    let disabled = submod(&fixture, "Disabled", 20, female_condition());
+    fixture.write(
+        &format!(
+            "{}/user.json",
+            disabled.strip_prefix(&fixture.0).unwrap().display()
+        ),
+        r#"{"priority":20,"disabled":true}"#,
+    );
+    let expected = submod(&fixture, "Enabled", 10, female_condition()).join("walk.hkx");
+    let mut game = build_game();
+    game.apply_mod_data(&fixture.roots());
+
+    assert_eq!(
+        game.select_oar_animation(actor_id(), "walk.hkx"),
+        Some(expected),
+        "a disabled higher-priority submod does not hide an enabled replacement"
+    );
+}
+
+#[test]
 fn anm_09_legacy_or_condition_group_selects_when_one_branch_passes() {
     let fixture = Fixture::new("legacy-or");
     let directory =

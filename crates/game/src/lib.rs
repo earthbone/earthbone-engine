@@ -677,8 +677,9 @@ impl Game {
     /// Conditions use the actor base and race from the loaded records. The
     /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
     /// Every condition in a submod must pass. A matching replacement is an
-    /// HKX file with the same filename as `original_animation` under that
-    /// submod directory.
+    /// HKX file with the same filename as `original_animation` under the
+    /// submod's animation directory. OAR's `overrideAnimationsFolder` selects
+    /// a sibling directory for that path.
     ///
     /// # Errors
     ///
@@ -706,6 +707,9 @@ impl Game {
         let order = world.order();
 
         for sub_mod in &self.oar_submods {
+            if sub_mod.disabled {
+                continue;
+            }
             if !sub_mod.condition_groups.iter().all(|group| {
                 group
                     .iter()
@@ -713,7 +717,7 @@ impl Game {
             }) {
                 continue;
             }
-            if let Some(path) = find_oar_clip(&sub_mod.directory, file_name) {
+            if let Some(path) = find_oar_clip(&sub_mod.animation_directory, file_name) {
                 return Some(path);
             }
         }

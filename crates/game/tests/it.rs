@@ -705,6 +705,8 @@ mod mod_01_breaker_adversarial;
 mod mod_02_adversarial;
 #[path = "mod_03_adversarial.rs"]
 mod mod_03_adversarial;
+#[path = "mod_04_breaker_2_adversarial.rs"]
+mod mod_04_breaker_2_adversarial;
 #[path = "mod_05_adversarial.rs"]
 mod mod_05_adversarial;
 #[path = "mod_06_adversarial.rs"]
