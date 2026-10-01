@@ -35,6 +35,34 @@ const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 type PoisonStack = Option<(usize, GlobalFormId)>;
 
 impl World {
+    /// Notify listeners that the caller's combat path confirmed a critical hit.
+    /// This reports an outcome, it does not calculate critical chance or
+    /// damage modifiers.
+    ///
+    /// # Errors
+    /// Missing aggressor or a weapon form that is not a winning WEAP record.
+    pub fn report_critical_hit(
+        &mut self,
+        aggressor: GlobalFormId,
+        weapon: GlobalFormId,
+        sneak_hit: bool,
+    ) -> Result<(), Error> {
+        self.actor(aggressor).ok_or(Error::Actor(aggressor))?;
+        if self
+            .record(weapon)
+            .is_none_or(|record| record.tag != Tag(*b"WEAP"))
+        {
+            return Err(Error::Unsupported("critical hit requires a WEAP form"));
+        }
+        let event = soe_commonlib_shim::events::CriticalHit {
+            aggressor: World::event_form_id(aggressor),
+            weapon: World::event_form_id(weapon),
+            sneak_hit,
+        };
+        self.critical_hit_events.send(&event);
+        Ok(())
+    }
+
     /// Return the selected difficulty tier.
     #[must_use]
     pub const fn difficulty(&self) -> Difficulty {

@@ -366,6 +366,15 @@ states. `SetBaseObject` and invalid actor-value requests return an unsupported r
 changing state. Tests exercise these views against a synthetic load order. No installed-data
 records or SKSE binary plugin are required for this contract.
 
+**CommonLib event channels.** The shared world exposes the MIT shim's
+`ActorKill` and `CriticalHit` event sources. Non-silent deaths with a valid
+actor killer dispatch `ActorKill` after the victim enters dead state. The
+critical-hit reporting method validates an actor and winning WEAP record,
+then sends the caller-confirmed event. Critical chance and damage modifiers
+are not calculated by this reporting method. The listeners live only for the
+current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
+for the projected C++ payload contract and unsupported binary hook boundary.
+
 ## Conformance table
 
 `natives::register` has 367 stateful registrations, including

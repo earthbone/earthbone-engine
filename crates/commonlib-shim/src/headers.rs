@@ -437,12 +437,19 @@ public:
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
 
 namespace RE {
 enum class NotifyControl { Continue, Stop };
+
+struct EventFormId { std::uint64_t value; };
+struct ActorKill { struct Event { EventFormId killer; EventFormId victim; }; };
+struct CriticalHit {
+    struct Event { EventFormId aggressor; EventFormId weapon; bool sneakHit; };
+};
 
 template <class Event>
 class EventSink {

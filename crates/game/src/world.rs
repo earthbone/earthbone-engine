@@ -30,6 +30,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use soe_commonlib_shim::events::{ActorKill, CriticalHit, EventFormId, EventSource};
 use soe_esm::records::{Text, Transform};
 use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
@@ -512,6 +513,9 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 pub struct World {
+    /// Runtime plugin listeners. These are host state, not game save data.
+    pub(crate) actor_kill_events: EventSource<ActorKill>,
+    pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
@@ -651,6 +655,8 @@ impl World {
             }
         }
         World {
+            actor_kill_events: EventSource::default(),
+            critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
@@ -730,6 +736,20 @@ impl World {
 
     pub fn order(&self) -> &LoadOrder {
         &self.order
+    }
+
+    /// The CommonLib-compatible channel raised after a non-silent actor kill.
+    pub fn actor_kill_events(&mut self) -> &mut EventSource<ActorKill> {
+        &mut self.actor_kill_events
+    }
+
+    /// The CommonLib-compatible channel for validated critical-hit reports.
+    pub fn critical_hit_events(&mut self) -> &mut EventSource<CriticalHit> {
+        &mut self.critical_hit_events
+    }
+
+    pub(crate) fn event_form_id(id: GlobalFormId) -> EventFormId {
+        EventFormId((u64::from(id.file) << 32) | u64::from(id.object))
     }
 }
 
