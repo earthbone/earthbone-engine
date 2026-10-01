@@ -577,6 +577,14 @@ pub struct ClipTrigger {
     pub is_annotation: bool,
 }
 
+/// One interval and event in `hkbEventsFromRangeModifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EventRange {
+    pub event: EventProperty,
+    /// 0 sends on entry, 1 sends on every update while in range.
+    pub event_mode: i8,
+}
+
 /// Read an authored bone mask, retaining zero weights and array order.
 ///
 /// # Errors
@@ -608,6 +616,13 @@ pub struct BlenderChild {
     pub weight: f32,
     pub world_from_model_weight: f32,
     pub bindings: Option<VariableBindingSet>,
+}
+
+/// One pose generator and its authored per-bone mask in a bone switch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoneSwitchChild {
+    pub generator: Option<NodeId>,
+    pub bone_weights: Option<Vec<f32>>,
 }
 
 /// `hkbBlenderGenerator.flags`: 1 sync, 4 smooth generator weights, 8 do
@@ -805,9 +820,7 @@ pub enum NodeKind {
     },
     BoneSwitch {
         default_generator: Option<NodeId>,
-        /// Bone data children are kept as object offsets, they carry a
-        /// generator each which is not walked yet.
-        children: Vec<Option<u32>>,
+        children: Vec<BoneSwitchChild>,
     },
     EventDrivenModifier {
         enable: bool,
@@ -820,6 +833,13 @@ pub enum NodeKind {
         enable: bool,
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
+    },
+    /// `hkbEventsFromRangeModifier`: ranges are half-open and contiguous.
+    EventsFromRangeModifier {
+        enable: bool,
+        input_value: f32,
+        lower_bound: f32,
+        ranges: Vec<(f32, EventRange)>,
     },
     /// `BSTimerModifier`: emits its alarm event after elapsed graph time.
     BsTimerModifier {
@@ -924,6 +944,14 @@ pub enum NodeKind {
     EvaluateExpression {
         enable: bool,
         expressions: Vec<ExpressionData>,
+    },
+    /// `hkbRotateCharacterModifier`: rotates the root orientation at the
+    /// authored angular speed around `axis_of_rotation`.
+    RotateCharacterModifier {
+        enable: bool,
+        degrees_per_second: f32,
+        speed_multiplier: f32,
+        axis_of_rotation: [f32; 4],
     },
     /// `BSSpeedSamplerModifier`: publishes its goal speed to `speedOut`.
     SpeedSampler {
@@ -1114,10 +1142,14 @@ impl Node {
             NodeKind::GeneratorTransition(g) => out.extend(g.transition_generator),
             NodeKind::IStateTagging {
                 default_generator, ..
-            }
-            | NodeKind::BoneSwitch {
-                default_generator, ..
             } => out.extend(*default_generator),
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => {
+                out.extend(*default_generator);
+                out.extend(children.iter().filter_map(|child| child.generator));
+            }
             NodeKind::SynchronizedClip { clip_generator, .. } => out.extend(*clip_generator),
             NodeKind::CyclicBlendTransition {
                 blender_generator, ..
@@ -1148,6 +1180,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::BsTimerModifier { .. }
             | NodeKind::Tweener { .. }
             | NodeKind::EventOnDeactivateModifier { .. }
@@ -1163,6 +1196,7 @@ impl Node {
             | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::RotateCharacterModifier { .. }
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
             | NodeKind::FootIkControls { .. }
@@ -1780,13 +1814,20 @@ impl<'a> Loader<'a> {
             }
             "BSBoneSwitchGenerator" => {
                 let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
+                let mut children = Vec::new();
+                for child in o.array_ptrs(o.layout_offset(52, 88))?.into_iter().flatten() {
+                    child.expect_class("BSBoneSwitchGeneratorBoneData")?;
+                    children.push(BoneSwitchChild {
+                        generator: self.opt_id(child.ptr(child.layout_offset(36, 48))?),
+                        bone_weights: child
+                            .ptr(child.layout_offset(40, 56))?
+                            .map(bone_weights)
+                            .transpose()?,
+                    });
+                }
                 NodeKind::BoneSwitch {
                     default_generator,
-                    children: o
-                        .array_ptrs(o.layout_offset(52, 88))?
-                        .into_iter()
-                        .map(|p| p.map(|p| p.base))
-                        .collect(),
+                    children,
                 }
             }
             "hkbEventDrivenModifier" => {
@@ -1804,6 +1845,55 @@ impl<'a> Loader<'a> {
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
             },
+            "hkbEventsFromRangeModifier" => {
+                let input_value = o.f32(o.layout_offset(44, 80))?;
+                let lower_bound = o.f32(o.layout_offset(48, 84))?;
+                let ranges = if let Some(ranges_obj) = o.ptr(o.layout_offset(52, 88))? {
+                    ranges_obj.expect_class("hkbEventRangeDataArray")?;
+                    ranges_obj
+                        .array_structs(
+                            ranges_obj.layout_offset(8, 16),
+                            ranges_obj.layout_offset(16, 32),
+                        )?
+                        .into_iter()
+                        .map(|range| {
+                            let upper_bound = range.f32(0)?;
+                            let event = EventProperty::read(range, range.layout_offset(4, 8))?;
+                            let event_mode = range.i8(range.layout_offset(12, 24))?;
+                            if event_mode != 0 && event_mode != 1 {
+                                return Err(crate::Error::Unsupported(format!(
+                                    "unsupported event range mode {event_mode}"
+                                )));
+                            }
+                            Ok((upper_bound, EventRange { event, event_mode }))
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    Vec::new()
+                };
+                if !input_value.is_finite()
+                    || !lower_bound.is_finite()
+                    || ranges.iter().any(|(upper, _)| !upper.is_finite())
+                    || ranges
+                        .iter()
+                        .scan(lower_bound, |lower, (upper, _)| {
+                            let valid = upper > lower;
+                            *lower = *upper;
+                            Some(valid)
+                        })
+                        .any(|valid| !valid)
+                {
+                    return Err(crate::Error::Unsupported(
+                        "invalid event range bounds or input".into(),
+                    ));
+                }
+                NodeKind::EventsFromRangeModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    input_value,
+                    lower_bound,
+                    ranges,
+                }
+            }
             "BSTimerModifier" => NodeKind::BsTimerModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
@@ -1962,6 +2052,12 @@ impl<'a> Loader<'a> {
                     expressions,
                 }
             }
+            "hkbRotateCharacterModifier" => NodeKind::RotateCharacterModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                degrees_per_second: o.f32(o.layout_offset(44, 80))?,
+                speed_multiplier: o.f32(o.layout_offset(48, 84))?,
+                axis_of_rotation: o.vec4(o.layout_offset(64, 96))?,
+            },
             "BSPassByTargetTriggerModifier" => NodeKind::PassByTargetTrigger {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 trigger: PassByTargetTrigger {
@@ -2251,6 +2347,35 @@ mod tests {
     use super::*;
     use crate::writer::PackfileBuilder;
     use crate::Error;
+
+    #[test]
+    fn anm_14_decodes_authored_rotation_fields() {
+        let mut b = PackfileBuilder::new();
+        let container = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(container, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let modifier = b.object("hkbRotateCharacterModifier", 128);
+        b.ptr(graph, 128, modifier);
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, 90.0);
+        b.set_f32(modifier, 84, 2.0);
+        b.set_vec4(modifier, 96, [0.0, 1.0, 0.0, 0.0]);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        assert!(matches!(
+            graph.node(graph.root.unwrap()).kind,
+            NodeKind::RotateCharacterModifier {
+                enable: true,
+                degrees_per_second: 90.0,
+                speed_multiplier: 2.0,
+                axis_of_rotation: [0.0, 1.0, 0.0, 0.0],
+            }
+        ));
+    }
 
     /// A graph with one state machine of two states, each a clip, one
     /// transition on an event with a blending effect, and one wildcard.

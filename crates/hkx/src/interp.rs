@@ -160,6 +160,174 @@ pub struct ClipLibrary {
     clips: HashMap<String, Clip>,
 }
 
+/// A named synchronization mark in one participant's clip, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncMarker {
+    pub name: String,
+    pub time: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SyncParticipant {
+    actor: u64,
+    markers: Vec<SyncMarker>,
+}
+
+/// A two-actor synchronized animation timeline. The lead participant's time
+/// drives the scene and each other clip is mapped between the same named marks.
+/// The host must provide corresponding mark times from each active clip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SynchronizedClipScene {
+    participants: [SyncParticipant; 2],
+    common_markers: Vec<String>,
+    lead: usize,
+    elapsed: f32,
+    active: bool,
+}
+
+impl SynchronizedClipScene {
+    /// Pair two clips by their ordered shared marker names.
+    pub fn new(
+        first_actor: u64,
+        first_markers: Vec<SyncMarker>,
+        second_actor: u64,
+        second_markers: Vec<SyncMarker>,
+        lead_actor: u64,
+    ) -> Result<Self> {
+        if first_actor == second_actor || (lead_actor != first_actor && lead_actor != second_actor)
+        {
+            return Err(Error::Unsupported(
+                "invalid synchronized clip actors".into(),
+            ));
+        }
+        for markers in [&first_markers, &second_markers] {
+            if markers
+                .iter()
+                .any(|m| m.name.is_empty() || !m.time.is_finite() || m.time < 0.0)
+                || markers.windows(2).any(|w| w[0].time > w[1].time)
+                || markers
+                    .iter()
+                    .map(|m| &m.name)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != markers.len()
+            {
+                return Err(Error::Unsupported(
+                    "invalid synchronized clip markers".into(),
+                ));
+            }
+        }
+        let common_markers: Vec<String> = first_markers
+            .iter()
+            .filter(|marker| second_markers.iter().any(|other| other.name == marker.name))
+            .map(|marker| marker.name.clone())
+            .collect();
+        let second_common_times: Vec<f32> = common_markers
+            .iter()
+            .filter_map(|name| {
+                second_markers
+                    .iter()
+                    .find(|marker| &marker.name == name)
+                    .map(|marker| marker.time)
+            })
+            .collect();
+        if common_markers.len() < 2
+            || second_common_times.len() != common_markers.len()
+            || second_common_times.windows(2).any(|w| w[0] > w[1])
+        {
+            return Err(Error::Unsupported(
+                "synchronized clips need two ordered shared markers".into(),
+            ));
+        }
+        let lead = usize::from(lead_actor == second_actor);
+        Ok(Self {
+            participants: [
+                SyncParticipant {
+                    actor: first_actor,
+                    markers: first_markers,
+                },
+                SyncParticipant {
+                    actor: second_actor,
+                    markers: second_markers,
+                },
+            ],
+            common_markers,
+            lead,
+            elapsed: 0.0,
+            active: true,
+        })
+    }
+
+    /// Advance the shared lead clock once per frame. Returns false after the
+    /// last common marker has been reached or the scene has been cancelled.
+    pub fn advance(&mut self, dt: f32) -> bool {
+        if !self.active || !dt.is_finite() || dt < 0.0 {
+            return false;
+        }
+        self.elapsed += dt;
+        let end = self
+            .marker_time(self.lead, self.common_markers.len() - 1)
+            .unwrap_or(0.0);
+        self.active = self.elapsed < end - self.marker_time(self.lead, 0).unwrap_or(0.0);
+        self.active
+    }
+
+    /// Current clip-local time for an actor, aligned at every shared marker.
+    pub fn time_for(&self, actor: u64) -> Option<f32> {
+        if !self.active {
+            return None;
+        }
+        let participant = self.participants.iter().position(|p| p.actor == actor)?;
+        let lead_start = self.marker_time(self.lead, 0)?;
+        let lead_time = lead_start + self.elapsed;
+        let lead_marker_times: Vec<f32> = (0..self.common_markers.len())
+            .filter_map(|i| self.marker_time(self.lead, i))
+            .collect();
+        let peer_marker_times: Vec<f32> = (0..self.common_markers.len())
+            .filter_map(|i| self.marker_time(participant, i))
+            .collect();
+        if participant == self.lead {
+            return Some(lead_time);
+        }
+        for index in 0..lead_marker_times.len().saturating_sub(1) {
+            let start = lead_marker_times[index];
+            let end = lead_marker_times[index + 1];
+            if lead_time <= end {
+                let fraction = if end > start {
+                    (lead_time - start) / (end - start)
+                } else {
+                    1.0
+                };
+                return Some(
+                    peer_marker_times[index]
+                        + fraction * (peer_marker_times[index + 1] - peer_marker_times[index]),
+                );
+            }
+        }
+        peer_marker_times.last().copied()
+    }
+
+    /// Stop the scene and release both participants. Calling this repeatedly is safe.
+    pub fn cancel(&mut self) -> [u64; 2] {
+        self.active = false;
+        [self.participants[0].actor, self.participants[1].actor]
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn marker_time(&self, participant: usize, marker: usize) -> Option<f32> {
+        let name = self.common_markers.get(marker)?;
+        self.participants
+            .get(participant)?
+            .markers
+            .iter()
+            .find(|m| &m.name == name)
+            .map(|m| m.time)
+    }
+}
+
 fn clip_key(name: &str) -> String {
     name.to_lowercase().replace('\\', "/")
 }
@@ -399,12 +567,14 @@ enum Target {
     PlaybackSpeed,
     UserControlledTimeFraction,
     BlendParameter,
+    OffsetVariable,
     ChildWeight(usize),
     ChildBoneWeights(usize),
     SelectedGeneratorIndex,
     Enable,
     FalseToTrueEnable(usize),
     FalseToTrueValue(usize),
+    EventRangeInput,
     /// Which state the machine enters on activation.
     StartStateId,
     /// A transition effect's blend duration in seconds.
@@ -521,6 +691,21 @@ enum GeneratorTransitionStage {
     BlendOut,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct CyclicBlend {
+    frozen_parameter: Option<f32>,
+    transition: Option<CyclicBlendTransition>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CyclicBlendTransition {
+    from: f32,
+    to: f32,
+    elapsed: f32,
+    duration: f32,
+    curve: i8,
+}
+
 #[derive(Debug, Clone)]
 struct DelayedTransition {
     index: usize,
@@ -540,6 +725,7 @@ struct IntervalState {
 struct Runtime {
     active: bool,
     local_time: f32,
+    synchronized_time: Option<f32>,
     at_end: bool,
     /// Loops completed, for acyclic triggers.
     passes: u32,
@@ -552,10 +738,14 @@ struct Runtime {
     delayed: Option<DelayedTransition>,
     intervals: Vec<IntervalState>,
     time_step: f32,
+    timer_elapsed: f32,
+    timer_fired: bool,
+    timer_updated_frame: u64,
     interp_source: Option<f32>,
     interp_target: Option<f32>,
     interp_result: Option<f32>,
     blend_parameter: Option<f32>,
+    offset_variable: Option<f32>,
     child_weights: Vec<Option<f32>>,
     child_bone_weights_pointers: Vec<BoundMaskPointer>,
     selected: Option<usize>,
@@ -564,15 +754,16 @@ struct Runtime {
     start_state: Option<i32>,
     /// A bound blend `duration`, on a transition effect.
     duration: Option<f32>,
+    cyclic_blend: CyclicBlend,
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    rotation_angle: f32,
+    event_range_input: Option<f32>,
+    event_range_previous: Vec<bool>,
+    event_modifier_active: bool,
     pass_by_previous_position: Option<[f32; 3]>,
     pass_by_target_passed: bool,
-    /// Elapsed active time for `BSTimerModifier`.
-    timer_elapsed: f32,
-    /// Prevents a non-resetting alarm from firing again during one activation.
-    timer_fired: bool,
     /// A shared modifier node can be visited more than once in one update.
     timer_frame: u64,
     direct_at_heading: f32,
@@ -867,6 +1058,77 @@ fn push_unique(list: &mut Vec<String>, item: String) {
     }
 }
 
+fn offset_amount(value: f32, start: f32, end: f32) -> f32 {
+    if !value.is_finite() || !start.is_finite() || !end.is_finite() {
+        return 0.0;
+    }
+    if start == end {
+        return if value >= end { 1.0 } else { 0.0 };
+    }
+    ((value - start) / (end - start)).clamp(0.0, 1.0)
+}
+
+fn apply_pose_offset(base: &mut Output, offset: &Output, amount: f32) {
+    if amount == 0.0 {
+        return;
+    }
+    for (base, offset) in base.pose.iter_mut().zip(&offset.pose) {
+        for (base, offset) in base.translation[..3]
+            .iter_mut()
+            .zip(&offset.translation[..3])
+        {
+            *base += offset * amount;
+        }
+        let delta = scaled_rotation(offset.rotation, amount);
+        base.rotation = multiply_rotation(base.rotation, delta);
+        for (base, offset) in base.scale[..3].iter_mut().zip(&offset.scale[..3]) {
+            *base *= 1.0 + (offset - 1.0) * amount;
+        }
+    }
+}
+
+fn scaled_rotation(mut rotation: [f32; 4], amount: f32) -> [f32; 4] {
+    if rotation[3] < 0.0 {
+        for component in &mut rotation {
+            *component = -*component;
+        }
+    }
+    let mut result = [
+        rotation[0] * amount,
+        rotation[1] * amount,
+        rotation[2] * amount,
+        1.0 + (rotation[3] - 1.0) * amount,
+    ];
+    normalize_rotation(&mut result);
+    result
+}
+
+fn multiply_rotation(left: [f32; 4], right: [f32; 4]) -> [f32; 4] {
+    let [x1, y1, z1, w1] = left;
+    let [x2, y2, z2, w2] = right;
+    let mut result = [
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+    ];
+    normalize_rotation(&mut result);
+    result
+}
+
+fn normalize_rotation(rotation: &mut [f32; 4]) {
+    let norm = rotation
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if norm > f32::EPSILON {
+        for value in rotation {
+            *value /= norm;
+        }
+    }
+}
+
 fn every_n_interval(
     id: NodeId,
     outputs: u64,
@@ -1027,6 +1289,9 @@ impl<'a> Interpreter<'a> {
                 nodes[node.id.0].child_weights = vec![None; b.children.len()];
                 nodes[node.id.0].child_bone_weights_pointers =
                     vec![BoundMaskPointer::Unbound; b.children.len()];
+            }
+            if let NodeKind::EventsFromRangeModifier { ranges, .. } = &node.kind {
+                nodes[node.id.0].event_range_previous = vec![false; ranges.len()];
             }
             nodes[node.id.0].damping = DampingRuntime::from_kind(&node.kind);
         }
@@ -1225,12 +1490,18 @@ impl<'a> Interpreter<'a> {
                     Some(Target::UserControlledTimeFraction)
                 }
                 ("blendParameter", None, NodeKind::Blender(_)) => Some(Target::BlendParameter),
+                ("fOffsetVariable", None, NodeKind::OffsetAnimation { .. }) => {
+                    Some(Target::OffsetVariable)
+                }
                 ("weight", Some(i), NodeKind::Blender(_)) => Some(Target::ChildWeight(i)),
                 ("boneWeights", Some(i), NodeKind::Blender(_)) => Some(Target::ChildBoneWeights(i)),
                 ("selectedGeneratorIndex", None, NodeKind::ManualSelector { .. }) => {
                     Some(Target::SelectedGeneratorIndex)
                 }
                 ("enable", None, _) => Some(Target::Enable),
+                ("inputValue", None, NodeKind::EventsFromRangeModifier { .. }) => {
+                    Some(Target::EventRangeInput)
+                }
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
@@ -1493,6 +1764,55 @@ impl<'a> Interpreter<'a> {
             .then_some(rt.local_time)
     }
 
+    /// Set the externally coordinated local time for a clip wrapped by a
+    /// `BSSynchronizedClipGenerator`. Call once for each actor before update.
+    pub fn set_synchronized_clip_time(&mut self, synchronized: NodeId, time: f32) -> bool {
+        let Some(node) = self.graph.nodes.get(synchronized.0) else {
+            return false;
+        };
+        let NodeKind::SynchronizedClip {
+            clip_generator: Some(clip),
+            ..
+        } = node.kind
+        else {
+            return false;
+        };
+        if !time.is_finite()
+            || time < 0.0
+            || !matches!(
+                self.graph.nodes.get(clip.0).map(|n| &n.kind),
+                Some(NodeKind::Clip(_))
+            )
+        {
+            return false;
+        }
+        if let Some(runtime) = self.nodes.get_mut(clip.0) {
+            runtime.synchronized_time = Some(time);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear externally coordinated time when a synchronized scene ends.
+    pub fn clear_synchronized_clip_time(&mut self, synchronized: NodeId) -> bool {
+        let Some(node) = self.graph.nodes.get(synchronized.0) else {
+            return false;
+        };
+        let NodeKind::SynchronizedClip {
+            clip_generator: Some(clip),
+            ..
+        } = node.kind
+        else {
+            return false;
+        };
+        let Some(runtime) = self.nodes.get_mut(clip.0) else {
+            return false;
+        };
+        runtime.synchronized_time = None;
+        true
+    }
+
     /// Whether a single-play clip has reached its end.
     pub fn clip_at_end(&self, clip: NodeId) -> bool {
         self.nodes.get(clip.0).is_some_and(|n| n.active && n.at_end)
@@ -1563,6 +1883,7 @@ impl<'a> Interpreter<'a> {
             self.update_i_state_managers();
             self.update_time_step_modifiers(dt);
             self.update_ragdoll_contact_modifiers();
+            self.update_pass_by_target_modifiers();
             self.update_interp_value_modifiers(dt);
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
@@ -1623,6 +1944,34 @@ impl<'a> Interpreter<'a> {
             ) {
                 self.nodes[node.0].time_step = if self.nodes[node.0].active { dt } else { 0.0 };
             }
+        }
+    }
+
+    fn update_pass_by_target_modifiers(&mut self) {
+        let Some(current) = self.character_position else {
+            return;
+        };
+        let mut emitted = Vec::new();
+        for node in self.modifier_order.clone() {
+            if !self.nodes[node.0].active {
+                continue;
+            }
+            let NodeKind::PassByTargetTrigger { trigger, .. } = &self.graph.node(node).kind else {
+                continue;
+            };
+            let runtime = &mut self.nodes[node.0];
+            if !runtime.pass_by_target_passed {
+                if let Some(previous) = runtime.pass_by_previous_position {
+                    if crossed_target(previous, current, trigger) {
+                        runtime.pass_by_target_passed = true;
+                        emitted.push(trigger.trigger_event.id);
+                    }
+                }
+            }
+            runtime.pass_by_previous_position = Some(current);
+        }
+        for event in emitted {
+            self.raise(event);
         }
     }
 
@@ -1883,6 +2232,7 @@ impl<'a> Interpreter<'a> {
                 Target::PlaybackSpeed => rt.playback_speed = Some(value),
                 Target::UserControlledTimeFraction => rt.user_fraction = Some(value),
                 Target::BlendParameter => rt.blend_parameter = Some(value),
+                Target::OffsetVariable => rt.offset_variable = Some(value),
                 Target::ChildWeight(i) => {
                     if let Some(w) = rt.child_weights.get_mut(i) {
                         *w = Some(value);
@@ -1898,6 +2248,7 @@ impl<'a> Interpreter<'a> {
                 Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
+                Target::EventRangeInput => rt.event_range_input = Some(value),
                 Target::TwistAngle => rt.twist_angle = Some(value),
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 Target::SpeedSamplerGoalSpeed => rt.speed_sampler_goal_speed = Some(value),
@@ -1966,6 +2317,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::EventsFromRangeModifier { enable, .. }
             | NodeKind::BsTimerModifier { enable, .. }
             | NodeKind::Tweener { enable, .. }
             | NodeKind::EventOnDeactivateModifier { enable, .. }
@@ -1978,6 +2330,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::RagdollContactListener { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::EvaluateExpression { enable, .. }
+            | NodeKind::RotateCharacterModifier { enable, .. }
             | NodeKind::SpeedSampler { enable, .. }
             | NodeKind::DampingModifier { enable, .. }
             | NodeKind::FootIkControls { enable, .. }
@@ -2039,54 +2392,33 @@ impl<'a> Interpreter<'a> {
                 self.deactivate(node_id);
             }
             self.modifier_order.push(node_id);
-            if let NodeKind::ModifierList { modifiers, .. } = &node.kind {
+            let modifier_children = match &node.kind {
+                NodeKind::ModifierList { modifiers, .. } => modifiers
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .map(|child| (child, enabled))
+                    .collect::<Vec<_>>(),
+                NodeKind::EventDrivenModifier { modifier, .. } => modifier
+                    .iter()
+                    .copied()
+                    .map(|child| {
+                        (
+                            child,
+                            enabled && self.nodes[node_id.0].event_modifier_active,
+                        )
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if !modifier_children.is_empty() {
                 path[node_id.0] = true;
                 stack.push((node_id, depth, true, enabled));
-                for child in modifiers.iter().rev().flatten().copied() {
-                    stack.push((child, depth + 1, false, enabled));
+                for (child, child_enabled) in modifier_children.into_iter().rev() {
+                    stack.push((child, depth + 1, false, child_enabled));
                 }
             }
         }
-    }
-
-    fn apply_tweener(&mut self, id: NodeId, output: &mut Output, dt: f32) {
-        let NodeKind::Tweener {
-            tween_position,
-            tween_rotation,
-            use_tween_duration,
-            tween_duration,
-            target_position,
-            target_rotation,
-            ..
-        } = &self.graph.node(id).kind
-        else {
-            return;
-        };
-        if !self.nodes[id.0].active {
-            return;
-        }
-        let start = *self.nodes[id.0]
-            .tween_start
-            .get_or_insert(output.world_from_model);
-        self.nodes[id.0].tween_elapsed += dt.max(0.0);
-        let duration = if *use_tween_duration {
-            (*tween_duration).max(0.0)
-        } else {
-            0.0
-        };
-        let alpha = if duration > 0.0 {
-            (self.nodes[id.0].tween_elapsed / duration).clamp(0.0, 1.0)
-        } else {
-            1.0
-        };
-        let mut target = start;
-        if *tween_position {
-            target.translation = *target_position;
-        }
-        if *tween_rotation {
-            target.rotation = normalized_quaternion(*target_rotation);
-        }
-        output.world_from_model = blend_transform(&start, &target, alpha);
     }
 
     /// Evaluate edge slots only during update, after list enable state is known.
@@ -2127,6 +2459,14 @@ impl<'a> Interpreter<'a> {
             }
         }
         match &self.graph.nodes[id.0].kind {
+            NodeKind::RotateCharacterModifier {
+                degrees_per_second,
+                speed_multiplier,
+                ..
+            } => {
+                self.nodes[id.0].rotation_angle +=
+                    degrees_per_second.to_radians() * speed_multiplier * dt;
+            }
             NodeKind::FalseToTrueModifier { slots, .. } => {
                 for (index, slot) in slots.iter().enumerate() {
                     let runtime = &mut self.nodes[id.0];
@@ -2139,108 +2479,110 @@ impl<'a> Interpreter<'a> {
                     }
                 }
             }
+            NodeKind::EventsFromRangeModifier {
+                input_value,
+                lower_bound,
+                ranges,
+                ..
+            } => {
+                let value = self.nodes[id.0].event_range_input.unwrap_or(*input_value);
+                let mut lower = *lower_bound;
+                let mut raised = Vec::new();
+                for (index, (upper, range)) in ranges.iter().enumerate() {
+                    let active = value.is_finite() && value >= lower && value < *upper;
+                    let previous = self.nodes[id.0]
+                        .event_range_previous
+                        .get(index)
+                        .copied()
+                        .unwrap_or(false);
+                    if active && (range.event_mode == 1 || !previous) {
+                        raised.push(range.event.id);
+                    }
+                    if let Some(previous) = self.nodes[id.0].event_range_previous.get_mut(index) {
+                        *previous = active;
+                    }
+                    lower = *upper;
+                }
+                for event in raised {
+                    self.raise(event);
+                }
+            }
+            NodeKind::EvaluateExpression { .. } => self.evaluate_expressions(id),
+            NodeKind::SpeedSampler { goal_speed, .. } => {
+                let runtime = &mut self.nodes[id.0];
+                runtime.speed_sampler_speed_out =
+                    runtime.speed_sampler_goal_speed.unwrap_or(*goal_speed);
+            }
+            NodeKind::TransformVector {
+                rotation,
+                translation,
+                vector_in,
+                rotate_only,
+                inverse,
+                compute_on_activate,
+                compute_on_modify,
+                ..
+            } => {
+                let runtime = &mut self.nodes[id.0];
+                let should_compute =
+                    *compute_on_modify || (runtime.activated_this_frame && *compute_on_activate);
+                runtime.activated_this_frame = false;
+                if should_compute {
+                    let input = runtime.transform_vector_in.unwrap_or(*vector_in);
+                    let rotation = runtime.transform_rotation.unwrap_or(*rotation);
+                    let translation = runtime.transform_translation.unwrap_or(*translation);
+                    runtime.transform_vector_out = Some(transform_vector(
+                        input,
+                        rotation,
+                        translation,
+                        *rotate_only,
+                        *inverse,
+                    ));
+                }
+            }
             NodeKind::DampingModifier { .. } => {
-                let Some(state) = self.nodes[id.0].damping.as_mut() else {
-                    return;
-                };
-                if !dt.is_finite() || dt <= 0.0 {
-                    return;
-                }
-                if state.enable_scalar {
-                    let error = state.raw_value - state.damped_value;
-                    let error_sum = state.error_sum + error * dt;
-                    let derivative = (error - state.previous_error) / dt;
-                    let next = state.damped_value
-                        + (state.kp * error + state.ki * error_sum + state.kd * derivative) * dt;
-                    if error.is_finite() && error_sum.is_finite() && next.is_finite() {
-                        state.error_sum = error_sum;
-                        state.previous_error = error;
-                        state.damped_value = next;
-                    }
-                }
-                if state.enable_vector {
-                    let mut next_sum = state.vector_error_sum;
-                    let mut next_previous = state.vector_previous_error;
-                    let mut next_vector = state.damped_vector;
-                    let mut valid = true;
-                    for component in 0..4 {
-                        let error = state.raw_vector[component] - state.damped_vector[component];
-                        let error_sum = state.vector_error_sum[component] + error * dt;
-                        let derivative = (error - state.vector_previous_error[component]) / dt;
-                        let next = state.damped_vector[component]
-                            + (state.kp * error + state.ki * error_sum + state.kd * derivative)
+                let runtime = &mut self.nodes[id.0];
+                if let Some(state) = runtime.damping.as_mut() {
+                    let dt = if dt.is_finite() && dt > 0.0 { dt } else { 0.0 };
+                    if state.enable_scalar && dt > 0.0 {
+                        let error = state.raw_value - state.damped_value;
+                        state.error_sum += error * dt;
+                        let derivative = (error - state.previous_error) / dt;
+                        state.damped_value +=
+                            (state.kp * error + state.ki * state.error_sum + state.kd * derivative)
                                 * dt;
-                        valid &= error.is_finite() && error_sum.is_finite() && next.is_finite();
-                        next_sum[component] = error_sum;
-                        next_previous[component] = error;
-                        next_vector[component] = next;
+                        state.previous_error = error;
                     }
-                    if valid {
-                        state.vector_error_sum = next_sum;
-                        state.vector_previous_error = next_previous;
-                        state.damped_vector = next_vector;
+                    if state.enable_vector && dt > 0.0 {
+                        for axis in 0..4 {
+                            let error = state.raw_vector[axis] - state.damped_vector[axis];
+                            state.vector_error_sum[axis] += error * dt;
+                            let derivative = (error - state.vector_previous_error[axis]) / dt;
+                            state.damped_vector[axis] += (state.kp * error
+                                + state.ki * state.vector_error_sum[axis]
+                                + state.kd * derivative)
+                                * dt;
+                            state.vector_previous_error[axis] = error;
+                        }
+                    }
+                }
+            }
+            NodeKind::TimerModifier {
+                alarm_time_seconds,
+                alarm_event,
+                ..
+            } => {
+                let runtime = &mut self.nodes[id.0];
+                if !runtime.timer_fired && runtime.timer_updated_frame != self.frame {
+                    runtime.timer_updated_frame = self.frame;
+                    runtime.timer_elapsed += dt.max(0.0);
+                    if runtime.timer_elapsed >= *alarm_time_seconds {
+                        runtime.timer_fired = true;
+                        self.raise(alarm_event.id);
                     }
                 }
             }
             _ => {}
-        }
-        if matches!(
-            self.graph.nodes[id.0].kind,
-            NodeKind::EvaluateExpression { .. }
-        ) {
-            self.evaluate_expressions(id);
-        }
-        if let NodeKind::PassByTargetTrigger { trigger, .. } = &self.graph.nodes[id.0].kind {
-            if let Some(position) = self.character_position {
-                let crossed = {
-                    let runtime = &mut self.nodes[id.0];
-                    let crossed = !runtime.pass_by_target_passed
-                        && runtime
-                            .pass_by_previous_position
-                            .is_some_and(|previous| crossed_target(previous, position, trigger));
-                    if crossed {
-                        runtime.pass_by_target_passed = true;
-                    }
-                    runtime.pass_by_previous_position = Some(position);
-                    crossed
-                };
-                if crossed {
-                    self.raise(trigger.trigger_event.id);
-                }
-            }
-        }
-        if let NodeKind::SpeedSampler { goal_speed, .. } = &self.graph.nodes[id.0].kind {
-            let runtime = &mut self.nodes[id.0];
-            runtime.speed_sampler_speed_out =
-                runtime.speed_sampler_goal_speed.unwrap_or(*goal_speed);
-        }
-        if let NodeKind::TransformVector {
-            rotation,
-            translation,
-            vector_in,
-            rotate_only,
-            inverse,
-            compute_on_activate,
-            compute_on_modify,
-            ..
-        } = &self.graph.nodes[id.0].kind
-        {
-            let runtime = &mut self.nodes[id.0];
-            let should_compute =
-                *compute_on_modify || (runtime.activated_this_frame && *compute_on_activate);
-            runtime.activated_this_frame = false;
-            if should_compute {
-                let input = runtime.transform_vector_in.unwrap_or(*vector_in);
-                let rotation = runtime.transform_rotation.unwrap_or(*rotation);
-                let translation = runtime.transform_translation.unwrap_or(*translation);
-                runtime.transform_vector_out = Some(transform_vector(
-                    input,
-                    rotation,
-                    translation,
-                    *rotate_only,
-                    *inverse,
-                ));
-            }
         }
     }
 
@@ -2351,6 +2693,76 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    fn apply_modifier_output(&self, id: NodeId, output: &mut Output) {
+        let NodeKind::RotateCharacterModifier {
+            axis_of_rotation, ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        let Some(root) = output.pose.first_mut() else {
+            return;
+        };
+        let axis_length = axis_of_rotation[..3]
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
+        if axis_length <= f32::EPSILON {
+            return;
+        }
+        let half_angle = self.nodes[id.0].rotation_angle * 0.5;
+        let (sin, cos) = half_angle.sin_cos();
+        let rotation = [
+            axis_of_rotation[0] / axis_length * sin,
+            axis_of_rotation[1] / axis_length * sin,
+            axis_of_rotation[2] / axis_length * sin,
+            cos,
+        ];
+        root.rotation = quat_mul(rotation, root.rotation);
+    }
+
+    fn apply_tweener(&mut self, id: NodeId, output: &mut Output, dt: f32) {
+        let NodeKind::Tweener {
+            tween_position,
+            tween_rotation,
+            use_tween_duration,
+            tween_duration,
+            target_position,
+            target_rotation,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        if !self.nodes[id.0].active {
+            return;
+        }
+        let start = *self.nodes[id.0]
+            .tween_start
+            .get_or_insert(output.world_from_model);
+        self.nodes[id.0].tween_elapsed += dt.max(0.0);
+        let duration = if *use_tween_duration {
+            (*tween_duration).max(0.0)
+        } else {
+            0.0
+        };
+        let alpha = if duration > 0.0 {
+            (self.nodes[id.0].tween_elapsed / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let mut target = start;
+        if *tween_position {
+            target.translation = *target_position;
+        }
+        if *tween_rotation {
+            target.rotation = normalized_quaternion(*target_rotation);
+        }
+        output.world_from_model = blend_transform(&start, &target, alpha);
+    }
+
+    /// Evaluate edge slots only during update, after list enable state is known.
     fn apply_direct_at(&mut self, id: NodeId, output: &mut Output, dt: f32) {
         let NodeKind::DirectAt {
             direct_at_target,
@@ -2481,6 +2893,14 @@ impl<'a> Interpreter<'a> {
                 self.nodes[id.0].expression_raised = vec![false; expressions.len()];
                 self.nodes[id.0].expression_previous = vec![false; expressions.len()];
             }
+            NodeKind::RotateCharacterModifier { .. } => {
+                self.nodes[id.0].rotation_angle = 0.0;
+            }
+            NodeKind::TimerModifier { .. } => {
+                self.nodes[id.0].timer_elapsed = 0.0;
+                self.nodes[id.0].timer_fired = false;
+                self.nodes[id.0].timer_updated_frame = 0;
+            }
             NodeKind::BsTimerModifier { .. } => {
                 let runtime = &mut self.nodes[id.0];
                 runtime.timer_elapsed = 0.0;
@@ -2505,6 +2925,11 @@ impl<'a> Interpreter<'a> {
                 if let Some(start) = start {
                     self.enter_state(id, sm, start, None);
                 }
+            }
+            NodeKind::EventDrivenModifier {
+                active_by_default, ..
+            } => {
+                self.nodes[id.0].event_modifier_active = *active_by_default;
             }
             NodeKind::Blender(b) => {
                 let keep_zero = b.flags & 8 != 0;
@@ -2550,14 +2975,6 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::BoneSwitch {
-                default_generator: generator,
-                ..
-            }
-            | NodeKind::OffsetAnimation {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
@@ -2570,6 +2987,29 @@ impl<'a> Interpreter<'a> {
                     self.activate(*g);
                 }
             }
+            NodeKind::OffsetAnimation {
+                default_generator,
+                offset_clip_generator,
+                ..
+            } => {
+                if let Some(generator) = default_generator {
+                    self.activate(*generator);
+                }
+                if let Some(generator) = offset_clip_generator {
+                    self.activate(*generator);
+                }
+            }
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => {
+                if let Some(generator) = default_generator {
+                    self.activate(*generator);
+                }
+                for generator in children.iter().filter_map(|child| child.generator) {
+                    self.activate(generator);
+                }
+            }
             NodeKind::BehaviorReference { resolved, .. } => {
                 if let Some(g) = resolved {
                     self.activate(*g);
@@ -2578,8 +3018,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
-            | NodeKind::EventDrivenModifier { .. }
-            | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
@@ -2772,6 +3211,81 @@ impl<'a> Interpreter<'a> {
                 }
                 consumed
             }
+            NodeKind::EventDrivenModifier {
+                modifier,
+                activate_event_id,
+                deactivate_event_id,
+                ..
+            } => {
+                if ev.id == *activate_event_id {
+                    self.nodes[id.0].event_modifier_active = true;
+                } else if ev.id == *deactivate_event_id {
+                    self.nodes[id.0].event_modifier_active = false;
+                }
+                let Some(child) = modifier else {
+                    return ev.id == *activate_event_id || ev.id == *deactivate_event_id;
+                };
+                if self.nodes[id.0].event_modifier_active {
+                    self.sync_modifier(*child);
+                    if self.nodes[child.0].active {
+                        self.handle_event(*child, ev)
+                    } else {
+                        false
+                    }
+                } else {
+                    self.deactivate(*child);
+                    false
+                }
+            }
+            NodeKind::CyclicBlendTransition {
+                blender_generator,
+                event_to_freeze_blend_value,
+                event_to_cross_blend,
+                blend_parameter,
+                transition_duration,
+                blend_curve,
+            } => {
+                let child_parameter =
+                    blender_generator.and_then(|blender| self.blender_parameter(blender));
+                let target_parameter = self.nodes[id.0].blend_parameter.unwrap_or(*blend_parameter);
+                if ev.id == event_to_freeze_blend_value.id && ev.id >= 0 {
+                    let parameter = child_parameter.unwrap_or(target_parameter);
+                    let runtime = &mut self.nodes[id.0].cyclic_blend;
+                    runtime.frozen_parameter = Some(parameter);
+                    runtime.transition = None;
+                    if let Some(blender) = blender_generator {
+                        self.nodes[blender.0].blend_parameter = Some(parameter);
+                    }
+                } else if ev.id == event_to_cross_blend.id && ev.id >= 0 {
+                    let from = self.nodes[id.0]
+                        .cyclic_blend
+                        .frozen_parameter
+                        .or(child_parameter)
+                        .unwrap_or(target_parameter);
+                    let runtime = &mut self.nodes[id.0].cyclic_blend;
+                    runtime.frozen_parameter = None;
+                    if *transition_duration > 0.0 {
+                        runtime.transition = Some(CyclicBlendTransition {
+                            from,
+                            to: target_parameter,
+                            elapsed: 0.0,
+                            duration: *transition_duration,
+                            curve: *blend_curve,
+                        });
+                    } else {
+                        runtime.transition = None;
+                    }
+                    if let Some(blender) = blender_generator {
+                        self.nodes[blender.0].blend_parameter =
+                            Some(if *transition_duration > 0.0 {
+                                from
+                            } else {
+                                target_parameter
+                            });
+                    }
+                }
+                blender_generator.is_some_and(|generator| self.handle_event(generator, ev))
+            }
             NodeKind::Clip(_) => false,
             _ => {
                 let mut consumed = false;
@@ -2783,6 +3297,35 @@ impl<'a> Interpreter<'a> {
                 consumed
             }
         }
+    }
+
+    fn blender_parameter(&self, id: NodeId) -> Option<f32> {
+        let NodeKind::Blender(blender) = &self.graph.node(id).kind else {
+            return None;
+        };
+        Some(
+            self.nodes[id.0]
+                .blend_parameter
+                .unwrap_or(blender.blend_parameter),
+        )
+    }
+
+    fn update_cyclic_blend(&mut self, id: NodeId, blender: NodeId, dt: f32) {
+        let runtime = &mut self.nodes[id.0].cyclic_blend;
+        let parameter = if let Some(transition) = &mut runtime.transition {
+            transition.elapsed = (transition.elapsed + dt).min(transition.duration);
+            let alpha = blend_curve(transition.curve, transition.elapsed / transition.duration);
+            let parameter = transition.from + (transition.to - transition.from) * alpha;
+            if transition.elapsed >= transition.duration {
+                runtime.transition = None;
+            }
+            parameter
+        } else if let Some(parameter) = runtime.frozen_parameter {
+            parameter
+        } else {
+            return;
+        };
+        self.nodes[blender.0].blend_parameter = Some(parameter);
     }
 
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
@@ -3142,11 +3685,13 @@ impl<'a> Interpreter<'a> {
                         }
                     }
                 }
-                for modifier in modifiers {
-                    if !self.nodes[modifier.0].active {
-                        continue;
-                    }
+                let active_modifiers: Vec<_> = modifiers
+                    .into_iter()
+                    .filter(|modifier| self.nodes[modifier.0].active)
+                    .collect();
+                for modifier in active_modifiers {
                     self.apply_keyframe_bones_modifier(modifier, &mut output);
+                    self.apply_modifier_output(modifier, &mut output);
                     match &self.graph.node(modifier).kind {
                         NodeKind::LookAtModifier {
                             bones,
@@ -3252,25 +3797,46 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::BoneSwitch {
-                default_generator: generator,
-                ..
-            }
-            | NodeKind::OffsetAnimation {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
-                ..
-            }
-            | NodeKind::CyclicBlendTransition {
-                blender_generator: generator,
                 ..
             } => match generator {
                 Some(g) => self.generate(*g, dt),
                 None => self.reference_output(),
             },
+            NodeKind::OffsetAnimation {
+                default_generator,
+                offset_clip_generator,
+                offset_variable,
+                offset_range_start,
+                offset_range_end,
+            } => {
+                let mut base = default_generator
+                    .map(|generator| self.generate(generator, dt))
+                    .unwrap_or_else(|| self.reference_output());
+                let Some(offset_generator) = offset_clip_generator else {
+                    return base;
+                };
+                let offset = self.generate(*offset_generator, dt);
+                if offset.weight <= 0.0 {
+                    return base;
+                }
+                let value = self.nodes[id.0].offset_variable.unwrap_or(*offset_variable);
+                let amount = offset_amount(value, *offset_range_start, *offset_range_end);
+                apply_pose_offset(&mut base, &offset, amount);
+                base
+            }
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => self.generate_bone_switch(*default_generator, children, dt),
+            NodeKind::CyclicBlendTransition {
+                blender_generator: Some(generator),
+                ..
+            } => {
+                self.update_cyclic_blend(id, *generator, dt);
+                self.generate(*generator, dt)
+            }
             // A linked reference is a pass-through to the graph that was
             // spliced under it. An unlinked one has nothing to play and is
             // reported, which is what holds the vanilla standing idle silent
@@ -3299,6 +3865,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::BsTimerModifier { .. }
             | NodeKind::Tweener { .. }
             | NodeKind::EventOnDeactivateModifier { .. }
@@ -3314,6 +3881,11 @@ impl<'a> Interpreter<'a> {
             | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
+            | NodeKind::RotateCharacterModifier { .. }
+            | NodeKind::CyclicBlendTransition {
+                blender_generator: None,
+                ..
+            }
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
             | NodeKind::FootIkControls { .. }
@@ -3530,48 +4102,53 @@ impl<'a> Interpreter<'a> {
         let speed = rt.playback_speed.unwrap_or(clip.playback_speed);
         let previous = rt.local_time;
         let mut wrapped = false;
-        match clip.mode {
-            2 => {
-                let f = rt
-                    .user_fraction
-                    .unwrap_or(clip.user_controlled_time_fraction);
-                rt.local_time = f.clamp(0.0, 1.0) * duration;
-            }
-            1 => {
-                rt.local_time += dt * speed;
-                if duration > 0.0 {
-                    while rt.local_time >= duration {
-                        rt.local_time -= duration;
-                        rt.passes += 1;
-                        wrapped = true;
-                    }
-                    while rt.local_time < 0.0 {
-                        rt.local_time += duration;
-                        wrapped = true;
-                    }
-                } else {
-                    rt.local_time = 0.0;
+        if let Some(time) = rt.synchronized_time {
+            rt.local_time = time.min(duration);
+            rt.at_end = rt.local_time >= duration;
+        } else {
+            match clip.mode {
+                2 => {
+                    let f = rt
+                        .user_fraction
+                        .unwrap_or(clip.user_controlled_time_fraction);
+                    rt.local_time = f.clamp(0.0, 1.0) * duration;
                 }
-            }
-            3 => {
-                rt.local_time += dt * speed;
-                if duration > 0.0 {
-                    let period = 2.0 * duration;
-                    let mut t = rt.local_time.rem_euclid(period);
-                    if t > duration {
-                        t = period - t;
+                1 => {
+                    rt.local_time += dt * speed;
+                    if duration > 0.0 {
+                        while rt.local_time >= duration {
+                            rt.local_time -= duration;
+                            rt.passes += 1;
+                            wrapped = true;
+                        }
+                        while rt.local_time < 0.0 {
+                            rt.local_time += duration;
+                            wrapped = true;
+                        }
+                    } else {
+                        rt.local_time = 0.0;
                     }
-                    rt.local_time = t;
                 }
-            }
-            _ => {
-                rt.local_time += dt * speed;
-                if rt.local_time >= duration {
-                    rt.local_time = duration;
-                    rt.at_end = true;
+                3 => {
+                    rt.local_time += dt * speed;
+                    if duration > 0.0 {
+                        let period = 2.0 * duration;
+                        let mut t = rt.local_time.rem_euclid(period);
+                        if t > duration {
+                            t = period - t;
+                        }
+                        rt.local_time = t;
+                    }
                 }
-                if rt.local_time < 0.0 {
-                    rt.local_time = 0.0;
+                _ => {
+                    rt.local_time += dt * speed;
+                    if rt.local_time >= duration {
+                        rt.local_time = duration;
+                        rt.at_end = true;
+                    }
+                    if rt.local_time < 0.0 {
+                        rt.local_time = 0.0;
+                    }
                 }
             }
         }
@@ -3812,6 +4389,54 @@ impl<'a> Interpreter<'a> {
             ragdoll_controls,
             rigid_body_ragdoll_controls,
         }
+    }
+
+    /// Overlay bone-switch children on the default generator's pose.
+    fn generate_bone_switch(
+        &mut self,
+        default_generator: Option<NodeId>,
+        children: &[crate::behavior::BoneSwitchChild],
+        dt: f32,
+    ) -> Output {
+        let mut output = default_generator
+            .map(|generator| {
+                self.activate(generator);
+                self.generate(generator, dt)
+            })
+            .unwrap_or_else(|| self.reference_output());
+        for child in children {
+            let Some(generator) = child.generator else {
+                continue;
+            };
+            self.activate(generator);
+            let overlay = self.generate(generator, dt);
+            for (bone, ((pose, weight), overlay_pose)) in output
+                .pose
+                .iter_mut()
+                .zip(&mut output.bone_weights)
+                .zip(&overlay.pose)
+                .enumerate()
+            {
+                let mask = child
+                    .bone_weights
+                    .as_ref()
+                    .map_or(1.0, |weights| weights.get(bone).copied().unwrap_or(0.0))
+                    .clamp(0.0, 1.0);
+                let overlay_part = mask * overlay.bone_weights.get(bone).copied().unwrap_or(0.0);
+                let default_part = *weight * (1.0 - overlay_part);
+                let combined = default_part + overlay_part;
+                if overlay_part > 0.0 && combined > 0.0 {
+                    *pose = if default_part == 0.0 {
+                        *overlay_pose
+                    } else {
+                        blend_transform(pose, overlay_pose, overlay_part / combined)
+                    };
+                }
+                *weight = combined.min(1.0);
+            }
+            output.weight = output.weight.max(overlay.weight);
+        }
+        output
     }
 
     fn sync_children(&mut self, b: &BlenderGenerator, weights: &[f32], dt: f32) {
@@ -4276,6 +4901,52 @@ mod tests {
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
     }
 
+    fn anm_14_rotation_graph(enable: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "rotate character".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: Some(NodeId(2)),
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbRotateCharacterModifier".into(),
+                    name: "rotate".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::RotateCharacterModifier {
+                        enable,
+                        degrees_per_second: 45.0,
+                        speed_multiplier: 2.0,
+                        axis_of_rotation: [0.0, 0.0, 1.0, 0.0],
+                    },
+                },
+                Node {
+                    id: NodeId(2),
+                    offset: 2,
+                    class: "hkbClipGenerator".into(),
+                    name: "empty".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator::default()),
+                },
+            ],
+        }
+    }
+
     fn direct_at_test_graph(config: NodeKind) -> BehaviorGraph {
         BehaviorGraph {
             name: "direct at".into(),
@@ -4318,6 +4989,39 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn anm_14_enabled_modifier_rotates_root_by_elapsed_time_only_while_enabled() {
+        let graph = anm_14_rotation_graph(true);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+
+        let first = vm.update(0.5).pose[0].rotation;
+        assert!((first[2] - (std::f32::consts::FRAC_PI_8).sin()).abs() < 1e-5);
+        assert!((first[3] - (std::f32::consts::FRAC_PI_8).cos()).abs() < 1e-5);
+
+        let second = vm.update(0.5).pose[0].rotation;
+        assert!((second[2] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5);
+        assert!((second[3] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5);
+
+        vm.nodes[1].enabled = Some(false);
+        let disabled = vm.update(1.0).pose[0].rotation;
+        assert_eq!(disabled, QsTransform::IDENTITY.rotation);
+
+        vm.nodes[1].enabled = Some(true);
+        assert_eq!(vm.update(0.5).pose[0].rotation, first);
+    }
+
+    #[test]
+    fn anm_14_disabled_modifier_leaves_root_rotation_unchanged() {
+        let graph = anm_14_rotation_graph(false);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        assert_eq!(
+            vm.update(2.0).pose[0].rotation,
+            QsTransform::IDENTITY.rotation
+        );
     }
 
     fn direct_at_config() -> NodeKind {
@@ -5626,6 +6330,57 @@ mod tests {
             [Some(1.25), Some(-2.5), Some(3.75), Some(-4.0)]
         );
         assert!(vm.unsupported().unbound.is_empty());
+    }
+
+    #[test]
+    fn anm_57_linked_child_quad_default_drives_bound_vector_modifier() {
+        let mut parent = BehaviorGraph {
+            name: "parent with a quad default".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["parent vector".into()],
+                variable_infos: vec![VariableInfo {
+                    ty: VariableType::Vector4,
+                    ..Default::default()
+                }],
+                variable_initial_values: Some(VariableValueSet {
+                    word_values: vec![0],
+                    quad_values: vec![[90.0, 80.0, 70.0, 60.0]],
+                    variant_values: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            nodes: vec![Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbBehaviorReferenceGenerator".into(),
+                name: "child graph".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::BehaviorReference {
+                    behavior_name: "child.hkx".into(),
+                    resolved: None,
+                },
+            }],
+        };
+        parent
+            .link_reference(NodeId(0), decompose_graph(true, true))
+            .unwrap();
+
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&parent, &clips, Vec::new());
+        vm.update(1.0 / 60.0);
+
+        assert_eq!(
+            [
+                vm.variables.real(1),
+                vm.variables.real(2),
+                vm.variables.real(3),
+                vm.variables.real(4),
+            ],
+            [Some(1.25), Some(-2.5), Some(3.75), Some(-4.0)]
+        );
     }
 
     #[test]

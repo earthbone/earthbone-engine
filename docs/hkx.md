@@ -101,6 +101,8 @@ referenceCount).
   animationBindingIndex 112, mode 114, flags 115. `hkbClipTrigger` is 32
   bytes: localTime 0, event 8, relativeToEndOfClip 24, acyclic 25,
   isAnnotation 26.
+- `hkbTimerModifier`: enable 72, alarmTimeSeconds 80, alarmEvent 88.
+  secondsElapsed at 104 is `SERIALIZE_IGNORED`.
 - `hkbBlenderGenerator`: referencePoseWeightThreshold 72, blendParameter 76,
   minCyclicBlendParameter 80, maxCyclicBlendParameter 84,
   indexOfSyncMasterChild 88, flags 90, subtractLastChild 92, children 96.
@@ -126,6 +128,13 @@ referenceCount).
   fTransitionDuration 124), `BSOffsetAnimationGenerator`
   (pDefaultGenerator 80, pOffsetClipGenerator 96), `BSBoneSwitchGenerator`
   (pDefaultGenerator 80, ChildrenA 88).
+
+The serde-hkx `BSBoneSwitchGenerator` declaration gives `ChildrenA` as an
+array of `BSBoneSwitchGeneratorBoneData` pointers. Its child declaration gives
+`pGenerator` at 48 and `spBoneWeight` at 56. The `hkbBoneWeightArray`
+declaration stores the ordered real-valued mask. The loader resolves those
+generator pointers into graph nodes and reads the optional mask using the
+same checked array reader used for blender masks.
 
 Where activeragdoll's runtime header and serde-hkx's class table both cover
 a class (`hkbNode`, `hkbStateMachine`, `hkbBlendingTransitionEffect`,
@@ -413,9 +422,28 @@ What each node does:
   short arc.
 - `hkbManualSelectorGenerator`: plays the selected child, switching when
   the index changes.
+- `BSOffsetAnimationGenerator`: samples its default and offset generators
+  each frame. `fOffsetVariable`, from its input binding when present, maps
+  through `fOffsetRangeStart` and `fOffsetRangeEnd` to a clamped 0 to 1
+  amount. The offset pose adds scaled translation, composes a scaled
+  rotation, and multiplies a scaled scale into the default pose.
+- `BSBoneSwitchGenerator`: starts its default generator and each authored
+  bone child. A child with a mask overlays bones with positive entries in its
+  `hkbBoneWeightArray`, blending partial mask values and leaving other bones
+  at the default output. Missing mask entries contribute zero. A child with
+  no mask overlays every bone.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
-  `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
-  `BSCyclicBlendTransition`) pass their generator child through.
+  `BSSynchronizedClip`) pass their generator child through. A cyclic blend
+  wrapper freezes its child blender's current parameter on its freeze event.
+  Its cross-blend event moves from the frozen or current parameter to
+  `fBlendParameter` over `fTransitionDuration`, applying `eBlendCurve`, then
+  leaves the child blender at the target parameter.
+  `SynchronizedClipScene` coordinates two actor clip clocks through ordered,
+  shared named markers. The host supplies each clip's marker times, chooses
+  the lead actor, advances the scene once per frame, then sets each wrapped
+  clip's synchronized time before updating its interpreter. Cancel returns
+  both actor ids and makes the scene inactive. The host clears the synchronized
+  time override on each interpreter when the scene ends or is cancelled.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph
@@ -431,6 +459,20 @@ What each node does:
   `hkbExpressionDataArray.json` and `hkbExpressionData.json`. The runtime
   evaluator uses this crate's scalar `Expression` parser because serde-hkx
   describes serialized fields but does not execute them.
+- `hkbRotateCharacterModifier` accumulates `degreesPerSecond` times
+  `speedMultiplier` and elapsed frame time while enabled, then applies the
+  resulting angle around `axisOfRotation` to the generated root orientation.
+  Disabling it passes through the child pose. Reactivation resets the angle.
+  Its serialized fields and offsets follow
+  `serde-hkx/assets/classes/hkbRotateCharacterModifier.json`.
+- `hkbEventsFromRangeModifier` reads its bound `inputValue` and ordered
+  `eventRanges`. The serde-hkx declarations provide the class layout, each
+  upper bound and event, and the two policies: event mode 0 sends on entry,
+  while mode 1 sends on every update in range. This interpreter uses half-open
+  intervals `[lower, upper)`, with each range's lower bound taken from the
+  modifier or the previous range's upper bound. A shared boundary belongs to
+  one range. Entry state is tracked per range. Non-finite or non-increasing
+  bounds and unknown event modes reject graph loading.
 - `BSEventOnDeactivateModifier` reads its authored event property and raises
   that event once when an active instance is deactivated.
 - `BSIStateManagerModifier` reads `iStateVar` as an index into the graph's
@@ -457,19 +499,11 @@ What each node does:
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
-Bindings resolve at construction to typed setters: `playbackSpeed`,
-`userControlledTimeFraction`, `blendParameter`, `weight` on a blender child
-(also `children:N/weight`), `boneWeights` on a blender child,
-`selectedGeneratorIndex`, `enable`, damping coefficients and inputs, and the
-`hkbTransformVectorModifier` vector, rotation and translation fields. Damping
-outputs publish to bound real or quad variables after the modifier update. A
-`boneWeights` binding requires a Pointer variable. Pointer values come from the
-variant table in `hkbVariableValueSet`, and changing one selects another
-parsed bone-weight array on the next update without reloading the graph. A null
-pointer means no mask, so every bone has weight one. Unknown pointer targets
-contribute zero. Other unsupported member paths are reported in
-`Unsupported::unbound`. Reals live in the word table as their bit pattern,
-which is how the file stores them.
+Bindings resolve at construction to typed setters: `playbackSpeed`, `userControlledTimeFraction`, `blendParameter`, `weight` on a blender child (also `children:N/weight`), `boneWeights` on a blender child, `selectedGeneratorIndex`, `fOffsetVariable` on `BSOffsetAnimationGenerator`, `enable`, damping coefficients and inputs, and the `hkbTransformVectorModifier` vector, rotation and translation fields. Any `inputValue` on an events-from-range modifier is a real input. Damping outputs publish to bound real or quad variables after the modifier update. A `boneWeights` binding requires a Pointer variable. Pointer values come from the variant table in `hkbVariableValueSet`, and changing one selects another parsed bone-weight array on the next update without reloading the graph. A null pointer means no mask, so every bone has weight one. Unknown pointer targets contribute zero. Other unsupported member paths are reported in `Unsupported::unbound`. Reals live in the word table as their bit pattern, which is how the file stores them.
+
+The `BSOffsetAnimationGenerator` fields follow serde-hkx's generated `BSOffsetAnimationGenerator` declaration and the local hkxcmd class table. Those sources establish the serialized members and offsets. The interpreter uses the input binding and authored range to scale the sampled offset pose.
+
+`BSSynchronizedClipGenerator` loads its wrapped generator, prefix, mark settings and lead flag from the Skyrim class layout. The two-actor scene clock uses marker times supplied by the host because the serialized graph alone has no paired actor instance or world mark transforms. It maps elapsed lead time linearly between shared markers. It does not place or reorient actors, apply root motion, or discover partner clips from `SyncAnimPrefix`.
 
 ### Checked against the sampler (2026-09-18)
 
@@ -642,6 +676,15 @@ vector and quaternion operands, unknown symbols, malformed source and
 non-finite arithmetic return expression errors. Their guards stay closed,
 with deduplicated entries in `Unsupported.conditions`.
 
+A comma after a relational comparison repeats its left operand for one more
+relational comparison and combines the two results with logical AND. Thus
+`staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
+at either bound. `serde-hkx` declares a comma token but does not document its
+evaluation. This interpretation is exercised by a state-machine trace and by
+a gated check of the serialized troll guard in `tests/conditions.rs` and the
+`expression` unit tests. The local source establishes the token and the shipped
+expression. No capture from the original runtime was available.
+
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
 An event ID of -1 with a condition is polled once per node each frame, before
@@ -690,9 +733,9 @@ operator function results, random replay and malformed-input limits.
 The installed-data survey visits 428 behavior graphs and 814 guarded
 transitions. It checks every serialized expression/string condition appears
 in the decoded graph. Two draugr conditions refer to the undeclared variable
-`SpeedSampled`, and one troll guard contains `staggerMagnitude > .3 , < .7`.
-These three inputs stay closed and are asserted as exact diagnostics. ANM-50
-requires runtime evidence for the comma syntax. The initial survey guessed
+`SpeedSampled` and stay closed, asserted as exact diagnostics. The troll guard
+containing `staggerMagnitude > .3 , < .7` now compiles under the comma rule
+described above. The initial survey guessed
 more than 1,000 guards and failed that count check. The final coverage check
 compares serialized conditions directly instead of using that guessed count.
 
@@ -800,16 +843,7 @@ without skeleton hierarchy data.
 
 The installed `Skyrim - Animations.bsa` contains 428 behavior graphs. The
 gated `installed_behavior_passthrough_modifier_inventory` test parses every
-`hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
-modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
-`ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-Before ANM-43 implemented ground alignment, the inventory found 4,175 nodes
-across 31 passthrough classes. The current inventory finds 4,134 nodes across
-28 classes. It excludes `BSIsActiveModifier` because its bound activity slots
-already write their output variables, and `hkbGetUpModifier` because ANM-43
-executes its ground alignment. The test freezes the sorted names and counts of
-the remaining passthrough classes, and checks that every class has a bounded
-backlog row whose title names that class.
+`hkbBehaviorGraph` object and fails if any graph cannot decode. It counts modifier paths that still use the generic passthrough representation. The current inventory finds 4,134 nodes across 28 classes. It excludes `BSIsActiveModifier` because its bound activity slots write their output variables, and `hkbGetUpModifier` because ANM-43 executes its ground alignment. The test freezes the sorted names and counts of the remaining passthrough classes and checks that every class has a bounded backlog row named for that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
@@ -827,11 +861,9 @@ backlog row whose title names that class.
 | `hkbDampingModifier` | 41 | [ANM-39](../BACKLOG.csv) |
 | `hkbEvaluateExpressionModifier` | 438 | [ANM-40](../BACKLOG.csv) |
 | `hkbEventDrivenModifier` | 158 | [ANM-17](../BACKLOG.csv) |
-| `hkbEventsFromRangeModifier` | 3 | [ANM-15](../BACKLOG.csv) |
 | `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
 
 | `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
-
 | `hkbKeyframeBonesModifier` | 91 | [ANM-44](../BACKLOG.csv) |
 | `hkbModifierGenerator` | 1,909 | [ANM-52](../BACKLOG.csv) |
 | `hkbModifierList` | 708 | [ANM-51](../BACKLOG.csv) |
@@ -858,6 +890,22 @@ output binding report the authored active state without changing the generated
 pose. The synthetic test covers enabled and disabled children, an enabled to
 disabled to enabled transition, explicit deactivation and reactivation, and a
 sampled non-reference pose.
+
+### Timer modifier (ANM-16)
+
+`hkbTimerModifier` inherits `hkbModifier.enable`, then stores
+`alarmTimeSeconds` and `alarmEvent`. The offsets and the ignored
+`secondsElapsed` runtime field are declared in
+`engine-refs/serde-hkx/assets/classes/hkbTimerModifier.json` and
+`engine-refs/hkxcmd/compat/hkbTimerModifier_1.cpp`. The interpreter tracks
+elapsed time separately for each graph node. An active timer adds the
+nonnegative update interval once per graph update. It raises its event once
+elapsed time reaches the authored alarm time and stays quiet until its next
+activation. Activation
+resets elapsed time and the one-shot flag. The event queue carries the event
+ID and does not carry the authored payload. Synthetic tests cover field
+decoding, the alarm boundary, one-shot delivery, and reset after an
+enable-controlled deactivation and activation.
 
 ### Skyrim timer modifier (ANM-37)
 
@@ -892,6 +940,24 @@ synthetic tests cover two direct outputs, an arena order different from the
 serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
+
+### Event-driven modifier (2026-09-28)
+
+`hkbEventDrivenModifier` inherits the modifier enable flag and wraps one
+modifier. The local `engine-refs/serde-hkx/assets/classes/hkbEventDrivenModifier.json`
+declares `activateEventId`, `deactivateEventId` and `activeByDefault`, and marks
+its serialized `isActive` field as ignored. The interpreter initializes a
+per-instance interval from `activeByDefault` when the wrapper activates. Its
+activate and deactivate events open and close the interval. The child modifier
+is active only while the wrapper is enabled and the interval is open. Other
+events reach the child while it is active. Deactivating the wrapper also
+deactivates its child.
+
+`tests/event_driven_modifier.rs` checks activation, deactivation, default
+activity, wrapper disable, ignored serialized state and decoded event and child
+fields through a synthetic packfile. These tests establish the declared layout
+and the interpreter policy. They do not compare event ordering with a Havok
+runtime capture.
 
 ### Direct-at modifier
 
@@ -977,7 +1043,7 @@ Model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
 rotation is replaced by the twist rotation. The `twistAngle` variable binding
 overrides the authored angle. Synthetic ANM-48 tests check chain boundaries,
 angle distribution, disabled behavior and malformed indices. The installed
-archive test checks all 17 vanilla twist modifiers when `SKYRIM_DATA` is set.
+archive test checks all 19 vanilla twist modifiers when `SKYRIM_DATA` is set.
 
 ### False-to-true event slots (2026-09-20)
 
@@ -1001,10 +1067,14 @@ values so property bindings can be populated by the caller. Events keep slot
 and modifier-list order and enter the existing raised-event
 queue. A failed list emits no partial modifier effects.
 
-Graph linking remaps each slot event and preserves appended scalar defaults
-when the parent has no initial-value table. Quad and variant default linking
-is tracked separately by ANM-57. Event payload presence is decoded, while the
-interpreter's existing event queue carries IDs only. The eleven `false_to_true`
+Graph linking remaps each slot event and preserves appended variable defaults.
+New child variables keep their word values, and vector and pointer defaults
+retain their values when the child's quad and variant tables are appended.
+Their table indexes are shifted past the parent's entries to avoid collisions.
+The value table layout follows `serde-hkx`'s `hkbVariableValueSet` class
+metadata, which declares `hkVector4` quad entries and object-pointer variant
+entries. Event payload presence is decoded, while the interpreter's existing
+event queue carries IDs only. The eleven `false_to_true`
 regressions cover three independent slots, enable transitions, malformed binding
 names, shared visits, list rejection, symbol remapping and a parent-machine
 transition caused by a modifier event. The installed survey decodes every
@@ -1178,12 +1248,7 @@ disabled and absent targets, and invalid authored ranges.
 
 ## 7. Not done and next
 
-- Dynamic bone weight masks on a blender, `hkbRotateCharacterModifier` and
-  `hkbEventsFromRangeModifier` still pass through. Their layouts are in
-  `serde-hkx` like the rest. The interpreter evaluates supported modifiers
-  including `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier`, `BSGetTimeStepModifier` and
-  `hkbDampingModifier`.
+- Dynamic bone weight masks on a blender remain unsupported. Their layouts are in `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
   and interval boundary parity. Expression functions are ANM-49 and the

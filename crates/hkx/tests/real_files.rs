@@ -33,8 +33,13 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("BSSpeedSamplerModifier", 42, "ANM-36"),
     ("BSTimerModifier", 1, "ANM-37"),
     ("BSTweenerModifier", 5, "ANM-38"),
-    ("hkbDampingModifier", 41, "ANM-39"),
+    ("hkbDampingModifier", 43, "ANM-39"),
     ("hkbFootIkControlsModifier", 25, "ANM-41"),
+    ("hkbGetUpModifier", 46, "ANM-43"),
+    ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
+    ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
+    ("hkbTransformVectorModifier", 1, "ANM-47"),
+    ("hkbTwistModifier", 19, "ANM-48"),
     ("hkbModifierGenerator", 1909, "ANM-52"),
     ("hkbModifierList", 708, "ANM-51"),
     ("hkbRotateCharacterModifier", 6, "ANM-14"),
@@ -385,14 +390,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
                             .or_insert(0usize) += 1;
                     }
                 }
-                if matches!(
-                    node.kind,
-                    NodeKind::Modifier { .. }
-                        | NodeKind::ModifierGenerator { .. }
-                        | NodeKind::ModifierList { .. }
-                        | NodeKind::EventDrivenModifier { .. }
-                        | NodeKind::TimerModifier { .. }
-                ) {
+                if matches!(node.kind, NodeKind::Modifier { .. }) {
                     *classes.entry(node.class.clone()).or_insert(0usize) += 1;
                 }
             }
@@ -400,6 +398,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
     }
     println!("{behavior_files} behavior graphs, passthrough modifiers {classes:?}");
     println!("modifier-list children {list_children:?}");
+    assert_eq!(behavior_files, 428, "installed behavior corpus changed");
     let expected = PASSTHROUGH_MODIFIERS
         .iter()
         .map(|(class, count, _)| ((*class).to_string(), *count))
@@ -458,7 +457,7 @@ fn anm_48_installed_twist_modifiers_decode_authored_bone_spans() {
     }
     assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
     assert_eq!(
-        twists, 17,
+        twists, 19,
         "the installed vanilla archive's twist inventory changed"
     );
 }
@@ -612,8 +611,7 @@ fn anm_01_shipped_transition_expressions_are_decoded_and_diagnosed() {
     assert_eq!(failures, [
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled < 5.0: UnknownSymbol(\"SpeedSampled\")",
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled >= 5.0: UnknownSymbol(\"SpeedSampled\")",
-        "meshes/actors/troll/behaviors/trollbehavior.hkx: (staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7): Syntax(79)",
-    ], "undeclared draugr variable and ANM-50 comma comparison stay closed");
+    ], "undeclared draugr variable stays closed and the troll comma guard compiles");
 }
 
 #[test]

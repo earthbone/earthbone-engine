@@ -7,8 +7,7 @@
 //! the functions resolve against vanilla NPC records instead of only the
 //! synthetic fixture.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
