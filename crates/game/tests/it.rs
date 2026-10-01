@@ -925,14 +925,44 @@ mod sav_68_adversarial;
 mod sav_68_reset;
 #[path = "save_generations.rs"]
 mod save_generations;
+#[path = "scr_01_adversarial.rs"]
+mod scr_01_adversarial;
+#[path = "scr_02_adversarial.rs"]
+mod scr_02_adversarial;
+#[path = "scr_02_native_contract_inventory.rs"]
+mod scr_02_native_contract_inventory;
+#[path = "scr_03_adversarial.rs"]
+mod scr_03_adversarial;
+#[path = "scr_03_component.rs"]
+mod scr_03_component;
+#[path = "scr_05_adversarial.rs"]
+mod scr_05_adversarial;
+#[path = "scr_05_lazy_cell_binding.rs"]
+mod scr_05_lazy_cell_binding;
 #[path = "scr_08_actor_native_contracts.rs"]
 mod scr_08_actor_native_contracts;
 #[path = "scr_08_adversarial.rs"]
 mod scr_08_adversarial;
+#[path = "scr_09_actor_queries.rs"]
+mod scr_09_actor_queries;
+#[path = "scr_09_adversarial.rs"]
+mod scr_09_adversarial;
 #[path = "scr_10_actor_state_natives.rs"]
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_11_adversarial.rs"]
+mod scr_11_adversarial;
+#[path = "scr_12_adversarial.rs"]
+mod scr_12_adversarial;
+#[path = "scr_13_actor_native_batch.rs"]
+mod scr_13_actor_native_batch;
+#[path = "scr_13_adversarial.rs"]
+mod scr_13_adversarial;
+#[path = "scr_14_adversarial.rs"]
+mod scr_14_adversarial;
+#[path = "scr_15_adversarial.rs"]
+mod scr_15_adversarial;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
 #[path = "scr_17_adversarial.rs"]
