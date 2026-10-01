@@ -579,7 +579,7 @@ fn release_furniture(world: &mut World, actor: GlobalFormId, marker: GlobalFormI
     }
 }
 
-pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {
+pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>, version: u16) {
     w.bool(state.is_some());
     if let Some(state) = state {
         for id in [state.start, state.current] {
@@ -587,10 +587,12 @@ pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {
             w.u32(id.object);
         }
         w.bool(state.reverse);
-        w.bool(state.mount.is_some());
-        if let Some(mount) = state.mount {
-            w.u16(mount.file);
-            w.u32(mount.object);
+        if version >= 35 {
+            w.bool(state.mount.is_some());
+            if let Some(mount) = state.mount {
+                w.u16(mount.file);
+                w.u32(mount.object);
+            }
         }
         w.bool(state.dwell_until.is_some());
         if let Some(until) = state.dwell_until {

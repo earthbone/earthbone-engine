@@ -53,7 +53,7 @@ use crate::package::{
     condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
 use crate::vmad::Vmad;
-use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader, SAVE_VERSION};
+use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
 mod patrol;
@@ -2618,7 +2618,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Sleep => w.u8(3),
         Procedure::Patrol => {
             w.u8(6);
-            patrol::write(w, a.patrol.as_ref());
+            patrol::write(w, a.patrol.as_ref(), version);
         }
         Procedure::Sit if version >= 43 => w.u8(18),
         Procedure::Wait { stop_movement } => {
@@ -2945,14 +2945,18 @@ pub(crate) fn read_state_mapped_version(
 }
 
 pub(crate) fn read_tree_state(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
-    read_tree_state_version(r, SAVE_VERSION)
+    read_tree_state_version(r, 43)
 }
 
 pub(crate) fn read_tree_state_for_version(
     r: &mut Reader<'_>,
     version: u16,
 ) -> Result<Option<TreeState>, VmError> {
-    read_tree_state_version(r, version)
+    if version >= 37 {
+        read_tree_state(r)
+    } else {
+        read_tree_state_version(r, version)
+    }
 }
 
 fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<TreeState>, VmError> {
