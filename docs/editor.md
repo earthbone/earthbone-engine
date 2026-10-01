@@ -323,8 +323,10 @@ order, with each source plugin and record and a winner flag. The final version i
 including when the selected form has only one version. This is the record-chain data for the
 conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
-and inspector controls that can display those results. This row implements the Rust search
-operation only, not the Godot dock or inspector controls.
+and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
+and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
+the resolved identity, record signature, editor ID and winning plugin. It does not own or
+edit a copy of the record.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
