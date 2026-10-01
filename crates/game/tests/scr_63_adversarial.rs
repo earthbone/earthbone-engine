@@ -10,18 +10,15 @@ fn scr_63_image_space_and_keyword_binding_kinds_match_scripts() {
     for name in ["Apply", "ApplyCrossFade", "PopTo", "Remove"] {
         assert!(game.vm.natives.has_method("ImageSpaceModifier", name));
     }
-    assert!(
-        game.vm
-            .natives
-            .has_global("ImageSpaceModifier", "RemoveCrossFade")
-    );
+    assert!(game
+        .vm
+        .natives
+        .has_global("ImageSpaceModifier", "RemoveCrossFade"));
     for name in ["GetString", "SendStoryEvent", "SendStoryEventAndWait"] {
         assert!(game.vm.natives.has_method("Keyword", name));
     }
-    assert!(
-        !game
-            .vm
-            .natives
-            .has_global("Keyword", "SendStoryEventAndWait")
-    );
+    assert!(!game
+        .vm
+        .natives
+        .has_global("Keyword", "SendStoryEventAndWait"));
 }

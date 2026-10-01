@@ -2718,6 +2718,78 @@ fn game_state_natives_round_trip() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// CK defines independent player-control flags and separate chargen flags.
+/// The values survive the engine save through the SCR-60 world section.
+#[test]
+fn game_control_and_chargen_flags_follow_ck_and_save() {
+    let mut g = game();
+    call_global(
+        &mut g,
+        "Game",
+        "DisablePlayerControls",
+        &[
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Int(1),
+        ],
+    );
+    assert_eq!(
+        g.world().player_control_flags,
+        [false, true, false, true, true, true, true, true]
+    );
+    assert!(!g.world().player_controls);
+    assert_eq!(g.world().player_control_pov_type, 1);
+
+    call_global(
+        &mut g,
+        "Game",
+        "EnablePlayerControls",
+        &[
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Int(0),
+        ],
+    );
+    assert_eq!(
+        g.world().player_control_flags,
+        [true, true, true, true, true, true, true, true]
+    );
+    assert!(g.world().player_controls);
+    assert_eq!(g.world().player_control_pov_type, 0);
+
+    call_global(
+        &mut g,
+        "Game",
+        "SetInChargen",
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(false)],
+    );
+    assert!(g.world().in_chargen);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(!g.world().chargen_show_controls_disabled_message);
+
+    let saved = g.world().save_state();
+    g.world_mut().player_control_flags = [false; 8];
+    g.world_mut().player_control_pov_type = 1;
+    g.world_mut().chargen_disable_waiting = false;
+    g.world_mut().load_state(&saved).unwrap();
+    assert_eq!(g.world().player_control_flags, [true; 8]);
+    assert_eq!(g.world().player_control_pov_type, 0);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(!g.world().chargen_show_controls_disabled_message);
+}
+
 /// Everything above survives a save and load: the leveled list addition,
 /// the faction bounty, the perk, the location flag and the listeners.
 #[test]

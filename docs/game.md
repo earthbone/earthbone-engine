@@ -838,8 +838,8 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.GetForm` | Resolves a runtime FormID under the active load order. |
 | `Game.GetFormEx` | Compatibility alias for `GetForm`. CK's Game class page has no separate entry. |
 | `Game.GetFormFromFile` | Resolves the low 24-bit object id in the named plugin. |
-| `Game.EnablePlayerControls` | CK takes eight control flags and a POV mode. The model currently enables all controls. |
-| `Game.DisablePlayerControls` | CK takes eight control flags and a POV mode. The model currently disables all controls. |
+| `Game.EnablePlayerControls` | CK takes eight enable flags and a POV mode. True flags enable only those controls. Missing flags use CK's true defaults. |
+| `Game.DisablePlayerControls` | CK takes eight disable flags and a POV mode. True flags disable only those controls. Missing flags use CK's movement, fighting, menu and activation defaults. |
 | `Game.GetGameSettingFloat` | Returns a float game setting. |
 | `Game.GetGameSettingInt` | Returns an integer game setting. |
 | `Game.GetGameSettingString` | Returns a string game setting. |
@@ -853,7 +853,7 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.IsFastTravelEnabled` | Returns the fast travel setting. |
 | `Game.EnableFastTravel` | Sets fast travel, defaulting to enabled when omitted. |
 | `Game.SetPlayerAIDriven` | Sets the player's AI-driven flag. |
-| `Game.SetInChargen` | CK takes three flags. The model stores only the first as one chargen boolean. |
+| `Game.SetInChargen` | Stores the CK flags for disabling saves, disabling waiting and showing the disabled-controls HUD notice. |
 | `Game.SetBeastForm` | Sets the player's beast-form flag. |
 | `Game.TeachWord` | Marks the word as taught. |
 | `Game.UnlockWord` | Marks the word as taught and unlocked. |
@@ -898,12 +898,13 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.FindRandomReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
 | `Game.GetFormEx2` | Quiet stub. The CK Game class page has no entry. |
 
-The control and chargen parameter mismatches remain assigned to SCR-60 because
-the current backlog has no separate player-control state row. The natives
-share a saved boolean, and per-flag behavior needs coordinated input consumers
-and saved state. The `GetFormEx` alias and three Game bindings absent from the
-CK class page are also recorded here as engine or extension surface, not CK
-contracts. The quiet stub fixes belong to these existing native rows:
+`scr_60_game_control_and_chargen_flags_follow_ck_and_save` checks selective
+control changes, POV type, all three chargen flags and save/load through the
+SCR-60 world section. `player_controls` remains the aggregate all-enabled
+state used by existing condition evaluation. Host input does not yet consume
+each individual control flag. The `GetFormEx` alias and three Game bindings
+absent from the CK class page are also recorded here as engine or extension
+surface, not CK contracts. The quiet stub fixes belong to these existing native rows:
 
 - SCR-26: `IsPlayerSungazing`, `GetSunPositionX`, `GetSunPositionY`,
   `GetSunPositionZ`, `ShakeCamera`.

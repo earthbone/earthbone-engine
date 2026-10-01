@@ -2182,12 +2182,30 @@ fn game(vm: &mut Vm, w: &Shared) {
         let id = world.form_from_file(call.arg(0).as_int() as u32, &text(&call.arg(1)));
         form_value(world, call, id)
     });
-    global!(vm, w, "Game", "EnablePlayerControls", |world, _call| {
-        world.player_controls = true;
+    global!(vm, w, "Game", "EnablePlayerControls", |world, call| {
+        let defaults = [true; 8];
+        for (index, enabled) in world.player_control_flags.iter_mut().enumerate() {
+            if call.args.get(index).map_or(defaults[index], Value::as_bool) {
+                *enabled = true;
+            }
+        }
+        if call.args.get(2).map_or(true, Value::as_bool) {
+            world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
+        }
+        world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
         none()
     });
-    global!(vm, w, "Game", "DisablePlayerControls", |world, _call| {
-        world.player_controls = false;
+    global!(vm, w, "Game", "DisablePlayerControls", |world, call| {
+        let defaults = [true, true, false, false, false, true, true, false];
+        for (index, enabled) in world.player_control_flags.iter_mut().enumerate() {
+            if call.args.get(index).map_or(defaults[index], Value::as_bool) {
+                *enabled = false;
+            }
+        }
+        if call.args.get(2).map_or(false, Value::as_bool) {
+            world.player_control_pov_type = call.args.get(8).map_or(0, Value::as_int);
+        }
+        world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
         none()
     });
     global!(vm, w, "Game", "GetGameSettingFloat", |world, call| {
@@ -2230,7 +2248,9 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "SetInChargen", |world, call| {
-        world.in_chargen = call.args.first().is_none_or(Value::as_bool);
+        world.in_chargen = call.args.first().is_some_and(Value::as_bool);
+        world.chargen_disable_waiting = call.args.get(1).is_some_and(Value::as_bool);
+        world.chargen_show_controls_disabled_message = call.args.get(2).is_some_and(Value::as_bool);
         none()
     });
     global!(vm, w, "Game", "SetBeastForm", |world, call| {

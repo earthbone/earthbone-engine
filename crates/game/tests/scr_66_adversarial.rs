@@ -4,9 +4,9 @@
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, Return},
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 #[test]
