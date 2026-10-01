@@ -64,7 +64,11 @@ impl DirtyReport {
 
     #[must_use]
     pub fn identical_to_master(&self) -> usize {
-        self.plugins.iter().map(|p| p.identical_to_master).sum()
+        let mut count = 0;
+        for plugin in &self.plugins {
+            count += plugin.identical_to_master;
+        }
+        count
     }
 
     #[must_use]

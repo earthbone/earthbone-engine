@@ -36,55 +36,6 @@ fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, Vm
 }
 
 impl World {
-    pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
-        if world.unresolved_records.is_empty() {
-            return;
-        }
-        w.len(world.unresolved_records.len());
-        for (id, value) in &world.unresolved_records {
-            write_unresolved_id(w, id);
-            w.bytes(&value.payload);
-            w.len(value.links.len());
-            for link in &value.links {
-                write_unresolved_id(w, link);
-            }
-        }
-    }
-
-    pub(super) fn read_unresolved_records(
-        world: &mut World,
-        r: &mut FormReader<'_, '_>,
-    ) -> Result<(), VmError> {
-        let mut records = BTreeMap::new();
-        let count = r.len()?;
-        if count > r.remaining() / 13 {
-            return Err(bad("unresolved record count exceeds remaining bytes"));
-        }
-        for _ in 0..count {
-            let mut id = read_unresolved_id(r)?;
-            normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
-            let payload = r.bytes()?.to_vec();
-            let link_count = r.len()?;
-            if link_count > r.remaining() / 13 {
-                return Err(bad("unresolved link count exceeds remaining bytes"));
-            }
-            let mut links = Vec::with_capacity(link_count);
-            for _ in 0..link_count {
-                let mut link = read_unresolved_id(r)?;
-                normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
-                links.push(link);
-            }
-            if records
-                .insert(id.clone(), UnresolvedRecord { id, payload, links })
-                .is_some()
-            {
-                return Err(bad("duplicate unresolved record identity"));
-            }
-        }
-        world.unresolved_records = records;
-        Ok(())
-    }
-
     fn saved_record_identity(&self, id: GlobalFormId) -> Result<(), VmError> {
         let limit = if id.file == super::DYNAMIC_FILE {
             0xFFFFFF
@@ -309,7 +260,7 @@ impl World {
             } else {
                 None
             };
-            let list = if version >= 35 && r.bool()? {
+            let list = if version >= 37 && r.bool()? {
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {
@@ -1187,22 +1138,6 @@ pub(super) fn read_projectile_section(
     Ok(())
 }
 
-pub(super) fn write_unresolved_records(
-    world: &World,
-    w: &mut Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
-    World::write_unresolved_records(world, w);
-}
-
-pub(super) fn read_unresolved_records(
-    world: &mut World,
-    r: &mut FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), VmError> {
-    World::read_unresolved_records(world, r)
-}
-
 pub(super) fn write_pack_navmesh_section(
     world: &World,
     w: &mut Writer,
@@ -1289,6 +1224,60 @@ pub(super) fn read_pack_navmesh_section(
 
 fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
     record.subrecords.clone()
+}
+
+pub(super) fn write_unresolved_records(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    if world.unresolved_records.is_empty() {
+        return;
+    }
+    w.len(world.unresolved_records.len());
+    for (id, value) in &world.unresolved_records {
+        write_unresolved_id(w, id);
+        w.bytes(&value.payload);
+        w.len(value.links.len());
+        for link in &value.links {
+            write_unresolved_id(w, link);
+        }
+    }
+}
+
+pub(super) fn read_unresolved_records(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let mut records = BTreeMap::new();
+    let count = r.len()?;
+    if count > r.remaining() / 13 {
+        return Err(bad("unresolved record count exceeds remaining bytes"));
+    }
+    for _ in 0..count {
+        let mut id = read_unresolved_id(r)?;
+        normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
+        let payload = r.bytes()?.to_vec();
+        let link_count = r.len()?;
+        if link_count > r.remaining() / 13 {
+            return Err(bad("unresolved link count exceeds remaining bytes"));
+        }
+        let mut links = Vec::with_capacity(link_count);
+        for _ in 0..link_count {
+            let mut link = read_unresolved_id(r)?;
+            normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
+            links.push(link);
+        }
+        if records
+            .insert(id.clone(), UnresolvedRecord { id, payload, links })
+            .is_some()
+        {
+            return Err(bad("duplicate unresolved record identity"));
+        }
+    }
+    world.unresolved_records = records;
+    Ok(())
 }
 
 fn write_unresolved_id(w: &mut Writer, id: &UnresolvedRecordId) {

@@ -256,6 +256,177 @@ impl Land {
     }
 }
 
+/// Apply one circular height brush dab to a LAND record and rebuild its
+/// vertex normals from the edited heights.
+///
+/// `center` and `radius` use cell-local world units. `strength` is the height
+/// change at the brush centre. A smooth radial falloff reaches zero at the
+/// radius. Existing LAND subrecords and unknown data are preserved.
+pub fn apply_height_brush(
+    record: &mut Record,
+    center: [f32; 2],
+    radius: f32,
+    strength: f32,
+) -> Result<()> {
+    if record.tag != tag::LAND {
+        return Err(Error::Invalid("height brush requires a LAND record".into()));
+    }
+    if !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !strength.is_finite()
+    {
+        return Err(Error::Invalid(
+            "height brush center, radius and strength must be finite, with a positive radius"
+                .into(),
+        ));
+    }
+
+    let land = Land::from_record(record)?;
+    for subrecord_tag in [b"DATA", b"VHGT", b"VNML"] {
+        ensure_unique_subrecord(record, Tag::new(subrecord_tag))?;
+    }
+    let mut heights = land
+        .heights
+        .map(|values| values.decode())
+        .unwrap_or_else(|| vec![0.0; VERTS]);
+    let spacing = 4096.0 / (VERTS_PER_SIDE - 1) as f32;
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let x = col as f32 * spacing;
+            let y = row as f32 * spacing;
+            let distance = (x - center[0]).hypot(y - center[1]);
+            if distance < radius {
+                let t = 1.0 - distance / radius;
+                let weight = t * t * (3.0 - 2.0 * t);
+                heights[row * VERTS_PER_SIDE + col] += strength * weight;
+            }
+        }
+    }
+
+    ensure_encodable_heights(&heights)?;
+    let encoded = Heights::encode(&heights);
+    let mut normals = Vec::with_capacity(VERTS * 3);
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let left = row * VERTS_PER_SIDE + col.saturating_sub(1);
+            let right = row * VERTS_PER_SIDE + (col + 1).min(VERTS_PER_SIDE - 1);
+            let south = row.saturating_sub(1) * VERTS_PER_SIDE + col;
+            let north = (row + 1).min(VERTS_PER_SIDE - 1) * VERTS_PER_SIDE + col;
+            let dx = (heights[right] - heights[left])
+                / (spacing
+                    * if col == 0 || col == VERTS_PER_SIDE - 1 {
+                        1.0
+                    } else {
+                        2.0
+                    });
+            let dy = (heights[north] - heights[south])
+                / (spacing
+                    * if row == 0 || row == VERTS_PER_SIDE - 1 {
+                        1.0
+                    } else {
+                        2.0
+                    });
+            let length = (dx * dx + dy * dy + 1.0).sqrt();
+            for component in [-dx / length, -dy / length, 1.0 / length] {
+                normals.push((component * 127.0).round().clamp(-127.0, 127.0) as i8 as u8);
+            }
+        }
+    }
+
+    let flags = land.flags | flags::HAS_NORMALS_AND_HEIGHTS;
+    if record
+        .subrecords
+        .iter()
+        .find(|subrecord| subrecord.tag == Tag::new(b"DATA"))
+        .is_some()
+    {
+        let data = record
+            .subrecords
+            .iter_mut()
+            .find(|subrecord| subrecord.tag == Tag::new(b"DATA"));
+        if let Some(data) = data {
+            data.data = flags.to_le_bytes().to_vec();
+        }
+    } else {
+        record.subrecords.insert(
+            0,
+            crate::plugin::Subrecord::new(Tag::new(b"DATA"), flags.to_le_bytes()),
+        );
+    }
+    set_unique_subrecord(record, Tag::new(b"VHGT"), encoded.to_bytes())?;
+    set_unique_subrecord(record, Tag::new(b"VNML"), normals)?;
+    Ok(())
+}
+
+fn ensure_encodable_heights(heights: &[f32]) -> Result<()> {
+    let quantized = heights
+        .iter()
+        .map(|height| (*height / HEIGHT_SCALE).round())
+        .collect::<Vec<_>>();
+    if quantized.iter().any(|height| !height.is_finite()) {
+        return Err(Error::Invalid(
+            "height brush produced a non-finite LAND height".into(),
+        ));
+    }
+    let mut row_start = quantized[0];
+    for row in 0..VERTS_PER_SIDE {
+        let mut previous = 0.0;
+        for col in 0..VERTS_PER_SIDE {
+            let target = quantized[row * VERTS_PER_SIDE + col];
+            let delta = if col == 0 {
+                let delta = target - row_start;
+                row_start = target;
+                delta
+            } else {
+                target - previous
+            };
+            if !(-128.0..=127.0).contains(&delta) {
+                return Err(Error::Invalid(
+                    "height brush exceeds LAND gradient range".into(),
+                ));
+            }
+            previous = target;
+        }
+    }
+    Ok(())
+}
+
+fn set_unique_subrecord(record: &mut Record, tag: Tag, data: Vec<u8>) -> Result<()> {
+    let mut found = record
+        .subrecords
+        .iter_mut()
+        .filter(|subrecord| subrecord.tag == tag);
+    if let Some(subrecord) = found.next() {
+        if found.next().is_some() {
+            return Err(Error::Invalid(format!(
+                "LAND has repeated {tag} subrecords"
+            )));
+        }
+        subrecord.data = data;
+    } else {
+        record
+            .subrecords
+            .push(crate::plugin::Subrecord::new(tag, data));
+    }
+    Ok(())
+}
+
+fn ensure_unique_subrecord(record: &Record, tag: Tag) -> Result<()> {
+    if record
+        .subrecords
+        .iter()
+        .filter(|subrecord| subrecord.tag == tag)
+        .count()
+        > 1
+    {
+        return Err(Error::Invalid(format!(
+            "LAND has repeated {tag} subrecords"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

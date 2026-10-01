@@ -188,6 +188,13 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    match s.destruction_health {
+        Some(health) => {
+            h.u8(1);
+            h.f32(health);
+        }
+        None => h.u8(0),
+    }
     h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
@@ -206,6 +213,32 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         h.bool(*v);
     }
     h.f32(s.alpha);
+    if let Some(translation) = s.translation {
+        h.u8(1);
+        for value in translation
+            .start_position
+            .into_iter()
+            .chain(translation.target_position)
+            .chain(translation.start_rotation)
+            .chain(translation.target_rotation)
+        {
+            h.f32(value);
+        }
+        h.f32(translation.speed);
+        h.f32(translation.max_rotation_speed);
+        match translation.path {
+            super::TranslationPath::Linear => h.u8(0),
+            super::TranslationPath::Spline { tangent_magnitude } => {
+                h.u8(1);
+                h.f32(tangent_magnitude);
+            }
+        }
+        h.f32(translation.elapsed);
+        h.f32(translation.duration);
+        h.bool(translation.almost_complete_fired);
+    } else {
+        h.u8(0);
+    }
 }
 
 fn form_set(h: &mut StateHasher, set: &BTreeSet<GlobalFormId>) {
@@ -282,6 +315,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
+        Procedure::Flee => h.u8(19),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());
@@ -295,7 +329,8 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
-        Procedure::UseWeapon => h.u8(9),
+        Procedure::Guard => h.u8(20),
+        Procedure::UseWeapon => h.u8(22),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
@@ -308,8 +343,8 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             h.u8(7);
             h.f32(a.hover_height);
         }
-        Procedure::Follow => h.u8(8),
-        Procedure::ForceGreet => h.u8(10),
+        Procedure::Follow => h.u8(21),
+        Procedure::ForceGreet => h.u8(23),
         Procedure::DialogueActivate => h.u8(16),
         Procedure::HoldPosition => h.u8(11),
         Procedure::Orbit { height } => {
@@ -319,6 +354,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         Procedure::Escort => h.u8(13),
         Procedure::Activate => h.u8(14),
         Procedure::Find => h.u8(15),
+        Procedure::Sit => h.u8(18),
         Procedure::UseIdleMarker { marker } => {
             h.u8(9);
             if let Some(marker) = marker {
@@ -329,7 +365,6 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 h.u8(0);
             }
         }
-        Procedure::Sit => h.u8(18),
         Procedure::Shout => {
             h.u8(17);
             h.bool(a.wait_until.is_some());
@@ -391,6 +426,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.u32(a.level);
     opt_form(h, a.race);
     h.bool(a.unconscious);
+    h.u8(match a.ragdoll_forced {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    });
     h.bool(a.doing_favor);
     h.map(&a.factions, |h, k, v| {
         form(h, *k);
@@ -474,6 +514,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some(expression) = a.expression_override {
+        h.bool(true);
+        h.u32(u32::from(expression.mood));
+        h.u32(u32::from(expression.strength));
+    } else {
+        h.bool(false);
+    }
     if let Some((furniture, marker)) = a.furniture_seat {
         h.bool(true);
         form(h, furniture);
@@ -542,6 +589,8 @@ impl World {
         h.u32(self.next_dynamic);
         opt_form(&mut h, self.player);
         h.u32(self.player_level);
+        h.u32(self.training_sessions_this_level);
+        h.u32(self.training_session_level);
         let objects = h.finish();
 
         let mut h = StateHasher::new();
@@ -706,6 +755,17 @@ impl World {
             form(&mut h, *id);
             h.str(name);
         }
+        h.len(self.animation_waiters.len());
+        for waiter in &self.animation_waiters {
+            form(&mut h, waiter.source);
+            h.str(&waiter.event);
+            h.u64(waiter.latent.0);
+        }
+        h.len(self.completed_animation_waits.len());
+        for (latent, result) in &self.completed_animation_waits {
+            h.u64(latent.0);
+            h.bool(*result);
+        }
         h.bool(self.player_controls);
         let output = h.finish();
 
@@ -824,6 +884,7 @@ impl World {
         }
         form_set(&mut h, &self.words_taught);
         form_set(&mut h, &self.words_unlocked);
+        form_set(&mut h, &self.learned_enchantment_effects);
         h.len(self.achievements.len());
         for a in &self.achievements {
             h.i32(*a);
@@ -857,11 +918,22 @@ impl World {
             form(&mut h, *source);
             opt_form(&mut h, *target);
         }
+        h.len(self.spell_casts_in_progress.len());
+        for (caster, cast) in &self.spell_casts_in_progress {
+            form(&mut h, *caster);
+            form(&mut h, cast.spell);
+            opt_form(&mut h, cast.target);
+            h.u8(match cast.kind {
+                super::magic::SpellCastKind::FireAndForget => 0,
+                super::magic::SpellCastKind::Concentration => 1,
+            });
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
+        crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
@@ -1248,6 +1320,9 @@ mod tests {
         moves("words_unlocked", flags, |w| {
             w.words_unlocked.insert(id(9));
         });
+        moves("learned_enchantment_effects", flags, |w| {
+            w.learned_enchantment_effects.insert(id(9));
+        });
         moves("achievements", flags, |w| w.achievements.push(3));
         moves("last_ridden_horse", flags, |w| {
             w.last_ridden_horse = Some(id(9));
@@ -1266,6 +1341,16 @@ mod tests {
         moves("next_sound", scenes, |w| w.next_sound = 1);
         moves("spell_casts", scenes, |w| {
             w.spell_casts.push((id(8), id(1), None));
+        });
+        moves("spell_casts_in_progress", scenes, |w| {
+            w.spell_casts_in_progress.insert(
+                id(1),
+                super::super::magic::SpellCast {
+                    spell: id(8),
+                    target: Some(id(9)),
+                    kind: super::super::magic::SpellCastKind::FireAndForget,
+                },
+            );
         });
     }
 }

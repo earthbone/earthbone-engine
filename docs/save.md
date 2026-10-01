@@ -1,5 +1,9 @@
 # `save`: Skyrim Special Edition save games
 
+The `soe-game` SOEW world save is version 37. It records the active Flee
+package procedure using the actor's existing AI procedure field. Older world
+save versions remain readable through the current version gate.
+
 `crates/save` reads an `.ess` file into a typed structure and turns the part of
 it that describes progress into scenario expectations the harness in
 `crates/game` can run. The game crate also imports the saved global-variable
@@ -389,8 +393,9 @@ resident references, and quests carrying stage-wait. Created references retain
 their identity even before world change forms allocate them. QUST's transitional
 stop/start flag word restores a pending promotion task. IsStarting and
 IsStopping report its direction, and IsRunning remains false until the task
-completes. SOEW version 37 persists pending quest promotion tasks. Older world
-states load without a pending task.
+completes. SOEW version 37 persists pending quest promotion tasks in the
+`SAV-10` world section. Older world states and version-37 saves without that
+section load without a pending task.
 
 The first 60-save application survey restores 32,256 quests and preserves every
 engine-save byte and the world hash after reloading. It reports 6,816 unresolved
