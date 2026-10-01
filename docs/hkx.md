@@ -869,6 +869,7 @@ activity, wrapper disable, ignored serialized state and decoded event and child
 fields through a synthetic packfile. These tests establish the declared layout
 and the interpreter policy. They do not compare event ordering with a Havok
 runtime capture.
+
 ### Direct-at modifier
 
 `BSDirectAtModifier` reads the target mode, source bone, inclusive start and
