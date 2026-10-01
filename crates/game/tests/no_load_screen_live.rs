@@ -176,6 +176,7 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
                 soe_game::Pending::Call { .. }
                 | soe_game::Pending::CallScript { .. }
                 | soe_game::Pending::BindEffect { .. }
+                | soe_game::Pending::BindReference { .. }
                 | soe_game::Pending::DeferredDeath { .. }
                 | soe_game::Pending::ActorDeath { .. } => None,
             })

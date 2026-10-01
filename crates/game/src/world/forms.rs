@@ -150,6 +150,27 @@ impl World {
         })
     }
 
+    /// Return an item's authored gold value for gift favor accounting.
+    pub fn item_value(&self, id: GlobalFormId) -> i32 {
+        let Some(record) = self.record(id) else {
+            return 0;
+        };
+        let tag = record.tag.as_bytes();
+        let (subrecord, offset) = match tag {
+            b"WEAP" | b"ARMO" | b"MISC" | b"INGR" => (T(b"DATA"), 0),
+            b"AMMO" => (T(b"DATA"), 12),
+            b"BOOK" => (T(b"DATA"), 8),
+            b"ALCH" => (T(b"ENIT"), 0),
+            _ => return 0,
+        };
+        let Some(data) = record.find(subrecord) else {
+            return 0;
+        };
+        data.get(offset..offset + 4)
+            .map(|bytes| i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).max(0))
+            .unwrap_or(0)
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;

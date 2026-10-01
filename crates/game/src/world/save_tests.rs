@@ -587,6 +587,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
+        actor.stagger_magnitude = 0.0;
+        actor.stagger_direction = None;
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
@@ -614,6 +616,9 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let mut world_sections = Writer::new();
     save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     bytes.truncate(bytes.len() - world_sections.out.len());
+    // Remove the current detection pool count after dropping the trailing
+    // version 37 section table, so this fixture has the version 29 layout.
+    bytes.truncate(bytes.len() - 4);
     bytes
 }
 
@@ -765,11 +770,11 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let before = world.save_state();
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
+        (18, "created namespace in a legacy world state".to_string()),
         (
             unknown_version,
             format!("world state version {unknown_version}"),
         ),
-        (18, "created namespace in a legacy world state".to_string()),
     ] {
         let mut bytes = before.clone();
         bytes[4..6].copy_from_slice(&version.to_le_bytes());
@@ -948,12 +953,9 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
 
 #[test]
 fn no_section_name_repeats_within_or_across_the_three_registries() {
-    let all: Vec<_> = WORLD_SECTIONS
-        .iter()
-        .map(|section| section.name)
-        .chain(ACTOR_SECTIONS.iter().map(|section| section.name))
-        .chain(REF_SECTIONS.iter().map(|section| section.name))
-        .collect();
+    let mut all: Vec<_> = WORLD_SECTIONS.iter().map(|section| section.name).collect();
+    all.extend(ACTOR_SECTIONS.iter().map(|section| section.name));
+    all.extend(REF_SECTIONS.iter().map(|section| section.name));
     let mut sorted = all.clone();
     sorted.sort_unstable();
     sorted.dedup();

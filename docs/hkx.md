@@ -524,6 +524,25 @@ past the parent's, and the reference points at the sub-graph's root.
 Character properties use a separate name map. Their names and typed infos are
 merged too, and binding type 1 is remapped through that property map.
 
+### Named behavior graph patches
+
+`BehaviorGraph::apply_patches` applies named in-memory edits after a graph has
+been loaded. Patch names sort lexicographically, so the result is independent
+of the order in which the caller discovered patches. Edits within one patch
+keep their declared order. Duplicate or empty names reject those patches.
+Supported edits replace a named clip's animation path or a state machine
+transition destination. A patch is atomic: if one edit is invalid, none of its
+edits are kept. A later patch that writes a different value to the same field
+wins and adds a conflict diagnostic naming both patches and the field. The
+caller receives applied patch names and diagnostics in `BehaviorPatchReport`.
+
+The local Skyrim Behavior Editor README describes merging projects or single
+behavior files. Pandora's `PandoraNativePatchManager` runs collected patches
+serially or in parallel depending on runtime mode. These sources establish the
+merge workflow, but not deterministic conflict handling, so this crate orders
+named patches and reports conflicting writes in its own data model. No
+reference implementation code is used.
+
 ### Input and output bindings
 
 The file does not mark a binding's direction, so the member does. Two members

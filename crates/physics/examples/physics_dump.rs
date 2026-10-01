@@ -103,12 +103,25 @@ fn main() -> ExitCode {
 fn summary(b: &Bhk) -> String {
     match b {
         Bhk::CollisionObject { body, .. } => format!("collision object, body {body:?}"),
+        Bhk::LimitedHingeConstraint(hinge) => format!(
+            "limited hinge, bodies {:?}/{:?}, limits {}..{}",
+            hinge.body_a, hinge.body_b, hinge.min_angle, hinge.max_angle
+        ),
         Bhk::SimpleShapePhantom(body) => {
             format!("phantom, shape {:?}, layer {:?}", body.shape, body.layer)
         }
         Bhk::Box { half_extents, .. } => format!("box {half_extents:?}"),
         Bhk::Sphere { radius, .. } => format!("sphere {radius}"),
+        Bhk::Plane {
+            normal, distance, ..
+        } => format!("plane {normal:?} at distance {distance}"),
         Bhk::Capsule { first, second, .. } => format!("capsule {first:?} {second:?}"),
+        Bhk::Cylinder {
+            first,
+            second,
+            radius,
+            ..
+        } => format!("cylinder {first:?} {second:?}, radius {radius}"),
         Bhk::ConvexVertices { vertices, .. } => format!("convex, {} vertices", vertices.len()),
         Bhk::Transform { shape, .. } => format!("transform of {shape:?}"),
         Bhk::List { children, .. } => format!("list of {}", children.len()),
@@ -119,6 +132,12 @@ fn summary(b: &Bhk) -> String {
             d.chunks.len(),
             d.big_triangles.len()
         ),
+        Bhk::NiTriStrips { strips, scale, .. } => {
+            format!(
+                "triangle strips, {} data blocks, scale {scale:?}",
+                strips.len()
+            )
+        }
         Bhk::RigidBody(_) | Bhk::Other(_) => String::new(),
     }
 }

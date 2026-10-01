@@ -38,6 +38,7 @@ fn events(g: &Game) -> Vec<(ObjectId, String)> {
             Pending::Call { .. }
             | Pending::CallScript { .. }
             | Pending::BindEffect { .. }
+            | Pending::BindReference { .. }
             | Pending::DeferredDeath { .. }
             | Pending::ActorDeath { .. } => None,
         })
