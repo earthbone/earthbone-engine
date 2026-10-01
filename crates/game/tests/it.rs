@@ -679,6 +679,10 @@ mod magic;
 mod magic_archetypes;
 #[path = "mod_01_adversarial.rs"]
 mod mod_01_adversarial;
+#[path = "mod_01_breaker2_adversarial.rs"]
+mod mod_01_breaker2_adversarial;
+#[path = "mod_01_breaker_adversarial.rs"]
+mod mod_01_breaker_adversarial;
 #[path = "mod_02_adversarial.rs"]
 mod mod_02_adversarial;
 #[path = "mod_03_adversarial.rs"]
