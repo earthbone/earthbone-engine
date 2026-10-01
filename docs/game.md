@@ -1522,6 +1522,16 @@ fully consume are all load errors naming the section and the level.
 Versions before 37 have no section table at any level, and the reader
 skips looking for one below version 37.
 
+Legacy test fixtures measure trailing cuts with `version_tail_len` or
+`truncate_to_version` in `tests/common/save_tail.rs`, using a fresh world and
+the requested version's reader. Invalid fixtures reuse a cut measured on a
+valid counterpart. Corruption fixtures locate serialized field markers or
+parse their envelope instead of counting back from the save's end. The
+`tst_15_` tests cover empty worlds, actor and reference section removal,
+source-state preservation and the absence of literal tail offsets with two
+or more digits. These helpers reuse the layouts in `world/save.rs` and
+`world/save_sections.rs` and do not change the save format.
+
 ### Player appearance editing, UI-14
 
 The player actor stores selected HDPT forms by part type and normalized face
