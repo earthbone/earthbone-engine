@@ -3034,6 +3034,18 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    for name in ["Preload", "Unload"] {
+        method!(vm, w, "Spell", name, |world, call, me| {
+            match world.spell(me) {
+                Ok(_) => call.log.push(
+                    call.time,
+                    format!("Spell.{name}: spell art resource loading is unsupported"),
+                ),
+                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            }
+            none()
+        });
+    }
 }
 
 /// Shipped ImageSpaceModifier methods keep ordinary and crossfade lifetimes apart.
@@ -3888,8 +3900,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("Actor", "PlayIdleWithTarget"),
-        ("Spell", "Preload"),
-        ("Spell", "Unload"),
         ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
