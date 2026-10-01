@@ -777,6 +777,8 @@ pub struct World {
     pub host_requests: Vec<HostRequest>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
+    /// Script events submitted by Papyrus and waiting for Story Manager routing.
+    pub(crate) pending_story_events: Vec<crate::quest::state::StoryEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     /// Recoverable errors raised by void Papyrus Game natives.
@@ -1100,6 +1102,7 @@ impl World {
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),
+            pending_story_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             native_errors: Vec::new(),

@@ -497,12 +497,16 @@ mod footstep_actors;
 mod footsteps;
 #[path = "hst_03_adversarial.rs"]
 mod hst_03_adversarial;
+#[path = "hst_03_breaker_adversarial.rs"]
+mod hst_03_breaker_adversarial;
 #[path = "hst_03_lockpicking.rs"]
 mod hst_03_lockpicking;
 #[path = "hst_04_deleted_reference_sync_adversarial.rs"]
 mod hst_04_deleted_reference_sync_adversarial;
 #[path = "hst_04_placement_sync_check.rs"]
 mod hst_04_placement_sync_check;
+#[path = "hst_09_adversarial.rs"]
+mod hst_09_adversarial;
 #[path = "hst_09_furniture.rs"]
 mod hst_09_furniture;
 #[path = "hst_10_breaker_adversarial.rs"]
@@ -775,6 +779,10 @@ mod prg_13_adversarial;
 mod prg_13_jail;
 #[path = "prg_14_adversarial.rs"]
 mod prg_14_adversarial;
+#[path = "prg_14_breaker_adversarial.rs"]
+mod prg_14_breaker_adversarial;
+#[path = "prg_14_breaker_adversarial_2.rs"]
+mod prg_14_breaker_adversarial_2;
 #[path = "prg_14_story_manager.rs"]
 mod prg_14_story_manager;
 #[path = "prg_15_actor_skills.rs"]

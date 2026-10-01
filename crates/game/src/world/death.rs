@@ -225,9 +225,11 @@ impl World {
 
     /// Held death requests are persistent state, not runnable VM work.
     pub fn has_pending_calls(&self) -> bool {
-        self.pending
-            .iter()
-            .any(|event| !matches!(event, Pending::DeferredDeath { .. }))
+        !self.pending_story_events.is_empty()
+            || self
+                .pending
+                .iter()
+                .any(|event| !matches!(event, Pending::DeferredDeath { .. }))
     }
 }
 

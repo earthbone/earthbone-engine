@@ -210,16 +210,20 @@ unverified.
 ### Furniture activation, HST-09
 
 Activating a FURN reference selects the first unreserved Sit marker from its
-FNPR entries whose corresponding low MNAM bit is active. The actor reserves
-that marker and moves to the furniture reference transform. Activating the
-same furniture again, or calling `World::stand_from_furniture`, releases the
-reservation. `World::furniture_seat` exposes the actor's current furniture and
-marker, and `World::furniture_marker_in_use` reports active reservations.
-SOEW version 37 stores the furniture reference and marker with actor state.
-The FURN field layout follows local xEdit `wbRecord(FURN)` and
-`uesp-modfileformat/FURN.wikitext`. Marker types and the active MNAM mask come
-from those definitions. Marker transforms are not read from the furniture
-model by this path.
+four-byte FNPR entries whose corresponding low MNAM bit is active. A FURN
+record with the MNAM Disables Activation flag set cannot be reserved. Marker
+indices are zero-based, and only indices 0 through 23 have active MNAM bits.
+Malformed FNPR entries are skipped. The actor reserves that marker and moves
+to the furniture reference transform. Activating the same furniture again,
+or calling `World::stand_from_furniture`, releases the reservation.
+`World::furniture_seat` exposes the actor's current furniture and marker, and
+`World::furniture_marker_in_use` reports reservations, including ones not yet
+in animation. The actor's furniture reference and marker are stored in the
+HST-09 actor save section. The FURN field layout follows local xEdit
+`wbRecord(FURN)` and `uesp-modfileformat/FURN.wikitext`. Marker types and the
+active MNAM mask come from those definitions. The CK `IsFurnitureInUse` and
+`IsFurnitureMarkerInUse` pages define in-use checks to include reservations by
+default. Marker transforms are not read from the furniture model by this path.
 
 Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
 linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
@@ -3350,9 +3354,14 @@ each do-all quest node. The implementation reads record fields described in
 `../engine-refs`. This state is included in the quest part of the world
 determinism hash.
 
-`Game::send_story_event` is an explicit runtime API. Gameplay actions do not
-generally emit story events automatically. The AI-69 draft was not present in
-this worktree. Its condition functions `GetScriptVariable`, `GetQuestVariable`,
+`Game::send_story_event` is an explicit runtime API. Papyrus
+`Keyword.SendStoryEvent` queues a `SCPT` event with the keyword, location, two
+references and two integer arguments in CK order. The game scheduler routes it
+after the native returns. `SendStoryEventAndWait` routes the same event before
+returning whether a quest started.
+Gameplay actions do not generally emit story events automatically. The AI-69
+draft was not present in this worktree. Its condition functions
+`GetScriptVariable`, `GetQuestVariable`,
 `GetDestructionStage`, `IsInCriticalStage`, `GetEventData`,
 `GetIsCrashLandRequest` and `GetIsHastyLandRequest` remain a dependency of
 conditioned trees. Unsupported or unavailable predicates return a typed
@@ -3371,12 +3380,15 @@ through Story Manager quest selection, item instance state and host menus
 remain unfinished. The full requested execution scope is tracked in
 [execution-plan.md](execution-plan.md).
 
-`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCRP` event
+`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCPT` event
 with the keyword, location, two references and two integer arguments in CK
-order. The waiting native returns whether routing started a quest. These
-natives evaluate direct world conditions without Papyrus variable lookup.
-Conditions that require Papyrus state return a routing error, logged by the
-native, and the waiting native returns false.
+order, using reference kinds 1 for the keyword and 2 for the location.
+The event code follows local `uesp-modfileformat/SMEN.wikitext`, and the native
+return contract follows `ck-wiki/Keyword_Script.wikitext`. The waiting native
+evaluates direct world conditions without Papyrus variable lookup. Conditions
+that require Papyrus state return a routing error, and the waiting native
+logs it and returns false. Deferred routing errors retain the
+`Keyword.SendStoryEvent` caller name in the VM log.
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
