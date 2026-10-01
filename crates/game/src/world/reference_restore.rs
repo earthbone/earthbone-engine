@@ -221,13 +221,6 @@ fn apply_header(
             report.missing_bases.insert(base);
         }
     }
-    if let Some((invert_flags, _unknown)) = header.form_flags {
-        let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
-        let persistent = soe_esm::plugin::flags::PERSISTENT;
-        state.enabled = (state.record_flags ^ invert_flags) & disabled == 0
-            && state.record_flags & soe_esm::plugin::flags::DELETED == 0;
-        state.persistent = (state.record_flags ^ invert_flags) & persistent != 0;
-    }
     if state.cell.is_none() {
         report.unplaced.insert(id);
     }

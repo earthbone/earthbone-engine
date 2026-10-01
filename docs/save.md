@@ -765,18 +765,22 @@ regression test keeps this unsupported case explicit.
 
 The runtime retains both `CHANGE_FORM_FLAGS` words in the restore report. For
 the observed Skyrim SE tuple of ESS header version 12, form version 78 and
-change-form version 78, the placement pass applies the first word to the
-runtime disabled and persistent properties. Other tuples with a mask fail
-before reference state is inserted. Deleted winning records remain disabled
-regardless of the saved mask.
+change-form version 78, the placement pass leaves disabled and persistent
+properties derived from the winning record. Other tuples with a mask fail
+before reference state is inserted.
+
+`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks
+that neither word changes the loader's enable or persistence values for the
+accepted tuple, including after engine save/load. This establishes the current
+implementation contract only. It is not independent evidence of Skyrim's
+operation, and the accepted tuple is the only mask-bearing version tuple in
+the surveyed corpus.
 
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
-16-bit Mask Set unk010. The implementation interprets the first word as an
-XOR mask over authored record flags, limited to `INITIALLY_DISABLED` and
-`PERSISTENT`, whose runtime bits are identified by CommonLibSSE-NG
-`TESForm.h` and checked by `TESObjectREFR.cpp`. The second word remains
-preserved and does not affect these properties. FallrimTools
+16-bit Mask Set unk010. The first word is retained without applying it because
+the available sources do not establish how either word changes runtime flags.
+The second word is also preserved. FallrimTools
 `src/main/java/resaver/ess/ChangeFormFlags.java` reads and writes the words
 as FLAGS and UNKNOWN without applying them. UESP's local
 `REFR_Changeform.wikitext` links a ChangeFlags page absent from the corpus.

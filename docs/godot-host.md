@@ -130,6 +130,22 @@ and `clear` or node teardown frees every remaining joint. The caller supplies
 the rigid bodies and local pivots. The host API does not infer cart bones or
 build the wheel, pole, chassis or horse rig from NIF collision data.
 
+### Editor forms dock, EDT-02
+
+`godot/addons/soe_forms` is a Godot editor plugin. It opens plugin paths in load-order order
+and names the active plugin, then filters winning forms by an optional four-character
+signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
+FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
+creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
+ID and winning plugin. The resource is a view and does not expose record editing.
+
+The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
+property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+`inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
+The plugin must be enabled in the Godot project's Plugins settings after building the
+extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
+field editor.
+
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
 (`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG

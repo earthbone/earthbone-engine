@@ -323,17 +323,21 @@ order, with each source plugin and record and a winner flag. The final version i
 including when the selected form has only one version. This is the record-chain data for the
 conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
-and inspector controls that can display those results. This row implements the Rust search
-operation only, not the Godot dock or inspector controls.
+and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
+and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
+the resolved identity, record signature, editor ID and winning plugin. It does not own or
+edit a copy of the record.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
 an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
 updates door and cover triangle indices after deletion. Triangle and vertex indices are
-checked against NVNM limits, malformed or degenerate edits are rejected before changing the
-plugin, and save writes the packed geometry back through the plugin writer. Editing a
-winning navmesh owned by another plugin is not supported yet because its parent, door and
-edge-link FormIDs need relocation when an override is created.
+checked against NVNM limits, including the full range of signed 16-bit triangle indices.
+External edge-link indices are retained when triangle indices change. Malformed or
+degenerate edits are rejected before changing the plugin, and save writes the packed
+geometry back through the plugin writer. Editing a winning navmesh owned by another plugin
+is not supported yet because its parent, door and edge-link FormIDs need relocation when
+an override is created.
 
 `EditorDocument::brush_land_heights` applies a single circular dab to a LAND record already
 present in the active plugin. The dab takes its center and radius in cell-local world units

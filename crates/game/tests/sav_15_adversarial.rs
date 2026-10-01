@@ -128,7 +128,7 @@ fn world() -> World {
 }
 
 #[test]
-fn saved_inversion_mask_xors_authored_disabled_and_persistent_flags() {
+fn saved_inversion_mask_does_not_change_authored_disabled_and_persistent_flags() {
     let mut world = world();
     world
         .restore_vanilla_reference_placements(&save(
@@ -141,13 +141,10 @@ fn saved_inversion_mask_xors_authored_disabled_and_persistent_flags() {
             object: 0x15,
         })
         .unwrap();
+    assert!(!state.enabled, "the authored disabled bit remains set");
     assert!(
-        state.enabled,
-        "the disabled bit is cleared by the saved inversion mask"
-    );
-    assert!(
-        state.persistent,
-        "the persistent bit is set by the saved inversion mask"
+        !state.persistent,
+        "the authored persistent bit remains clear"
     );
 }
 
