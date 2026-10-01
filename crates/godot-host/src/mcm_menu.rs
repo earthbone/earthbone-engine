@@ -22,7 +22,108 @@ const PAGE_CAPACITY: usize = 128;
 enum ActiveDialog {
     Slider(u32),
     Menu(u32),
-    Color(u32),
+    Color {
+        id: u32,
+        start_color: i32,
+        default_color: i32,
+    },
+}
+
+/// One key conflict reported through SkyUI's key-map callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyConflict {
+    /// The conflicting vanilla or mod control name, or an empty string.
+    pub control: String,
+    /// The registered mod config name, or an empty string for vanilla controls.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModKeyConfig {
+    name: String,
+    controls: Vec<(i32, String)>,
+}
+
+/// Vanilla and registered mod control maps used when a key is remapped.
+///
+/// Lookup order matches `SKI_ConfigManager.psc`: query vanilla controls first,
+/// then each mod config in its registration order, stopping at the first hit.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KeyConflictScanner {
+    vanilla_controls: Vec<(i32, String)>,
+    mod_configs: Vec<ModKeyConfig>,
+}
+
+impl KeyConflictScanner {
+    /// Add or replace a vanilla control mapping.
+    pub fn set_vanilla_control(&mut self, key_code: i32, control: impl Into<String>) {
+        set_control(&mut self.vanilla_controls, key_code, control.into());
+    }
+
+    /// Register a mod config and return its stable registration index.
+    pub fn register_mod_config(&mut self, name: impl Into<String>) -> usize {
+        self.mod_configs.push(ModKeyConfig {
+            name: name.into(),
+            controls: Vec::new(),
+        });
+        self.mod_configs.len() - 1
+    }
+
+    /// Set a config's custom control mapping, returning false for an invalid index.
+    pub fn set_custom_control(
+        &mut self,
+        config_index: usize,
+        key_code: i32,
+        control: impl Into<String>,
+    ) -> bool {
+        let Some(config) = self.mod_configs.get_mut(config_index) else {
+            return false;
+        };
+        set_control(&mut config.controls, key_code, control.into());
+        true
+    }
+
+    /// Find the first vanilla or mod control mapped to this key code.
+    #[must_use]
+    pub fn conflict(&self, key_code: i32) -> KeyConflict {
+        if let Some((_, control)) = self
+            .vanilla_controls
+            .iter()
+            .find(|(mapped_code, control)| *mapped_code == key_code && !control.is_empty())
+        {
+            return KeyConflict {
+                control: control.clone(),
+                name: String::new(),
+            };
+        }
+        for config in &self.mod_configs {
+            if let Some((_, control)) = config
+                .controls
+                .iter()
+                .find(|(mapped_code, control)| *mapped_code == key_code && !control.is_empty())
+            {
+                return KeyConflict {
+                    control: control.clone(),
+                    name: config.name.clone(),
+                };
+            }
+        }
+        KeyConflict {
+            control: String::new(),
+            name: String::new(),
+        }
+    }
+}
+
+fn set_control(controls: &mut Vec<(i32, String)>, key_code: i32, control: String) {
+    if let Some((_, current)) = controls
+        .iter_mut()
+        .find(|(mapped_code, _)| *mapped_code == key_code)
+    {
+        *current = control;
+    } else {
+        controls.push((key_code, control));
+    }
 }
 
 /// The option row types supported by the MCM presenter.
@@ -80,6 +181,14 @@ pub struct MenuDialog {
     pub start_index: usize,
     pub default_index: usize,
     pub options: Vec<String>,
+}
+
+/// Color picker parameters supplied while a config handles its open callback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorDialog {
+    pub option_id: u32,
+    pub start_color: i32,
+    pub default_color: i32,
 }
 
 impl OptionRow {
@@ -473,6 +582,26 @@ impl ConfigPage {
         true
     }
 
+    /// Scan vanilla and registered mod controls before sending the key-map callback.
+    pub fn remap_key_scanned(
+        &self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+        key_code: i32,
+        scanner: &KeyConflictScanner,
+    ) -> bool {
+        let conflict = scanner.conflict(key_code);
+        self.remap_key(
+            game,
+            script,
+            id,
+            key_code,
+            &conflict.control,
+            &conflict.name,
+        )
+    }
+
     /// Open a color dialog and request its start and default colors from the config script.
     pub fn open_color_dialog(&mut self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
         if !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
@@ -483,8 +612,48 @@ impl ConfigPage {
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
+        self.active_dialog = Some(ActiveDialog::Color {
+            id,
+            start_color: -1,
+            default_color: -1,
+        });
         game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
-        self.active_dialog = Some(ActiveDialog::Color(id));
+        true
+    }
+
+    /// Return the active color dialog's current parameters.
+    #[must_use]
+    pub fn color_dialog(&self) -> Option<ColorDialog> {
+        let Some(ActiveDialog::Color {
+            id,
+            start_color,
+            default_color,
+        }) = self.active_dialog
+        else {
+            return None;
+        };
+        Some(ColorDialog {
+            option_id: id,
+            start_color,
+            default_color,
+        })
+    }
+
+    /// Set the color picker's start color during the open callback.
+    pub fn set_color_dialog_start_color(&mut self, color: i32) -> bool {
+        let Some(ActiveDialog::Color { start_color, .. }) = &mut self.active_dialog else {
+            return false;
+        };
+        *start_color = color;
+        true
+    }
+
+    /// Set the color picker's default color during the open callback.
+    pub fn set_color_dialog_default_color(&mut self, color: i32) -> bool {
+        let Some(ActiveDialog::Color { default_color, .. }) = &mut self.active_dialog else {
+            return false;
+        };
+        *default_color = color;
         true
     }
 
@@ -496,7 +665,7 @@ impl ConfigPage {
         id: u32,
         color: i32,
     ) -> bool {
-        if self.active_dialog != Some(ActiveDialog::Color(id))
+        if !matches!(self.active_dialog, Some(ActiveDialog::Color { id: open_id, .. }) if open_id == id)
             || !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
         {
             return false;
@@ -515,7 +684,8 @@ impl ConfigPage {
 
     /// Cancel the open color dialog without changing the option value or sending an accept event.
     pub fn cancel_color_dialog(&mut self, id: u32) -> bool {
-        if self.active_dialog != Some(ActiveDialog::Color(id)) {
+        if !matches!(self.active_dialog, Some(ActiveDialog::Color { id: open_id, .. }) if open_id == id)
+        {
             return false;
         }
         self.active_dialog = None;
