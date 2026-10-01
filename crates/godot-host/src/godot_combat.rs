@@ -9,10 +9,10 @@ use std::hash::BuildHasher;
 use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D, Skeleton3D};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
-use soe_game::combat::{Error, Hand};
+use soe_game::combat::{Error, FlightSegment, Hand};
 
 use crate::combat::{weapon_bones, weapon_segment};
-use crate::units::METRES_PER_UNIT;
+use crate::units::{GodotPos, SkyrimPos, METRES_PER_UNIT};
 
 /// The first object met by an authored weapon segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,59 @@ pub fn first_contact<S: BuildHasher>(
         Some(actor) => ContactHit::Actor(actor),
         None => ContactHit::Obstruction(rid),
     })
+}
+
+/// Query one projectile segment and return its first obstruction or resident actor.
+/// The attacker is excluded from every mapped actor body.
+///
+/// # Errors
+/// Invalid segment geometry or an unavailable physics space.
+pub fn first_projectile_contact<S: BuildHasher>(
+    space: Rid,
+    owners: &[&HashMap<Rid, GlobalFormId, S>],
+    attacker: GlobalFormId,
+    segment: FlightSegment,
+) -> Result<Option<crate::combat::ProjectileContact>, Error> {
+    let from = SkyrimPos::new(segment.from[0], segment.from[1], segment.from[2]).to_godot();
+    let to = SkyrimPos::new(segment.to[0], segment.to[1], segment.to[2]).to_godot();
+    let from = Vector3::new(from.x, from.y, from.z);
+    let to = Vector3::new(to.x, to.y, to.z);
+    if !from.is_finite() || !to.is_finite() || from == to {
+        return Err(Error::Number);
+    }
+    let mut query = PhysicsRayQueryParameters3D::new_gd();
+    query.set_from(from);
+    query.set_to(to);
+    query.set_hit_from_inside(true);
+    let excluded: Array<Rid> = owners
+        .iter()
+        .flat_map(|map| map.iter())
+        .filter_map(|(rid, form)| (*form == attacker).then_some(*rid))
+        .collect();
+    query.set_exclude(&excluded);
+    let mut state = PhysicsServer3D::singleton()
+        .space_get_direct_state(space)
+        .ok_or(Error::Unsupported("unavailable projectile contact space"))?;
+    let result = state.intersect_ray(&query);
+    let Some(rid) = result
+        .get("rid")
+        .and_then(|value| value.try_to::<Rid>().ok())
+    else {
+        return Ok(None);
+    };
+    let hit = match owners.iter().find_map(|map| map.get(&rid).copied()) {
+        Some(actor) => ContactHit::Actor(actor),
+        None => ContactHit::Obstruction(rid),
+    };
+    let point = result
+        .get("position")
+        .and_then(|value| value.try_to::<Vector3>().ok())
+        .ok_or(Error::Unsupported("projectile contact has no position"))?;
+    let point = GodotPos::new(point.x, point.y, point.z).to_skyrim();
+    Ok(Some(crate::combat::ProjectileContact {
+        hit,
+        position: [point.x, point.y, point.z],
+    }))
 }
 
 /// World-space pose of the swing hand's weapon node in `skeleton`, trying
