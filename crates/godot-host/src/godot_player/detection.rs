@@ -16,7 +16,7 @@ use crate::units::SkyrimPos;
 #[godot_api(secondary)]
 impl PlayerNode {
     /// Run one shared detection sample on demand. The gameplay loop calls the
-    /// same path each physics step; this entry point lets host checks sample
+    /// same path each physics step. This entry point lets host checks sample
     /// the live physics space at a controlled point in time.
     #[func]
     pub fn sample_detection(&mut self, elapsed: f64) -> i64 {
