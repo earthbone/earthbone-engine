@@ -3399,6 +3399,11 @@ sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
 returns that name or an empty string when none is active. A plain return clears
 any active sequence. Starting a new game leaves the main menu state.
 
+The SCR-31 host tests call both globals through Papyrus, check their transient
+requests, and apply those requests to the same menu state used by the host.
+`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
+preserves the requested sequence name.
+
 Open gaps, none closed by this row:
 
 - Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
