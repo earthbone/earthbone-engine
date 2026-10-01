@@ -8,7 +8,11 @@ use soe_game::Game;
 fn scr_70_sound_and_shader_bindings_keep_method_and_global_contracts() {
     let mut game = Game::new(LoadOrder::new());
     game.bind();
-    for (class, name) in [("Sound", "Play"), ("ShaderParticleGeometry", "Apply"), ("ShaderParticleGeometry", "Remove")] {
+    for (class, name) in [
+        ("Sound", "Play"),
+        ("ShaderParticleGeometry", "Apply"),
+        ("ShaderParticleGeometry", "Remove"),
+    ] {
         assert!(game.vm.natives.has_method(class, name), "{class}.{name}");
         assert!(!game.vm.natives.has_global(class, name), "{class}.{name}");
     }
