@@ -71,7 +71,7 @@ soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
 soe-audio = { path = "../audio" }
-soe-dds = { path = "../dds" }
+soe-dds = { path = "../dds", features = ["encode"] }
 soe-hkx = { path = "../hkx" }
 soe-physics = { path = "../physics" }
 soe-profile = { path = "../profile" }

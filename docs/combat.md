@@ -86,24 +86,38 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors, weapon enchantments, item poison and
-unsupported weapon skills/types. Tempered item quality scales damage instead
-of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
-rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
+these defaults. It rejects all perked actors and unsupported weapon
+skills/types. Supported enchantments execute as described under CMB-24, and
+weapon poison executes as described under CMB-25. Tempered item quality
+scales damage instead of rejecting, CMB-10. A weapon's resistance flags
+scale damage instead of rejecting too, CMB-26: only a reserved DNAM Resist
+index still rejects. These
 are open execution requirements, not silently omitted modifiers. Protected
 and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
 An essential attacker can still attack an ordinary target.
+
+Live Enhance Weapon effects (MGEF archetype 39) contribute their associated
+ENCH to ordinary equipped melee hits by their target actor. A single
+unconditioned ENCH Value Modifier entry for detrimental Health adds its
+magnitude, scaled by the active effect magnitude, to weapon damage before
+armor and resistance. The contribution is read while the active effect is
+live, so expiry stops it without changing weapon records or inventory stacks.
+Unarmed hits and attempts with unequipped weapons do not receive the
+contribution. Other ENCH effects, conditions and multiple entries are rejected
+before hit state changes. See [active magic](game.md#active-magic-applications),
+MAG-60.
 
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
 record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may
 omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
 terminal record. Each link remains a form lookup, so templates do not create a
-parallel item store. Cycles, unresolved links, wrong record types and weapon
-enchantments anywhere in the chain reject the contact before it changes health
-or queues an event. Armor EITM links do not alter physical rating. Worn armor
-enchantment effects are applied by MAG-10.
+parallel item store. Cycles, unresolved links and wrong record types reject
+the contact before it changes health or queues an event.
+Weapon enchantments in the chain use the nearest EITM link, with instance
+overrides and charge handled under CMB-24. Armor EITM links do not alter
+physical rating. Worn armor enchantment effects are applied by MAG-10.
 
 TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
 exposes the template pointers. None of these local sources states a
@@ -111,8 +125,9 @@ field-by-field merge mask for WEAP or ARMO. This path therefore treats the
 terminal referenced form as the combat source for CMB-11 instead of merging
 child fields. The synthetic cross-plugin fixtures cover weapon damage, armor
 rating, slots, skill and weapon behavior fields from that terminal record.
-An EITM link on a child or terminal record still rejects the contact, pending
-weapon enchantment execution.
+The closest weapon EITM link in the template chain supplies the record
+enchantment. Instance overrides and charge follow CMB-24. Armor enchantments
+remain unsupported.
 
 ## Application and events
 
@@ -219,14 +234,47 @@ The installed-data unarmed survey executes the canonical source form against
 regression combines unarmed damage, templated armor, Legendary difficulty and
 engine save/load. Ordinary weapons retain their shared template resolver.
 
+## Witnessed assault bounty, CMB-18
+
+A successful nonlethal melee hit by the player reports an assault to the
+victim's crime faction. The victim is the witness, and the bounty uses
+that faction's `FACT.CRVA` assault value. A faction with Ignore Assault set
+in `FACT.DATA` receives no assault bounty. NPC attacks and lethal player hits
+do not post an assault bounty. The crime recorder also records the victim's
+knowledge of the attacker in `ActorState::witnessed_crimes`.
+
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, bashing, sneak attacks, dual-wield and bash power
-attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
-stagger, crime and combat AI remain unfinished. The API is an execution
-increment and does not establish playable combat or completion of the broader
-gameplay-foundations goal.
+weapons/ammunition, dual-wield and bash power attacks, weapon-only blocking,
+perk entry points, unsupported enchantment rules, poison modifiers, bleedout,
+stagger, other crime pathways and combat AI remain unfinished. The API is an
+execution increment and does not establish playable combat or completion of
+the broader gameplay-foundations goal.
+
+## Sneak attack multipliers, CMB-06
+
+An ordinary melee hit is a sneak attack when its attacker is currently
+sneaking and the target's CMB-31 awareness of that attacker is not Combat.
+No awareness entry means the target has not detected the attacker. Combat
+awareness suppresses the multiplier even if the attacker remains in the
+sneaking state. Bashes do not use this weapon multiplier.
+
+The multiplier is read from the load order's GMST using the WEAP animation
+type: hand-to-hand uses `fCombatSneakHandMult`, one-handed swords, daggers,
+axes and maces use their corresponding `fCombatSneak1H...Mult` setting, and
+two-handed swords and axes use `fCombatSneak2H...Mult`. The xEdit animation
+enum in `TES5Edit/Core/wbDefinitionsTES5.pas` defines these WEAP categories.
+Wrye Bash's `GmstTweak_Combat_StealthDamageBonus` identifies the dagger, bow
+and crossbow sneak settings. The installed Skyrim.esm contains the six melee
+settings used here. Missing or invalid selected settings reject the hit before
+damage is committed. The multiplier scales base weapon damage before the
+existing actor-value, quality, armor, block, resistance and difficulty terms.
+
+The CK `OnHit_-_ObjectReference.wikitext` defines `abSneakAttack` as whether
+the hit was caused by a sneak attack. `OnHit` now receives the same result as
+`HitResult::sneak_attacked`. Ranged sneak multipliers remain outside this
+melee-only path.
 
 ## Block damage reduction, CMB-05
 
@@ -318,11 +366,11 @@ with unassigned hands. Version 16 retains its difficulty and has unassigned
 hands. Version 17 retains its hands and defaults to Adept. Version 18 retains
 both fields. The integration checks all four extension layouts and rejects
 invalid difficulty bytes before replacing world state.
-This does not infer item-instance selection from a form-only equipment set.
-Poison and enchantment continue to reject as described above. Tempered item
-quality reads instead of rejecting, CMB-10, but the same form-only equipment
-set still cannot name which physical stack a hit swung: when an item's
-stacks disagree on quality, `check_combat_stack` rejects rather than guess.
+This does not infer item-instance selection for quality from a form-only
+equipment set. Weapon enchantment and poison use their instance rules in
+CMB-24 and CMB-25. Tempered item quality reads instead of rejecting, CMB-10,
+but when an item's stacks disagree on quality, `check_combat_stack` rejects
+rather than guess.
 
 Hand selection and armor slot replacement use the same template resolution
 as hit calculation. Terminal weapon ETYP supplies the slot choices. The child
@@ -386,7 +434,8 @@ returns a transient `FlightRequest` with normalized direction and record-backed
 flight fields. A rejected request leaves ammunition unchanged. The host's
 `RangedRelease` captures the weapon at draw start and invokes that transaction
 only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. Flight
-movement and impact remain CMB-22 work. No runtime or save field was added.
+movement and impact handling remain CMB-22 work. Projectile damage and `OnHit`
+events remain out of scope. No runtime or save field was added.
 
 Sources read for CMB-08:
 
@@ -420,6 +469,27 @@ increment. OpenMW's projectile collision callback and manager informed the
 segment-query and one-terminal-hit state shape. It was not ported because it
 uses OpenMW and Bullet object lifetimes, while this host already has Godot
 PhysicsServer query bodies and RID ownership maps.
+
+## Recoverable missed arrows, CMB-23
+
+AMMO release requests retain whether their ammunition is an arrow, the linked
+PROJ DATA Can Be Picked Up flag, and whether neither its record header nor
+DATA flags mark it Non-Playable. When a
+`ProjectileFlight` ends on a world obstruction, the host can consume its impact
+once to create a dynamic reference whose base is that AMMO record and whose
+placement is the impact point. Actor contacts and range expiry do not create a
+placed arrow. The reference's cell comes from the shooter. Existing SOEW
+reference serialization preserves its created identity, AMMO base and
+placement, with no new save fields.
+
+TES5Edit's `AMMO` definition names the DATA projectile link and its record and
+DATA Non-Playable flags, plus the DATA Non-Bolt flag. The `PROJ` DATA bit 6 is
+Can Be Picked Up, separate from its projectile type field. Its placed
+projectile record list identifies `PARW` as a placed arrow. UESP's local AMMO
+and PROJ descriptions confirm those flag meanings. CK's `ObjectReference_Script.wikitext`
+defines `OnHit` with an optional projectile argument, which supports treating
+actor hits separately from world impacts. The referenced CK corpus has no
+separate projectile page.
 
 ### Live contact prerequisites
 
@@ -786,11 +856,13 @@ magnitude is that health damage scaled by the weapon's own DNAM Stagger
 fraction, `health_damage * weapon.stagger`. A hit above `fStaggerThreshold`
 sets `ActorState::stagger_end_time` to `World::clock.real_seconds` plus
 `fStaggerDuration`, the same real-time clock `ai::wait_until` uses for its
-own deadlines, not the calendar `game_days` clock. `World::is_staggered(id)`
-reads that deadline lazily against the current clock, mirroring the
-`is_player` and `is_reference` query methods rather than adding an active
-per-tick clear. `HitResult::staggered` reports whether this particular hit
-crossed the threshold.
+own deadlines, not the calendar `game_days` clock. A qualifying hit passes
+its computed magnitude and attacker as direction source to the shared
+stagger lifecycle, which retains them with the deadline.
+`World::is_staggered(id)` reads that deadline lazily against the current clock,
+mirroring the `is_player` and `is_reference` query methods rather than adding
+an active per-tick clear. `HitResult::staggered` reports whether this
+particular hit crossed the threshold.
 
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` WEAP definition places the
 Stagger float as DNAM's last field, the four bytes at offset 96 to 100 of
@@ -1034,9 +1106,9 @@ Open gaps, not attempted by this increment:
 
 `check_combat_stack` used to reject any weapon stack carrying an extra of
 kind 37 (CommonLib `ExtraHealth`, poison 62 and enchantment 155) outright.
-It now separates the three: poison and enchantment still reject the contact
-unconditionally, unchanged from CMB-03. Quality is read instead, and
-`melee_hit` applies it as a multiplier on `weapon_damage` right after
+It now reads quality as a multiplier, while weapon poison and enchantment
+follow their contact rules in CMB-25 and CMB-24. `melee_hit` applies quality
+as a multiplier on `weapon_damage` right after
 AttackDamageMult (CMB-01) and before armor and shield block reduction
 (CMB-05). A weapon with no quality extra on any of its stacks leaves damage
 unchanged, matching CMB-01's existing untempered path exactly.
@@ -1106,9 +1178,9 @@ Left out of this row:
 - Unarmed contacts hold no WEAP record or inventory stack, so quality never
   applies to them, matching the existing unarmed-modifier rejection CMB-01
   already documents.
-- Enchanted-and-tempered weapons still reject on the enchantment extra
-  alone, so quality's interaction with an active enchantment is untested
-  and unimplemented pending the enchantment row.
+- Enchanted-and-tempered weapons use the same quality multiplier and instance
+  charge as the two existing paths, but no installed-data survey covers this
+  combination.
 - No live or installed-data comparison against `SKYRIM_DATA` has been run,
   since no vanilla save in the local corpus was checked for its equipped
   weapons' quality extras specifically.
@@ -1167,10 +1239,11 @@ An ordinary weapon swing now reads the equipped weapon's stacks for a
 CommonLib `ExtraPoison` extra (kind 62, `[Field::Form(Some(poison_item)),
 Field::Word(count)]`) and, when exactly one stack carries one, applies the
 poison's magic effects to the target once and clears that stack's coating.
-Quality (CMB-10) and poison are two separate extras on the same stack model,
-so `check_combat_weapon` now reads both together after `check_no_enchant`
-rejects an enchanted stack, and `combat_stack_poison` mirrors
-`combat_stack_quality`'s read shape while applying its own stricter
+Quality (CMB-10), poison and enchantment (CMB-24) are separate extras on the
+same stack model, so `check_combat_weapon` reads quality and poison while
+`combat_stack_enchantment` resolves charge and the selected effect.
+`combat_stack_poison` mirrors `combat_stack_quality`'s read shape while
+applying its own stricter
 ambiguity rule below.
 
 The equipped set is form-only (CMB-03), so a hit cannot name which physical
@@ -1242,3 +1315,38 @@ Left out of this row:
 - Perked poison modifiers (Deadly Poisons and similar) are out of scope
   pending CMB-09's perk dispatch path, the same gap CMB-26 leaves open for
   weapon resistance.
+
+## Weapon enchantment charge, CMB-24
+
+An ordinary melee contact reads the weapon's `EITM` enchantment, unless the
+selected item stack has a kind-155 `ExtraEnchantment` override. The override
+must identify one item instance. When more than one enchanted instance is
+present, or an enchanted stack has count greater than one, combat rejects the
+contact because the form-only hit cannot identify which charge pool to spend.
+The instance's kind-40 `ExtraCharge` stores current charge. Without that extra,
+charge begins at the maximum stored in kind 155, or at the weapon's `EAMT` for
+a record enchantment. A hit with less charge than the ENCH `ENIT` cost still
+applies physical damage but skips the enchantment.
+
+When charge covers the `ENIT` cost, the `EFID`/`EFIT` entries apply once to the
+hit target through the shared magic-effect path, then the selected instance's
+charge is reduced by that cost. The effect plan and updated inventory are
+prepared before hit state changes. The instance charge is committed only after
+the effect plan applies. Before committing the hit, combat also checks the
+prepared effects against the target's staged post-hit actor values, so combined
+damage overflow rejects without changing health, effects or charge. A malformed
+or unsupported effect also rejects before physical damage or charge changes.
+This path accepts fire-and-forget touch enchantments of type Enchantment,
+with unconditional supported actor effects. Conditions, base-enchantment
+inheritance, non-touch delivery,
+concentration casting, unsupported archetypes, perks and equip abilities
+reject the contact.
+
+The layout follows local `TES5Edit/Core/wbDefinitionsTES5.pas` ENCH and WEAP
+definitions and `uesp-modfileformat/ENCH.wikitext` / `WEAP.wikitext`. CommonLib
+`ExtraEnchantment.h`, `ExtraCharge.h` and `ExtraDataTypes.h` identify the
+instance fields and kinds. The ENCH page identifies ENIT cost as total effect
+cost and documents the ordered effect fields. This implementation spends that
+recorded cost per contact. Exact charge rounding and the runtime's treatment
+of conditioned enchantments remain unverified against the original engine.
+No save schema changed because inventory extras already persist through SOEW.

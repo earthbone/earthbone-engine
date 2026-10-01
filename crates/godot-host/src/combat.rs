@@ -114,6 +114,7 @@ pub struct RangedRelease {
 }
 
 /// One terminal projectile contact, retaining its first-hit identity and point.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg(feature = "godot")]
 pub struct ProjectileContact {
@@ -122,6 +123,7 @@ pub struct ProjectileContact {
 }
 
 /// Result of advancing one transient arrow or bolt.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg(feature = "godot")]
 pub enum ProjectileUpdate {
@@ -137,12 +139,15 @@ pub enum ProjectileUpdate {
 }
 
 /// Deterministic, transient flight and one-contact latch for a released shot.
+#[cfg(feature = "godot")]
 #[derive(Debug, Clone, Copy)]
 #[cfg(feature = "godot")]
 pub struct ProjectileFlight {
     attacker: GlobalFormId,
+    request: FlightRequest,
     motion: FlightMotion,
     finished: bool,
+    missed_arrow: Option<[f32; 3]>,
 }
 
 #[cfg(feature = "godot")]
@@ -152,9 +157,22 @@ impl ProjectileFlight {
     pub fn new(request: FlightRequest) -> Self {
         Self {
             attacker: request.attacker,
+            request,
             motion: FlightMotion::new(request),
             finished: false,
+            missed_arrow: None,
         }
+    }
+
+    /// Place a recoverable arrow after a world obstruction stops this flight.
+    ///
+    /// The impact is consumed on the first call, even when its AMMO record is
+    /// not recoverable, so repeated host finalization cannot create duplicates.
+    #[must_use]
+    pub fn recover_missed_arrow(&mut self, game: &mut Game) -> Option<GlobalFormId> {
+        let position = self.missed_arrow.take()?;
+        game.world_mut()
+            .place_recovered_arrow(&self.request, position)
     }
 
     /// Advance once and query the swept segment for its first contact.
@@ -202,6 +220,9 @@ impl ProjectileFlight {
         if let Some(contact) = contact {
             self.motion.stop_at(contact.position);
             self.finished = true;
+            if matches!(contact.hit, crate::godot_combat::ContactHit::Obstruction(_)) {
+                self.missed_arrow = Some(contact.position);
+            }
             return Ok(ProjectileUpdate::Contact(contact));
         }
         if !self.motion.is_active() {

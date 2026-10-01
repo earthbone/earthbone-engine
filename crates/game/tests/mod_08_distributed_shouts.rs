@@ -9,6 +9,9 @@ use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_CASE: AtomicUsize = AtomicUsize::new(0);
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR_BASE: u32 = 0x800;
@@ -64,7 +67,11 @@ struct DistributionDir(PathBuf);
 
 impl DistributionDir {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("soe-mod-08-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "soe-mod-08-{}-{}",
+            std::process::id(),
+            NEXT_CASE.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("temporary directory is created");
         std::fs::write(

@@ -22,8 +22,8 @@
 //!   A reference may not be loaded at start, so swaps are held and applied
 //!   when the reference is built.
 //! - **Open Animation Replacer** picks animations by condition, which is not
-//!   world state at all. Its trees are counted in the report and left for the
-//!   animation system.
+//!   world state at all. Its submods are retained by `Game` for runtime path
+//!   selection and counted in the report.
 //!
 //! # Order
 //!

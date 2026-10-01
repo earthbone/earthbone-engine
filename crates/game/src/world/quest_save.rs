@@ -227,6 +227,7 @@ fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmErro
     }
     q.runtime = runtime;
     q.journal = journal;
+    q.lifecycle_task = None;
     Ok(())
 }
 
@@ -286,16 +287,17 @@ pub(super) fn write_lifecycle_tasks(
     }
 }
 
-pub(super) fn read_lifecycle_tasks(
+pub(super) fn read_lifecycle_tasks_section(
     world: &mut World,
     r: &mut FormReader<'_, '_>,
     _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
+    let count = r.len()?;
     let mut seen = BTreeSet::new();
-    for _ in 0..r.len()? {
+    for _ in 0..count {
         let id = read_form_id(r)?;
         if !seen.insert(id) {
-            return Err(bad("duplicate quest lifecycle task"));
+            return Err(bad("duplicate lifecycle task"));
         }
         let task = match r.u8()? {
             1 => crate::quest::state::LifecycleTask::Starting,

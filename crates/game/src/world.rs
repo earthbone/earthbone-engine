@@ -22,6 +22,7 @@
 //!   bases, cells, game settings.
 //! - `events`: what natives raise for registered listeners, scenes, sounds.
 //! - `timers`: `RegisterForUpdate` timers.
+//! - `training`: trainer eligibility, costs and saved use limits.
 //! - `rng`: the random number stream.
 //! - `driver`: what the package driver reads and calls.
 //! - `save`: the `SOEW` save format.
@@ -112,6 +113,7 @@ mod templates;
 pub use template_restore::TemplateRestoreReport;
 mod reference_translation;
 mod timers;
+pub mod training;
 mod transition;
 mod trigger;
 pub use reference_translation::{RefTranslation, TranslationPath};
@@ -130,6 +132,26 @@ pub const DYNAMIC_FILE: u16 = soe_esm::CREATED_FILE;
 pub const PLAYER_OBJECT: u32 = 0x14;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
+
+/// Transient camera controls requested by Game natives for the host player.
+/// These affect presentation and are not part of the saved world state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraControls {
+    pub target: Option<GlobalFormId>,
+    pub first_person_geometry: bool,
+    /// Degrees offset from the normal camera angle while sitting.
+    pub sitting_rotation_degrees: f32,
+}
+
+impl Default for CameraControls {
+    fn default() -> Self {
+        Self {
+            target: None,
+            first_person_geometry: true,
+            sitting_rotation_degrees: 0.0,
+        }
+    }
+}
 
 /// What a VM object stands for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -246,6 +268,7 @@ pub struct ActorState {
     pub dead: bool,
     pub in_combat: bool,
     pub teammate: bool,
+    pub can_do_favors: bool,
     pub ghost: bool,
     pub essential: bool,
     pub protected: bool,
@@ -305,6 +328,8 @@ pub struct ActorState {
     pub relationships: BTreeMap<GlobalFormId, i32>,
     pub combat_target: Option<GlobalFormId>,
     pub crime_faction: Option<GlobalFormId>,
+    /// Whether this actor is currently trespassing, for the CK `IsTrespassing` query.
+    pub trespassing: bool,
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub killer: Option<GlobalFormId>,
@@ -324,6 +349,8 @@ pub struct ActorState {
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
     pub werewolf: bool,
+    /// Race and race effects owned by one active Werewolf archetype effect.
+    pub(crate) werewolf_transform: Option<WerewolfTransformState>,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
     /// Player character head parts selected in the race menu, keyed by HDPT type.
@@ -347,15 +374,41 @@ pub struct ActorState {
     /// Compared against `World::clock.real_seconds`, the lazy expiry
     /// `ai::AiState::wait_until` also uses, see `World::is_staggered`.
     pub stagger_end_time: Option<f64>,
+    /// Magnitude passed to the shared stagger lifecycle by the latest hit or
+    /// magic effect.
+    pub stagger_magnitude: f64,
+    /// Form that supplied the latest stagger direction.
+    pub stagger_direction: Option<GlobalFormId>,
     /// Perpetrators this actor has witnessed committing a crime against a
     /// faction that tracks crime. The bounty itself lives on
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Papyrus expression override, retained until `ClearExpressionOverride`.
+    pub expression_override: Option<ExpressionOverride>,
     /// Partial use experience for each actor skill, keyed by lowercase name.
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WerewolfTransformState {
+    pub effect: crate::world::magic::EffectId,
+    pub prior_race: Option<GlobalFormId>,
+    pub transformed_race: GlobalFormId,
+    pub added_spells: BTreeSet<GlobalFormId>,
+    pub added_shouts: BTreeSet<GlobalFormId>,
+    pub added_effects: BTreeSet<crate::world::magic::EffectId>,
+}
+
+/// A CK facial expression id and its 0 to 100 strength.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExpressionOverride {
+    /// CK `aiMood` value, from 0 through 15.
+    pub mood: u8,
+    /// Expression strength in percent.
+    pub strength: u8,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -423,6 +476,10 @@ pub struct ActorBaseState {
 /// A host menu request raised by a Papyrus native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuRequest {
+    /// Load race menu head part models and morph data before opening it.
+    PrecacheCharGen,
+    /// Release data retained by `PrecacheCharGen`.
+    PrecacheCharGenClear,
     /// Open the player's race and sex selection screen.
     Race,
 }
@@ -462,10 +519,14 @@ pub struct LosListener {
 }
 
 /// Runtime position and completed action slots for one playing scene.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SceneRunState {
     pub phase: u32,
     pub completed_actions: BTreeSet<u32>,
+    pub started_actions: BTreeSet<u32>,
+    pub timer_deadlines: BTreeMap<u32, f64>,
+    pub prior_packages: BTreeMap<GlobalFormId, Option<GlobalFormId>>,
+    pub prior_aliases: BTreeMap<GlobalFormId, Option<(GlobalFormId, u32)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -531,6 +592,11 @@ pub enum Pending {
         object: ObjectId,
         effect: GlobalFormId,
     },
+    /// Attach the winning base object's VMAD scripts to a placed reference.
+    BindReference {
+        object: ObjectId,
+        base: GlobalFormId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -544,6 +610,15 @@ pub struct UpdateTimer {
 /// Allocates VM objects on the world's behalf. Inside a native this is
 /// `NativeCall::create_object`, outside it is `Vm::create_object_of`.
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
+
+/// One-shot request for a host-owned screen or presentation action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostRequest {
+    /// Tear down gameplay and return to the main menu.
+    QuitToMainMenu,
+    /// Start the named title sequence on the main menu.
+    StartTitleSequence(String),
+}
 
 pub struct World {
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
@@ -561,6 +636,7 @@ pub struct World {
     trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
     actors: HashMap<GlobalFormId, ActorState>,
+    pub(crate) follower_services: BTreeMap<GlobalFormId, crate::services::FollowerServiceState>,
     quests: HashMap<GlobalFormId, QuestState>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
@@ -597,11 +673,20 @@ pub struct World {
     pending_unload: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
+    /// Host interaction results for the current rendered frame.
+    crosshair_reference: Option<GlobalFormId>,
+    grabbed_reference: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
+    /// Player training purchases used at the current character level.
+    pub(crate) training_sessions_this_level: u32,
+    pub(crate) training_session_level: u32,
+    pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Transient requests for work that only the host can present.
+    pub host_requests: Vec<HostRequest>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
@@ -611,10 +696,14 @@ pub struct World {
     /// Host-facing requests raised by UI natives. These are transient commands.
     pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
+    /// Screenshot paths requested by Papyrus for the host to capture.
+    pub screenshot_requests: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
     pub player_controls: bool,
+    /// Camera state requested by Papyrus and consumed by the host.
+    pub camera_controls: CameraControls,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -625,6 +714,8 @@ pub struct World {
     pub settings: HashMap<String, Value>,
     /// Inventory event filters per listening object.
     pub inventory_filters: HashMap<ObjectId, Vec<GlobalFormId>>,
+    /// The active Papyrus gift menu request, if one is waiting for the host.
+    pub gift_menu: Option<GiftMenuRequest>,
     pub sleep_listeners: Vec<ObjectId>,
     pub stats_listeners: Vec<ObjectId>,
     pub animation_listeners: Vec<AnimationListener>,
@@ -645,6 +736,8 @@ pub struct World {
     pub beast_form: bool,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
+    /// Magic effects made available for new enchantments by disenchanting.
+    pub learned_enchantment_effects: BTreeSet<GlobalFormId>,
     pub achievements: Vec<i32>,
     pub last_ridden_horse: Option<GlobalFormId>,
     /// `Game.AddPerkPoints`, the Dragonborn black book reward.
@@ -662,8 +755,10 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    pub(crate) cloak_effects: BTreeMap<magic::EffectId, magic::CloakState>,
     pub(crate) next_effect: u64,
     pub(crate) spell_casts_in_progress: BTreeMap<GlobalFormId, magic::SpellCast>,
+    pub(crate) vampire_lord_forms: BTreeMap<magic::EffectId, magic::VampireLordForm>,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
@@ -685,6 +780,19 @@ pub struct ActorImpulse {
     pub actor: GlobalFormId,
     /// Skyrim-space vector in game units per second.
     pub vector: [f32; 3],
+}
+
+/// A latent gift menu requested by `Actor.ShowGiftMenu`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GiftMenuRequest {
+    pub latent: soe_papyrus::vm::LatentId,
+    pub giver: GlobalFormId,
+    pub source: GlobalFormId,
+    pub target: GlobalFormId,
+    pub filter: Option<GlobalFormId>,
+    pub show_stolen: bool,
+    pub use_favor_points: bool,
+    pub favor_points: i32,
 }
 
 /// A transient presentation action requested by a Papyrus Game native.
@@ -749,6 +857,7 @@ impl World {
             trigger_occupants: BTreeMap::new(),
             trigger_index: None,
             actors: HashMap::new(),
+            follower_services: BTreeMap::new(),
             quests: HashMap::new(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
@@ -766,25 +875,34 @@ impl World {
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
+            crosshair_reference: None,
+            grabbed_reference: None,
             player_level: 1,
+            training_sessions_this_level: 0,
+            training_session_level: 1,
+            pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            host_requests: Vec::new(),
             story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             native_errors: Vec::new(),
             menu_requests: Vec::new(),
             message_boxes: Vec::new(),
+            screenshot_requests: Vec::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
             player_controls: true,
+            camera_controls: CameraControls::default(),
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),
             difficulty: crate::combat::Difficulty::default(),
             settings: HashMap::new(),
             inventory_filters: HashMap::new(),
+            gift_menu: None,
             sleep_listeners: Vec::new(),
             stats_listeners: Vec::new(),
             animation_listeners: Vec::new(),
@@ -800,6 +918,7 @@ impl World {
             beast_form: false,
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
+            learned_enchantment_effects: BTreeSet::new(),
             achievements: Vec::new(),
             last_ridden_horse: None,
             perk_points: 0,
@@ -813,8 +932,10 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            cloak_effects: BTreeMap::new(),
             next_effect: 1,
             spell_casts_in_progress: BTreeMap::new(),
+            vampire_lord_forms: BTreeMap::new(),
             brewed_potions: BTreeMap::new(),
             concentration_cast: None,
             telekinesis_grab: None,
@@ -828,6 +949,16 @@ impl World {
 
     pub fn order(&self) -> &LoadOrder {
         &self.order
+    }
+
+    /// Queue a host screenshot request for the supplied path.
+    pub fn request_screenshot(&mut self, path: String) {
+        self.screenshot_requests.push(path);
+    }
+
+    /// Take pending host screenshot paths in request order.
+    pub fn take_screenshot_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.screenshot_requests)
     }
 }
 
