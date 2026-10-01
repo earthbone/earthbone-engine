@@ -121,6 +121,13 @@ impl World {
             }
         }
         if !silent {
+            if let Some(killer) = killer.filter(|killer| self.actor(*killer).is_some()) {
+                let event = soe_commonlib_shim::events::ActorKill {
+                    killer: World::event_form_id(killer),
+                    victim: World::event_form_id(id),
+                };
+                self.actor_kill_events.send(&event);
+            }
             let recipients = self.actor_event_recipients(id);
             self.pending.push(Pending::ActorDeath {
                 actor: id,

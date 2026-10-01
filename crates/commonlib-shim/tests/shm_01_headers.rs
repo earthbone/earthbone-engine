@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_01_generated_headers_match_the_rust_surface_map() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 10);
+    assert_eq!(generated.len(), 14);
     for (relative, expected) in generated {
         let path = include.join(relative);
         let actual = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -50,6 +50,22 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
             "missing Rust reference API {declaration}"
         );
     }
+    let world = fs::read_to_string(include.join("RE/World.h")).unwrap();
+    for declaration in [
+        "struct FormKey",
+        "struct ProjectileHandle",
+        "class PlayerCharacter",
+        "class ProcessLists",
+        "class Projectile",
+    ] {
+        assert!(
+            world.contains(declaration),
+            "missing SHM-14 world API {declaration}"
+        );
+    }
+    let world_types = fs::read_to_string(include.join("RE/WorldTypes.h")).unwrap();
+    assert!(world_types.contains("enum class UnsupportedHook"));
+    assert!(world_types.contains("ProjectileRuntime") && world_types.contains("BinaryPatch"));
     let math = fs::read_to_string(include.join("RE/Math.h")).unwrap();
     for declaration in [
         "struct NiPoint3",
@@ -143,16 +159,17 @@ static_assert(std::same_as<decltype(&RE::ObjectRef::rotation), RE::NiPoint3 (RE:
 static_assert(std::same_as<decltype(&RE::ObjectRef::parent_cell), std::optional<RE::FormId> (RE::ObjectRef::*)() const>);
 static_assert(std::same_as<decltype(&RE::ObjectRef::is_disabled), bool (RE::ObjectRef::*)() const>);
 static_assert(std::same_as<decltype(&RE::ObjectRef::is_deleted), bool (RE::ObjectRef::*)() const>);
-static_assert(std::same_as<decltype(&RE::ObjectRef::set_base), void (RE::ObjectRef::*)(RE::FormId)>);
+static_assert(std::same_as<decltype(&RE::ObjectRef::set_base), RE::Unsupported (RE::ObjectRef::*)(RE::FormId)>);
 static_assert(std::same_as<decltype(&RE::Actor::actor_handle), RE::ActorHandle (RE::Actor::*)() const>);
 static_assert(std::same_as<decltype(&RE::Actor::actor_value), float (RE::Actor::*)(RE::ActorValue) const>);
 static_assert(std::same_as<decltype(&RE::Actor::add_item), bool (RE::Actor::*)(RE::FormId, std::uint32_t)>);
 static_assert(std::same_as<decltype(&RE::Actor::add_spell), bool (RE::Actor::*)(RE::FormId)>);
 static_assert(std::same_as<decltype(&RE::Actor::add_perk), bool (RE::Actor::*)(RE::FormId)>);
-static_assert(std::same_as<decltype(&RE::Actor::set_actor_value), void (RE::Actor::*)(RE::ActorValue, float)>);
+static_assert(std::same_as<decltype(&RE::Actor::set_actor_value), RE::Unsupported (RE::Actor::*)(RE::ActorValue, float)>);
 static_assert(std::same_as<decltype(&RE::Actor::race), RE::FormId (RE::Actor::*)() const>);
 static_assert(std::same_as<decltype(&RE::Actor::is_dead), bool (RE::Actor::*)() const>);
 static_assert(std::same_as<decltype(&RE::Actor::is_player), bool (RE::Actor::*)() const>);
+static_assert(std::same_as<decltype(&RE::Actor::weapon_state), RE::WEAPON_STATE (RE::Actor::*)() const>);
 static_assert(std::same_as<decltype(&RE::NiPoint3::length), float (RE::NiPoint3::*)() const>);
 static_assert(std::same_as<decltype(&RE::NiPoint3::dot), float (RE::NiPoint3::*)(RE::NiPoint3) const>);
 static_assert(std::same_as<decltype(&RE::NiPoint3::operator-), RE::NiPoint3 (RE::NiPoint3::*)(RE::NiPoint3) const>);

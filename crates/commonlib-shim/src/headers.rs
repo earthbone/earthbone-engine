@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 const RE_FORM: &str = r"// Generated from crates/commonlib-shim/src/form.rs. Do not edit.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -55,6 +56,12 @@ public:
     virtual std::vector<FormId> keywords() const { return {}; }
 };
 
+struct FileInfo {
+    std::string name;
+    std::optional<std::uint8_t> regular_index;
+    std::optional<std::uint16_t> light_index;
+    bool is_light() const noexcept { return light_index.has_value(); }
+};
 class DataHandler {
 public:
     virtual ~DataHandler() = default;
@@ -62,7 +69,10 @@ public:
     virtual const Form* lookup_by_editor_id(const std::string& editor_id) const = 0;
     virtual std::vector<FormId> forms_of_type(FormType kind) const = 0;
     virtual std::vector<std::string> files() const = 0;
+    virtual std::optional<FileInfo> file(std::size_t index) const = 0;
 };
+using TESDataHandler = DataHandler;
+using TESFile = FileInfo;
 } // namespace RE
 ";
 
@@ -70,6 +80,7 @@ const RE_REFERENCE: &str = r#"// Generated from crates/commonlib-shim/src/refr.r
 #pragma once
 #include "RE/Math.h"
 #include "RE/Form.h"
+#include "RE/WorldTypes.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -89,6 +100,20 @@ struct ActorValue {
 inline const ActorValue ActorValue::HEALTH{24};
 inline const ActorValue ActorValue::MAGICKA{25};
 inline const ActorValue ActorValue::STAMINA{26};
+enum class WEAPON_STATE : std::uint32_t {
+    kSheathed = 0, kWantToDraw = 1, kDrawing = 2,
+    kDrawn = 3, kWantToSheathe = 4, kSheathing = 5
+};
+struct Unsupported {
+    const char* operation;
+    std::optional<UnsupportedHook> hook;
+    Unsupported(const char* operation) : operation(operation), hook(std::nullopt) {}
+    Unsupported(UnsupportedHook hook) : operation(nullptr), hook(hook) {}
+};
+struct TESObjectREFRPtr {
+    std::optional<ObjectRefHandle> handle;
+    bool is_null() const noexcept { return !handle.has_value(); }
+};
 
 class ObjectRef {
 public:
@@ -101,20 +126,84 @@ public:
     virtual std::optional<FormId> parent_cell() const = 0;
     virtual bool is_disabled() const = 0;
     virtual bool is_deleted() const = 0;
-    virtual void set_base(FormId base) = 0;
+    virtual Unsupported set_base(FormId base) = 0;
 };
+using TESObjectREFR = ObjectRef;
 
 class Actor : public ObjectRef {
 public:
     virtual ActorHandle actor_handle() const = 0;
     virtual float actor_value(ActorValue av) const = 0;
-    virtual void set_actor_value(ActorValue av, float value) = 0;
+    virtual Unsupported set_actor_value(ActorValue av, float value) = 0;
     virtual FormId race() const = 0;
     virtual bool is_dead() const = 0;
     virtual bool is_player() const = 0;
+    virtual WEAPON_STATE weapon_state() const = 0;
     virtual bool add_spell(FormId spell) = 0;
     virtual bool add_perk(FormId perk) = 0;
     virtual bool add_item(FormId item, std::uint32_t count) = 0;
+};
+} // namespace RE
+"#;
+
+const RE_MAGIC: &str = r#"// Generated from the SHM-13 MIT runtime contract. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include "RE/Reference.h"
+#include "RE/WorldTypes.h"
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
+namespace RE {
+class MagicFavorites {
+public:
+    virtual ~MagicFavorites() = default;
+    virtual bool is_favorite(FormId form) const = 0;
+    virtual bool set_favorite(FormId form, bool favorite) = 0;
+};
+
+enum class CannotCastReason : std::uint8_t {
+    Ok = 0, Magicka = 1, PowerUsed = 2, RangedUnderWater = 3,
+    MultipleCast = 4, ItemCharge = 5, CastWhileShouting = 6,
+    ShoutWhileCasting = 7, ShoutWhileRecovering = 8
+};
+class MagicSystem {
+public:
+    virtual ~MagicSystem() = default;
+    virtual CannotCastReason cannot_cast(FormId actor, FormId spell) const = 0;
+};
+
+class MagicTarget {
+public:
+    virtual ~MagicTarget() = default;
+    virtual bool has_magic_effect(FormId effect) const = 0;
+    virtual std::size_t active_effect_count() const = 0;
+    virtual bool dispel_spell(FormId spell) = 0;
+};
+
+struct MapMarkerData {
+    enum Flag : std::uint8_t { Visible = 1, CanTravelTo = 2, ShowAllHidden = 4 };
+    std::uint8_t flags{};
+    bool visible() const noexcept { return (flags & Visible) != 0; }
+    bool can_travel_to() const noexcept { return (flags & CanTravelTo) != 0; }
+    void set_visible(bool value) noexcept { flags = value ? flags | Visible : flags & ~Visible; }
+    void set_can_travel_to(bool value) noexcept { flags = value ? flags | CanTravelTo : flags & ~CanTravelTo; }
+};
+
+struct ObjectEquipParams {
+    std::int32_t count{1};
+    bool play_equip_sounds{true};
+    bool force_equip{};
+    bool show_message{};
+    bool has_extra_data{};
+    bool has_equip_slot{};
+    std::optional<Unsupported> unsupported() const noexcept {
+        if (has_extra_data || has_equip_slot || force_equip || show_message || !play_equip_sounds || count != 1) {
+            return Unsupported{UnsupportedHook::UnsupportedEquipOption};
+        }
+        return std::nullopt;
+    }
 };
 } // namespace RE
 "#;
@@ -163,15 +252,204 @@ public:
 } // namespace RE
 ";
 
+const RE_WORLD_TYPES: &str = r#"// Generated from crates/commonlib-shim/src/world_types.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include "RE/Math.h"
+#include <optional>
+#include <string>
+
+namespace RE {
+enum class UnsupportedHook {
+    FormCreation, InventoryMutation, ItemSelection, ItemListUpdate,
+    BinaryAddress, VtablePatch, UnsupportedEquipOption,
+    ProjectileRuntime, BinaryPatch
+};
+struct SettingValue {
+    enum class Kind { Bool, Int, Float, String };
+    Kind kind;
+    bool boolean_value{};
+    std::int32_t int_value{};
+    float float_value{};
+    std::string string_value;
+};
+struct WornState { bool worn; bool worn_left; };
+struct HazardState { FormId reference; FormId base; NiPoint3 position; bool enabled; };
+struct HighProcessState {
+    FormId actor;
+    bool in_combat;
+    std::optional<FormId> combat_target;
+    bool staggered;
+};
+struct HitData {
+    FormId attacker;
+    FormId target;
+    FormId weapon;
+    float weapon_damage;
+    float armor_reduction;
+    float health_damage;
+    bool blocked;
+    bool killed;
+};
+struct UnsupportedHookInfo { std::string type_name; std::string hook_name; std::string reason; };
+
+class GameSettingCollection {
+public:
+    virtual ~GameSettingCollection() = default;
+    virtual std::optional<SettingValue> get_setting(const std::string& name) const = 0;
+};
+class WorldTypes {
+public:
+    virtual ~WorldTypes() = default;
+    virtual std::optional<WornState> extra_worn(FormId actor, FormId item) const = 0;
+    virtual std::optional<HazardState> hazard(FormId reference) const = 0;
+    virtual std::optional<HighProcessState> high_process(FormId actor) const = 0;
+    virtual std::optional<HitData> resolve_hit(FormId attacker, FormId target, FormId weapon) = 0;
+    virtual UnsupportedHookInfo unsupported_hook(const std::string& type_name, const std::string& hook_name) const = 0;
+};
+} // namespace RE
+"#;
+
+const RE_WORLD: &str = r#"// Generated from crates/commonlib-shim/src/world.rs. Do not edit.
+#pragma once
+#include "RE/Reference.h"
+#include "RE/WorldTypes.h"
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace RE {
+struct FormKey { std::uint16_t file; std::uint32_t object; };
+struct ProjectileHandle { std::uint32_t value; };
+struct Position { float x; float y; float z; };
+class WorldState {
+public:
+    virtual ~WorldState() = default;
+    virtual std::optional<FormKey> player() = 0;
+    virtual std::vector<FormKey> loaded_actors() const = 0;
+    virtual std::optional<Position> reference_position(FormKey form) = 0;
+    virtual std::optional<float> actor_value(FormKey form, const char* name) = 0;
+    virtual std::optional<bool> actor_is_dead(FormKey form) = 0;
+};
+class PlayerCharacter {
+public:
+    explicit PlayerCharacter(WorldState& world) : world_(world) {}
+    std::optional<FormKey> form_key() { return world_.player(); }
+    std::optional<Position> position() {
+        const auto id = world_.player();
+        return id ? world_.reference_position(*id) : std::nullopt;
+    }
+    std::optional<float> actor_value(const char* name) {
+        const auto id = world_.player();
+        return id ? world_.actor_value(*id, name) : std::nullopt;
+    }
+private:
+    WorldState& world_;
+};
+class ProcessLists {
+public:
+    explicit ProcessLists(const WorldState& world) : world_(world) {}
+    std::vector<FormKey> actor_forms() const { return world_.loaded_actors(); }
+private:
+    const WorldState& world_;
+};
+class Projectile {
+public:
+    explicit Projectile(ProjectileHandle handle) : handle_(handle) {}
+    UnsupportedHook runtime() const noexcept { return UnsupportedHook::ProjectileRuntime; }
+    ProjectileHandle handle() const noexcept { return handle_; }
+private:
+    ProjectileHandle handle_;
+};
+struct IFormFactory {
+    std::string name;
+    FormType form_type;
+    FormType GetFormType() const noexcept { return form_type; }
+    const char* GetFormName() const noexcept { return name.c_str(); }
+    UnsupportedHook Create() const noexcept { return UnsupportedHook::FormCreation; }
+};
+struct InventoryEntryData {
+    FormId object;
+    std::int32_t count_delta;
+    std::vector<std::uint8_t> extra_types;
+    bool worn;
+};
+struct InventoryChanges {
+    FormId owner;
+    std::vector<InventoryEntryData> entries;
+    std::vector<std::pair<FormId, std::int32_t>> totals;
+    std::int32_t GetItemCount(FormId object) const {
+        for (const auto& total : totals) if (total.first.value == object.value) return total.second;
+        return 0;
+    }
+    UnsupportedHook AddEntryData(const InventoryEntryData&) const noexcept { return UnsupportedHook::InventoryMutation; }
+};
+struct ItemList {
+    std::vector<InventoryEntryData> items;
+    UnsupportedHook GetSelectedItem() const noexcept { return UnsupportedHook::ItemSelection; }
+    UnsupportedHook Update() const noexcept { return UnsupportedHook::ItemListUpdate; }
+};
+enum class ReferenceKind { Actor, Reference };
+struct LookupReferenceByHandleResult { FormId form_id; ReferenceKind kind; };
+class ReferenceResolver {
+public:
+    virtual ~ReferenceResolver() = default;
+    virtual bool lookup_reference_by_handle(ObjectRefHandle handle,
+                                            LookupReferenceByHandleResult& result) const = 0;
+};
+inline bool LookupReferenceByHandle(const ReferenceResolver& resolver, ObjectRefHandle handle,
+                                    LookupReferenceByHandleResult& result) {
+    return resolver.lookup_reference_by_handle(handle, result);
+}
+enum class SIT_SLEEP_STATE : std::uint32_t {
+    kNormal = 0, kWantToSit = 1, kWaitingForSitAnim = 2, kIsSitting = 3,
+    kRidingMount = kIsSitting,
+    kWantToStand = 4, kWantToSleep = 5, kWaitingForSleepAnim = 6,
+    kIsSleeping = 7, kWantToWake = 8
+};
+struct Setting { std::string name; SettingValue value; };
+struct Sky { float hour; };
+struct ReanimateEffect {
+    std::uint64_t id;
+    FormId spell;
+    FormId effect;
+    FormId target;
+    float magnitude;
+    double elapsed;
+    std::optional<double> duration;
+};
+struct UnsupportedWorldHook { const char* name; const char* reason; };
+class TES {
+public:
+    virtual ~TES() = default;
+    virtual std::optional<Setting> setting(const std::string& name) const = 0;
+    virtual Sky sky() const = 0;
+    virtual std::optional<ReanimateEffect> reanimate_effect(std::uint64_t id) const = 0;
+    virtual bool sit_sleep_state(FormId actor, SIT_SLEEP_STATE& state,
+                                 UnsupportedWorldHook& error) const = 0;
+    virtual UnsupportedWorldHook hook(const std::string& name) const = 0;
+};
+} // namespace RE
+"#;
+
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
 
 namespace RE {
 enum class NotifyControl { Continue, Stop };
+
+struct EventFormId { std::uint64_t value; };
+struct ActorKill { struct Event { EventFormId killer; EventFormId victim; }; };
+struct CriticalHit {
+    struct Event { EventFormId aggressor; EventFormId weapon; bool sneakHit; };
+};
 
 template <class Event>
 class EventSink {
@@ -346,14 +624,124 @@ using SoePluginLoad = bool (*)();
 #define SOE_PLUGIN_LOAD extern "C" bool SOEPlugin_Load()
 "#;
 
+const RE_CONDITIONS: &str = r#"// Generated from crates/commonlib-shim/src/conditions.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include "RE/Reference.h"
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace RE {
+enum class CONDITIONITEMOBJECT : std::uint8_t {
+    kSelf = 0, kTarget = 1, kRef = 2, kCombatTarget = 3, kLinkedRef = 4,
+    kQuestAlias = 5, kPackData = 6, kEventData = 7, kCommandTarget = 8
+};
+enum class ConditionErrorCode : std::uint8_t {
+    None, UnsupportedFunction, UnsupportedTarget, UnsupportedHook, UnavailableState, InvalidCondition
+};
+enum class ConditionHook : std::uint8_t { Copy };
+struct ConditionError { ConditionErrorCode code; std::uint32_t detail; };
+struct ComparisonValue {
+    bool is_global;
+    float number;
+    FormId global;
+};
+struct ConditionContext {
+    FormId owner;
+    ObjectRefHandle subject;
+    ObjectRefHandle target;
+    bool has_target;
+    FormId quest;
+    bool has_quest;
+};
+struct CONDITION_ITEM_DATA {
+    std::uint8_t flags;
+    ComparisonValue comparison;
+    std::uint16_t function;
+    std::uint32_t parameters[2];
+    std::uint32_t run_on;
+    FormId reference;
+    std::int32_t parameter_3;
+    CONDITIONITEMOBJECT object;
+};
+class ConditionRuntime {
+public:
+    virtual ~ConditionRuntime() = default;
+    virtual ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
+                                         const ConditionContext& context,
+                                         bool& result) = 0;
+};
+struct TESConditionItem {
+    CONDITION_ITEM_DATA data;
+    ConditionError IsTrue(ConditionRuntime& runtime, const ConditionContext& context,
+                          bool& result) const {
+        return runtime.evaluate_item(data, context, result);
+    }
+    ConditionError operator()(ConditionRuntime& runtime, const ConditionContext& context,
+                              bool& result) const {
+        return IsTrue(runtime, context, result);
+    }
+    ConditionError is_true(ConditionRuntime& runtime, const ConditionContext& context,
+                           bool& result) const {
+        return IsTrue(runtime, context, result);
+    }
+    ConditionError Copy() const { return copy(); }
+    ConditionError copy() const {
+        return {ConditionErrorCode::UnsupportedHook,
+                static_cast<std::uint32_t>(ConditionHook::Copy)};
+    }
+};
+struct TESCondition {
+    std::vector<TESConditionItem> items;
+    ConditionError IsTrue(ConditionRuntime& runtime, const ConditionContext& context,
+                          bool& result) const {
+        return is_true(runtime, context, result);
+    }
+    ConditionError operator()(ConditionRuntime& runtime, const ConditionContext& context,
+                              bool& result) const {
+        return IsTrue(runtime, context, result);
+    }
+    ConditionError is_true(ConditionRuntime& runtime, const ConditionContext& context,
+                           bool& result) const {
+        bool any = false;
+        for (std::size_t index = 0; index < items.size(); ++index) {
+            const auto& item = items[index];
+            if (!any) {
+                bool value = false;
+                auto error = item.is_true(runtime, context, value);
+                if (error.code != ConditionErrorCode::None) return error;
+                any = value;
+            }
+            if ((item.data.flags & 1U) == 0 || index + 1 == items.size()) {
+                if (!any) { result = false; return {}; }
+                any = false;
+            }
+        }
+        result = true;
+        return {};
+    }
+    ConditionError Copy() const { return copy(); }
+    ConditionError copy() const {
+        return {ConditionErrorCode::UnsupportedHook,
+                static_cast<std::uint32_t>(ConditionHook::Copy)};
+    }
+};
+} // namespace RE
+"#;
+
 const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
+    ("RE/Magic.h", RE_MAGIC),
+    ("RE/World.h", RE_WORLD),
     ("RE/Math.h", RE_MATH),
+    ("RE/WorldTypes.h", RE_WORLD_TYPES),
+    ("RE/Conditions.h", RE_CONDITIONS),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Magic.h\"\n#include \"RE/WorldTypes.h\"\n#include \"RE/World.h\"\n#include \"RE/Conditions.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/Plugin.h", SKSE_PLUGIN),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n"),
