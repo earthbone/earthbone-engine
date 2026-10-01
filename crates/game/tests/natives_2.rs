@@ -85,7 +85,7 @@ const REPEATED_REFERENCE_ADD_LIST: u32 = 0x928;
 const MIXED_REFERENCE_ADD_LIST: u32 = 0x929;
 const NESTED_LEVELED_ADD_LIST: u32 = 0x92A;
 const DEEP_ADD_LIST: u32 = 0x930;
-const DEBUG_QUEST: u32 = 0xA00;
+const DEBUG_QUEST: u32 = 0xA01;
 const PLAYER: u32 = 0x14;
 
 fn le(v: u32) -> [u8; 4] {
