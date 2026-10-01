@@ -81,6 +81,22 @@ pub trait DataHandler {
     fn forms_of_type(&self, kind: FormType) -> Vec<FormId>;
     /// Load-order file names in slot order, light files after regular.
     fn files(&self) -> Vec<String>;
+    /// A resolved `TESFile` view, or `None` when the index is out of range.
+    fn file(&self, index: usize) -> Option<FileInfo>;
+}
+
+/// Read-only `RE::TESFile` identity backed by a load-order entry.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileInfo {
+    pub name: String,
+    pub regular_index: Option<u8>,
+    pub light_index: Option<u16>,
+}
+
+impl FileInfo {
+    pub fn is_light(&self) -> bool {
+        self.light_index.is_some()
+    }
 }
 
 #[cfg(test)]

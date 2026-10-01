@@ -59,6 +59,12 @@ static_assert(sizeof(TESQuestStartStopEvent) == 0x8);
 
 enum class NotifyControl { Continue, Stop };
 
+struct EventFormId { std::uint64_t value; };
+struct ActorKill { struct Event { EventFormId killer; EventFormId victim; }; };
+struct CriticalHit {
+    struct Event { EventFormId aggressor; EventFormId weapon; bool sneakHit; };
+};
+
 template <class Event>
 class EventSink {
 public:

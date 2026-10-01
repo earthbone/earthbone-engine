@@ -58,6 +58,28 @@ pub enum NotifyControl {
     Stop,
 }
 
+/// Runtime identity for a form used by an event payload. This is kept
+/// opaque to the MIT shim and is not a Skyrim binary FormID.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct EventFormId(pub u64);
+
+/// `RE::ActorKill::Event`, using runtime form identities in place of actor
+/// pointers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ActorKill {
+    pub killer: EventFormId,
+    pub victim: EventFormId,
+}
+
+/// `RE::CriticalHit::Event`, using runtime form identities in place of
+/// reference pointers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CriticalHit {
+    pub aggressor: EventFormId,
+    pub weapon: EventFormId,
+    pub sneak_hit: bool,
+}
+
 pub trait EventSink<E> {
     fn process(&mut self, event: &E) -> NotifyControl;
 }

@@ -63,6 +63,10 @@ vanilla texture was unsupported.
 
 ## Encoding (`encode` feature)
 
+On Linux, `build.rs` links `stdc++` when `encode` is enabled. The local source of
+`intel_tex_2` 0.2.2's `build.rs` links its packaged ASTC C++ object without the
+C++ runtime, leaving `__gxx_personality_v0` unresolved in downstream executables.
+
 `encode::encode_rgba8(width, height, rgba, mip_levels, dxgi_format)` produces a DDS file in
 memory, mip count zero meaning a full chain. `encode::recompress(src, Target)` decodes the base
 level with this crate, resizes with Lanczos3 when the size differs, and encodes, which is the
