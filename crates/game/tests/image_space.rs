@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "common/installed.rs"]
-mod installed;
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::installed;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
@@ -130,6 +128,77 @@ fn weights(game: &Game) -> Vec<(u32, f32)> {
 }
 
 #[test]
+fn scr_33_apply_dispatch_uses_default_and_unclamped_strength() {
+    let mut game = game();
+    call(&mut game, Some(1), "Apply", &[]);
+    call(&mut game, Some(2), "Apply", &[Value::Float(2.5)]);
+
+    assert_eq!(weights(&game), vec![(1, 1.0), (2, 2.5)]);
+}
+
+#[test]
+fn scr_33_popto_dispatch_changes_source_without_interrupting_other_fade() {
+    let mut game = game();
+    call(&mut game, Some(1), "Apply", &[Value::Float(2.0)]);
+    call(&mut game, Some(3), "ApplyCrossFade", &[Value::Float(2.0)]);
+    game.tick(1.0);
+    let destination = Value::Object(game.object_of_form(id(4)));
+    call(
+        &mut game,
+        Some(1),
+        "PopTo",
+        &[destination, Value::Float(3.0)],
+    );
+
+    assert_eq!(weights(&game), vec![(4, 3.0), (3, 0.5)]);
+    game.tick(1.0);
+    assert_eq!(weights(&game), vec![(4, 3.0), (3, 1.0)]);
+}
+
+#[test]
+fn scr_33_remove_and_crossfade_dispatches_remove_their_own_layers() {
+    let mut game = game();
+    call(&mut game, Some(1), "Apply", &[]);
+    call(&mut game, Some(2), "ApplyCrossFade", &[]);
+    game.tick(0.5);
+    assert_eq!(weights(&game), vec![(1, 1.0), (2, 0.5)]);
+
+    call(&mut game, Some(1), "Remove", &[]);
+    call(&mut game, None, "RemoveCrossFade", &[]);
+    game.tick(0.5);
+    assert_eq!(weights(&game), vec![(2, 0.25)]);
+    game.tick(0.5);
+    assert!(weights(&game).is_empty());
+}
+
+#[test]
+fn scr_33_invalid_modifier_calls_log_errors_without_changing_layers() {
+    let mut game = game();
+    call(&mut game, Some(1), "Apply", &[]);
+    let before = weights(&game);
+
+    call(&mut game, Some(6), "Apply", &[Value::Float(2.0)]);
+    let destination = Value::Object(game.object_of_form(id(6)));
+    call(
+        &mut game,
+        Some(1),
+        "PopTo",
+        &[destination, Value::Float(2.0)],
+    );
+    call(&mut game, Some(6), "ApplyCrossFade", &[Value::Float(2.0)]);
+    call(
+        &mut game,
+        None,
+        "RemoveCrossFade",
+        &[Value::Float(f32::INFINITY)],
+    );
+
+    assert_eq!(weights(&game), before);
+    assert!(game.vm.log.contains("invalid IMAD data size"));
+    assert!(game.vm.log.contains("non-finite image-space fade duration"));
+}
+
+#[test]
 fn natives_preserve_unclamped_strength_and_unrelated_crossfade() {
     let mut game = game();
     call(&mut game, Some(1), "Apply", &[Value::Float(2.5)]);
@@ -245,7 +314,7 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
 }
 
 #[test]
-fn installed_imad_lifetimes_and_curves_sample_winning_records() {
+fn scr_33_installed_imad_lifetimes_and_curves_sample_winning_records() {
     let Ok(_path) = std::env::var("SKYRIM_DATA") else {
         return;
     };
@@ -276,6 +345,12 @@ fn installed_imad_lifetimes_and_curves_sample_winning_records() {
         game.world()
             .image_space_curve_samples(layer.modifier, time)
             .unwrap();
+    }
+    for &id in &ids {
+        assert!(game
+            .world_mut()
+            .crossfade_image_space(Some(id), 0.0)
+            .is_ok());
     }
     let saved = game.save_state().unwrap();
     game.load_state(&saved).unwrap();

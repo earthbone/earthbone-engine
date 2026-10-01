@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Shared installed master load orders for integration test binaries.
+//! Shared installed master load orders for the single integration test binary.
 
 #![allow(dead_code, clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
@@ -22,6 +22,16 @@ static PLUGINS: OnceLock<Mutex<CachedPlugins>> = OnceLock::new();
 /// Return the installed data directory when this test process has one.
 pub fn data_dir() -> Option<PathBuf> {
     std::env::var_os("SKYRIM_DATA").map(PathBuf::from)
+}
+
+fn plugin_cache_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("SOE_PLUGIN_CACHE") {
+        return PathBuf::from(path);
+    }
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+    target.join("soe-plugin-cache").join("game-installed")
 }
 
 /// Return a shared parsed load order, caching each ordered master set once.
@@ -82,9 +92,10 @@ pub fn plugin(name: &str) -> Option<Plugin> {
     let key = (data.clone(), name.to_ascii_lowercase());
     let cache = PLUGINS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache.lock().expect("installed plugin cache lock poisoned");
+    let cache_dir = plugin_cache_dir();
     let entry = cache.entry(key).or_insert_with(|| {
         let path = data.join(name);
-        soe_esm::read_plugin(&path)
+        soe_esm::read_plugin_cached(&path, &cache_dir)
             .map_err(|error| format!("{}: {error}", path.display()))?
             .map_err(|error| format!("{name}: {error}"))
     });

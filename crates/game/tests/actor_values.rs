@@ -4,8 +4,7 @@
 //! CK actor-value contracts through the native boundary, independent NPC
 //! field bytes, and winning template/race inputs used by combat and magic.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{

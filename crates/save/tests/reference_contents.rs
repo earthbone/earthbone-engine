@@ -179,6 +179,21 @@ fn nonempty_or_unknown_packages_cannot_be_mistaken_for_empty_state() {
 }
 
 #[test]
+fn sav_12_sequence_with_following_extra_stays_rejected_without_a_known_boundary() {
+    let mut change = fixture();
+    change.change_flags = 1 << 11;
+    let header_end = change.reference_header(78).unwrap().unwrap().bytes_consumed;
+    change.data.truncate(header_end);
+    change.data.extend([8, 108, 18, 0]);
+    soe_save::WString::from_text("Sequence").write(&mut change.data);
+    change.data.extend([133]);
+    reference(0x800900).write(&mut change.data);
+
+    let error = change.reference_contents(78).unwrap_err().to_string();
+    assert!(error.contains("Sequence"), "{error}");
+}
+
+#[test]
 fn sav_21_stacked_state_stays_rejected_until_its_boundary_is_known() {
     let mut change = fixture();
     change.change_flags = 1 << 11;

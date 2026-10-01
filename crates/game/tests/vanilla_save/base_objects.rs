@@ -149,11 +149,13 @@ fn sav_40_malformed_or_late_invalid_change_leaves_records_unchanged() {
         base_object_change(0x801, 20, 1),
         base_object_change(0x801, 20, 0),
     ];
+    invalid[0].data.push(0);
     invalid[1].data.clear();
     invalid[2].data.push(0);
     let mut late_invalid = vec![base_object_change(0x800, 17, 1)];
     late_invalid.push(base_object_change(0x801, 20, 0));
     late_invalid[1].change_flags = 0x8;
+    late_invalid[1].data.push(0);
     for malformed in invalid {
         let saved = base_object_save(vec![base_object_change(0x800, 17, 1), malformed]);
         assert!(world.restore_vanilla_base_objects(&saved).is_err());

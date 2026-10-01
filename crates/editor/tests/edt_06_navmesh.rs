@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use soe_editor::EditorDocument;
 use soe_esm::plugin::{FileHeader, Record};
-use soe_esm::records::navm::{DoorLink, Geometry, NavGrid, Parent, Triangle};
+use soe_esm::records::navm::{DoorLink, EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{GlobalFormId, Plugin, Tag};
 
 const FORM: GlobalFormId = GlobalFormId {
@@ -65,9 +65,13 @@ fn geometry() -> Geometry {
 }
 
 fn document(label: &str) -> (EditorDocument, PathBuf) {
+    document_with_geometry(label, &geometry())
+}
+
+fn document_with_geometry(label: &str, geometry: &Geometry) -> (EditorDocument, PathBuf) {
     let plugin_path = path(label);
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"NAVM"), 0x800).sub(b"NVNM", geometry().to_bytes()));
+    plugin.push_top(Record::new(Tag(*b"NAVM"), 0x800).sub(b"NVNM", geometry.to_bytes()));
     fs::write(&plugin_path, plugin.to_bytes()).unwrap();
     let active_name = plugin_path.file_name().unwrap().to_string_lossy();
     let doc = EditorDocument::open(std::slice::from_ref(&plugin_path), &active_name).unwrap();
@@ -119,6 +123,28 @@ fn edt_06_triangle_deletion_remaps_triangle_metadata() {
 }
 
 #[test]
+fn edt_06_triangle_deletion_preserves_external_edge_link_indices() {
+    let mut geometry = geometry();
+    geometry.edge_links.push(EdgeLink {
+        kind: 1,
+        navmesh: 0x900,
+        triangle: 12,
+    });
+    geometry.triangles[0].flags |= 1;
+    geometry.triangles[0].edges[0] = 0;
+    let (mut doc, plugin_path) = document_with_geometry("edge-link", &geometry);
+
+    doc.delete_navmesh_triangle(FORM, 1).unwrap();
+    let edited = read_geometry(&doc);
+    assert_eq!(edited.triangles[0].edges[0], 0);
+    assert_eq!(edited.triangles[0].flags & 1, 1);
+    assert_eq!(edited.edge_links, geometry.edge_links);
+    assert!(doc.undo().unwrap());
+    assert_eq!(read_geometry(&doc).triangles.len(), 2);
+    let _ = fs::remove_file(plugin_path);
+}
+
+#[test]
 fn edt_06_vertex_movement_updates_coordinates_and_bounds() {
     let (mut doc, plugin_path) = document("move");
     doc.move_navmesh_vertex(FORM, 2, [180.0, 120.0, 8.0])
@@ -160,5 +186,15 @@ fn edt_06_invalid_triangle_edit_is_rejected_without_mutation() {
     let before = doc.active_plugin().clone();
     assert!(doc.add_navmesh_triangle(FORM, [0, 0, 2], 0, 0).is_err());
     assert_eq!(doc.active_plugin(), &before);
+    let _ = fs::remove_file(plugin_path);
+}
+
+#[test]
+fn edt_06_invalid_vertex_movement_is_rejected_without_mutation() {
+    let (mut doc, plugin_path) = document("invalid-move");
+    let before = doc.active_plugin().clone();
+    assert!(doc.move_navmesh_vertex(FORM, 2, [0.0, 0.0, 0.0]).is_err());
+    assert_eq!(doc.active_plugin(), &before);
+    assert!(!doc.undo().unwrap());
     let _ = fs::remove_file(plugin_path);
 }

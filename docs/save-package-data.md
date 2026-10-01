@@ -143,6 +143,15 @@ for a plausible next extra, or copying an opaque body cannot supply that
 evidence. Executable disassembly is outside the method in [intent.md](intent.md).
 Runtime package restoration remains the separate SAV-13 contract.
 
+The SAV-12 follow-up on 2026-09-30 checked the public CommonLibSSE
+`TESCustomPackageData` declaration as well. Its `SaveGame` and `LoadGame`
+methods are empty stubs, so the runtime class layout still does not define a
+serialized Sequence body. `reference_contents.rs` now has a SAV-12 regression
+with a named Sequence followed by another extra. It verifies that the reader
+continues to reject the entry instead of accepting a guessed boundary. The
+Sequence payload and its successor remain undecoded, so the SAV-12 done check
+is still open.
+
 ## SAV-21 Stacked source audit, 2026-09-20
 
 SAV-21 is blocked on the serialized Stacked payload after its name. The
@@ -166,6 +175,12 @@ RTTI table. Neither inspected fork has a Stacked class or saved-state reader
 body. The public [libSkyrim RTTI header](https://github.com/himika/libSkyrim/blob/master/Skyrim/include/Skyrim/RTTI.h)
 also registers the two types without defining a payload. No third-party code
 or dependency was added. No game executable was inspected or disassembled.
+
+The local UESP `PACK.wikitext` describes Stacked as a package-tree branch that
+can contain multiple procedures. Mutagen's package reader describes plugin
+package data records, not the type 108 saved execution state. Neither source
+defines the saved continuation fields or its boundary. The available sources
+therefore still do not support a typed Stacked decoder.
 
 The Stacked-specific local snapshots have these SHA-256 digests:
 
