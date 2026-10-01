@@ -7,6 +7,9 @@ use std::{collections::BTreeMap, path::Path};
 
 use soe_save::Save;
 
+const CORPUS: &str =
+    "/run/host/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
+
 fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
     for entry in std::fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();
@@ -23,12 +26,16 @@ fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
 
 #[test]
 fn sav_33_corpus_reports_item_change_field_coverage() {
-    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
-        eprintln!("SOE_TEST_SAVES unset, skipping item change coverage survey");
+    let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
+        || std::path::PathBuf::from(CORPUS),
+        std::path::PathBuf::from,
+    );
+    if !root.is_dir() {
+        eprintln!("external save corpus not found, skipping item change coverage survey");
         return;
-    };
+    }
     let mut paths = Vec::new();
-    collect(Path::new(&root), &mut paths);
+    collect(&root, &mut paths);
     paths.sort();
     assert!(
         paths.len() >= 50,

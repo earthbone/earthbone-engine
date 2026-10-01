@@ -15,8 +15,7 @@
 //! `crates/godot-host` and are the half a cold cache actually punishes. These
 //! numbers are the record and reference side alone.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

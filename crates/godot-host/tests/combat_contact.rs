@@ -3,8 +3,13 @@
 
 //! CMB-03 contact timing through the authored animation interpreter and Game.
 
-#[path = "../../game/tests/common/legacy.rs"]
-mod legacy;
+#[path = "../../game/tests/common"]
+mod common {
+    pub mod legacy;
+    pub mod save_tail;
+}
+
+use common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
