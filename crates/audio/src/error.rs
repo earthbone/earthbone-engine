@@ -6,8 +6,7 @@ use thiserror::Error;
 /// it or route the bytes elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unsupported {
-    /// A WMA bitstream with no decoder compiled in. The `xwma-ffmpeg`
-    /// feature adds one.
+    /// A WMA bitstream for which the sound source has no decoder attached.
     Wma { format_tag: u16 },
     /// An Ogg Vorbis stream with the `vorbis` feature off.
     Vorbis,
@@ -27,7 +26,7 @@ impl std::fmt::Display for Unsupported {
             Self::Wma { format_tag } => {
                 write!(
                     f,
-                    "WMA bitstream (format tag {format_tag:#06x}), no decoder in this build"
+                    "WMA bitstream (format tag {format_tag:#06x}), no decoder supplied"
                 )
             }
             Self::Vorbis => write!(f, "Ogg Vorbis, the vorbis feature is off"),

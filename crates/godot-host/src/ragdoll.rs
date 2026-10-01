@@ -183,3 +183,38 @@ impl ActorRenderMode {
         }
     }
 }
+
+/// Whether a bound actor should render with a live ragdoll.
+#[cfg(any(feature = "godot", test))]
+pub(crate) const fn actor_uses_ragdoll(
+    dead: bool,
+    unconscious: bool,
+    forced: Option<bool>,
+) -> bool {
+    match forced {
+        Some(enabled) => enabled,
+        None => dead || unconscious,
+    }
+}
+
+#[cfg(test)]
+mod cmb_38_tests {
+    use super::actor_uses_ragdoll;
+
+    #[test]
+    fn cmb_38_explicit_ragdoll_mode_overrides_death_state() {
+        assert!(actor_uses_ragdoll(false, false, Some(true)));
+        assert!(!actor_uses_ragdoll(true, true, Some(false)));
+        assert!(actor_uses_ragdoll(true, false, None));
+        assert!(actor_uses_ragdoll(false, true, None));
+        assert!(!actor_uses_ragdoll(false, false, None));
+    }
+
+    #[test]
+    fn cmb_38_impulse_uses_the_skyrim_to_godot_axis_map() {
+        assert_eq!(
+            crate::units::direction_to_godot([2.0, 3.0, 4.0]),
+            [2.0, 4.0, -3.0]
+        );
+    }
+}

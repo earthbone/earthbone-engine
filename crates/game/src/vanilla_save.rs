@@ -46,6 +46,10 @@ pub enum RestoreError {
     Npc { id: GlobalFormId, reason: String },
     #[error("cannot restore list {id}: {reason}")]
     List { id: GlobalFormId, reason: String },
+    #[error("cannot restore base object {id}: {reason}")]
+    BaseObject { id: GlobalFormId, reason: String },
+    #[error("cannot restore static object {id}: {reason}")]
+    StaticObject { id: GlobalFormId, reason: String },
     #[error("cannot restore record change {id}: {reason}")]
     RecordChange { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]

@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Legacy SOEW fixtures from world/save.rs and world/save_sections.rs.
+
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
-/// Strips the exclusive dialogue branch version 24 added, the stagger end
-/// time version 29 added, the witnessed crime set version 31 added, the hand
-/// spell fields version 32 added and the movement flags version 36 added, so
-/// fixtures built against any older header see none of those fields' bytes.
-/// Also strips the named save-section table
+/// Strips the exclusive dialogue branch version 24 added, the stagger end time
+/// version 29 added, the witnessed crime set version 31 added and the hand
+/// spell fields version 32 added, as well as the post-version-33 AI section.
+/// It also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
-/// that reference's record too, so both records end exactly where a
-/// pre-version-37 writer would have left them.
+/// that reference's record too. It also reduces world-level section payloads
+/// to an empty table before measuring the legacy tail.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -222,12 +223,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
 
-        // The right spell field is immediately followed by this actor's
-        // named save-section table, which a pre-version-37 writer never
-        // emitted. Read each length so this stays correct as sections are
-        // added to the actor registry.
-        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
-        fields.push((table_offset, section_table_len(&bytes, table_offset)));
+        // Remove this actor's complete section table, including any named
+        // sections added after the legacy version being simulated.
+        let actor_sections = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((actor_sections, section_table_len(&bytes, actor_sections)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the named
@@ -245,8 +244,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let alpha_offset = alpha_offsets[0];
         bytes[alpha_offset..alpha_offset + alpha_marker.len()]
             .copy_from_slice(&prior_alpha.to_le_bytes());
-        let reference_table = alpha_offset + alpha_marker.len();
-        fields.push((reference_table, section_table_len(&bytes, reference_table)));
+        let reference_sections = alpha_offset + alpha_marker.len();
+        fields.push((
+            reference_sections,
+            section_table_len(&bytes, reference_sections),
+        ));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
@@ -256,6 +258,13 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     bytes
 }
 
+/// Strip the post-version-33 AI section and the paired reference sections
+/// while retaining the actor fields used by version 28 and later fixtures.
+#[allow(dead_code)]
+pub fn without_recent_ai_fields(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
+    without_ref_sections(world, actors)
+}
+
 /// Strip the named save-section table version 37 appends to a standalone
 /// reference's own record, and version 36 movement flags from a paired actor.
 /// `without_exclusive_branches` only locates this
@@ -263,7 +272,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
 /// alpha value. A fixture that materializes a bare reference, such as an
 /// authored loose item never turned into an actor, calls this instead
 /// before truncating the rest of the buffer to an older header. Order does
-/// not matter, an empty slice is a no-op that still round trips the state.
+/// not matter, a table with no registered sections still round trips the state.
 ///
 /// Same cross-binary sharing as `without_exclusive_branches` above: only the
 /// binaries that fixture a bare reference call this one.
@@ -353,8 +362,8 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
         assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
         let offset = found[0];
         bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
-        let table = offset + marker.len();
-        offsets.push((table, section_table_len(&bytes, table)));
+        let section_offset = offset + marker.len();
+        offsets.push((section_offset, section_table_len(&bytes, section_offset)));
     }
     offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in offsets {
@@ -380,6 +389,45 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
         cursor += 4 + payload_len;
     }
     cursor - start
+}
+
+/// Normalize a version 37 fixture to an empty world-level section table.
+#[allow(dead_code)]
+pub fn empty_world_sections(bytes: &mut Vec<u8>) {
+    normalize_world_sections(bytes);
+}
+
+#[allow(dead_code)]
+pub fn world_section_growth(bytes: &[u8]) -> usize {
+    let mut normalized = bytes.to_vec();
+    normalize_world_sections(&mut normalized);
+    bytes.len() - normalized.len()
+}
+
+#[path = "save_tail.rs"]
+mod save_tail;
+
+#[allow(unused_imports)]
+pub use save_tail::{truncate_to_version, version_tail_len};
+
+#[allow(dead_code)]
+pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
+    let offsets: Vec<_> = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(offsets.len(), 1, "save marker is not unique");
+    offsets[0]
+}
+
+#[allow(dead_code)]
+pub fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
 /// Remove the world save-section table appended at the end of a version 37
