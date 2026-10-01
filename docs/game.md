@@ -718,7 +718,7 @@ an SKSE member.
 | Message | Show, ShowAsHelpMessage, ResetHelpMessage (method and global) | |
 | Scene | Start, ForceStart, Stop, IsPlaying, IsActionComplete | |
 | Sound | Play, StopInstance, SetInstanceVolume | |
-| Spell | Cast, RemoteCast, Preload and Unload record validation | |
+| Spell | Cast, IsHostile, RemoteCast, Preload and Unload record validation | |
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -741,6 +741,49 @@ when it remains engaged without a target and is searching. Ignore-friendly-hits
 reads the reference flag used by its Papyrus native. The condition functions 63,
 66, 118, 288 and 361 remain unsupported with explicit function diagnostics
 because the local CK corpus does not provide usable condition semantics for them.
+
+### Utility and VisualEffect contract audit, SCR-72
+
+The registry contains the following 27 Utility and VisualEffect bindings. CK
+contracts come from `engine-refs/ck-wiki/Utility_Script.wikitext` and the
+shipped `engine-refs/skse64/scripts/vanilla/Utility.psc`. INI getters are
+identified by the CK page as SKSE globals. The memory and frame-capture
+functions are documented in the CK page as conditional or beta functions.
+
+| Binding | Contract comparison and disposition |
+|---|---|
+| `Utility.GameTimeToString` | CK and PSC accept elapsed game days and return a calendar date and time. Fixed in SCR-72 to format `MM/DD/YYYY HH:MM`. |
+| `Utility.GetCurrentGameTime` | CK and PSC return game days passed. Reads `GameClock.game_days`. |
+| `Utility.GetCurrentRealTime` | CK and PSC return elapsed real seconds. Reads `GameClock.real_seconds`. |
+| `Utility.IsInMenuMode` | CK reports menu state. Quiet false stub, behavior is owned by SCR-49. |
+| `Utility.RandomFloat` | CK and PSC specify inclusive minimum and maximum. Fixed in SCR-72 so both endpoints are representable. |
+| `Utility.RandomInt` | CK and PSC specify inclusive minimum and maximum. The world RNG includes both bounds. |
+| `Utility.SetINIFloat` | CK specifies storing a float under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIInt` | CK specifies storing an integer under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIBool` | CK specifies storing a boolean under the named INI key. Stores its string representation in the runtime INI map. |
+| `Utility.SetINIString` | CK specifies storing a string under the named INI key. Stores it in the runtime INI map. |
+| `Utility.GetINIFloat` | CK identifies the SKSE global getter for a float. Parses the stored value, defaulting to zero. |
+| `Utility.GetINIInt` | CK identifies the SKSE global getter for an integer. Parses the stored value, defaulting to zero. |
+| `Utility.GetINIBool` | CK identifies the SKSE global getter for a boolean. Returns true for stored `true` or `1`. |
+| `Utility.GetINIString` | CK identifies the SKSE global getter for a string. Returns the stored value or an empty string. |
+| `Utility.CaptureFrameRate` | CK marks this as beta-only and returns a comma-separated sample string bounded to 1,000 characters. Quiet stub, owned by SCR-49. |
+| `Utility.StartFrameRateCapture` | CK marks this as beta-only and starts sampling. Quiet stub, owned by SCR-49. |
+| `Utility.EndFrameRateCapture` | CK marks this as beta-only and ends sampling. Quiet stub, owned by SCR-49. |
+| `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
+| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
+| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
+| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Quiet stub, owned by SCR-50. |
+| `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
+| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
+| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
+| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+
+The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
+registered by the Papyrus VM rather than `game::natives::register`, so they are
+not part of this registry inventory. Their clock contracts are documented in
+the VM section above.
 
 ## ForceRefTo and Form contract audit
 
@@ -889,6 +932,16 @@ The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
 The host's Godot performance monitors are not used as substitutes for
 Creation Engine frame capture or memory budgets.
+
+- `Spell.IsHostile` resolves every effect through the spell's winning plugin
+  and returns true when any referenced MGEF has its hostile flag. Missing or
+  malformed spell/effect records are logged and return false. `Spell.Cast` and
+  `RemoteCast` use the direct-cast path described below. `Spell.Preload` and
+  `Spell.Unload` validate the spell record and report that art resource
+  loading is unsupported. `Topic.Add` validates and records known topics.
+- The shipped `Topic.psc` declares `Topic.Add()` only. There is no
+  `Topic.Remove` native or Spell/Topic global native in the local vanilla
+  Papyrus sources.
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest
@@ -1224,6 +1277,40 @@ surface, not CK contracts. The quiet stub fixes belong to these existing native 
   `RequestAutoSave` queue distinct host save requests. `ForceFirstPerson` and
   `ForceThirdPerson` queue explicit player camera modes. The host drains these
   transient requests after a gameplay tick. They are not saved with `SOEW`.
+
+### Scene and scroll native contracts, SCR-69
+
+The registry inventory is `Scene.Start`, `Scene.ForceStart`, `Scene.Stop`,
+`Scene.IsPlaying`, `Scene.GetOwningQuest`, `Scene.IsActionComplete`, and
+`Scroll.Cast`. The local vanilla `Scene.psc` and `Scroll.psc` declare all seven
+method signatures and summarize their contracts. The matching CK named function
+pages are absent from the local corpus. CK's `GetOwningQuest - Alias` page
+confirms the return type and owning-quest meaning for aliases, while it does not
+document the Scene method. The available `GetCurrentScene - ObjectReference`
+CK page is for a different binding.
+
+`Scene.Start` starts a valid, inactive scene and sends `OnBegin`. Its record
+must have phase bounds the current runtime accepts. `Scene.Stop` ends a running
+scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
+`Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
+quest field. These behaviors match the local PSC summaries.
+
+`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
+action list, following the existing scene action state and the vanilla scenes
+that reuse authored action numbers. It reports whether that slot completed in
+the current run. Negative and unknown slots return false. The previous
+constant-false stub is now backed by the same completed slot set that gates
+phase advancement.
+
+`Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
+must also end scenes running on references in the forced scene. Actor action
+ownership is not yet dispatched, so DLG-18 and DLG-19 own the scene action
+dispatch needed before that conflict behavior can be implemented.
+`Scroll.Cast` remains a quiet stub. Its PSC contract takes a source and an
+optional target and performs a scroll cast. MAG-18 owns scroll casting and
+selected inventory instance consumption. The `scr_69_` tests call each listed
+binding through Papyrus dispatch and verify `IsActionComplete` before and after
+the action slot is marked complete.
 
 ## Tests
 
@@ -4740,6 +4827,38 @@ The installed `MUSCombat` winner contains `GetCombatTargetHasKeyword`
 combat-state contract. The installed-data music test surveys for an eligible
 track with supported conditions and skips that known unsupported predicate.
 
+## Shader particle and Sound native audit (2026-09-29)
+
+The registry audit in `natives.rs` has two `ShaderParticleGeometry` methods,
+one `Sound` method and two `Sound` globals. `Sound.psc` in the local SKSE
+vanilla script corpus declares `Play(ObjectReference)` returning an instance
+ID, `StopInstance(int)` and `SetInstanceVolume(int, float)` as globals. The
+registered Sound names and method/global placement match those declarations.
+`SetInstanceVolume` clamps its volume argument to 0 through 1, and
+`World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
+removes the selected instance from the world's sound-instance table.
+
+| Registry binding | CK contract comparison | Current implementation and assigned work |
+|---|---|---|
+| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
+| `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
+| `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
+
+The same `Sound.psc` also declares latent `PlayAndWait(ObjectReference)` and
+`GetDescriptor()` returning `SoundDescriptor`. Neither is registered. No
+unfinished backlog row owns either native binding, so they remain an explicit
+backlog gap rather than being folded into this registry-derived inventory.
+The local CK crawl's `ATTEMPTS.md` records that CK pages were collected from
+archived pages when available. The missing ShaderParticleGeometry pages leave
+its parameter contract to the implementation row above.
+
+`scr_70_registry_matches_the_audited_sound_and_shader_bindings` checks the
+registry-derived inventory and the two unregistered Sound declarations.
+`scr_70_sound_instances_follow_the_declared_contract` checks instance IDs,
+volume bounds and stopping an instance. Neither test exercises physical audio.
+
 ## Authored locks and keys (2026-09-19)
 
 Placed references initialize their lock state and level from XLOC, which was
@@ -4756,6 +4875,11 @@ every call, including repeats. `SetLockLevel` clamps to 0 through 255 and queues
 the event when the level changes, retaining the current locked state. Level
 zero is a novice lock, not an unlocked marker. Existing engine state saves and
 hashes already retain the mutable lock fields, so no save layout changed.
+
+`ObjectReference.MoveTo` applies its optional `abMatchRotation` argument. The
+Papyrus default is true, so a call without the fifth argument copies the
+target's rotation. Passing false preserves the moved reference's current
+rotation. Position offsets and destination cell are applied in both cases.
 
 Sources are local CK Lock, GetLockLevel, OnLockStateChanged and Activate pages,
 the shipped ObjectReference.psc declarations, and xEdit's XLOC definition.
@@ -5672,8 +5796,11 @@ for these selected base values. MAG-72 must resolve winning records through
 their owning load-order namespace and expose the resulting shared base state.
 Its weather input is an explicitly selected weather and time blend.
 Autonomous climate selection and weather scheduling are outside that row.
-SCR-54 now exposes the selected `WTHR` and transition flags through the shared
-weather request API. Host sky rendering remains outside the native binding.
+SCR-73's audit records the registered `Weather.SetActive` method and eight
+additional vanilla Weather natives missing from the registry. SCR-54 exposes
+the selected `WTHR` and transition flags through the shared weather request
+API, but `Weather.SetActive` remains a quiet stub and does not select or
+release weather. Host sky rendering remains outside the native binding.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation
@@ -5859,6 +5986,31 @@ identifies `MagicDisallowEnchanting` as an engine-recognized keyword.
 `crf_03_disenchant` covers learned effects, selected-stack consumption,
 rejection atomicity, excluded enchantments and save/load continuation. Tests
 use synthetic records and do not claim an installed-data survey.
+
+## Quest and reference alias native contracts (SCR-68)
+
+The Papyrus registry exposes sorted method and global binding names. The
+SCR-68 inventory derives the Quest, Alias and ReferenceAlias bindings from
+that registry and compares them with the method lists and descriptions in
+`Quest_Script.wikitext`, `Alias_Script.wikitext` and
+`ReferenceAlias_Script.wikitext`. The local corpus also has individual pages
+for `CompleteAllObjectives`, `GetOwningQuest` and `Clear`. Most linked native
+pages for these classes are not present in the corpus, so their class-page
+contract is the comparison source.
+
+Quest stage getters both return the highest completed stage, matching the CK
+page for `GetStage`. `SetStage` and `SetCurrentStageID` share stage execution.
+Alias getters resolve the owning quest, alias ID, name or assigned form from
+the quest record and runtime alias state. ReferenceAlias inventory filters
+use the same filter state as ObjectReference filters. `Clear` empties an
+optional alias. The QUST alias `FNAM` Optional flag is bit 1, as specified by
+xEdit and the UESP QUST layout. Calling `Clear` on a required alias logs an
+error and leaves the assigned reference unchanged, matching
+`Clear_-_ReferenceAlias.wikitext`.
+
+Quest `IsStarting` and `IsStopping` appear in the CK class page and are
+registered as quiet false stubs. They do not report the startup and shutdown
+transitions described by CK. SCR-43 owns their behavior and regression tests.
 
 ## Alias-backed dialogue eligibility (DLG-13)
 

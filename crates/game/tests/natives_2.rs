@@ -367,6 +367,14 @@ fn test_plugin() -> Plugin {
             .zsub(T(b"NAM0"), "First")
             .sub(T(b"NEXT"), [])
             .sub(T(b"HNAM"), [])
+            .sub(T(b"ANAM"), 0u16.to_le_bytes())
+            .zsub(T(b"NAM0"), "Action")
+            .sub(T(b"ALID"), 1i32.to_le_bytes())
+            .sub(T(b"INAM"), 0u32.to_le_bytes())
+            .sub(T(b"SNAM"), 0u32.to_le_bytes())
+            .sub(T(b"ENAM"), 0u32.to_le_bytes())
+            .sub(T(b"DATA"), 0x900u32.to_le_bytes())
+            .sub(T(b"ANAM"), [])
             .sub(
                 T(b"VMAD"),
                 Vmad {
@@ -377,6 +385,7 @@ fn test_plugin() -> Plugin {
             ),
     );
     p.push_top(Record::new(T(b"SNDR"), SOUND).zsub(EDID, "TestSound"));
+    p.push_top(Record::new(T(b"SCRL"), 0xA00).zsub(EDID, "TestScroll"));
     p.push_top(Record::new(T(b"WOOP"), WORD).zsub(EDID, "WordFus"));
     p.push_top(
         Record::new(T(b"GLOB"), COUNTER)
@@ -402,7 +411,7 @@ fn test_plugin() -> Plugin {
     let q = q
         .sub(T(b"ALLS"), le(0))
         .zsub(T(b"ALID"), "Place")
-        .sub(T(b"FNAM"), le(0))
+        .sub(T(b"FNAM"), le(quest::alias_flags::OPTIONAL))
         .sub(T(b"ALED"), Vec::new());
     let q = quest::with_alias(q, 1, "Watcher", Some(GUARD));
     p.push_top(q);
@@ -1430,6 +1439,45 @@ fn references_report_their_location() {
     );
     let back = call(&mut g, &guard, "GetCurrentLocation", &[]);
     assert!(is(&mut g, &back, "InnLoc"));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK `MoveTo_-_ObjectReference.wikitext` defines the rotation default and
+/// the opt-out argument.
+#[test]
+fn scr_67_move_to_respects_match_rotation_and_default() {
+    let mut g = game();
+    g.start();
+    let mover_id = g.form("GoldReference").unwrap();
+    let target_id = g.form("OtherGoldReference").unwrap();
+    let mover = obj(&mut g, "GoldReference");
+    let target = obj(&mut g, "OtherGoldReference");
+    g.world_mut().reference(mover_id).unwrap().rotation = [0.1, 0.2, 0.3];
+    g.world_mut().reference(target_id).unwrap().rotation = [0.4, 0.5, 0.6];
+
+    call(&mut g, &mover, "MoveTo", &[target.clone()]);
+    assert_eq!(
+        g.world_mut().reference(mover_id).unwrap().rotation,
+        [0.4, 0.5, 0.6]
+    );
+
+    g.world_mut().reference(mover_id).unwrap().rotation = [0.1, 0.2, 0.3];
+    call(
+        &mut g,
+        &mover,
+        "MoveTo",
+        &[
+            target,
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Bool(false),
+        ],
+    );
+    assert_eq!(
+        g.world_mut().reference(mover_id).unwrap().rotation,
+        [0.1, 0.2, 0.3]
+    );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -2931,6 +2979,51 @@ fn scenes_begin_and_end() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding
+#[test]
+fn scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding() {
+    let mut g = game();
+    let scene = obj(&mut g, "TestScene");
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+    call(&mut g, &scene, "Start", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(true));
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(false)
+    );
+    call(&mut g, &scene, "ForceStart", &[]);
+    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), Value::None);
+    call(&mut g, &scene, "Stop", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+
+    let scroll = obj(&mut g, "TestScroll");
+    call(&mut g, &scroll, "Cast", &[Value::None, Value::None]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// scr_69_scene_is_action_complete_reads_completed_action_slots
+#[test]
+fn scr_69_scene_is_action_complete_reads_completed_action_slots() {
+    let mut g = game();
+    let scene = obj(&mut g, "TestScene");
+    call(&mut g, &scene, "Start", &[]);
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(false)
+    );
+    let scene_id = g.form("TestScene").unwrap();
+    assert!(g.world_mut().complete_scene_action(scene_id, 0));
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(-1)]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// Sound.Play "plays the sound at the specified object's location" and
 /// returns an instance id, SetInstanceVolume and StopInstance take it.
 /// Spell.Cast records the cast with its source and target.
@@ -2993,6 +3086,64 @@ fn scr_47_spell_art_methods_report_missing_resource_system() {
     );
     assert_eq!(g.world().spell_casts, spells_before);
     assert_eq!(g.world().active_effects().count(), effects_before);
+}
+
+/// SCR-70 inventory: these are the registered ShaderParticleGeometry and
+/// Sound methods and globals. Sound.psc also declares PlayAndWait and
+/// GetDescriptor, which are not registered yet.
+#[test]
+fn scr_70_registry_matches_the_audited_sound_and_shader_bindings() {
+    let g = game();
+    let methods = [
+        ("ShaderParticleGeometry", "Apply"),
+        ("ShaderParticleGeometry", "Remove"),
+        ("Sound", "Play"),
+    ];
+    for (class, name) in methods {
+        assert!(g.vm.natives.has_method(class, name), "{class}.{name}");
+        assert!(!g.vm.natives.has_global(class, name), "{class}.{name}");
+    }
+    let globals = [("Sound", "StopInstance"), ("Sound", "SetInstanceVolume")];
+    for (class, name) in globals {
+        assert!(g.vm.natives.has_global(class, name), "{class}.{name}");
+        assert!(!g.vm.natives.has_method(class, name), "{class}.{name}");
+    }
+    assert!(!g.vm.natives.has_method("Sound", "PlayAndWait"));
+    assert!(!g.vm.natives.has_method("Sound", "GetDescriptor"));
+}
+
+/// SCR-70 Sound.psc contract: Play returns a nonzero instance, volume is
+/// clamped to 0 through 1, and StopInstance removes the selected instance.
+#[test]
+fn scr_70_sound_instances_follow_the_declared_contract() {
+    let mut g = game();
+    let sound = obj(&mut g, "TestSound");
+    let source = obj(&mut g, "GuardRef");
+    let first = call(&mut g, &sound, "Play", &[source.clone()]);
+    let second = call(&mut g, &sound, "Play", &[source]);
+    assert_eq!(first, Value::Int(1));
+    assert_eq!(second, Value::Int(2));
+    let sound_id = g.form("TestSound").unwrap();
+    let source_id = g.form("GuardRef").unwrap();
+    assert_eq!(g.world().sound_instances[&2], (sound_id, source_id, 1.0));
+
+    call_global(
+        &mut g,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(2), Value::Float(2.0)],
+    );
+    assert_eq!(g.world().sound_instances[&2].2, 1.0);
+    call_global(
+        &mut g,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(2), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().sound_instances[&2].2, 0.0);
+
+    call_global(&mut g, "Sound", "StopInstance", &[Value::Int(1)]);
+    assert!(!g.world().sound_instances.contains_key(&1));
 }
 
 /// The Game flags: fast travel, AI driven, chargen, beast form, words

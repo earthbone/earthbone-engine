@@ -601,12 +601,28 @@ impl World {
     }
 
     pub fn move_to(&mut self, id: GlobalFormId, target: GlobalFormId, offset: [f32; 3]) -> bool {
-        let Some((pos, cell)) = self.reference(target).map(|t| (t.position, t.cell)) else {
+        self.move_to_with_rotation(id, target, offset, true)
+    }
+
+    pub fn move_to_with_rotation(
+        &mut self,
+        id: GlobalFormId,
+        target: GlobalFormId,
+        offset: [f32; 3],
+        match_rotation: bool,
+    ) -> bool {
+        let Some((pos, rotation, cell)) = self
+            .reference(target)
+            .map(|t| (t.position, t.rotation, t.cell))
+        else {
             return false;
         };
         match self.reference(id) {
             Some(r) => {
                 r.position = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];
+                if match_rotation {
+                    r.rotation = rotation;
+                }
                 r.cell = cell;
                 true
             }

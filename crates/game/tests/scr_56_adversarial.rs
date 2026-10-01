@@ -34,26 +34,28 @@ fn cell_and_clear_audit_covers_every_registered_binding() {
     let mut registered: Vec<_> = vm
         .natives
         .method_bindings()
+        .into_iter()
         .filter(|(class, name)| *class == "cell" || *name == "clear")
         .collect();
     registered.sort_unstable();
     assert_eq!(
         registered,
         [
-            ("alias", "clear"),
-            ("cell", "getactorowner"),
-            ("cell", "getfactionowner"),
-            ("cell", "isattached"),
-            ("cell", "isinterior"),
-            ("cell", "reset"),
-            ("cell", "setactorowner"),
-            ("cell", "setfactionowner"),
-            ("cell", "setpublic"),
+            ("alias".to_owned(), "clear".to_owned()),
+            ("cell".to_owned(), "getactorowner".to_owned()),
+            ("cell".to_owned(), "getfactionowner".to_owned()),
+            ("cell".to_owned(), "isattached".to_owned()),
+            ("cell".to_owned(), "isinterior".to_owned()),
+            ("cell".to_owned(), "reset".to_owned()),
+            ("cell".to_owned(), "setactorowner".to_owned()),
+            ("cell".to_owned(), "setfactionowner".to_owned()),
+            ("cell".to_owned(), "setpublic".to_owned()),
         ]
     );
     assert!(vm
         .natives
         .global_bindings()
+        .into_iter()
         .all(|(class, name)| class != "cell" && name != "clear"));
 
     let audit = include_str!("../../../docs/reference-audit.md");

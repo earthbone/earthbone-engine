@@ -773,6 +773,25 @@ impl World {
         Ok(Spell::from_record(&spell_record, localized)?)
     }
 
+    /// Whether any effect in a spell uses a hostile magic effect.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the spell or one of its referenced effects is
+    /// missing or malformed.
+    pub fn spell_is_hostile(&self, id: GlobalFormId) -> Result<bool, MagicError> {
+        let spell = self.spell(id)?;
+        for entry in spell.effects {
+            let effect = self
+                .resolve_from(id, entry.base_effect)
+                .ok_or(MagicError::Missing(id))?;
+            if self.magic_effect(effect)?.data.flags & HOSTILE != 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
         let record = self.record(id).ok_or(MagicError::Missing(id))?;

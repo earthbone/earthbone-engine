@@ -476,6 +476,39 @@ fn mag_30_navmesh() -> Geometry {
 }
 
 #[test]
+fn scr_71_spell_is_hostile_reports_hostile_effect_flags() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_without_hostile_effects() {
+    let mut game = fixture(0, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_for_missing_spell_records() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(0x777)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
+}
+
+#[test]
 fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
     let mut game = game(plugin(
         effect(1 << 1, 0, 24, false),

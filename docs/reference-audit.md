@@ -14,11 +14,35 @@ LOD and TRI morph data.
 |---|---|---|
 | `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`, `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
 | `skse64/scripts/vanilla/Utility.psc` and `ck-wiki/Utility_Script.wikitext` distinguish wait seconds, menu seconds and game hours | `papyrus/src/vm.rs`, `vm/state.rs`, `vm/hash.rs`, `game/src/lib.rs`. Tests `utility_wait_domains_survive_save_and_timescale_changes`, `version_one_clock_loads_with_legacy_defaults`, `game_tick_supplies_timescale_and_menu_pause_to_waits` | Menu UI must call `tick_menu_mode`. Version 1 saves cannot recover which wait function produced a legacy sleep. |
+| CK `Quest_Script.wikitext`, `Alias_Script.wikitext`, `ReferenceAlias_Script.wikitext`, and the named `Clear_-_ReferenceAlias.wikitext` contract cover the Quest and reference-alias registry bindings | `NativeRegistry::method_bindings` and `global_bindings` expose sorted runtime binding inventories. `game/tests/scr_68_native_contracts.rs` compares each Quest, Alias and ReferenceAlias method and Quest global with the CK class declarations. It also verifies optional-only `ReferenceAlias.Clear` behavior. `TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/QUST.wikitext` establish QUST alias Optional as FNAM bit 1. | The corpus lacks most linked individual pages for these methods, so those comparisons use the class-page descriptions. Quest `IsStarting` and `IsStopping` are quiet false stubs despite CK describing transition state. SCR-43 owns those fixes. |
 | `ck-wiki/DispelSpell_-_Actor.wikitext` and `DispelAllSpells_-_Actor.wikitext` require active-effect removal | `game/src/natives.rs` no longer destroys known or equipped spells. Test `dispelling_never_removes_known_or_equipped_spells` replaces the incorrect test oracle. Both calls are counted as stubs. | Active-effect ownership, expiry, removal and protected categories remain unimplemented. Cast recording is not magic execution. |
 | SPID `SPID/src/LookupConfigs.h::ChanceComponentParser` accepts trailing `!`. `Defs.h::Chance` preserves deterministic mode. `LookupFilters.cpp` seeds per actor. | `moddata/src/spid.rs` preserves the percent and marker, rejects malformed values. `game/src/moddata.rs` rolls ordinary chance per matching base and reports unsupported deterministic fractional rules. Parser and runtime regressions cover `0!`, `50!`, `100!`. | Exact SPID per-actor lifecycle and seed, and KID's separate seed in `src/Data/BaseFilters.cpp`, remain work. |
 | Shipped `skse64/scripts/vanilla/Quest.psc::GetStage` calls `GetCurrentStageID`. CK `Quest_Script.wikitext` describes the highest stage. | Both native getters return `highest`. Test `quest_getters_agree_after_lower_stage_and_reset` sets 20 then 10 and resets. | Wider quest lifecycle semantics still need original-runtime comparisons. |
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
+
+## Spell and Topic native audit, SCR-71
+
+The registry inventory is method-only: `Spell.Cast`, `Spell.IsHostile`,
+`Spell.RemoteCast`, `Spell.Preload`, `Spell.Unload` and `Topic.Add`. No Spell
+or Topic globals are registered. The SCR-71 registry test checks every listed
+binding and confirms `Topic.Remove` is absent. The local CK wiki corpus has no
+named Spell or Topic native pages. The shipped
+`skse64/scripts/vanilla/Spell.psc` and `Topic.psc` provide the native
+signatures and behavior notes instead.
+
+| Binding | Local contract source and comparison | Implementation and disposition |
+|---|---|---|
+| `Spell.Cast` method | `Spell.psc`: source reference, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext`: calling from an unloaded source cell warns and cannot cast. | Calls `World::cast_spell` with the explicit source reference and credits that source as caster. Supported direct casts execute. The unloaded-source warning is not reproduced because the cast API has no loaded-cell query. Assign that diagnostic to `MAG-02` with delivery integration. Unsupported delivery or effects are logged by the native and remain in the existing magic delivery rows. |
+| `Spell.IsHostile` method | `Spell.psc`: zero arguments and a boolean result. The CK page is absent, so the record rule is inferred from the MGEF hostile flag used by the runtime. | Added in SCR-71. Resolves each attached effect in the spell's plugin context and returns true if any referenced MGEF has the hostile flag. Bad references log and return false. |
+| `Spell.RemoteCast` method | `Spell.psc`: source reference, blame actor, optional target reference, no return value. `Papyrus_Runtime_Errors.wikitext` gives the same unloaded-source-cell warning as Cast. | Calls `World::cast_spell` with the explicit source and blame actor. The unloaded-source warning has the same `MAG-02` assignment as Cast. Unsupported delivery or effects are logged and remain in the existing magic delivery rows. |
+| `Spell.Preload` method | `Spell.psc`: no arguments or return value. Preloads spell art and warns about misuse and memory use. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Spell.Unload` method | `Spell.psc`: no arguments or return value. Unloads spell art previously preloaded and warns about misuse. | Quiet stub. Owning implementation row: `SCR-47`. |
+| `Topic.Add` method | `Topic.psc`: no arguments or return value. Adds the topic to the list known by the player. | Quiet stub. Owning implementation row: `SCR-48`. |
+
+The previous inventory grouped `Topic` with `MusicType` and listed both Add
+and Remove. The source declares no `Topic.Remove`. The docs now list only
+`Topic.Add`. These sources contain no Spell or Topic global bindings.
 
 ## Leveled-list native contracts
 
@@ -136,6 +160,83 @@ MIT license does not cover every bundled external component. PyNifly shares
 HavokLib ancestry, so it is not an independent codec oracle. HKX2's missing
 license must be resolved before code reuse. Do not execute bundled tools
 merely because the repository includes them.
+
+## Native contract audit, SCR-67
+
+The registry inventory comes from `game/src/natives.rs::register`, including
+the method registrations and the quiet-stub tables. The inventory test checks
+each direct `ObjectReference` method and both `MusicType` methods against the
+live `NativeRegistry`. Neither class has a direct global binding. Inherited
+`Form` methods are outside this class inventory.
+
+For each listed `ObjectReference` method, the corresponding
+`ck-wiki/<Function>_-_ObjectReference.wikitext` page was compared for its
+Papyrus signature, parameter order and defaults, return type and stated
+behavior. The class declaration is `ck-wiki/ObjectReference_Script.wikitext`.
+`MusicType.Add` and `MusicType.Remove` have no named function or class page in
+the local CK corpus. They are registered as methods and remain quiet stubs.
+Their owning implementation work is SCR-37.
+
+| Registry method | CK contract comparison |
+|---|---|
+| Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled | The enable pages distinguish waiting and no-wait variants. The state queries return booleans. |
+| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded is a stub assigned to SCR-38. |
+| GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior | Form returns and interior-cell query match their CK pages. |
+| GetPositionX, GetPositionY, GetPositionZ, GetAngleX, GetAngleY, GetAngleZ | The six scalar getters match the axis and degree contracts. |
+| SetPosition, SetAngle | Both take three floats. SetAngle uses degrees at the Papyrus boundary. |
+| MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
+| Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
+| GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems does not yet honor quest-item retention. |
+| GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
+| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation returns a boolean. The three unavailable animation/wait systems are quiet stubs assigned to SCR-39 and SCR-41. |
+| GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
+| PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
+| AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
+| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs. Destruction-stage behavior belongs to SCR-40. |
+| IgnoreFriendlyHits, IsIgnoringFriendlyHits | Setter and query match the documented boolean behavior. |
+| GetCurrentLocation, GetEditorLocation, IsInLocation | Reference location queries match their return types and child-location behavior. |
+| GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner | Owner methods match their typed form parameters and None returns. |
+| AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | These are void methods on references. Their matching alias declarations are separately registered on `ReferenceAlias`. |
+| SetAnimationVariableFloat, SetAnimationVariableInt, SetAnimationVariableBool | Each setter takes its typed value and returns None. |
+| GetAnimationVariableFloat, GetAnimationVariableInt, GetAnimationVariableBool | Each getter returns the matching scalar type. |
+| GetCurrentScene, IsFurnitureInUse, IsFurnitureMarkerInUse, GetTriggerObjectCount | Signatures match the class pages. Each is currently a quiet stub assigned to SCR-38 or SCR-39. |
+| SetMotionType, ApplyHavokImpulse, SetNoFavorAllowed, DamageObject, KnockAreaEffect, PushActorAway, InterruptCast | Their parameter contracts are documented, but implementations are quiet stubs assigned to SCR-39 or SCR-40. |
+| ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, CreateDetectionEvent, TranslateTo, SplineTranslateTo, StopTranslation, Reset | Their method bindings are quiet stubs assigned to SCR-41 or SCR-42. |
+
+The audit found two implementation discrepancies. `MoveTo` ignored
+`abMatchRotation`. SCR-67 fixes it, and the synthetic native-call test covers
+both the default and false value. `RemoveAllItems` currently clears every
+inventory entry even when `abRemoveQuestItems` is false. The inventory model
+does not preserve quest-item eligibility, so the owning fix needs an inventory
+contract row before it can be implemented. SCR-67 is restricted to the game
+crate and the backlog is explicitly unchanged, so this finding remains open
+and is the completion gap for this audit.
+
+## Native contract audit, SCR-73
+
+`crates/game/tests/scr_73_native_contract_audit.rs` derives the audited
+Weapon and Weather entries from the registry by checking each class binding
+registered by `natives.rs`. The class-specific inventory has two methods and
+no globals: `Weapon.Fire` and `Weather.SetActive`. Both are quiet stubs.
+
+The local `ck-wiki/Function_Reference.wikitext` and named-page corpus contain
+no Weapon or Weather Papyrus contracts. The vanilla
+`skse64/scripts/vanilla/Weapon.psc` declares `Fire(ObjectReference akSource,
+Ammo akAmmo = None)` as an instance method. The registry has the matching
+instance binding. `Weather.psc` declares `SetActive(bool abOverride = false,
+bool abAccelerate = false)` as an instance method, also matching the registry.
+There is no signature or method/global discrepancy for either registered
+binding. The PSC comments state that Fire uses a source and optional ammo,
+while SetActive sets the active sky weather.
+
+The Weather PSC also declares eight natives absent from the registry:
+instance methods `ForceActive` and `GetClassification`, and globals
+`ReleaseOverride`, `FindWeather`, `GetCurrentWeather`, `GetOutgoingWeather`,
+`GetCurrentWeatherTransition` and `GetSkyMode`. SCR-54 owns adding these
+bindings with weather-system behavior. SCR-53 owns replacing the quiet
+`Weapon.Fire` stub with weapon-system behavior. The audit does not claim that
+either current stub implements the vanilla contract.
 
 ## ActorBase and Alias native audit, SCR-55
 

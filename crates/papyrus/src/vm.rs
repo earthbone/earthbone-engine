@@ -374,20 +374,30 @@ impl NativeRegistry {
         self.globals.contains_key(&Self::key(class, name))
     }
 
-    /// Registered method bindings, with class and function names normalized
-    /// to lowercase.
-    pub fn method_bindings(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.methods
-            .keys()
-            .map(|(class, name)| (class.as_str(), name.as_str()))
+    /// Return registered method bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn method_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.methods.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
     }
 
-    /// Registered global bindings, with class and function names normalized
-    /// to lowercase.
-    pub fn global_bindings(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.globals
-            .keys()
-            .map(|(class, name)| (class.as_str(), name.as_str()))
+    /// Return registered global bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn global_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.globals.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
     }
 }
 

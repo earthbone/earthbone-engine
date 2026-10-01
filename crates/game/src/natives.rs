@@ -812,8 +812,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             call.arg(2).as_float(),
             call.arg(3).as_float(),
         ];
+        let match_rotation = call.args.get(4).is_none_or(Value::as_bool);
         if let Some(target) = world.form_arg(&call.arg(0)) {
-            world.move_to(me, target, offset);
+            world.move_to_with_rotation(me, target, offset, match_rotation);
         }
         none()
     });
@@ -2122,6 +2123,15 @@ fn alias(vm: &mut Vm, w: &Shared) {
         }
     );
     alias_method!(vm, w, "Clear", |world, call, quest, alias| {
+        let optional = world
+            .quest_state(quest)
+            .and_then(|state| state.def.alias(alias))
+            .is_some_and(|definition| definition.flags & crate::quest::alias_flags::OPTIONAL != 0);
+        if !optional {
+            call.log
+                .push(call.time, "ReferenceAlias.Clear: alias is not optional");
+            return none();
+        }
         world.force_alias(quest, alias, None);
         none()
     });
@@ -3403,9 +3413,16 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
         .scenes
         .contains(&me)));
-    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| b(
-        world.scene_action_complete(me, call.arg(0).as_int())
-    ));
+    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| {
+        let action_id = call.arg(0).as_int();
+        let Ok(action_slot) = u32::try_from(action_id) else {
+            return b(false);
+        };
+        let Ok(action_id) = i32::try_from(action_slot) else {
+            return b(false);
+        };
+        b(world.scene_action_complete(me, action_id))
+    });
     method!(vm, w, "Sound", "Play", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return i(0);
@@ -3433,6 +3450,16 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
             call.log.push(call.time, format!("Spell.Cast: {error}"));
         }
         none()
+    });
+    method!(vm, w, "Spell", "IsHostile", |world, call, me| {
+        match world.spell_is_hostile(me) {
+            Ok(hostile) => b(hostile),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Spell.IsHostile: {error}"));
+                b(false)
+            }
+        }
     });
     method!(vm, w, "Spell", "RemoteCast", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
@@ -4393,6 +4420,11 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
         ("Cell", "IsAttached", true),
+        ("Location", "IsLoaded", false),
+        ("Location", "HasRefType", false),
+        ("Keyword", "SendStoryEventAndWait", false),
+        ("ObjectReference", "IsFurnitureMarkerInUse", false),
+        ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
@@ -4508,6 +4540,154 @@ fn stubs(vm: &mut Vm) -> usize {
 mod tests {
     use super::*;
     use soe_esm::LoadOrder;
+
+    const SCR_72_BINDINGS: [(&str, &str, bool, &str); 27] = [
+        (
+            "Utility",
+            "GameTimeToString",
+            true,
+            "CK: game days to calendar date and time",
+        ),
+        (
+            "Utility",
+            "GetCurrentGameTime",
+            true,
+            "CK: current game days",
+        ),
+        (
+            "Utility",
+            "GetCurrentRealTime",
+            true,
+            "CK: elapsed real seconds",
+        ),
+        ("Utility", "IsInMenuMode", true, "CK: menu mode state"),
+        ("Utility", "RandomFloat", true, "CK: inclusive float range"),
+        ("Utility", "RandomInt", true, "CK: inclusive integer range"),
+        ("Utility", "SetINIFloat", true, "CK: set float INI value"),
+        ("Utility", "SetINIInt", true, "CK: set integer INI value"),
+        ("Utility", "SetINIBool", true, "CK: set boolean INI value"),
+        ("Utility", "SetINIString", true, "CK: set string INI value"),
+        (
+            "Utility",
+            "GetINIFloat",
+            true,
+            "CK: get float INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIInt",
+            true,
+            "CK: get integer INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIBool",
+            true,
+            "CK: get boolean INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "GetINIString",
+            true,
+            "CK: get string INI value, SKSE global",
+        ),
+        (
+            "Utility",
+            "CaptureFrameRate",
+            true,
+            "CK beta: capture frame samples",
+        ),
+        (
+            "Utility",
+            "StartFrameRateCapture",
+            true,
+            "CK beta: begin capture",
+        ),
+        (
+            "Utility",
+            "EndFrameRateCapture",
+            true,
+            "CK beta: end capture",
+        ),
+        (
+            "Utility",
+            "GetAverageFrameRate",
+            true,
+            "CK beta: average captured rate",
+        ),
+        (
+            "Utility",
+            "GetMinFrameRate",
+            true,
+            "CK beta: minimum captured rate",
+        ),
+        (
+            "Utility",
+            "GetMaxFrameRate",
+            true,
+            "CK beta: maximum captured rate",
+        ),
+        (
+            "Utility",
+            "GetCurrentMemory",
+            true,
+            "CK: initialize and return memory stats",
+        ),
+        ("Utility", "GetBudgetCount", true, "CK: memory budget count"),
+        (
+            "Utility",
+            "GetBudgetName",
+            true,
+            "CK: memory budget name by index",
+        ),
+        (
+            "Utility",
+            "GetCurrentBudget",
+            true,
+            "CK: current budget by index",
+        ),
+        (
+            "Utility",
+            "OverBudget",
+            true,
+            "CK: budget threshold by index",
+        ),
+        (
+            "VisualEffect",
+            "Play",
+            false,
+            "VisualEffect contract: start authored effect on target",
+        ),
+        (
+            "VisualEffect",
+            "Stop",
+            false,
+            "VisualEffect contract: stop authored effect on target",
+        ),
+    ];
+
+    #[test]
+    fn scr_72_registry_inventory_has_a_contract_comparison_for_each_binding() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        assert_eq!(SCR_72_BINDINGS.len(), 27);
+        for (class, name, global, contract) in SCR_72_BINDINGS {
+            assert!(
+                !contract.is_empty(),
+                "{class}.{name} has no contract comparison"
+            );
+            assert!(
+                if global {
+                    vm.natives.has_global(class, name)
+                } else {
+                    vm.natives.has_method(class, name)
+                },
+                "{class}.{name} registry shape disagrees with its contract inventory"
+            );
+        }
+    }
 
     #[test]
     fn the_hand_kept_count_matches_the_registry() {
@@ -4837,12 +5017,14 @@ mod tests {
         let mut inventory: Vec<_> = vm
             .natives
             .method_bindings()
+            .into_iter()
             .filter(|(class, name)| *class == "cell" || *name == "clear")
             .collect();
         inventory.sort_unstable();
         let global_inventory: Vec<_> = vm
             .natives
             .global_bindings()
+            .into_iter()
             .filter(|(class, name)| *class == "cell" || *name == "clear")
             .collect();
         let mut compared = vec![
@@ -4856,6 +5038,10 @@ mod tests {
             ("cell", "setfactionowner"),
             ("cell", "setpublic"),
         ];
+        let mut compared: Vec<_> = compared
+            .drain(..)
+            .map(|(class, name)| (class.to_owned(), name.to_owned()))
+            .collect();
         compared.sort_unstable();
         // Each binding is compared with its CK page or the corresponding
         // vanilla PSC declaration. Unsupported effects are assigned in
