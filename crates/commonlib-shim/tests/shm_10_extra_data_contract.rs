@@ -15,12 +15,14 @@ fn shm_10_cpp_extra_data_contracts_compile_and_reject_hooks() {
         &source,
         r#"
 #include <RE/Skyrim.h>
+#include <cstdint>
 #include <type_traits>
 
 static_assert(std::is_abstract_v<RE::ReferenceExtraQuery>);
 static_assert(std::is_same_v<decltype(&RE::ReferenceExtraQuery::supports_extra), bool (RE::ReferenceExtraQuery::*)(RE::ReferenceExtraKind) const>);
 static_assert(std::is_same_v<decltype(&RE::ReferenceExtraQuery::extra), std::optional<RE::ReferenceExtraValue> (RE::ReferenceExtraQuery::*)(RE::ObjectRefHandle, RE::ReferenceExtraKind) const>);
 static_assert(std::is_same_v<decltype(&RE::HookRegistry::reject), bool (*)(const std::string&, std::string&)>);
+static_assert(std::is_same_v<decltype(RE::ReferenceExtraValue::poisonCount), std::uint32_t>);
 
 struct Fixture final : RE::ReferenceExtraQuery {
     bool supports_extra(RE::ReferenceExtraKind) const override { return true; }
@@ -31,7 +33,7 @@ struct Fixture final : RE::ReferenceExtraQuery {
             value.missingRefIDs.push_back({RE::FormId{0x01000001}, 0.25F});
         if (kind == RE::ReferenceExtraKind::NorthRotation) value.northRotation = 1.25F;
         if (kind == RE::ReferenceExtraKind::OutfitItem) value.outfitItem = RE::FormId{0x01000002};
-        if (kind == RE::ReferenceExtraKind::Poison) { value.poison = RE::FormId{0x01000003}; value.poisonCount = 2; }
+        if (kind == RE::ReferenceExtraKind::Poison) { value.poison = RE::FormId{0x01000003}; value.poisonCount = UINT32_MAX; }
         if (kind == RE::ReferenceExtraKind::Teleport)
             value.teleport = RE::DoorTeleportData{RE::ObjectRefHandle{4}, {1, 2, 3}, {4, 5, 6}, 0};
         return value;
@@ -45,6 +47,7 @@ int main() {
                       RE::ReferenceExtraKind::OutfitItem, RE::ReferenceExtraKind::Poison,
                       RE::ReferenceExtraKind::Teleport}) {
         if (!fixture.supports_extra(kind) || !fixture.extra(reference, kind)) return 1;
+        if (kind == RE::ReferenceExtraKind::Poison && fixture.extra(reference, kind)->poisonCount != UINT32_MAX) return 4;
     }
     std::string error;
     if (RE::HookRegistry::reject("write_call", error)) return 2;

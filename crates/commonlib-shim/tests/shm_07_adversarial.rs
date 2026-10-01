@@ -10,6 +10,8 @@ fn absent_calendar_race_and_alias_values_have_optional_results() {
     let header = fs::read_to_string(root.join("include/RE/World.h")).unwrap();
     assert!(header.contains("virtual std::optional<FormId> race() const = 0;"));
     assert!(header.contains("std::optional<FormId> reference;"));
-    assert!(header.contains("struct Result { bool success; std::optional<FormId> form; std::string error; }"));
+    assert!(header.contains(
+        "struct Result { bool success; std::optional<FormId> form; std::string error; }"
+    ));
     assert!(header.contains("ActivateReferenceChildren"));
 }

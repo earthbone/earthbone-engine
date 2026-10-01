@@ -32,7 +32,7 @@ pub enum ReferenceExtra {
     MissingRefIds(Vec<ActivateParentId>),
     NorthRotation(f32),
     OutfitItem(FormId),
-    Poison { poison: FormId, count: i32 },
+    Poison { poison: FormId, count: u32 },
     Teleport(DoorTeleportData),
 }
 

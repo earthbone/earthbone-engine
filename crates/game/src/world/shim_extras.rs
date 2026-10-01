@@ -47,10 +47,9 @@ impl ReferenceExtraData for World {
                     let extra = stack.extra(62)?;
                     match extra.fields.as_slice() {
                         [Field::Form(Some(poison)), Field::Word(count)] => {
-                            let count = i32::try_from(*count).ok()?;
                             Some(ReferenceExtra::Poison {
                                 poison: form_id(self.runtime_id(*poison)),
-                                count,
+                                count: *count,
                             })
                         }
                         _ => None,

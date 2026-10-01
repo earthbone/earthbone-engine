@@ -199,7 +199,8 @@ The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
 absent value. The game adapter reads outfit item, poison and door teleport
 values from shared reference and inventory state. Missing reference IDs and
 north rotation have no runtime backing field and report unsupported. Binary
-hook requests return a diagnostic through `HookRegistry::reject`.
+hook requests return a diagnostic through `HookRegistry::reject`. Poison
+counts retain CommonLib's unsigned 32-bit range through the Rust and C++ views.
 
 ## Untested
 

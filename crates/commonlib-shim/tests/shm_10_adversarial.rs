@@ -11,6 +11,12 @@ fn poison_count_preserves_commonlibs_unsigned_domain() {
     let rust = fs::read_to_string(root.join("src/extra_data.rs")).unwrap();
     let game = fs::read_to_string(root.join("../game/src/world/shim_extras.rs")).unwrap();
     assert!(commonlib.contains("std::uint32_t count"));
-    assert!(rust.contains("count: i32"), "shim narrows unsigned ExtraPoison count");
-    assert!(!game.contains("i32::try_from(*count).ok()?"), "counts above i32::MAX disappear from the live view");
+    assert!(
+        rust.contains("count: u32"),
+        "shim must preserve unsigned ExtraPoison count"
+    );
+    assert!(
+        game.contains("count: *count"),
+        "game adapter must preserve the full unsigned count"
+    );
 }

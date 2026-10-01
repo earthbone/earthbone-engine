@@ -51,7 +51,7 @@ struct ReferenceExtraValue {
     std::optional<float> northRotation;
     std::optional<FormId> outfitItem;
     std::optional<FormId> poison;
-    std::int32_t poisonCount{};
+    std::uint32_t poisonCount{};
     std::optional<DoorTeleportData> teleport;
 };
 
