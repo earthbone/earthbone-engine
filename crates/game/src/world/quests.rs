@@ -71,6 +71,48 @@ impl World {
         self.quests.get(&id)
     }
 
+    /// Whether a quest is between being enabled and starting to run.
+    ///
+    /// Quest start normally completes synchronously. A startup task restored
+    /// from a save remains observable until the lifecycle scheduler resumes it.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_starting(&mut self, id: GlobalFormId) -> bool {
+        self.quest_state(id).is_some_and(|quest| {
+            matches!(
+                quest.lifecycle_task,
+                Some(crate::quest::state::LifecycleTask::Starting)
+            )
+        })
+    }
+
+    /// Whether a quest is between being disabled and finishing its shutdown.
+    ///
+    /// Quest stop normally completes synchronously. A shutdown task restored
+    /// from a save remains observable until the lifecycle scheduler resumes it.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_stopping(&mut self, id: GlobalFormId) -> bool {
+        self.quest_state(id).is_some_and(|quest| {
+            matches!(
+                quest.lifecycle_task,
+                Some(crate::quest::state::LifecycleTask::Stopping)
+            )
+        })
+    }
+
     pub(crate) fn lifecycle_tasks(
         &self,
     ) -> Vec<(GlobalFormId, crate::quest::state::LifecycleTask)> {

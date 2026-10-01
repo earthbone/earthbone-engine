@@ -102,18 +102,6 @@ fn read_player_level(
     Ok(())
 }
 
-fn write_days_in_jail(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
-    super::crime::write_days_in_jail(state, writer, _pool);
-}
-
-fn read_days_in_jail(
-    state: &mut ActorState,
-    reader: &mut FormReader<'_, '_>,
-    _table: &ArrayTable,
-) -> Result<(), VmError> {
-    super::crime::read_days_in_jail(state, reader, _table)
-}
-
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     World::write_base_object_section(world, writer);
 }
@@ -188,12 +176,12 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
-    Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "PRG-13", write: super::crime::write_days_in_jail, read: super::crime::read_days_in_jail },
     Section { name: "AI-43", write: write_trespassing, read: read_trespassing },
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
