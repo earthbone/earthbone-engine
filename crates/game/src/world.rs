@@ -49,6 +49,7 @@ mod bleedout;
 mod calendar;
 mod combat;
 pub mod commonlib;
+mod commonlib_events;
 mod contact;
 mod crime;
 mod death;
@@ -637,6 +638,8 @@ pub struct World {
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
+    /// Source-level CommonLib event channels backed by this live world.
+    pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
@@ -652,6 +655,8 @@ pub struct World {
     actors: HashMap<GlobalFormId, ActorState>,
     pub(crate) follower_services: BTreeMap<GlobalFormId, crate::services::FollowerServiceState>,
     quests: HashMap<GlobalFormId, QuestState>,
+    quest_start_stop_events:
+        soe_commonlib_shim::events::EventSource<soe_commonlib_shim::events::QuestStartStopEvent>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
     leveled_lists: HashMap<GlobalFormId, LeveledList>,
@@ -878,6 +883,7 @@ impl World {
             actors: HashMap::new(),
             follower_services: BTreeMap::new(),
             quests: HashMap::new(),
+            quest_start_stop_events: soe_commonlib_shim::events::EventSource::default(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
             leveled_lists: HashMap::new(),
@@ -951,6 +957,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
+            commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             cloak_effects: BTreeMap::new(),

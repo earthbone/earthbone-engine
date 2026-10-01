@@ -4,10 +4,8 @@
 //! Conversations over authored DIAL groups, INFO conditions and VMAD fragments.
 //! Assertions cover quest state changes and response timing, not just parsing.
 
-#[path = "common/installed.rs"]
-mod installed;
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::installed;
+use crate::common::legacy;
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::dialogue::Error;
