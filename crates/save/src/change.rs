@@ -405,17 +405,11 @@ impl ChangeForm {
     /// records define.
     ///
     /// # Errors
-    /// Rejects a TACT speaker marker on another type, truncated form flags
-    /// and trailing payload bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn activator_change(&self) -> Result<Option<ActivatorChange>> {
         let record_type = self.record_type();
         let source_flags = match record_type {
-            "ACTI" | "DOOR" => {
-                if self.change_flags & (1 << 23) != 0 {
-                    return Err(invalid_record("speaker marker belongs only to TACT"));
-                }
-                0b111
-            }
+            "ACTI" | "DOOR" => 0b111,
             "TACT" => 0x0080_0007,
             _ => return Ok(None),
         };
