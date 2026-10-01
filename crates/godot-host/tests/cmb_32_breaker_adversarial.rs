@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::detection::{DetectionEvent, Motion};
+use soe_game::detection::DetectionEvent;
 use soe_game::world::ContactActor;
 use soe_game::World;
 use soe_papyrus::Value;
