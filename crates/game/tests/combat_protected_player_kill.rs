@@ -226,20 +226,18 @@ fn cmb_34_installed_protected_npc_takes_the_player_exception() {
     eprintln!("cmb_34: using installed protected NPC {base} {name}");
 
     let mut patch = Plugin::new(FileHeader {
-        masters: vec!["Skyrim.esm".into()],
+        masters: order.files().iter().map(|file| file.name.clone()).collect(),
         ..FileHeader::default()
     });
-    let target = GlobalFormId {
-        file: 1,
-        object: 0x900,
-    };
-    patch.push_top(
-        Record::new(Tag(*b"ACHR"), target.object).sub(Tag(*b"NAME"), base.object.to_le_bytes()),
-    );
+    let own_prefix = (patch.header.masters.len() as u32) << 24;
+    let raw_base = (u32::from(base.file) << 24) | base.object;
+    patch.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), raw_base.to_le_bytes()));
     patch.push_top(weapon(0xA00, 10, 6));
     settings(&mut patch);
-    order.add("ProtectedSurvey.esp", patch).unwrap();
-    let file = order.files().len() - 1;
+    for record in &mut patch.records {
+        record.form_id |= own_prefix;
+    }
+    let file = order.add("ProtectedSurvey.esp", patch).unwrap();
     let target = GlobalFormId {
         file: file as u16,
         object: 0x900,
@@ -254,6 +252,8 @@ fn cmb_34_installed_protected_npc_takes_the_player_exception() {
     {
         let mut world = game.world_mut();
         world.set_actor_value(player, "onehanded", 100.).unwrap();
+        // CONTEXT: isolate protection from the installed player's perk entries.
+        world.actor(player).unwrap().perks.clear();
         world.add_item(player, survey_weapon, 1);
         world.actor(player).unwrap().equipped.insert(survey_weapon);
         world.set_actor_value(target, "health", 15.).unwrap();

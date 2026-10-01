@@ -82,3 +82,28 @@ fn mag_55_peak_value_modifier_competes_only_with_its_keyword_group() {
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 130.0);
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 100.0);
 }
+
+#[test]
+fn peak_value_without_related_keyword_rejects_as_unsupported_without_mutation() {
+    let mut game = game(plugin(
+        peak_effect(EFFECT, 0),
+        vec![spell(SPELL, 0, false, 25.0, 5)],
+    ));
+    let before = game.save_state().unwrap();
+    let error = game
+        .shared_world()
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(ACTOR)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        MagicError::Unsupported("peak value keyword")
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+}

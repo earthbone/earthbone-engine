@@ -823,6 +823,10 @@ mod sav_58_adversarial;
 mod sav_60_breaker_adversarial;
 #[path = "sav_60_reconnect.rs"]
 mod sav_60_reconnect;
+#[path = "sav_61_adversarial.rs"]
+mod sav_61_adversarial;
+#[path = "sav_61_recovery_session.rs"]
+mod sav_61_recovery_session;
 #[path = "sav_63_adversarial.rs"]
 mod sav_63_adversarial;
 #[path = "sav_68_adversarial.rs"]
@@ -849,6 +853,32 @@ mod scr_39_current_scene;
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
 mod scr_43_quest_transition_natives;
+#[path = "shm_11_adversarial.rs"]
+mod shm_11_adversarial;
+#[path = "shm_12_live_world.rs"]
+mod shm_12_live_world;
+#[path = "shm_14_world_contracts.rs"]
+mod shm_14_world_contracts;
+#[path = "shm_15_adversarial.rs"]
+mod shm_15_adversarial;
+#[path = "shm_15_world_state.rs"]
+mod shm_15_world_state;
+#[path = "shm_16_adversarial.rs"]
+mod shm_16_adversarial;
+#[path = "shm_17_conditions.rs"]
+mod shm_17_conditions;
+#[path = "shm_18_adversarial.rs"]
+mod shm_18_adversarial;
+#[path = "shm_18_live_events.rs"]
+mod shm_18_live_events;
+#[path = "shm_19_adversarial.rs"]
+mod shm_19_adversarial;
+#[path = "shm_19_events.rs"]
+mod shm_19_events;
+#[path = "shm_23_adversarial.rs"]
+mod shm_23_adversarial;
+#[path = "shm_23_quest_start_stop.rs"]
+mod shm_23_quest_start_stop;
 #[path = "sound.rs"]
 mod sound;
 #[path = "tool_01_breaker_adversarial.rs"]

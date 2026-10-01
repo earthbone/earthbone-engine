@@ -249,18 +249,15 @@ fn cmb_13_installed_essential_npc_reaches_a_finite_bleedout_threshold() {
     eprintln!("cmb_13: using installed essential/protected NPC {base} {name}");
 
     let mut patch = Plugin::new(FileHeader {
-        masters: vec!["Skyrim.esm".into()],
+        masters: order.files().iter().map(|file| file.name.clone()).collect(),
         ..FileHeader::default()
     });
-    let reference = GlobalFormId {
-        file: 1,
-        object: 0x900,
-    };
+    let own_prefix = (patch.header.masters.len() as u32) << 24;
+    let raw_base = (u32::from(base.file) << 24) | base.object;
     patch.push_top(
-        Record::new(Tag(*b"ACHR"), reference.object).sub(Tag(*b"NAME"), base.object.to_le_bytes()),
+        Record::new(Tag(*b"ACHR"), own_prefix | 0x900).sub(Tag(*b"NAME"), raw_base.to_le_bytes()),
     );
-    order.add("EssentialSurvey.esp", patch).unwrap();
-    let file = order.files().len() - 1;
+    let file = order.add("EssentialSurvey.esp", patch).unwrap();
     let reference = GlobalFormId {
         file: file as u16,
         object: 0x900,

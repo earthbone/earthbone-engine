@@ -3043,7 +3043,10 @@ specifying the archetype's execution rules.
 ### Peak Value Modifier, MAG-55
 
 Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
-form must resolve to a KYWD record. Active effects on the same target compete
+form must resolve to a KYWD record. A missing related keyword returns an
+unsupported-keyword error before changing state, including the installed
+`FrostSlowFFContact` effect whose `RelatedID` is zero.
+Active effects on the same target compete
 when their keyword and primary actor value match, and the greatest signed
 modifier is applied once. Distinct keywords form separate groups. A lower new
 modifier does not change the actor value.
