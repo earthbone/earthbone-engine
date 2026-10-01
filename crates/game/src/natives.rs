@@ -2240,7 +2240,10 @@ fn game(vm: &mut Vm, w: &Shared) {
             let base = if actors_only {
                 None
             } else {
-                world.form_arg(&call.arg(0))
+                let Some(base) = world.form_arg(&call.arg(0)) else {
+                    return none();
+                };
+                Some(base)
             };
             let offset = usize::from(!actors_only);
             let center = [
