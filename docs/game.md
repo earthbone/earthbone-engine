@@ -57,6 +57,10 @@ corresponding Papyrus form object when a host value is present, and return
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+- `World::add_quest_start_stop_sink` registers an MIT shim event listener.
+  Successful `Start`, `Stop`, and stage-driven quest transitions emit the
+  resolved runtime FormID and the resulting failed state. The event source
+  observes the existing quest state and does not keep a second quest copy.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
@@ -128,6 +132,19 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   reanimation effects from this same `World`. Sit and sleep animation state is
   not stored by the runtime, so the adapter reports it as unsupported. Binary
   address and vtable hooks have no runtime target.
+
+`World::commonlib_event_sources` exposes the in-process CommonLib event
+channels for disarm, dragon souls gained, level increase and location
+discovery. The matching `commonlib_*` methods send those event payloads to
+registered sinks. Form identities retain both the load-order file index and
+object id. Level increase reads `player_level` and the current player identity
+from the live world, and rejects levels outside the event's `u16` field before
+dispatch. These events add no saved state. Disarm, dragon soul awards and
+location discovery are event entry points for their gameplay callers. This
+crate does not currently implement those gameplay systems. Binary hook
+requests return the requested hook name as an unsupported result without
+changing runtime state. The corresponding source-level API and C++ contract
+fixture are in `crates/commonlib-shim`.
 
 ## Design
 
@@ -857,6 +874,22 @@ Their CK contracts are described by
   transient requests after a gameplay tick. They are not saved with `SOEW`.
 
 ## Tests
+
+`Cargo.toml` disables automatic integration-test discovery and registers one
+binary, `it`, rooted at `tests/it.rs`. Each top-level test file stays in place
+and is registered there with `#[path]`. Shared installed-data, legacy-save
+and magic fixtures are declared once under `crate::common` and
+`crate::support`. Test files import these helpers through `crate::` paths.
+Existing nested scenario reruns retain their test names below the new
+top-level module prefix. Determinism child processes use that prefix when
+selecting their exact test, as do feature-gated persistence child processes.
+Rerun fixtures include their module path in temporary-directory names so
+concurrent modules do not overwrite each other's inputs.
+
+`tst_16_every_test_file_is_registered` compares the top-level Rust files with
+the module declarations and reports the declaration to add for a missing
+file. The registration file uses Git's union merge driver. New test files
+need their module declaration in `tests/it.rs`.
 
 Installed integration tests use `tests/common/installed.rs`. Each test
 process caches parsed plugin files and load orders by their installed master
@@ -2003,6 +2036,14 @@ The `sav_63_` tests also corrupt a newly published generation after an
 interrupted rotation, then recover the older verified state and finish a
 bounded retry.
 
+The `sav_61_` tests cover the available recovery boundary: an accepted native
+generation lives in a separate directory and leaves the source save bytes
+unchanged, while a generation written against a different script schema is
+rejected without changing the live game. Dependency preflight, unresolved
+record and script preservation, and reconnection are not implemented in this
+tree, so these checks do not establish missing-mod recovery play or a host
+recovery scenario.
+
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
 `OnActivate` event is queued but not yet run, saves, loads the bytes into a
@@ -3049,7 +3090,10 @@ specifying the archetype's execution rules.
 ### Peak Value Modifier, MAG-55
 
 Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
-form must resolve to a KYWD record. Active effects on the same target compete
+form must resolve to a KYWD record. A missing related keyword returns an
+unsupported-keyword error before changing state, including the installed
+`FrostSlowFFContact` effect whose `RelatedID` is zero.
+Active effects on the same target compete
 when their keyword and primary actor value match, and the greatest signed
 modifier is applied once. Distinct keywords form separate groups. A lower new
 modifier does not change the actor value.

@@ -8,8 +8,8 @@
 //! actor, so the same controller carries the player and an NPC walking a
 //! package. On top of the push loop it has the three things that separate
 //! walking from sliding around a box: a step height, so a stair riser or a
-//! door threshold is climbed rather than run into, a downward snap of the
-//! same size, so walking off a riser follows the floor instead of launching,
+//! door threshold is climbed rather than run into, a bounded downward snap,
+//! so walking off a riser follows nearby support without a large drop,
 //! and a slope limit, so a face steeper than [`CharacterSettings::max_slope_cos`]
 //! is never ground and the capsule slides down it.
 //!
@@ -450,6 +450,7 @@ impl SimpleWorld {
             if let Some(snapped) = self
                 .snap_down(pos, &s, height)
                 .filter(|snapped| (*snapped - start).dot(wanted) >= 0.0)
+                .filter(|snapped| start.z - snapped.z <= s.radius * 0.25)
             {
                 pos = snapped;
                 vel.z = 0.0;
