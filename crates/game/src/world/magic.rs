@@ -25,6 +25,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
+use soe_esm::records::hazd::{self as hazard_data, Hazard};
 use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
@@ -185,6 +186,7 @@ struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
     werewolf_race: Option<(GlobalFormId, BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>)>,
+    hazard_base: Option<GlobalFormId>,
     command_owner: Option<GlobalFormId>,
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
@@ -1209,6 +1211,7 @@ impl World {
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
                 werewolf_race: None,
+                hazard_base: None,
                 command_owner: None,
                 light_base: None,
                 bound_weapon: None,
@@ -2203,11 +2206,6 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if data.archetype == 40 {
-                return Err(MagicError::Unsupported(
-                    "spawn hazard requires hazard ownership and expiry",
-                ));
-            }
             if !matches!(
                 data.archetype,
                 0 | 1
@@ -2242,6 +2240,7 @@ impl World {
                     | 10
                     | 20
                     | 38
+                    | 40
                     | DEMORALIZE
                     | FRENZY_ARCHETYPE
                     | TURN_UNDEAD
@@ -2346,6 +2345,34 @@ impl World {
             };
             let vampire_form = if data.archetype == 46 {
                 Some(self.vampire_lord_race(effect, data.associated_item)?)
+            } else {
+                None
+            };
+            let hazard_base = if data.archetype == 40 {
+                let base = self
+                    .resolve_from(effect, data.associated_item)
+                    .filter(|base| self.tag_of(*base) == Some(super::T(b"HAZD")))
+                    .ok_or(MagicError::Unsupported("spawn hazard base"))?;
+                let record = self.record(base).ok_or(MagicError::Missing(base))?;
+                let hazard = Hazard::from_record(record)?;
+                if !hazard.radius.is_finite()
+                    || hazard.radius < 0.0
+                    || !hazard.lifetime.is_finite()
+                    || hazard.lifetime < 0.0
+                    || !hazard.target_interval.is_finite()
+                    || hazard.target_interval <= 0.0
+                {
+                    return Err(MagicError::Unsupported(
+                        "invalid hazard radius, lifetime or target interval",
+                    ));
+                }
+                if hazard.spell != 0 {
+                    let contact_spell = self
+                        .resolve_from(base, hazard.spell)
+                        .ok_or(MagicError::Missing(base))?;
+                    self.spell(contact_spell)?;
+                }
+                Some(base)
             } else {
                 None
             };
@@ -2547,27 +2574,45 @@ impl World {
                 if data.archetype == FRENZY_ARCHETYPE {
                     recipient_changes.push(("aggression".into(), signed));
                 }
+                let mut active_effect = ActiveEffect {
+                    id: EffectId(0),
+                    spell,
+                    effect,
+                    effect_index: index as u32,
+                    source,
+                    caster,
+                    target: recipient,
+                    magnitude,
+                    duration,
+                    elapsed: 0.0,
+                    summoned: None,
+                    restore_owner,
+                    recover: data.flags & RECOVER != 0
+                        || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
+                    changes: recipient_changes,
+                };
+                if let Some(base) = hazard_base {
+                    let record = self.record(base).ok_or(MagicError::Missing(base))?;
+                    let hazard = Hazard::from_record(record)?;
+                    let hazard_lifetime = if hazard.lifetime > 0.0 {
+                        f64::from(hazard.lifetime)
+                    } else {
+                        duration.unwrap_or(0.0)
+                    };
+                    active_effect.duration = Some(
+                        if hazard.flags & hazard_data::flags::INHERIT_DURATION != 0 {
+                            duration.unwrap_or(hazard_lifetime)
+                        } else {
+                            hazard_lifetime
+                        },
+                    );
+                }
                 prepared.push(PreparedEffect {
-                    effect: ActiveEffect {
-                        id: EffectId(0),
-                        spell,
-                        effect,
-                        effect_index: index as u32,
-                        source,
-                        caster,
-                        target: recipient,
-                        magnitude,
-                        duration,
-                        elapsed: 0.0,
-                        summoned: None,
-                        restore_owner,
-                        recover: data.flags & RECOVER != 0
-                            || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
-                        changes: recipient_changes,
-                    },
+                    effect: active_effect,
                     no_recast: data.flags & NO_RECAST != 0 || data.archetype == 46,
                     summon_base,
                     werewolf_race: werewolf_race.clone(),
+                    hazard_base,
                     command_owner,
                     light_base,
                     bound_weapon,
@@ -2715,6 +2760,14 @@ impl World {
                     shouts,
                     alloc,
                 )?;
+            }
+            if let Some(base) = prepared.hazard_base {
+                let hazard = self.place_at(base, prepared.effect.target, false);
+                let owner = prepared.effect.caster.unwrap_or(prepared.effect.source);
+                if let Some(reference) = self.reference(hazard) {
+                    reference.owner = Some(owner);
+                }
+                prepared.effect.summoned = Some(hazard);
             }
             if let Some(previous_owner) = prepared.effect.restore_owner {
                 if let Some(reference) = self.reference(prepared.effect.target) {
@@ -3202,6 +3255,20 @@ impl World {
         for cloak in self.cloak_effects.values_mut() {
             cloak.owned.retain(|owned| *owned != id);
         }
+        if let Some(hazard) = effect.summoned.filter(|_| {
+            self.magic_effect(effect.effect)
+                .is_ok_and(|base| base.data.archetype == 40)
+        }) {
+            let owned: Vec<_> = self
+                .active_effects
+                .values()
+                .filter(|child| child.source == hazard)
+                .map(|child| child.id)
+                .collect();
+            for child in owned {
+                self.dispel_effect(child, alloc);
+            }
+        }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
@@ -3382,6 +3449,18 @@ impl World {
                     }
                 }
                 effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+                if self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 40)
+                {
+                    if let Err(error) =
+                        self.tick_spawn_hazard(&effect, effect.elapsed - dt, effect.elapsed, alloc)
+                    {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
                 if reached_check {
                     effect.elapsed = effect.elapsed.round();
                 }
@@ -3422,6 +3501,72 @@ impl World {
             }
         }
         errors
+    }
+
+    fn tick_spawn_hazard(
+        &mut self,
+        effect: &ActiveEffect,
+        previous: f64,
+        current: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let base_effect = self.magic_effect(effect.effect)?;
+        let base = self
+            .resolve_from(effect.effect, base_effect.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let record = self.record(base).ok_or(MagicError::Missing(base))?;
+        let hazard = Hazard::from_record(record)?;
+        if hazard.spell == 0 {
+            return Ok(());
+        }
+        let contact_spell = self
+            .resolve_from(base, hazard.spell)
+            .ok_or(MagicError::Missing(base))?;
+        let hazard_ref = effect.summoned.ok_or(MagicError::Target)?;
+        let center = self
+            .reference_ref(hazard_ref)
+            .filter(|reference| reference.enabled && !reference.deleted)
+            .map(|reference| reference.position)
+            .ok_or(MagicError::Target)?;
+        let inherited_radius = if hazard.flags & hazard_data::flags::INHERIT_RADIUS != 0 {
+            self.magic_item_effect(effect.spell, effect.effect_index)
+                .map(|entry| entry.data.area as f32)
+                .unwrap_or(0.0)
+        } else {
+            hazard.radius
+        };
+        let interval = f64::from(hazard.target_interval);
+        let first = (previous / interval).floor() + 1.0;
+        let last = (current / interval).floor();
+        if !first.is_finite() || !last.is_finite() || last < first {
+            return Ok(());
+        }
+        if last - first > 255.0 {
+            return Err(MagicError::Unsupported("spawn hazard pulse limit"));
+        }
+        let owner = effect.caster.unwrap_or(effect.source);
+        for _ in 0..=(last - first) as usize {
+            let mut targets = self.area_targets_at_position(center, inherited_radius);
+            targets.retain(|target| {
+                *target != owner
+                    && self
+                        .actor(*target)
+                        .is_some_and(|actor| !actor.dead && !actor.ghost)
+                    && !self.is_ethereal(*target)
+            });
+            for target in targets {
+                let mut prepared =
+                    self.prepare_spell_cast(contact_spell, hazard_ref, Some(owner), Some(target))?;
+                for child in &mut prepared {
+                    child.effect.magnitude *= effect.magnitude;
+                    if !child.effect.magnitude.is_finite() {
+                        return Err(MagicError::Number);
+                    }
+                }
+                self.apply_prepared_effects(prepared, alloc)?;
+            }
+        }
+        Ok(())
     }
 
     fn accumulate_effect_value(

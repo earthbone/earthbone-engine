@@ -193,9 +193,14 @@ pose agreement and the disable, despawn and unload cleanup paths.
 kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
 from a finite Skyrim-space position. `release_movable_reference` returns the
 body to rigid simulation at that pose. Each `CellBodies` collection permits
-one grabbed reference at a time. The game grab state and these host operations
-are separate APIs, and PlayerNode does not yet wire a targeting or held-input
-loop between them.
+one grabbed reference at a time. PlayerNode routes an Activate press during a
+Telekinesis concentration cast to the resident movable body with the smallest
+eye-ray offset, breaking ties by distance, whose center is within 48 Skyrim
+units of the eye ray and within the 180-unit reach. It confirms the World grab
+before changing the host body, moves the body to a
+fixed eye-relative distance on each physics step, and releases it when World
+clears the grab. A successful grab and release queue the reference's
+`OnGrab` and `OnRelease` events.
 
 ### Papyrus Debug host requests, SCR-20
 

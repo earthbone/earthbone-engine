@@ -52,7 +52,156 @@ fn hand_label(hand: Hand) -> &'static str {
     }
 }
 
+fn select_telekinesis_target(
+    eye: Vec3,
+    direction: Vec3,
+    candidates: impl IntoIterator<Item = (GlobalFormId, Vec3)>,
+) -> Option<(GlobalFormId, f32)> {
+    candidates
+        .into_iter()
+        .filter_map(|(reference, position)| {
+            let delta = position - eye;
+            let distance = delta.length();
+            if !(1.0..=super::ACTIVATE_REACH).contains(&distance) {
+                return None;
+            }
+            let along = delta.dot(direction);
+            let lateral = (delta - direction * along).length();
+            (along > 0.0 && lateral <= 48.0).then_some((reference, along, lateral))
+        })
+        .min_by(|(_, along_a, lateral_a), (_, along_b, lateral_b)| {
+            lateral_a
+                .total_cmp(lateral_b)
+                .then_with(|| along_a.total_cmp(along_b))
+        })
+        .map(|(reference, along, _)| (reference, along))
+}
+
 impl PlayerNode {
+    /// Route an activation press to one resident movable reference while the
+    /// player's active concentration effect is Telekinesis, then keep its
+    /// host body at the same eye-relative position until World releases it.
+    pub(super) fn update_telekinesis(&mut self, pressed: bool) {
+        let player = self.game.as_mut().map(soe_game::Game::player);
+        let Some(player) = player else {
+            self.release_host_telekinesis();
+            return;
+        };
+        let world_target = self
+            .game
+            .as_ref()
+            .and_then(|game| game.world().telekinesis_reference(player));
+        if let Some(target) = self.host_telekinesis_target {
+            if world_target != Some(target) {
+                self.release_host_telekinesis();
+            }
+        }
+        if world_target.is_none() && pressed {
+            self.try_grab_telekinesis_target(player);
+        }
+        let Some(target) = self.host_telekinesis_target else {
+            return;
+        };
+        if self
+            .game
+            .as_ref()
+            .is_none_or(|game| game.world().telekinesis_reference(player) != Some(target))
+        {
+            self.release_host_telekinesis();
+            return;
+        }
+        let distance = self.telekinesis_distance.unwrap_or(180.0);
+        let eye = self.rig.head(self.feet(), self.capsule_height());
+        let direction = self.rig.look_direction();
+        let position = [
+            eye.x + direction.x * distance,
+            eye.y + direction.y * distance,
+            eye.z + direction.z * distance,
+        ];
+        if let Some(streamer) = self.game_streamer.as_mut() {
+            if !streamer
+                .bind_mut()
+                .move_telekinesis_reference(target, position)
+            {
+                self.release_host_telekinesis();
+            }
+        } else {
+            self.release_host_telekinesis();
+        }
+    }
+
+    fn try_grab_telekinesis_target(&mut self, player: GlobalFormId) {
+        let eye = self.rig.head(self.feet(), self.capsule_height());
+        let direction = self.rig.look_direction();
+        let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) else {
+            return;
+        };
+        let candidates = streamer.bind().movable_reference_poses();
+        let mut references = Vec::new();
+        for pose in candidates.iter_shared() {
+            let Some(file_value) = pose.get("file") else {
+                continue;
+            };
+            let Ok(file) = file_value.try_to::<i64>() else {
+                continue;
+            };
+            let Some(object_value) = pose.get("object") else {
+                continue;
+            };
+            let Ok(object) = object_value.try_to::<i64>() else {
+                continue;
+            };
+            let Some(position_value) = pose.get("position") else {
+                continue;
+            };
+            let Ok(position) = position_value.try_to::<Vector3>() else {
+                continue;
+            };
+            let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+                continue;
+            };
+            let reference = GlobalFormId { file, object };
+            references.push((reference, Vec3::new(position.x, position.y, position.z)));
+        }
+        let Some((target, distance)) = select_telekinesis_target(eye, direction, references) else {
+            return;
+        };
+        if !game.world_mut().grab_telekinesis_reference(player, target) {
+            return;
+        }
+        if streamer.bind_mut().grab_telekinesis_reference(target) {
+            self.host_telekinesis_target = Some(target);
+            self.telekinesis_distance = Some(distance);
+            let world = game.shared_world();
+            world
+                .borrow_mut()
+                .form_event(target, "OnGrab", Vec::new(), &mut |name, class| {
+                    game.vm.create_object_of(name, class)
+                });
+        } else {
+            let _ = game.world_mut().release_telekinesis_reference(player);
+            self.telekinesis_distance = None;
+        }
+    }
+
+    fn release_host_telekinesis(&mut self) {
+        if let Some(target) = self.host_telekinesis_target.take() {
+            if let Some(game) = &mut self.game {
+                let world = game.shared_world();
+                world.borrow_mut().form_event(
+                    target,
+                    "OnRelease",
+                    Vec::new(),
+                    &mut |name, class| game.vm.create_object_of(name, class),
+                );
+            }
+            if let Some(streamer) = self.game_streamer.as_mut() {
+                streamer.bind_mut().release_telekinesis_reference(target);
+            }
+        }
+        self.telekinesis_distance = None;
+    }
+
     pub(super) fn route_hand_casts(&mut self, left: HandCastInput, right: HandCastInput) {
         let Some(game) = self.game.as_mut() else {
             return;
@@ -124,6 +273,33 @@ impl PlayerNode {
             rows.add_child(&button);
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_telekinesis_target;
+    use soe_esm::GlobalFormId;
+    use soe_physics::Vec3;
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 1, object }
+    }
+
+    #[test]
+    fn mag_41_selects_the_nearest_resident_body_on_the_eye_ray() {
+        let target = select_telekinesis_target(
+            Vec3::ZERO,
+            Vec3::new(1.0, 0.0, 0.0),
+            [
+                (id(3), Vec3::new(120.0, 40.0, 0.0)),
+                (id(2), Vec3::new(80.0, 20.0, 0.0)),
+                (id(1), Vec3::new(80.0, 60.0, 0.0)),
+                (id(4), Vec3::new(-20.0, 0.0, 0.0)),
+                (id(5), Vec3::new(181.0, 0.0, 0.0)),
+            ],
+        );
+        assert_eq!(target, Some((id(2), 80.0)));
     }
 }
 

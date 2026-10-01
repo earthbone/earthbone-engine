@@ -3840,14 +3840,19 @@ eligibility, while resident-body confirmation and movement use the host API.
 The solver moves the kinematic body to a supplied position and does not model
 vanilla range or force policy.
 
-`World::grab_telekinesis_reference` now accepts one enabled, non-deleted,
+`World::grab_telekinesis_reference` accepts one enabled, non-deleted,
 non-actor reference while that caster holds a concentration spell containing
-archetype 20. A second grab is rejected. Releasing the concentration cast,
-magicka exhaustion or a cast error clears the transient reference. The World
-does not serialize the grab because the host body is transient. The host must
-also confirm that the reference has a resident movable body. The MAG-20
-equip-ability grant is absent in this worktree, so the shipped spell's
-Telekinesis actor-value bonus is not applied.
+archetype 20. PlayerNode selects the resident movable body with the smallest
+eye-ray offset, breaking ties by distance, whose center is within 48 Skyrim
+units of the eye ray and within 180 units. It confirms the World state and
+host body together. While held, the host body is
+moved to the same eye-relative distance each physics step. Releasing the
+concentration cast, magicka exhaustion or a cast error clears the transient
+World reference, returns the host body to rigid simulation and queues
+`OnRelease`. A successful hold queues `OnGrab`. A second grab is rejected.
+The World does not serialize the grab because the host body is transient.
+The MAG-20 equip-ability grant is absent in this worktree, so the shipped
+spell's Telekinesis actor-value bonus is not applied.
 
 Repeat the survey with `SKYRIM_DATA` set:
 
@@ -3898,15 +3903,29 @@ The active-effect tick and finish paths only handle actor applications, with
 no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
 records the corresponding resource boundary.
 
-The typed HAZD view from FMT-28 is available, but the game world has no owned
-hazard state or expiry path. Archetype 40 therefore returns a specific
-unsupported error before any effect or world state changes.
-`mag_61_valid_hazard_cast_rejects_without_owned_lifecycle` checks this
-boundary. The row's acceptance check remains incomplete: no hazard is spawned
-at a target, and no owned collision or effect is removed on expiry. Target
-selection, contact application and save continuation also remain unimplemented.
-The survey establishes record dependencies and the direct-cast rejection
-boundary.
+Archetype 40 resolves its associated item as a winning HAZD record and reads it
+through the FMT-28 typed view. A valid cast places that base at the selected
+target's placement, assigns the caster as owner (or the source when no actor
+caster is available), and stores the reference on the active effect. The
+HAZD's inherited-duration flag selects the spell effect duration. Otherwise
+its positive authored lifetime controls the active effect lifetime. Expiry or
+dispel disables and marks the owned hazard reference deleted through the
+existing summoned-reference cleanup. Missing, malformed or invalid HAZD data
+is rejected during preparation before applying effects. Tests
+`mag_61_cast_spawns_authored_hazard_at_target_with_caster_owner` and
+`mag_61_expiry_disables_only_its_owned_hazard` cover placement and cleanup.
+
+At each authored HAZD target interval, the runtime selects enabled, live actors
+inside the hazard radius and applies its linked spell, scaled by the spawning
+effect magnitude. The caster is excluded. Radius inheritance uses the spawning
+effect's area. This uses the world's placed-reference positions and does not
+create a host collision shape. Timed contact applications use the hazard
+reference as their source, so hazard expiry or dispel ends those applications
+along with the hazard. The active effect's elapsed time and dynamic reference
+use the existing save path. Tests
+`mag_61_hazard_periodically_applies_its_contact_spell_to_the_target` and
+`mag_61_hazard_expiry_ends_its_contact_effects` cover contact and cleanup.
+No installed-save survey covers a live hazard.
 
 ### Direct active-effect foundation
 
