@@ -100,9 +100,6 @@ pub struct LightStaticChange {
 
 impl LightStaticChange {
     /// Rebuild the defined change flag bits.
-    ///
-    /// # Panics
-    /// Does not panic.
     #[must_use]
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some())
@@ -111,9 +108,6 @@ impl LightStaticChange {
     }
 
     /// Rebuild the exact source-defined payload bytes.
-    ///
-    /// # Panics
-    /// Does not panic.
     #[must_use]
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::with_capacity(if self.form_flags.is_some() { 6 } else { 0 });
@@ -175,14 +169,8 @@ const BASE_OBJECT_TYPES: &[&str] = &[
 impl ChangeForm {
     /// Decode a LIGH, STAT or MSTT change payload defined by xEdit.
     ///
-    /// These records contain optional form flags followed by value and
-    /// full-name markers. xEdit defines both markers as zero-byte fields.
-    ///
     /// # Errors
     /// Returns decompression, truncation, unknown-flag or trailing-byte errors.
-    ///
-    /// # Panics
-    /// Does not panic.
     pub fn light_static_change(&self) -> Result<Option<LightStaticChange>> {
         if !matches!(self.record_type(), "LIGH" | "STAT" | "MSTT") {
             return Ok(None);
@@ -192,7 +180,6 @@ impl ChangeForm {
                 reason: "unknown LIGH/STAT/MSTT change flags".into(),
             });
         }
-
         let fields = self
             .base_object_fields()?
             .ok_or_else(|| Error::RecordChange {
@@ -203,7 +190,6 @@ impl ChangeForm {
                 reason: "trailing LIGH/STAT/MSTT change bytes".into(),
             });
         }
-
         Ok(Some(LightStaticChange {
             form_flags: fields
                 .form_flags
@@ -215,10 +201,6 @@ impl ChangeForm {
 
     /// Decode the xEdit-defined fields in a `CONT`, `MISC` or `FURN` payload.
     ///
-    /// The three records share the base-object flags. Unnamed flag bits and
-    /// payload bytes beyond the defined prefix are retained without assigning
-    /// them a meaning.
-    ///
     /// # Errors
     /// Returns a payload decompression error or a truncation error when the
     /// six-byte form-flags section is incomplete.
@@ -226,7 +208,6 @@ impl ChangeForm {
         if !matches!(self.record_type(), "CONT" | "MISC" | "FURN") {
             return Ok(None);
         }
-
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "static-object change");
         let form_flags = if self.change_flags & static_object_flags::FORM != 0 {
@@ -255,7 +236,6 @@ impl ChangeForm {
         if !matches!(self.record_type(), "ARMO" | "WEAP" | "AMMO") {
             return Ok(None);
         }
-
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "item change");
         let form_flags = if self.change_flags & flags::FORM != 0 {
@@ -263,14 +243,13 @@ impl ChangeForm {
         } else {
             None
         };
-        let trailing_data = cursor.rest().to_vec();
         Ok(Some(ItemChange {
             record_type: self.record_type(),
             form_flags,
             value_changed: self.change_flags & flags::VALUE != 0,
             full_name_changed: self.change_flags & flags::FULL_NAME != 0,
             unnamed_flags: self.change_flags & !0b111,
-            trailing_data,
+            trailing_data: cursor.rest().to_vec(),
         }))
     }
 

@@ -12,6 +12,7 @@ use soe_esm::{
     GlobalFormId, Tag,
 };
 use soe_papyrus::{Value, Vm};
+use std::collections::BTreeSet;
 
 mod actor_values;
 
@@ -23,6 +24,15 @@ pub struct Context {
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
     pub tempering_enchanted: Option<bool>,
+    pub tempering_item: Option<GlobalFormId>,
+    /// Poison selection for an alchemy perk entry point.
+    pub alchemy_making_poison: Option<bool>,
+    /// Effect currently tested by an alchemy perk entry point.
+    pub alchemy_effect: Option<GlobalFormId>,
+    /// Magic item whose spell or effect conditions are currently evaluated.
+    pub magic_item: Option<GlobalFormId>,
+    /// Dual-cast state is supplied by a cast driver when it is available.
+    pub dual_cast: Option<bool>,
     /// The skill-use event whose PERK conditions are being evaluated.
     pub skill_use: Option<SkillUseContext>,
     /// Light level supplied by the host for the subject actor.
@@ -42,8 +52,6 @@ pub struct SkillUseContext {
 pub enum Error {
     #[error("unsupported condition function {0}")]
     Function(u16),
-    #[error("condition function {0} has no usable contract or runtime history")]
-    Contract(u16),
     #[error("invalid actor-value index {0}")]
     ActorValue(u32),
     #[error("unsupported second parameter {1:#x} for condition function {0}")]
@@ -62,6 +70,18 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} needs runtime state that is not available")]
+    Unavailable(u16),
+    #[error("condition item health extra is malformed or non-finite")]
+    ItemHealth,
+    #[error("condition function {0} has no usable runtime contract in the local sources")]
+    Contract(u16),
+    #[error("condition function {0} requires alchemy entry-point context")]
+    AlchemyContext(u16),
+    #[error("condition function {0} requires magic context")]
+    MagicContext(u16),
+    #[error("condition function {0} has no runtime state contract for this form")]
+    StateContract(u16),
     #[error("condition function {0} requires matching skill-use event context")]
     SkillUseContext(u16),
     #[error("condition function {0} requires a light level from 0 to 150")]
@@ -70,8 +90,6 @@ pub enum Error {
     UnavailableContract(u16),
     #[error("condition requires the subject's current package {0}")]
     PackageContext(GlobalFormId),
-    #[error("condition function {0} requires runtime state the engine does not track")]
-    Unavailable(u16),
     #[error("condition requires the subject's current location {0}")]
     LocationContext(GlobalFormId),
     #[error("condition function {0} requires a used-item action context")]
@@ -156,6 +174,8 @@ pub fn supports_function(function: u16) -> bool {
             | 430
             | 635
             | 494
+            | 476
+            | 493
             | 18
             | 46
             | 47
@@ -199,8 +219,37 @@ pub fn supports_function(function: u16) -> bool {
             | 109
             | 246
             | 247
+            | 639
             | 655
             | 659
+            | 254
+            | 258
+            | 259
+            | 261
+            | 365
+            | 410
+            | 683
+            | 698
+            | 704
+            | 675
+            | 636
+            | 660
+            | 723
+            | 214
+            | 223
+            | 378
+            | 500
+            | 501
+            | 570
+            | 693
+            | 696
+            | 699
+            | 706
+            | 713
+            | 721
+            | 724
+            | 447
+            | 568
             | 640
             | 691
             | 692
@@ -767,6 +816,34 @@ fn function_value(
                 Some(location) == other_location && world.has_keyword(location, keyword)
             }))
         }
+        476 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).ok_or(Error::Form(base))?.protected)
+        }
+        493 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let form = resolve(world, context.owner, raw, None)?;
+            if world.tag_of(form) == Some(Tag(*b"MGEF")) {
+                boolean(false)
+            } else if world.tag_of(form) != Some(Tag(*b"SPEL")) {
+                return Err(Error::StateContract(c.function));
+            } else {
+                let player = world.player();
+                boolean(
+                    world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .spells
+                        .contains(&form),
+                )
+            }
+        }
         18 => world.calendar().hour as f32,
         41 => {
             no_parameter(c)?;
@@ -1219,7 +1296,9 @@ fn function_value(
         // CONTEXT: CK has no usable query contract for these functions. The
         // runtime also lacks faction murder counts, stolen-item totals and
         // the horse-theft flag, so do not infer values from bounty or inventory.
-        195 | 282 | 366 | 373 | 479 | 487 => return Err(Error::Contract(c.function)),
+        101 | 195 | 282 | 366 | 373 | 479 | 487 | 552 => {
+            return Err(Error::Contract(c.function));
+        }
         375 | 376 => {
             if c.parameters[1] != 0 {
                 return Err(Error::Parameter(c.function, c.parameters[1]));
@@ -1364,6 +1443,70 @@ fn function_value(
                 .and_then(|actor| actor.relationships.get(&other).copied())
                 .unwrap_or(0) as f32
         }
+        254 | 365 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let value = if c.function == 254 {
+                world.race_is_playable(base)
+            } else {
+                world.race_is_child(base)
+            }
+            .ok_or(Error::Form(base))?;
+            boolean(value)
+        }
+        258 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            if world.actor(other).is_none() {
+                return Err(Error::Form(other));
+            }
+            let association = resolve(world, context.owner, c.parameters[1], Some(*b"ASTP"))?;
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let second = world.base_of(other).ok_or(Error::Form(other))?;
+            boolean(world.actors_have_association(first, second, association))
+        }
+        259 | 261 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let other = if c.function == 259 && raw == 0 {
+                None
+            } else {
+                let other = resolve_reference(world, context.owner, raw)?;
+                if world.actor(other).is_none() {
+                    return Err(Error::Form(other));
+                }
+                Some(other)
+            };
+            let first = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let matched = if c.function == 259 {
+                let second = other
+                    .map(|other| world.base_of(other).ok_or(Error::Form(other)))
+                    .transpose()?;
+                world.actors_have_family_relationship(first, second)
+            } else {
+                let other = other.ok_or(Error::Form(subject))?;
+                let second = world.base_of(other).ok_or(Error::Form(other))?;
+                world.actors_have_parent_relationship(first, second)
+            };
+            boolean(matched)
+        }
+        410 => {
+            let first = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            let second = resolve(world, context.owner, c.parameters[1], Some(*b"FACT"))?;
+            world
+                .faction(first)
+                .ok_or(Error::Form(first))?
+                .reactions
+                .get(&second)
+                .copied()
+                .unwrap_or(crate::world::reaction::NEUTRAL) as f32
+        }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;
             boolean(world.alias_ref(quest, raw) == Some(subject))
@@ -1506,6 +1649,59 @@ fn function_value(
             let base = world.base_of(subject).unwrap_or(subject);
             boolean(world.item_count(container, base) > 0)
         }
+        214 => {
+            no_parameter_tail(c)?;
+            let effect = resolve(world, context.owner, raw, Some(*b"MGEF"))?;
+            boolean(world.has_magic_effect(subject, effect))
+        }
+        223 => {
+            no_parameter_tail(c)?;
+            let item = resolve(world, context.owner, raw, None)?;
+            if !matches!(world.tag_of(item), Some(Tag(tag)) if [*b"SPEL", *b"ALCH", *b"ENCH", *b"SHOU", *b"SCRL"].contains(&tag))
+            {
+                return Err(Error::Form(item));
+            }
+            boolean(
+                world
+                    .active_effects()
+                    .any(|effect| effect.target == subject && effect.spell == item),
+            )
+        }
+        378 => {
+            no_parameter_tail(c)?;
+            let shout = resolve(world, context.owner, raw, Some(*b"SHOU"))?;
+            boolean(
+                world
+                    .actor(subject)
+                    .is_some_and(|actor| actor.shouts.contains(&shout)),
+            )
+        }
+        500 => {
+            no_parameter(c)?;
+            boolean(
+                context
+                    .alchemy_making_poison
+                    .ok_or(Error::AlchemyContext(c.function))?,
+            )
+        }
+        501 => {
+            no_parameter_tail(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let effect = context
+                .alchemy_effect
+                .ok_or(Error::AlchemyContext(c.function))?;
+            boolean(world.has_keyword(effect, keyword))
+        }
+        570 => {
+            no_parameter_tail(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            match raw {
+                0 => boolean(actor.left_spell.is_some()),
+                1 => boolean(actor.right_spell.is_some()),
+                2 => boolean(actor.equipped_shout.is_some()),
+                _ => return Err(Error::Parameter(c.function, raw)),
+            }
+        }
         264 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
             boolean(
@@ -1546,6 +1742,32 @@ fn function_value(
                     .is_some_and(|actor| actor.perks.contains(&perk)),
             )
         }
+        447 => {
+            let name = c.strings[0]
+                .as_deref()
+                .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            actor
+                .graph_floats
+                .get(&name.to_ascii_lowercase())
+                .copied()
+                .ok_or_else(|| Error::Variable(name.into()))?
+        }
+        675 => {
+            let name = c.strings[0]
+                .as_deref()
+                .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            *actor
+                .graph_ints
+                .get(&name.to_ascii_lowercase())
+                .ok_or_else(|| Error::Variable(name.into()))? as f32
+        }
+        568 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.sprinting)
+        }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             boolean(world.has_keyword(subject, keyword))
@@ -1557,6 +1779,23 @@ fn function_value(
                 .location(location)
                 .and_then(|state| state.keyword_data.get(&keyword).copied())
                 .unwrap_or(0.0)
+        }
+        639 => {
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            let maximum_distance = f32::from_bits(c.parameters[1]);
+            if !maximum_distance.is_finite() {
+                return Err(Error::NonFinite);
+            }
+            if maximum_distance < 0.0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            boolean(world.distance(subject, other) <= maximum_distance)
         }
         444 => {
             one_parameter(c)?;
@@ -1623,6 +1862,149 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        636 => {
+            no_parameter(c)?;
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let equipped: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut has_two_handed = false;
+            for item in equipped {
+                if world.tag_of(item) != Some(Tag(*b"WEAP")) {
+                    continue;
+                }
+                if matches!(weapon_animation_type(world, item)?, 5 | 6 | 7 | 9) {
+                    has_two_handed = true;
+                    break;
+                }
+            }
+            boolean(has_two_handed)
+        }
+        660 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let item = context.tempering_item.ok_or(Error::TemperingContext)?;
+            if world.record(item).is_none_or(|record| record.is_deleted()) {
+                return Err(Error::Form(item));
+            }
+            boolean(world.has_keyword(item, keyword))
+        }
+        664 => return Err(Error::Function(664)),
+        723 => {
+            no_parameter(c)?;
+            item_health_percent(world, subject)?
+        }
+        681 => return Err(Error::Function(681)),
+        693 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            boolean(world.has_keyword(item, keyword))
+        }
+        696 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            if actor_values::name(raw).is_none() {
+                return Err(Error::ActorValue(raw));
+            }
+            let effects = match world.tag_of(item) {
+                Some(Tag(tag)) if tag == *b"SPEL" => {
+                    world.spell(item).map_err(|_| Error::Form(item))?.effects
+                }
+                Some(Tag(tag)) if tag == *b"ALCH" => {
+                    world
+                        .ingestible(item)
+                        .map_err(|_| Error::Form(item))?
+                        .effects
+                }
+                _ => return Err(Error::Form(item)),
+            };
+            let mut matches = false;
+            for effect in effects {
+                let effect = world
+                    .resolve_from(item, effect.base_effect)
+                    .ok_or(Error::Form(item))?;
+                let definition = world
+                    .magic_effect(effect)
+                    .map_err(|_| Error::Form(effect))?;
+                if i32::try_from(raw).ok() == Some(definition.data.magic_skill) {
+                    matches = true;
+                    break;
+                }
+            }
+            boolean(matches)
+        }
+        699 => {
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            boolean(world.has_magic_effect_with_keyword(subject, keyword))
+        }
+        706 => {
+            let hand = match raw {
+                0 => crate::combat::Hand::Left,
+                1 => crate::combat::Hand::Right,
+                2 => return Ok(0.0),
+                value => return Err(Error::Parameter(c.function, value)),
+            };
+            boolean(
+                world
+                    .has_bound_weapon_equipped(subject, hand)
+                    .map_err(|_| Error::Form(subject))?,
+            )
+        }
+        713 => {
+            let item = context.magic_item.ok_or(Error::MagicContext(c.function))?;
+            let perk = resolve(world, context.owner, raw, Some(*b"PERK"))?;
+            let spell = world.spell(item).map_err(|_| Error::Form(item))?;
+            let casting_perk = if spell.data.half_cost_perk == 0 {
+                None
+            } else {
+                world.resolve_from(item, spell.data.half_cost_perk)
+            };
+            boolean(casting_perk == Some(perk))
+        }
+        721 => {
+            no_parameter(c)?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let ingestible = world.ingestible(base).map_err(|_| Error::Form(base))?;
+            boolean(ingestible.data.flags & (1 << 17) != 0)
+        }
+        724 => {
+            no_parameter(c)?;
+            boolean(context.dual_cast.ok_or(Error::MagicContext(c.function))?)
+        }
+        683 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if actor.ai.path.is_empty() || actor.ai.arrived {
+                0.0
+            } else {
+                actor.ai.speed
+            }
+        }
+        698 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .allow_flying,
+            )
+        }
+        704 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
+        }
+        644 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }
@@ -1700,6 +2082,61 @@ fn equipped_item_type(
         }),
         b"SCRL" | b"SPEL" => Ok(9),
         _ => Err(Error::Form(weapon)),
+    }
+}
+
+fn weapon_animation_type(world: &World, item: GlobalFormId) -> Result<u8, Error> {
+    let mut current = item;
+    let mut seen = BTreeSet::new();
+    loop {
+        if !seen.insert(current) || seen.len() > 128 {
+            return Err(Error::Form(item));
+        }
+        let record = world
+            .record(current)
+            .filter(|record| record.tag == Tag(*b"WEAP"))
+            .ok_or(Error::Form(current))?;
+        if let Some(animation) = record
+            .find(Tag(*b"DNAM"))
+            .and_then(|data| data.first())
+            .copied()
+        {
+            return Ok(animation);
+        }
+        let (template, _) = crate::combat::records::Weapon::template_links(record)
+            .map_err(|_| Error::Form(current))?;
+        let template = template.ok_or(Error::Form(current))?;
+        current = world
+            .resolve_from(current, template)
+            .ok_or(Error::Form(current))?;
+    }
+}
+
+fn item_health_percent(world: &mut World, subject: GlobalFormId) -> Result<f32, Error> {
+    let reference = world
+        .reference(subject)
+        .filter(|reference| !reference.deleted)
+        .ok_or(Error::Form(subject))?;
+    let Some(extra) = reference.item.as_ref().and_then(|stack| stack.extra(37)) else {
+        return Ok(1.0);
+    };
+    let [Field::FloatBits(bits)] = extra.fields.as_slice() else {
+        return Err(Error::ItemHealth);
+    };
+    let quality = f32::from_bits(*bits);
+    if quality.is_finite() {
+        Ok(quality)
+    } else {
+        Err(Error::ItemHealth)
+    }
+}
+
+/// These predicates consume parameter 1 and reject any value in parameter 2.
+fn no_parameter_tail(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
     }
 }
 
@@ -1872,6 +2309,11 @@ mod ai_47_tests {
                 target: None,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
                 skill_use: None,
                 light_level: None,
             },

@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;
@@ -43,6 +44,7 @@ pub mod inventory;
 pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
@@ -192,6 +194,11 @@ impl Game {
             target: target_ref,
             quest: Some(quest),
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
             skill_use: None,
             light_level: None,
         };
@@ -665,12 +672,18 @@ impl Game {
                 tabs: vec![hit.attacker, hit.weapon, hit.target],
                 target: Some(hit.target),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
                 skill_use: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
                 target: Some(hit.attacker),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
                 skill_use: None,
             };
             (
@@ -950,6 +963,32 @@ impl Game {
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+        }
+        if !menu_mode {
+            let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
+            for (actor, target) in activations {
+                self.activate(target, actor);
+            }
+        }
+        if !menu_mode {
+            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            for (speaker, listener, topic) in greetings {
+                if self.begin_dialogue(speaker, listener).is_err() {
+                    continue;
+                }
+                crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
+                if self.choose_dialogue(topic).is_err() {
+                    self.close_dialogue();
+                }
+            }
+        }
+        if !menu_mode {
+            let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
+            for (speaker, listener) in starts {
+                if self.begin_dialogue(speaker, listener).is_ok() {
+                    crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
+                }
+            }
         }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);

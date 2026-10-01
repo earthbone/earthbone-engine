@@ -20,6 +20,29 @@ pub struct EffectShaderRequest {
 }
 
 impl World {
+    /// The active scene whose quest alias currently names `reference`.
+    pub fn current_scene(&mut self, reference: GlobalFormId) -> Option<GlobalFormId> {
+        let scenes: Vec<_> = self.scenes.iter().copied().collect();
+        for scene_id in scenes {
+            let Some(record) = self.record(scene_id) else {
+                continue;
+            };
+            let Ok(scene) = Scene::from_record(record) else {
+                continue;
+            };
+            let Some(quest) = scene.quest.and_then(|raw| self.resolve_from(scene_id, raw)) else {
+                continue;
+            };
+            if scene.actors.iter().any(|actor| {
+                actor.alias_id >= 0
+                    && self.alias_ref(quest, actor.alias_id as u32) == Some(reference)
+            }) {
+                return Some(scene_id);
+            }
+        }
+        None
+    }
+
     /// Queue a shader start or stop for the renderer. Repeated starts replace
     /// the lifetime for the same shader and target when the host consumes it.
     pub fn effect_shader(

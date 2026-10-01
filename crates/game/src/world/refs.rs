@@ -435,6 +435,10 @@ impl World {
         id
     }
 
+    pub(crate) fn is_player_reference(&self, id: GlobalFormId) -> bool {
+        self.player == Some(id)
+    }
+
     pub fn player(&mut self) -> GlobalFormId {
         if let Some(player) = self.player {
             return player;

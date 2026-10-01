@@ -5,18 +5,33 @@
 //! `PKID` list of its base record, and the first package whose schedule and
 //! conditions hold wins, the way the Creation Kit wiki describes the stack
 //! and `EvaluatePackage` (`engine-refs/ck-wiki/EvaluatePackage_-_Actor`).
-//! PACK begin, end and change fragments follow xEdit's
-//! `wbVMADFragmentedPACK` order, with the actor argument described by the CK
-//! wiki's Papyrus Fragments section.
-//! The chosen package's template names a procedure, and three of them move
+//! PACK begin, end and change fragments follow xEdit's `wbVMADFragmentedPACK` order, with the actor argument described by the CK wiki's Papyrus Fragments section.
+//! The chosen package's template names a procedure, and four of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
-//! between idle markers around a place, `Sleep` walks to a bed and holds.
+//! between idle markers around a place, `Sleep` walks to a bed and holds,
+//! and `Sit` reserves furniture before walking to it.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
+//! `Hover` flies to its authored location and height, then holds there until
+//! another package replaces it. `Follow` tracks a resolved target, stopping
+//! within its authored follow radius and running beyond its catch-up radius.
+//! `Orbit` circles a resolved package location at its authored height and
+//! stays between its inner and outer radii on the navmesh.
+//! `Activate` walks to its resolved target and activates it once through the
+//! game's shared activation path.
+//! `DialogueActivate` starts a conversation with its resolved actor target
+//! once it is within the configured dialogue range.
+//! `Find` selects the nearest enabled placed reference that matches its
+//! authored object input in the search cell.
+//! `UseMagic` resolves a package target and casts an assigned hand spell once
+//! through the charged magic path.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
 //! `RNMV` movement types, with matching `MTYP`/`SPED` overrides. The layouts
 //! are from xEdit `wbRecord(RACE)` and Mutagen `Race.xml`.
+//! `Hover` reads a package location and height from `wbRecord(PACK)` inputs;
+//! the CK wiki defines its active flight state through `GetFlyingState` and
+//! `IsFlying`.
 //!
 //! Conditions are the `CTDA` subset listed in [`function_value`], the
 //! function indexes from xEdit's `wbConditionFunctions`. A function outside
@@ -72,21 +87,48 @@ const MTYP: Tag = Tag::new(b"MTYP");
 const SPED: Tag = Tag::new(b"SPED");
 
 /// What the chosen package makes the actor do.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Procedure {
     #[default]
     None,
     Travel,
     Sandbox,
     Sleep,
+    Sit,
     Patrol,
+    UseMagic,
+    /// Issue one ordinary contact against the actor's current combat target.
+    UseWeapon,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
     },
+    Hover,
+    Follow,
+    /// Escort a resolved target to the package branch location.
+    Escort,
+    /// Circle a resolved location inside the authored radii at a fixed height.
+    Orbit {
+        height: f32,
+    },
+    /// Approach the assigned target and start its assigned dialogue topic.
+    ForceGreet,
+    /// Approach the assigned actor and start a dialogue session in range.
+    DialogueActivate,
+    /// Walk to and hold an exclusive idle marker selected by the package.
+    UseIdleMarker {
+        marker: Option<GlobalFormId>,
+    },
+    /// Hold the position where this procedure branch began.
+    HoldPosition,
+    Shout,
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
+    /// Approach and activate the assigned reference once.
+    Activate,
+    /// Select the nearest eligible reference matching the authored input.
+    Find,
 }
 
 /// Per-actor driver state, saved with the actor.
@@ -104,6 +146,14 @@ pub struct AiState {
     /// The cell the actor is in once it passes the matching waypoint.
     pub path_cells: Vec<Option<GlobalFormId>>,
     pub arrived: bool,
+    /// A ForceGreet attempt was made for the current procedure branch.
+    pub force_greet_started: bool,
+    /// The Activate procedure has handed its one attempt to the game driver.
+    pub activate_started: bool,
+    /// DialogueActivate has opened its conversation for the current branch.
+    pub dialogue_activate_started: bool,
+    /// Reference selected by the active Find procedure.
+    pub found_reference: Option<GlobalFormId>,
     pub sleeping: bool,
     pub bed: Option<GlobalFormId>,
     pub center: Option<[f32; 3]>,
@@ -113,6 +163,8 @@ pub struct AiState {
     pub dwell_until: f64,
     /// Finite Wait deadline in non-menu real seconds. None means endless Wait.
     pub wait_until: Option<f64>,
+    /// Authored vertical offset while a Hover procedure is active.
+    pub hover_height: f32,
     pub patrol: Option<PatrolState>,
     pub speed: f32,
     pub start_position: [f32; 3],
@@ -262,6 +314,133 @@ pub fn procedure_of(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
     tree::first(world, id)
 }
 
+/// Ready ForceGreet attempts, resolved to the assigned target and topic.
+pub(crate) fn force_greet_ready(
+    world: &mut World,
+) -> Vec<(GlobalFormId, GlobalFormId, GlobalFormId)> {
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let (ai, ghost) = {
+                let state = world.actor(actor)?;
+                (state.ai.clone(), state.ghost)
+            };
+            if ai.procedure != Procedure::ForceGreet || !ai.arrived || ai.force_greet_started {
+                return None;
+            }
+            let alpha = world
+                .reference(actor)
+                .map_or(1.0, |reference| reference.alpha);
+            if alpha < 1.0 && !ghost {
+                if let Some(state) = world.actor(actor) {
+                    state.ai.force_greet_started = true;
+                }
+                return None;
+            }
+            let ((owner, target), topic) = tree::force_greet_parameters(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.actor(target)?;
+            Some((actor, target, topic))
+        })
+        .collect()
+}
+
+pub(crate) fn force_greet_started(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        state.ai.force_greet_started = true;
+    }
+}
+
+/// Ready Activate procedures, resolved to their assigned target. Attempt
+/// state is marked before returning so a save or later tick cannot duplicate
+/// the activation.
+pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let ai = world.actor(actor)?.ai.clone();
+            if ai.procedure != Procedure::Activate || !ai.arrived || ai.activate_started {
+                return None;
+            }
+            let (owner, target) = tree::activate_target(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.reference(target)?;
+            world.actor(actor)?.ai.activate_started = true;
+            Some((actor, target))
+        })
+        .collect()
+}
+
+/// DialogueActivate actors that are inside the configured dialogue range.
+pub(crate) fn dialogue_activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
+    if world.dialogue.session.is_some() {
+        return Vec::new();
+    }
+    let Some(Value::Float(range)) = world.game_setting("fAIInDialogueModeWithPlayerDistance")
+    else {
+        return Vec::new();
+    };
+    if !range.is_finite() || range < 0.0 {
+        return Vec::new();
+    }
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let ai = world.actor(actor)?.ai.clone();
+            if ai.procedure != Procedure::DialogueActivate || ai.dialogue_activate_started {
+                return None;
+            }
+            let (owner, target) = tree::activate_target(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.actor(target)?;
+            let (actor_position, actor_cell) = {
+                let reference = world.reference(actor)?;
+                (reference.position, reference.cell)
+            };
+            let (target_position, target_cell) = {
+                let reference = world.reference(target)?;
+                (reference.position, reference.cell)
+            };
+            if actor_position
+                .iter()
+                .chain(&target_position)
+                .any(|v| !v.is_finite())
+            {
+                return None;
+            }
+            let same_space = if actor_cell == target_cell {
+                true
+            } else {
+                let worldspace = |cell: Option<GlobalFormId>| {
+                    let cell = cell?;
+                    if world.cell_is_interior(cell) {
+                        return None;
+                    }
+                    let raw = world.record(cell)?.placement.world?;
+                    world.resolve_from(cell, raw)
+                };
+                let actor_world = worldspace(actor_cell);
+                actor_world.is_some() && actor_world == worldspace(target_cell)
+            };
+            let distance_squared: f64 = actor_position
+                .iter()
+                .zip(target_position)
+                .map(|(a, b)| (f64::from(*a) - f64::from(b)).powi(2))
+                .sum();
+            (same_space && distance_squared <= f64::from(range).powi(2)).then_some((actor, target))
+        })
+        .collect()
+}
+
+pub(crate) fn dialogue_activate_started(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        state.ai.dialogue_activate_started = true;
+    }
+}
+
 // ----- the stack -----
 
 /// The packages an actor could run, in evaluation order.
@@ -296,14 +475,38 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
     }
     alias_packages.sort_by_key(|a| std::cmp::Reverse(a.0));
     out.extend(alias_packages.into_iter().map(|(_, c)| c));
+    let package_overrides = world
+        .actor(actor)
+        .map(|state| state.package_overrides.clone())
+        .unwrap_or_default();
     if let Ok((source, npc)) = world.actor_npc_part(actor, crate::npc::template::AI_PACKAGES) {
-        for raw in &npc.packages {
-            if let Some(package) = world.resolve_from(source, *raw) {
-                out.push(Candidate {
-                    package,
-                    alias: None,
-                });
+        let mut packages: Vec<GlobalFormId> = npc
+            .packages
+            .iter()
+            .filter_map(|raw| world.resolve_from(source, *raw))
+            .collect();
+        let mut overrides = package_overrides;
+        overrides.sort_by_key(|(index, _)| *index);
+        for (index, package) in overrides {
+            let distributed = if world.tag_of(package) == Some(T(b"FLST")) {
+                world.form_list(package).cloned().unwrap_or_default()
+            } else {
+                vec![package]
+            };
+            let mut at = index.min(packages.len());
+            for package in distributed {
+                if packages.contains(&package) {
+                    continue;
+                }
+                packages.insert(at, package);
+                at += 1;
             }
+        }
+        for package in packages {
+            out.push(Candidate {
+                package,
+                alias: None,
+            });
         }
     }
     out
@@ -314,7 +517,31 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
     let today = world.clock.game_days.floor() as u32;
-    let completed = world.actor(actor)?.ai.completed.clone();
+    let state = world.actor(actor)?;
+    let current = state.ai.package;
+    let completed = state.ai.completed.clone();
+    let engaged = state.in_combat && state.combat_target.is_some();
+    if let Some(current) = current {
+        if let Some(current_package) = package(world, current) {
+            let finished = world
+                .actor(actor)
+                .and_then(|state| state.ai.tree.as_ref())
+                .is_some_and(|tree| tree.finished);
+            let may_interrupt_for_combat = engaged
+                && (current_package.general.interrupt_override == flags::INTERRUPT_OVERRIDE_COMBAT
+                    || current_package.general.interrupt_flags & flags::INTERRUPT_OBSERVE_COMBAT
+                        != 0);
+            if current_package.has_flag(flags::MUST_COMPLETE)
+                && !finished
+                && !may_interrupt_for_combat
+            {
+                return Some(Candidate {
+                    package: current,
+                    alias: world.actor(actor).and_then(|state| state.ai.alias),
+                });
+            }
+        }
+    }
     let candidates = candidates(world, actor);
     for c in candidates {
         let Some(p) = package(world, c.package) else {
@@ -639,6 +866,11 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     if chosen.map(|c| c.package) == current {
         return current;
     }
+    if let Some(old) = current {
+        if package(world, old).is_some_and(|p| p.has_flag(flags::UNLOCK_DOORS_ON_CHANGE)) {
+            unlock_cell_doors(world, actor, alloc);
+        }
+    }
     let object = world.object_of(Handle::Form(actor), alloc);
     if let Some(old) = current {
         let old_value = world.form_value(Some(old), alloc);
@@ -666,6 +898,9 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         .map(|r| r.position)
         .unwrap_or_default();
     let mut ai = std::mem::take(&mut world.actor(actor)?.ai);
+    if ai.procedure == Procedure::Sit {
+        world.stand_from_furniture(actor);
+    }
     ai.package = chosen.map(|c| c.package);
     ai.alias = chosen.and_then(|c| c.alias);
     ai.procedure = Procedure::None;
@@ -674,6 +909,10 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.path.clear();
     ai.path_cells.clear();
     ai.arrived = false;
+    ai.force_greet_started = false;
+    ai.activate_started = false;
+    ai.dialogue_activate_started = false;
+    ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -681,6 +920,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
     ai.wait_until = None;
+    ai.hover_height = 0.0;
     ai.patrol = None;
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
@@ -697,8 +937,11 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
                     speed::WALK
                 },
             );
+            if p.has_flag(flags::UNLOCK_DOORS_AT_START) {
+                unlock_cell_doors(world, actor, alloc);
+            }
         }
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
         let new_value = world.form_value(Some(c.package), alloc);
         world.pending.push(Pending::Event {
             object,
@@ -711,6 +954,31 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
+    let Some(cell) = world.reference(actor).and_then(|reference| reference.cell) else {
+        return;
+    };
+    let owner_base = world.base_of(actor);
+    let doors = world.cell_doors(cell);
+    for (door, _) in doors {
+        let Some((owner, locked)) = world
+            .reference(door)
+            .map(|reference| (reference.owner, reference.locked))
+        else {
+            continue;
+        };
+        let owned_by_actor = owner.is_some_and(|owner| {
+            owner_base == Some(owner)
+                || world
+                    .actor(actor)
+                    .is_some_and(|state| state.factions.contains_key(&owner))
+        });
+        if locked && owned_by_actor {
+            world.set_locked(door, false, alloc);
+        }
+    }
 }
 
 fn start_boundary_action(
@@ -805,16 +1073,24 @@ fn begin_procedure(
     ai: &mut AiState,
     procedure: Procedure,
     location: Option<(GlobalFormId, LocationData)>,
+    hover_height: Option<f32>,
 ) {
     let (position, cell) = world
         .reference(actor)
         .map(|r| (r.position, r.cell))
         .unwrap_or_default();
+    if ai.procedure == Procedure::Sit {
+        world.stand_from_furniture(actor);
+    }
     ai.procedure = procedure;
     ai.destination = None;
     ai.path.clear();
     ai.path_cells.clear();
     ai.arrived = false;
+    ai.force_greet_started = false;
+    ai.activate_started = false;
+    ai.dialogue_activate_started = false;
+    ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -822,6 +1098,7 @@ fn begin_procedure(
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
     ai.wait_until = None;
+    ai.hover_height = 0.0;
     ai.patrol = None;
     let alias = ai.alias.or_else(|| {
         let id = ai.package?;
@@ -830,6 +1107,9 @@ fn begin_procedure(
     });
     let place =
         location.and_then(|(owner, l)| resolve_location(world, actor, owner, alias, ai, &l));
+    if let Some(height) = hover_height {
+        ai.hover_height = height;
+    }
     match ai.procedure {
         Procedure::Travel => {
             ai.destination = place.map(|p| p.position);
@@ -861,11 +1141,317 @@ fn begin_procedure(
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
         }
+        Procedure::Hover => {
+            if let Some(place) = place {
+                ai.destination = Some([
+                    place.position[0],
+                    place.position[1],
+                    place.position[2] + ai.hover_height,
+                ]);
+                ai.center_cell = place.cell;
+            } else {
+                ai.procedure = Procedure::Unsupported("Hover location, AI-31".into());
+            }
+        }
+        Procedure::Follow => {
+            if let Some((owner, target, _, _)) = tree::follow_parameters(world, ai) {
+                if resolve_follow_target(world, actor, ai, (owner, target)).is_none() {
+                    ai.procedure = Procedure::Unsupported("Follow target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("Follow inputs".into());
+            }
+        }
+        Procedure::Escort => {
+            match tree::escort_target(world, ai).and_then(|(owner, target, radius)| {
+                let target = resolve_follow_target(world, actor, ai, (owner, target))?;
+                world.reference(target).map(|_| (target, radius))
+            }) {
+                Some((_, radius)) if radius < 0 => {
+                    ai.procedure = Procedure::Unsupported("Escort distance".into());
+                }
+                Some((_, radius)) => match place {
+                    Some(place) => {
+                        ai.destination = Some(place.position);
+                        ai.center = Some(place.position);
+                        ai.center_cell = place.cell;
+                        ai.radius = radius as f32;
+                    }
+                    None => ai.procedure = Procedure::Unsupported("Escort location".into()),
+                },
+                None => ai.procedure = Procedure::Unsupported("Escort target".into()),
+            }
+        }
+        Procedure::ForceGreet => {
+            if let Some((target, _)) = tree::force_greet_parameters(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, target) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("ForceGreet target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("ForceGreet target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("ForceGreet inputs".into());
+            }
+        }
+        Procedure::Activate => {
+            if let Some((owner, target)) = tree::activate_target(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, (owner, target)) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("Activate target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("Activate target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("Activate inputs".into());
+            }
+        }
+        Procedure::DialogueActivate => {
+            if let Some((owner, target)) = tree::activate_target(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, (owner, target)) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("DialogueActivate target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("DialogueActivate target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("DialogueActivate inputs".into());
+            }
+        }
+        Procedure::Find => {
+            match tree::find_target(world, ai).and_then(|(owner, target, location)| {
+                let place = match location {
+                    Some((owner, location)) => Some(resolve_location(
+                        world, actor, owner, ai.alias, ai, &location,
+                    )?),
+                    None => None,
+                };
+                find_reference(
+                    world,
+                    actor,
+                    owner,
+                    target,
+                    place,
+                    location.map(|(_, l)| l.radius),
+                )
+            }) {
+                Some(reference) => ai.found_reference = Some(reference),
+                None => ai.procedure = Procedure::Unsupported("Find inputs or reference".into()),
+            }
+        }
+        Procedure::UseIdleMarker { .. } => match (place, location) {
+            (Some(place), Some((_, location))) => {
+                ai.center = Some(place.position);
+                ai.center_cell = place.cell.or(cell);
+                ai.radius = location.radius as f32;
+                if !ai.radius.is_finite() || ai.radius < 0.0 {
+                    ai.procedure = Procedure::Unsupported("UseIdleMarker radius".into());
+                }
+            }
+            _ => ai.procedure = Procedure::Unsupported("UseIdleMarker location".into()),
+        },
+        Procedure::HoldPosition => {
+            ai.center = Some(place.map_or(position, |place| place.position));
+            ai.center_cell = place.and_then(|place| place.cell).or(cell);
+        }
+        Procedure::Sit => {
+            let furniture = place.and_then(|p| p.reference).filter(|reference| {
+                world
+                    .base_of(*reference)
+                    .and_then(|base| world.tag_of(base))
+                    == Some(T(b"FURN"))
+            });
+            if let Some(furniture) = furniture
+                .filter(|furniture| world.reserve_furniture_marker(*furniture, actor).is_some())
+            {
+                ai.destination = world
+                    .reference(furniture)
+                    .map(|reference| reference.position);
+                ai.center_cell = world
+                    .reference(furniture)
+                    .and_then(|reference| reference.cell);
+            } else {
+                ai.procedure = Procedure::Unsupported("Sit furniture unavailable".into());
+            }
+        }
         Procedure::None
         | Procedure::Wait { .. }
+        | Procedure::Shout
         | Procedure::Patrol
+        | Procedure::Orbit { .. }
+        | Procedure::UseMagic
+        | Procedure::UseWeapon
         | Procedure::Unsupported(_) => {}
     }
+}
+
+fn find_reference(
+    world: &mut World,
+    actor: GlobalFormId,
+    owner: GlobalFormId,
+    target: crate::package::Target,
+    place: Option<Place>,
+    radius: Option<i32>,
+) -> Option<GlobalFormId> {
+    use crate::package::Target;
+
+    let (base, object_type) = match target {
+        Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
+        Target::ObjectType(kind @ 1..=15) => (None, Some(kind)),
+        _ => return None,
+    };
+    let actor_cell = world.reference(actor)?.cell;
+    let cell = place.and_then(|place| place.cell).or(actor_cell)?;
+    let center = place.map_or(world.reference(actor)?.position, |place| place.position);
+    let radius = match radius {
+        Some(radius) if radius < 0 => return None,
+        Some(radius) => Some(radius as f32),
+        None => None,
+    };
+    references_in_cell(world, cell)
+        .into_iter()
+        .filter(|reference| *reference != actor)
+        .filter_map(|reference| {
+            let (position, eligible) = world.reference(reference).map(|state| {
+                (
+                    state.position,
+                    !state.deleted && !state.destroyed && state.enabled,
+                )
+            })?;
+            if !eligible || position.iter().any(|value| !value.is_finite()) {
+                return None;
+            }
+            let candidate_base = world.base_of(reference)?;
+            let matches = base.is_some_and(|base| base == candidate_base)
+                || object_type
+                    .is_some_and(|kind| matches_package_object_type(world, candidate_base, kind));
+            if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
+                return None;
+            }
+            Some((distance(center, position), reference))
+        })
+        .min_by(|(left_distance, left_id), (right_distance, right_id)| {
+            left_distance
+                .total_cmp(right_distance)
+                .then_with(|| left_id.cmp(right_id))
+        })
+        .map(|(_, reference)| reference)
+}
+
+fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
+    let tag = world.tag_of(base);
+    let expected = match kind {
+        1 => T(b"ACTI"),
+        2 => T(b"ARMO"),
+        3 => T(b"BOOK"),
+        4 => T(b"CONT"),
+        5 => T(b"DOOR"),
+        6 => T(b"INGR"),
+        7 => T(b"LIGH"),
+        8 => T(b"MISC"),
+        9 => T(b"FLOR"),
+        10 => T(b"FURN"),
+        11 => T(b"WEAP"),
+        12 => T(b"AMMO"),
+        13 => T(b"KEYM"),
+        14 | 15 => T(b"ALCH"),
+        _ => return false,
+    };
+    if tag != Some(expected) {
+        return false;
+    }
+    if matches!(kind, 14 | 15) {
+        let food = world
+            .record(base)
+            .and_then(|record| record.find(T(b"ENIT")))
+            .and_then(|data| data.get(4..8))
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .is_some_and(|bytes| u32::from_le_bytes(bytes) & 2 != 0);
+        return food == (kind == 15);
+    }
+    true
+}
+
+fn resolve_follow_target(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    target: (GlobalFormId, crate::package::Target),
+) -> Option<GlobalFormId> {
+    use crate::package::Target;
+
+    let (owner, target) = target;
+    match target {
+        Target::Reference(raw) if raw != 0 => world.resolve_from(owner, raw),
+        Target::Alias(alias) => {
+            let quest = ai.alias.map(|(quest, _)| quest).or_else(|| {
+                package(world, ai.package?)?
+                    .owner_quest
+                    .and_then(|raw| world.resolve_from(ai.package?, raw))
+            })?;
+            world.alias_ref(quest, alias)
+        }
+        Target::LinkedReference(keyword) => {
+            if keyword == 0 {
+                world
+                    .reference(actor)?
+                    .linked
+                    .first()
+                    .map(|(_, reference)| *reference)
+            } else {
+                let keyword = world.resolve_from(owner, keyword)?;
+                world
+                    .reference(actor)?
+                    .linked
+                    .iter()
+                    .find(|(key, _)| *key == Some(keyword))
+                    .map(|(_, reference)| *reference)
+            }
+        }
+        Target::Itself => Some(actor),
+        _ => None,
+    }
+}
+
+fn escort_target_arrived(world: &mut World, actor: GlobalFormId, ai: &AiState) -> bool {
+    tree::escort_target(world, ai)
+        .and_then(|(owner, target, _)| resolve_follow_target(world, actor, ai, (owner, target)))
+        .and_then(|target| world.reference(target).map(|reference| reference.position))
+        .is_some_and(|target| {
+            distance(target, ai.destination.unwrap_or_default()) <= ARRIVAL_DISTANCE
+        })
+}
+
+fn escort_can_advance(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    position: [f32; 3],
+) -> bool {
+    let Some(goal) = ai.center else {
+        return false;
+    };
+    let target = tree::escort_target(world, ai)
+        .and_then(|(owner, target, _)| resolve_follow_target(world, actor, ai, (owner, target)))
+        .and_then(|target| world.reference(target).map(|reference| reference.position));
+    target.is_some_and(|target| {
+        distance(position, target) <= ai.radius || distance(target, goal) < distance(position, goal)
+    })
 }
 
 /// Where a package location input points for this actor.
@@ -1020,6 +1606,45 @@ fn sandbox_markers(
     out
 }
 
+/// Idle markers in the package location that no other actor's active
+/// UseIdleMarker procedure currently holds.
+fn idle_markers(
+    world: &mut World,
+    actor: GlobalFormId,
+    cell: GlobalFormId,
+    center: [f32; 3],
+    radius: f32,
+) -> Vec<GlobalFormId> {
+    let refs = references_in_cell(world, cell);
+    let mut eligible = Vec::new();
+    for reference in refs.iter().copied() {
+        if world
+            .base_of(reference)
+            .is_none_or(|base| world.tag_of(base) != Some(T(b"IDLM")))
+        {
+            continue;
+        }
+        if !world.reference(reference).is_some_and(|state| {
+            state.enabled
+                && !state.deleted
+                && !state.destroyed
+                && distance(state.position, center) <= radius
+        }) {
+            continue;
+        }
+        let reserved = refs.iter().copied().any(|other| {
+            other != actor
+                && world.actor(other).is_some_and(|state| {
+                    matches!(state.ai.procedure, Procedure::UseIdleMarker { marker: Some(held) } if held == reference)
+                })
+        });
+        if !reserved {
+            eligible.push(reference);
+        }
+    }
+    eligible
+}
+
 /// Every placed reference and actor in a cell, from an index built once
 /// over the load order.
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
@@ -1107,7 +1732,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if dead || unconscious {
             continue;
         }
-        if ignores_combat(world, actor) {
+        let ignore_combat = ignores_combat(world, actor);
+        if ignore_combat {
             clear_combat_engagement(world, actor);
         }
         let turn_undead_threat = world.turn_undead_threat(actor);
@@ -1129,6 +1755,16 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             continue;
         }
         let active_target = combat_target(world, actor);
+        if active_target.is_none() {
+            let due = world.actor(actor).is_some_and(|state| {
+                state.ai.package.is_none()
+                    || state.ai.reevaluate
+                    || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
+            });
+            if due {
+                evaluate(world, actor, alloc);
+            }
+        }
         if active_target.is_some() && !ignores_combat(world, actor) {
             let due = world.actor(actor).is_some_and(|a| {
                 a.ai.reevaluate || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
@@ -1140,7 +1776,10 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 pursue_combat_target(world, actor, dt as f32);
                 continue;
             }
-        } else if !ignores_combat(world, actor) && acquire_combat_target(world, actor) {
+        } else if !ignore_combat
+            && !ignores_combat(world, actor)
+            && acquire_combat_target(world, actor)
+        {
             pursue_combat_target(world, actor, dt as f32);
             continue;
         }
@@ -1150,9 +1789,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
         });
         if due {
-            evaluate(world, actor, alloc);
+            evaluate(world, actor, &mut *alloc);
         }
-        step(world, actor, dt as f32, alloc);
+        step(world, actor, dt as f32, &mut *alloc);
     }
 }
 
@@ -1359,9 +1998,17 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(target) = target else {
         return false;
     };
+    let no_combat_alert = world
+        .actor(actor)
+        .and_then(|state| state.ai.package)
+        .and_then(|id| package(world, id))
+        .is_some_and(|package| package.has_flag(flags::NO_COMBAT_ALERT));
     if let Some(state) = world.actor(actor) {
         state.in_combat = true;
         state.combat_target = Some(target);
+        if !no_combat_alert {
+            state.alerted = true;
+        }
         state.ai.reevaluate = true;
         state.ai.path.clear();
         state.ai.path_cells.clear();
@@ -1525,12 +2172,63 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         return;
     };
     if ai.tree.is_none() && ai.package.is_some() {
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
     } else {
-        tree::enter(world, actor, &mut ai);
+        tree::enter(world, actor, &mut ai, &mut *alloc);
+    }
+    if ai.procedure == Procedure::UseWeapon && ai.tree.as_ref().is_some_and(|tree| tree.active) {
+        let target = world.actor(actor).and_then(|state| state.combat_target);
+        let weapon = world
+            .hand_weapon(actor, crate::combat::Hand::Right)
+            .or_else(|| world.hand_weapon(actor, crate::combat::Hand::Left));
+        if let (Some(target), Some(weapon)) = (target, weapon) {
+            let _ = world.melee_hit(
+                crate::combat::MeleeHit {
+                    attacker: actor,
+                    target,
+                    weapon,
+                    is_bash: false,
+                    is_power_attack: false,
+                },
+                Vec::new(),
+                Vec::new(),
+                alloc,
+            );
+        }
+        tree::succeeded(world, &mut ai);
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
+    }
+    if ai.procedure == Procedure::Follow {
+        follow_target(world, actor, &mut ai, position);
+    }
+    if matches!(
+        ai.procedure,
+        Procedure::ForceGreet | Procedure::Activate | Procedure::DialogueActivate
+    ) {
+        approach_assigned_target(world, actor, &mut ai, position);
+    }
+    if matches!(ai.procedure, Procedure::Orbit { .. }) {
+        orbit(world, actor, &mut ai, position, dt);
+        if let Some(a) = world.actor(actor) {
+            a.ai = ai;
+        }
+        return;
+    }
+    if ai.procedure == Procedure::HoldPosition {
+        let hold_position = ai.center.unwrap_or(position);
+        if distance(position, hold_position) > ARRIVAL_DISTANCE {
+            ai.destination = Some(hold_position);
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = false;
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = true;
+        }
     }
     if matches!(ai.procedure, Procedure::Wait { .. })
         && ai
@@ -1538,6 +2236,38 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             .is_some_and(|until| world.clock.real_seconds >= until)
     {
         tree::succeeded(world, &mut ai);
+    }
+    if ai.procedure == Procedure::Escort && !ai.arrived {
+        if escort_can_advance(world, actor, &ai, position) {
+            if ai.destination.is_none() {
+                ai.destination = ai.center;
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+        }
+    }
+    if ai.procedure == Procedure::Shout {
+        if let Some(until) = ai.wait_until {
+            if world.clock.real_seconds >= until {
+                tree::succeeded(world, &mut ai);
+            }
+        } else if world.voice_recovery_time(actor) <= 0.0 {
+            let target = world.actor(actor).and_then(|state| state.combat_target);
+            if let Err(error) = world.cast_shout(actor, target, alloc) {
+                ai.procedure = Procedure::Unsupported(format!("Shout: {error}"));
+            } else {
+                let recovery = world.voice_recovery_time(actor);
+                if recovery > 0.0 {
+                    ai.wait_until = Some(world.clock.real_seconds + f64::from(recovery));
+                } else {
+                    tree::succeeded(world, &mut ai);
+                }
+            }
+        }
     }
     let hours = world.clock.game_hours();
     if ai.arrived {
@@ -1575,6 +2305,26 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         ai.destination = Some(target);
         ai.path.clear();
         ai.path_cells.clear();
+    }
+    if let Procedure::UseIdleMarker { marker: None } = ai.procedure {
+        let center = ai.center.unwrap_or(position);
+        let markers = ai
+            .center_cell
+            .or(cell)
+            .map(|c| idle_markers(world, actor, c, center, ai.radius))
+            .unwrap_or_default();
+        if !markers.is_empty() {
+            let pick = world.random_int(0, markers.len() as i32 - 1) as usize;
+            let marker = markers[pick];
+            if let Some(target) = world.reference(marker).map(|reference| reference.position) {
+                ai.procedure = Procedure::UseIdleMarker {
+                    marker: Some(marker),
+                };
+                ai.destination = Some(target);
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+        }
     }
     if ai.procedure == Procedure::Patrol
         && !ai.arrived
@@ -1647,6 +2397,12 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             }
             if ai.procedure == Procedure::Travel {
                 tree::succeeded(world, &mut ai);
+            } else if ai.procedure == Procedure::Sit {
+                world.stand_from_furniture(actor);
+                tree::succeeded(world, &mut ai);
+            }
+            if ai.procedure == Procedure::ForceGreet {
+                ai.arrived = true;
             }
         }
         if let Some(r) = world.reference(actor) {
@@ -1659,9 +2415,185 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     if ai.procedure == Procedure::Patrol {
         patrol::tick(world, actor, &mut ai, alloc);
     }
+    if ai.arrived && ai.procedure == Procedure::Escort && escort_target_arrived(world, actor, &ai) {
+        tree::succeeded(world, &mut ai);
+    }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;
     }
+}
+
+fn follow_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3]) {
+    let Some((owner, target_data, catch_up_radius, follow_radius)) =
+        tree::follow_parameters(world, ai)
+    else {
+        ai.procedure = Procedure::Unsupported("Follow inputs".into());
+        return;
+    };
+    let Some(target) = resolve_follow_target(world, actor, ai, (owner, target_data)) else {
+        ai.procedure = Procedure::Unsupported("Follow target".into());
+        return;
+    };
+    let Some((target_position, target_cell)) = world
+        .reference(target)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        ai.procedure = Procedure::Unsupported("Follow target is not placed".into());
+        return;
+    };
+    let separation = distance(position, target_position);
+    if separation <= follow_radius || separation == 0.0 {
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = true;
+        return;
+    }
+    let desired_distance = follow_radius.min(separation);
+    let toward_target: [f32; 3] =
+        std::array::from_fn(|axis| (target_position[axis] - position[axis]) / separation);
+    let destination: [f32; 3] =
+        std::array::from_fn(|axis| target_position[axis] - toward_target[axis] * desired_distance);
+    ai.destination = Some(destination);
+    ai.center_cell = target_cell;
+    ai.path.clear();
+    ai.path_cells.clear();
+    ai.arrived = false;
+    let preferred = if separation > catch_up_radius {
+        speed::RUN
+    } else {
+        ai.package
+            .and_then(|id| package(world, id))
+            .filter(|p| p.has_flag(flags::PREFERRED_SPEED))
+            .map_or(speed::WALK, |p| p.general.preferred_speed)
+    };
+    ai.speed = movement_speed(world, actor, preferred);
+}
+
+fn approach_assigned_target(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &mut AiState,
+    position: [f32; 3],
+) {
+    if ai.force_greet_started || ai.activate_started || ai.dialogue_activate_started {
+        return;
+    }
+    let target_data = match ai.procedure {
+        Procedure::ForceGreet => tree::force_greet_parameters(world, ai).map(|(target, _)| target),
+        Procedure::Activate | Procedure::DialogueActivate => tree::activate_target(world, ai),
+        _ => None,
+    };
+    let target = target_data
+        .and_then(|data| resolve_follow_target(world, actor, ai, data))
+        .and_then(|id| {
+            world
+                .reference(id)
+                .map(|reference| (reference.position, reference.cell))
+        });
+    let Some((target_position, target_cell)) = target else {
+        ai.procedure = Procedure::Unsupported("assigned target is not placed".into());
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        return;
+    };
+    if target_position.iter().any(|value| !value.is_finite()) {
+        ai.procedure = Procedure::Unsupported("assigned target position".into());
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        return;
+    }
+    if distance(position, target_position) <= ARRIVAL_DISTANCE {
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = true;
+    } else if ai.destination != Some(target_position) || ai.center_cell != target_cell || ai.arrived
+    {
+        ai.destination = Some(target_position);
+        ai.center_cell = target_cell;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = false;
+    }
+}
+
+fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3], dt: f32) {
+    let Some((owner, location, inner, outer, height)) = tree::orbit_parameters(world, ai) else {
+        ai.procedure = Procedure::Unsupported("Orbit inputs, AI-25".into());
+        return;
+    };
+    if let Some(place) = resolve_location(world, actor, owner, ai.alias, ai, &location) {
+        ai.center = Some(place.position);
+        ai.center_cell = place.cell;
+    } else {
+        ai.procedure = Procedure::Unsupported("Orbit target location, AI-25".into());
+        return;
+    }
+    let Some(center) = ai.center else { return };
+    let center = [center[0], center[1], center[2] + height];
+    let dx = position[0] - center[0];
+    let dy = position[1] - center[1];
+    let current_radius = dx.hypot(dy);
+    let radius = current_radius.clamp(inner, outer);
+    let angle = dy.atan2(dx);
+    let angular_step = (ai.speed * dt.max(0.0) / radius.max(1.0)).clamp(0.0, 0.3);
+    let mut moved = false;
+    for direction in [1.0, -1.0] {
+        let next_angle = angle + direction * angular_step;
+        let destination = [
+            center[0] + radius * next_angle.cos(),
+            center[1] + radius * next_angle.sin(),
+            center[2],
+        ];
+        ensure_nav_graph(world);
+        let Some(graph) = world.ai.nav.as_ref() else {
+            return;
+        };
+        if graph.find_path_between(position, destination).is_none()
+            || !orbit_arc_valid(graph, center, radius, angle, next_angle, inner, outer)
+        {
+            continue;
+        }
+        if let Some(reference) = world.reference(actor) {
+            reference.position = destination;
+            if let Some(cell) = ai.center_cell {
+                reference.cell = Some(cell);
+            }
+        }
+        ai.destination = Some(destination);
+        ai.arrived = true;
+        moved = true;
+        break;
+    }
+    if !moved {
+        ai.destination = None;
+        ai.arrived = false;
+    }
+}
+
+fn orbit_arc_valid(
+    graph: &NavGraph,
+    center: [f32; 3],
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    inner: f32,
+    outer: f32,
+) -> bool {
+    (0..=8).all(|step| {
+        let t = step as f32 / 8.0;
+        let angle = start_angle + (end_angle - start_angle) * t;
+        let point = [
+            center[0] + radius * angle.cos(),
+            center[1] + radius * angle.sin(),
+            center[2],
+        ];
+        let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
+        (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
+    })
 }
 
 // ----- save and load -----
@@ -1690,6 +2622,15 @@ fn read_point(r: &mut Reader<'_>) -> Result<[f32; 3], VmError> {
 /// Write one actor's driver record. The procedure cursor is not part of it,
 /// the world save keeps cursors in their own block.
 pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
+    write_record_state_version(w, a, 43);
+}
+
+/// Write the actor record layout that predates the named AI save section.
+pub(crate) fn write_legacy_record_state(w: &mut Writer, a: &AiState) {
+    write_record_state_version(w, a, 33);
+}
+
+fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
     write_opt_form_id(w, a.package);
     match a.alias {
         Some((q, id)) => {
@@ -1701,7 +2642,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         None => w.bool(false),
     }
     match &a.procedure {
-        Procedure::None => w.u8(0),
+        Procedure::None | Procedure::UseMagic | Procedure::UseWeapon => w.u8(0),
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
@@ -1709,6 +2650,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
+        Procedure::Sit if version >= 43 => w.u8(18),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -1717,9 +2659,46 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
                 w.f64(until);
             }
         }
+        Procedure::Hover if version >= 34 => {
+            w.u8(7);
+            w.f32(a.hover_height);
+        }
+        Procedure::Follow if version >= 35 => w.u8(8),
+        Procedure::ForceGreet if version >= 37 => w.u8(10),
+        Procedure::DialogueActivate if version >= 43 => w.u8(16),
+        Procedure::HoldPosition if version >= 38 => w.u8(11),
+        Procedure::Orbit { height } if version >= 39 => {
+            w.u8(12);
+            w.f32(*height);
+        }
+        Procedure::Escort if version >= 40 => w.u8(13),
+        Procedure::Activate if version >= 41 => w.u8(14),
+        Procedure::Find if version >= 42 => w.u8(15),
+        Procedure::UseIdleMarker { marker } if version >= 36 => {
+            w.u8(9);
+            match marker {
+                Some(marker) => {
+                    w.bool(true);
+                    w.u16(marker.file);
+                    w.u32(marker.object);
+                }
+                None => w.bool(false),
+            }
+        }
+        Procedure::Shout => {
+            w.u8(17);
+            w.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                w.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
+        }
+        _ => {
+            w.u8(4);
+            w.str("procedure stored in actor section");
         }
     }
     match a.destination {
@@ -1738,6 +2717,12 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         write_opt_form_id(w, *c);
     }
     w.bool(a.arrived);
+    if version >= 37 {
+        w.bool(a.force_greet_started);
+    }
+    if version >= 41 {
+        w.bool(a.activate_started);
+    }
     w.bool(a.sleeping);
     write_opt_form_id(w, a.bed);
     match a.center {
@@ -1759,6 +2744,12 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         w.u16(id.file);
         w.u32(id.object);
         w.u32(*day);
+    }
+    if version >= 42 {
+        write_opt_form_id(w, a.found_reference);
+    }
+    if version >= 43 {
+        w.bool(a.dialogue_activate_started);
     }
 }
 
@@ -1783,12 +2774,24 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
 
 /// Read a complete driver state written by [`write_state`].
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
-    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))?;
+    let mut a = read_state_mapped(
+        &mut FormReader::new(r, FormNamespace::Current),
+        true,
+        true,
+        true,
+        43,
+    )?;
     a.tree = read_tree_state(r)?;
     Ok(a)
 }
 
-pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, VmError> {
+pub(crate) fn read_state_mapped(
+    r: &mut FormReader<'_, '_>,
+    has_force_greet_state: bool,
+    has_hold_position: bool,
+    has_orbit: bool,
+    world_version: u16,
+) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
         ..Default::default()
@@ -1818,6 +2821,82 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             }
             Procedure::Wait { stop_movement }
         }
+        7 => {
+            let height = r.f32()?;
+            if !height.is_finite() {
+                return Err(VmError::State("invalid Hover height".into()));
+            }
+            a.hover_height = height;
+            Procedure::Hover
+        }
+        8 => Procedure::Follow,
+        10 => Procedure::ForceGreet,
+        11 if has_hold_position => Procedure::HoldPosition,
+        11 => {
+            return Err(VmError::State(
+                "HoldPosition procedure requires world version 38".into(),
+            ));
+        }
+        12 if has_orbit => {
+            let height = r.f32()?;
+            if !height.is_finite() {
+                return Err(VmError::State("invalid Orbit height".into()));
+            }
+            Procedure::Orbit { height }
+        }
+        12 => {
+            return Err(VmError::State(
+                "Orbit procedure requires world version 39".into(),
+            ));
+        }
+        13 if world_version >= 40 => Procedure::Escort,
+        13 => {
+            return Err(VmError::State(
+                "Escort procedure requires world version 40".into(),
+            ));
+        }
+        14 if world_version >= 41 => Procedure::Activate,
+        14 => {
+            return Err(VmError::State(
+                "Activate procedure requires world version 41".into(),
+            ));
+        }
+        15 if world_version >= 42 => Procedure::Find,
+        15 => {
+            return Err(VmError::State(
+                "Find procedure requires world version 42".into(),
+            ));
+        }
+        16 if world_version >= 43 => Procedure::DialogueActivate,
+        16 => {
+            return Err(VmError::State(
+                "DialogueActivate procedure requires world version 43".into(),
+            ));
+        }
+        9 => {
+            let marker = if r.bool()? {
+                Some(read_form_id(r)?)
+            } else {
+                None
+            };
+            Procedure::UseIdleMarker { marker }
+        }
+        18 if world_version >= 43 => Procedure::Sit,
+        18 => {
+            return Err(VmError::State(
+                "Sit procedure requires actor section revision 43".into(),
+            ))
+        }
+        17 => {
+            if r.bool()? {
+                let until = r.f64()?;
+                if !until.is_finite() || until < 0.0 {
+                    return Err(VmError::State("invalid Shout deadline".into()));
+                }
+                a.wait_until = Some(until);
+            }
+            Procedure::Shout
+        }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
     if r.bool()? {
@@ -1832,6 +2911,8 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         a.path_cells.push(read_opt_form_id(r)?);
     }
     a.arrived = r.bool()?;
+    a.force_greet_started = has_force_greet_state && r.bool()?;
+    a.activate_started = world_version >= 41 && r.bool()?;
     a.sleeping = r.bool()?;
     a.bed = read_opt_form_id(r)?;
     if r.bool()? {
@@ -1849,6 +2930,10 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         let id = read_form_id(r)?;
         a.completed.insert(id, r.u32()?);
     }
+    if world_version >= 42 {
+        a.found_reference = read_opt_form_id(r)?;
+    }
+    a.dialogue_activate_started = world_version >= 43 && r.bool()?;
     Ok(a)
 }
 
@@ -2038,6 +3123,13 @@ mod tests {
             path: vec![[4.0, 5.0, 6.0]],
             path_cells: vec![Some(GlobalFormId { file: 0, object: 9 })],
             arrived: true,
+            force_greet_started: false,
+            activate_started: false,
+            dialogue_activate_started: false,
+            found_reference: Some(GlobalFormId {
+                file: 1,
+                object: 10,
+            }),
             sleeping: true,
             bed: None,
             center: Some([7.0, 8.0, 9.0]),
@@ -2045,6 +3137,7 @@ mod tests {
             radius: 100.0,
             dwell_until: 12.5,
             wait_until: None,
+            hover_height: 0.0,
             patrol: None,
             speed: 180.0,
             start_position: [0.5, 0.25, 0.125],

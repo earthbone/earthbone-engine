@@ -51,6 +51,11 @@ fn eval(
             tempering_enchanted: None,
             skill_use: event,
             light_level: light,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )

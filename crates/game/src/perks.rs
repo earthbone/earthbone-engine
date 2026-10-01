@@ -66,6 +66,11 @@ pub struct EntryPointContext {
     pub tabs: Vec<GlobalFormId>,
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
+    pub tempering_item: Option<GlobalFormId>,
+    /// Poison selection for alchemy perk entry points.
+    pub alchemy_making_poison: Option<bool>,
+    /// Effect currently checked by alchemy perk entry points.
+    pub alchemy_effect: Option<GlobalFormId>,
     /// Skill-use inputs for EPModSkillUsage entry point conditions.
     pub skill_use: Option<conditions::SkillUseContext>,
 }
@@ -354,6 +359,11 @@ fn entry_conditions(
             target: context.target,
             quest: context.quest,
             tempering_enchanted: None,
+            tempering_item: context.tempering_item,
+            alchemy_making_poison: context.alchemy_making_poison,
+            alchemy_effect: context.alchemy_effect,
+            magic_item: None,
+            dual_cast: None,
             skill_use: context.skill_use,
             light_level: None,
         };
@@ -449,6 +459,11 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
             skill_use: None,
             light_level: None,
         };
