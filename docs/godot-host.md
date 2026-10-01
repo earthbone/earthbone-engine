@@ -126,6 +126,14 @@ and `clear` or node teardown frees every remaining joint. The caller supplies
 the rigid bodies and local pivots. The host API does not infer cart bones or
 build the wheel, pole, chassis or horse rig from NIF collision data.
 
+`DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
+By default the entries live under the user cache directory
+(`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG
+variable is unset). `SOE_PLUGIN_CACHE` selects another directory, and the value
+`off` disables disk caching. The explicit cache argument on
+`open_with_threads_and_cache` and `open_loadout_with_threads_and_cache` is used
+by the cold and warm `soe-bench open-data` measurements.
+
 ## Layout
 
 ### Movable reference physics, HST-12
