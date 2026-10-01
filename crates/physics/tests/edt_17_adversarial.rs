@@ -38,7 +38,10 @@ fn windows_1252_node_name_survives_nif_byte_round_trip() {
         .unwrap()
         .unwrap();
     let parsed = parse(&exported.to_bytes().unwrap()).unwrap();
-    assert_eq!(parsed.node_name(parsed.roots[0]).as_deref(), Some("café_collision"));
+    assert_eq!(
+        parsed.node_name(parsed.roots[0]).as_deref(),
+        Some("café_collision")
+    );
     let collision = collect(&parsed).unwrap();
     assert_eq!(collision.colliders[0].node_name, "café_collision");
 }

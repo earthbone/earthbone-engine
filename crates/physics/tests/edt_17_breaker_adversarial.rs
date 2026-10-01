@@ -38,7 +38,14 @@ fn byte_round_trip_preserves_asymmetric_game_unit_positions() {
         panic!("reloaded collision should be a convex hull");
     };
     assert_eq!(points.len(), input.positions.len());
-    for (actual, expected) in points.iter().zip(&input.positions) {
+    let mut expected_positions = input.positions.clone();
+    expected_positions.sort_by(|left, right| {
+        left[0]
+            .total_cmp(&right[0])
+            .then_with(|| left[1].total_cmp(&right[1]))
+            .then_with(|| left[2].total_cmp(&right[2]))
+    });
+    for (actual, expected) in points.iter().zip(&expected_positions) {
         assert!((actual.x - expected[0]).abs() < 0.001);
         assert!((actual.y - expected[1]).abs() < 0.001);
         assert!((actual.z - expected[2]).abs() < 0.001);

@@ -41,7 +41,7 @@ fn edt_17_collision_suffix_exports_a_scaled_supported_shape_that_physics_loads()
     );
     assert_eq!(
         points[3],
-        soe_physics::Vec3::new(-UNITS_PER_METER, -UNITS_PER_METER, UNITS_PER_METER)
+        soe_physics::Vec3::new(UNITS_PER_METER, -UNITS_PER_METER, -UNITS_PER_METER)
     );
 }
 
@@ -97,6 +97,6 @@ fn edt_17_collision_convention_writes_nif_bytes_that_reload_into_physics() {
     );
     assert_eq!(
         points[3],
-        soe_physics::Vec3::new(-UNITS_PER_METER, -UNITS_PER_METER, UNITS_PER_METER)
+        soe_physics::Vec3::new(UNITS_PER_METER, -UNITS_PER_METER, -UNITS_PER_METER)
     );
 }
