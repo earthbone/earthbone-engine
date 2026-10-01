@@ -139,3 +139,13 @@ fn hst_01_cyclic_node_children_terminate_when_no_controller_is_playable() {
 
     assert_eq!(animated_static::find_animated_node(&nif), None);
 }
+
+#[test]
+fn hst_01_skips_invalid_root_and_finds_later_supported_controller() {
+    let nif = file(
+        vec![node("Good", BlockRef(1), Vec::new()), controller(BlockRef(2)), interpolator()],
+        vec![BlockRef(99), BlockRef(0)],
+    );
+
+    assert_eq!(animated_static::find_animated_node(&nif), Some(BlockRef(0)));
+}

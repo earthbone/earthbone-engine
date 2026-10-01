@@ -61,3 +61,53 @@ fn hst_08_ties_follow_openmw_manhattan_then_origin_distance_priority() {
         manhattan_from_center == 2 && manhattan_from_origin == 18
     }));
 }
+
+#[test]
+fn hst_08_both_exact_caps_can_be_spent_in_one_tick() {
+    let budget = StreamBudget {
+        triangles: 12,
+        bytes: 24,
+    };
+    let mut planner = streamer(1);
+    let plan = planner.update_with_budget(
+        SkyrimPos::new(0.0, 0.0, 0.0),
+        budget,
+        |cell| {
+            if cell == CellCoord::new(0, 0) {
+                StreamCost {
+                    triangles: 7,
+                    bytes: 8,
+                }
+            } else {
+                StreamCost {
+                    triangles: 5,
+                    bytes: 16,
+                }
+            }
+        },
+    );
+    let spent = plan.load.iter().copied().map(|cell| {
+        if cell == CellCoord::new(0, 0) {
+            StreamCost {
+                triangles: 7,
+                bytes: 8,
+            }
+        } else {
+            StreamCost {
+                triangles: 5,
+                bytes: 16,
+            }
+        }
+    }).fold(StreamCost::default(), |sum, cost| StreamCost {
+        triangles: sum.triangles + cost.triangles,
+        bytes: sum.bytes + cost.bytes,
+    });
+
+    assert_eq!(
+        spent,
+        StreamCost {
+            triangles: budget.triangles,
+            bytes: budget.bytes,
+        }
+    );
+}

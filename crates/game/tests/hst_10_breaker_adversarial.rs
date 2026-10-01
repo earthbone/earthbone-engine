@@ -50,7 +50,7 @@ fn call_play_animation(game: &mut Game, target: Value) -> Value {
 }
 
 #[test]
-fn play_animation_rejects_actor_targets() {
+fn play_animation_accepts_actor_targets_and_preserves_form_identity() {
     let Some(mut game) = installed::game(&["Skyrim.esm"]) else {
         eprintln!("SKYRIM_DATA is unset, skipping installed actor animation contract");
         return;
@@ -67,6 +67,12 @@ fn play_animation_rejects_actor_targets() {
         .expect("installed placed actor");
     let target = Value::Object(game.object_of_form(actor));
 
-    assert_eq!(call_play_animation(&mut game, target), Value::Bool(false));
-    assert!(game.world().animation_requests.is_empty());
+    assert_eq!(call_play_animation(&mut game, target), Value::Bool(true));
+    assert_eq!(
+        game.world().animation_requests,
+        [soe_game::world::AnimationRequest {
+            target: actor,
+            animation: "IdleForceDefaultState".to_owned(),
+        }]
+    );
 }
