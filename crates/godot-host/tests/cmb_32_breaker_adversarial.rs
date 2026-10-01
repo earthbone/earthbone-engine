@@ -95,8 +95,7 @@ fn actor_world() -> World {
     plugin.push_top(Record::new(Tag(*b"CELL"), 2));
     plugin.push_top(Record::new(Tag(*b"NPC_"), 3));
     for (object, cell) in [(4, 1), (5, 1)] {
-        let mut reference = Record::new(Tag(*b"ACHR"), object)
-            .sub(b"NAME", 3_u32.to_le_bytes());
+        let mut reference = Record::new(Tag(*b"ACHR"), object).sub(b"NAME", 3_u32.to_le_bytes());
         reference.placement.cell = Some(cell);
         plugin.push_top(reference);
     }
