@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_11_generated_headers_include_the_world_type_contract() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 13);
+    assert_eq!(generated.len(), 14);
     for (relative, expected) in generated {
         let path = include.join(relative);
         assert_eq!(
@@ -28,7 +28,7 @@ fn shm_11_generated_headers_include_the_world_type_contract() {
 }
 
 #[test]
-fn shm_11_cpp_contract_fixtures_call_live_state_and_report_unsupported_hooks() {
+fn shm_11_cpp_contract_fixture_uses_adapter_and_reports_unsupported_hooks() {
     let include = crate_root().join("include");
     let scratch = std::env::temp_dir().join(format!("soe-shm-11-contract-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();

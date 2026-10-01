@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_esm::{LoadOrder, GlobalFormId};
-use soe_game::world::World;
 use soe_commonlib_shim::world_types::{unsupported_hook, SettingValue};
+use soe_esm::{GlobalFormId, LoadOrder};
+use soe_game::world::World;
 
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: soe_esm::CREATED_FILE, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId {
+        file: soe_esm::CREATED_FILE,
+        object,
+    }
+}
 
 #[test]
 fn setting_lookup_is_case_insensitive_and_preserves_value_kind() {
     let mut world = World::new(LoadOrder::new());
-    world.settings.insert("bfixture".into(), soe_papyrus::Value::Bool(true));
-    assert_eq!(world.commonlib_game_setting("BFixture"), Some(SettingValue::Bool(true)));
+    world
+        .settings
+        .insert("bfixture".into(), soe_papyrus::Value::Bool(true));
+    assert_eq!(
+        world.commonlib_game_setting("BFixture"),
+        Some(SettingValue::Bool(true))
+    );
     assert_eq!(world.commonlib_game_setting("missing"), None);
 }
 
