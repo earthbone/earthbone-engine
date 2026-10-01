@@ -38,7 +38,7 @@ fn wave() -> Vec<u8> {
     bytes
 }
 
-fn write_fixture_data(data: &Path) {
+fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
     for master in [
         "Skyrim.esm",
@@ -53,7 +53,7 @@ fn write_fixture_data(data: &Path) {
         )
         .unwrap();
     }
-    let (first, second) = installed_voice_pair().unwrap_or_else(|| {
+    let (first, second) = voices.unwrap_or_else(|| {
         let audio = wave();
         (fuz::write(1, &[], &audio), fuz::write(1, &[], &audio))
     });
@@ -130,7 +130,7 @@ fn godot_binary() -> Option<PathBuf> {
 fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
-    write_fixture_data(&data);
+    write_fixture_data(&data, None);
     let mut vfs = Vfs::new();
     vfs.add_archive_path(&data.join("Skyrim - Voices_en0.bsa"))
         .unwrap();
@@ -160,7 +160,7 @@ fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
-    write_fixture_data(&data);
+    write_fixture_data(&data, installed_voice_pair());
     let script = project.join("dlg_11_audio_test.gd");
     let output = Command::new(godot)
         .args(["--headless", "--path"])
