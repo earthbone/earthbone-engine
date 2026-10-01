@@ -59,6 +59,7 @@ pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
+pub mod wasm;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -76,6 +77,7 @@ pub use world::StoryError;
 pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
+use wasm::WasmMods;
 
 /// What [`Game::bind`] found in the load order's `VMAD` subrecords.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -160,6 +162,7 @@ pub struct Game {
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
+    wasm_mods: WasmMods,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -234,6 +237,7 @@ impl Game {
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
+            wasm_mods: WasmMods::new(),
         }
     }
 
@@ -714,6 +718,12 @@ impl Game {
             .set_stage(id, stage, &mut |n, c| vm.create_object_of(n, c))
     }
 
+    /// Load and initialize a WebAssembly component mod using the versioned
+    /// component interface in `wit/mod-api.wit`.
+    pub fn load_wasm_mod(&mut self, bytes: &[u8]) -> Result<(), wasm::Error> {
+        self.wasm_mods.load(bytes)
+    }
+
     /// Queue the activation without running the VM. `activate` is this
     /// followed by [`Game::run_until_idle`], split out so a caller can save
     /// state with the `OnActivate` event still queued and unresolved.
@@ -858,8 +868,22 @@ impl Game {
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
+    }
+
+    fn dispatch_wasm_activate(&mut self, target: GlobalFormId, activator: GlobalFormId) {
+        let commands = self.wasm_mods.activate(target, activator);
+        for command in commands {
+            match command {
+                wasm::Command::SetStage(quest, stage) => {
+                    self.set_stage(quest, stage);
+                }
+            }
+        }
     }
 
     /// Activate through the usual default processing and event path, retaining
@@ -873,6 +897,9 @@ impl Game {
             true,
             &mut |n, c| vm.create_object_of(n, c),
         );
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
     }

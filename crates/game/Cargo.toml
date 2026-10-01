@@ -31,6 +31,8 @@ soe-audio = { path = "../audio" }
 # disagree about how fast an actor walks. `physics` depends on `trace` and
 # `nif` only, so there is no cycle.
 soe-physics = { path = "../physics" }
+wasmtime = { version = "38", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+wasmtime-wasi = { version = "38", default-features = false, features = ["p2"] }
 
 [lints]
 workspace = true
