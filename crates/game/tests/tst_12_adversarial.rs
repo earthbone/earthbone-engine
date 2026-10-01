@@ -338,7 +338,11 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(case: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("soe-tst-12-{}-{case}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "soe-tst-12-{}-{}-{case}",
+            module_path!(),
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
