@@ -255,7 +255,7 @@ Health and stage are saved in the reference-level `CMB-37` section. SCR-40
 stores that marker and `SetNoFavorAllowed` state in a separate reference
 section. `SetNoFavorAllowed` defaults to true and controls whether a follower
 can use the reference as a favor. DEST field widths and flags
-follow `TES5Edit/Core/wbDefinitionsTES5.pas`; the UESP format corpus indexes
+follow `TES5Edit/Core/wbDefinitionsTES5.pas`. The UESP format corpus indexes
 DEST and its subrecords but does not include the linked DEST field page. The
 Creation Kit `DamageObject` and `GetCurrentDestructionStage` pages establish
 native behavior and the undamaged return value.
@@ -693,7 +693,7 @@ Their CK contracts are described by
 - `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
   record and add or remove it from the world's transient active music type list.
   Duplicate additions and removing an inactive type leave the list unchanged.
-  The list is not saved. The local CK wiki has no pages for these methods; their
+  The list is not saved. The local CK wiki has no pages for these methods. Their
   no-argument, no-return signatures match the local Skyrim Platform
   `FunctionsDump.txt` entry for `MusicType`.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
@@ -757,13 +757,13 @@ Their CK contracts are described by
   `HasCommonParent` intersects the two ancestor chains and applies the filter
   keyword to the shared ancestor, `IsSameLocation` is identity or a filtered
   shared parent.
-- `Location.IsLoaded` follows the active cell's `XLCN`; the location and its
+- `Location.IsLoaded` follows the active cell's `XLCN`. The location and its
   parent locations report loaded while that cell is active. `HasRefType`
   checks the location's `ACSR` and `LCSR` entries. The alive and dead count
   methods count matching `ACHR` entries and read each actor's runtime death
   flag. Wrong or absent `LocationRefType` arguments return false or zero.
   The LCTN array layout follows xEdit's `wbDefinitionsTES5.pas` and UESP's
-  `LCTN.wikitext`; signatures follow the shipped `Location.psc`. The CK
+  `LCTN.wikitext`. Signatures follow the shipped `Location.psc`. The CK
   corpus has no Location-specific pages for these four native behaviors.
 - Faction reactions start from `XNAM` and are written in both directions by
   `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
@@ -2717,8 +2717,8 @@ remain unfinished. The full requested execution scope is tracked in
 `Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCRP` event
 with the keyword, location, two references and two integer arguments in CK
 order. The waiting native returns whether routing started a quest. These
-natives evaluate direct world conditions without Papyrus variable lookup;
-conditions that require Papyrus state return a routing error, logged by the
+natives evaluate direct world conditions without Papyrus variable lookup.
+Conditions that require Papyrus state return a routing error, logged by the
 native, and the waiting native returns false.
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
