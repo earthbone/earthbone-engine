@@ -1010,7 +1010,7 @@ vector component it computes error as raw input minus damped output, updates
 the integral by `error * dt`, computes the error derivative over `dt`, then
 adds `(kP * error + kI * integral + kD * derivative) * dt` to the output.
 Bindings may set `kP`, `kI`, `kD`, `enableScalarDamping`,
-`enableVectorDamping`, `rawValue` and `rawVector`; `dampedValue` and
+`enableVectorDamping`, `rawValue` and `rawVector`. `dampedValue` and
 `dampedVector` are output bindings. The vector path processes all four
 components. Disabled damping and non-positive or non-finite frame times do
 not advance the stored outputs or history. Tests named `anm_39_` exercise a
