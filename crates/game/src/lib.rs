@@ -1157,11 +1157,24 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
+        let mut routed = 0;
+        for event in story_events {
+            let result = {
+                let vm = &mut self.vm;
+                self.world.borrow_mut().send_story_event(vm, &event)
+            };
+            match result {
+                Ok(quests) => routed += quests.len(),
+                Err(error) => self.vm.log.push(self.vm.time(), error.to_string()),
+            }
+        }
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
-        let n = pending
-            .iter()
-            .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
-            .count();
+        let n = routed
+            + pending
+                .iter()
+                .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
+                .count();
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {

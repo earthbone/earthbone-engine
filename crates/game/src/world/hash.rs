@@ -676,6 +676,25 @@ impl World {
         let form_lists = h.finish();
 
         let mut h = StateHasher::new();
+        h.len(self.pending_story_events.len());
+        for event in &self.pending_story_events {
+            h.u32(event.id);
+            h.bytes(&event.code);
+            h.len(event.parameters.len());
+            for parameter in &event.parameters {
+                match parameter {
+                    crate::quest::state::StoryParameter::Reference { kind, reference } => {
+                        h.u8(0);
+                        h.u32(*kind);
+                        opt_form(&mut h, *reference);
+                    }
+                    crate::quest::state::StoryParameter::Integer(value) => {
+                        h.u8(1);
+                        h.u32(*value);
+                    }
+                }
+            }
+        }
         h.len(self.pending.len());
         for p in &self.pending {
             match p {

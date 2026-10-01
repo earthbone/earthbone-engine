@@ -46,3 +46,18 @@ fn hst_09_mnam_disables_activation_even_when_a_sit_marker_is_active() {
         "a furniture record with activation disabled cannot seat or reserve the actor"
     );
 }
+
+#[test]
+fn hst_09_reserved_marker_cannot_be_taken_by_a_second_actor() {
+    let mut game = game_with_furniture_flags(1);
+    let first = game.player();
+    let second = id(0x201);
+    game.world_mut().reference(second).unwrap().is_actor = true;
+
+    assert!(game.activate(id(CHAIR), first));
+    assert!(!game.activate(id(CHAIR), second));
+
+    assert_eq!(game.world().furniture_seat(first), Some((id(CHAIR), 0)));
+    assert_eq!(game.world().furniture_seat(second), None);
+    assert!(game.world().furniture_marker_in_use(id(CHAIR), Some(0)));
+}

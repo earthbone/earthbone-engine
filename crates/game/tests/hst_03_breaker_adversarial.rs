@@ -35,7 +35,9 @@ fn lock_events(game: &Game) -> usize {
     game.world()
         .pending
         .iter()
-        .filter(|event| matches!(event, Pending::Event { name, .. } if name == "OnLockStateChanged"))
+        .filter(
+            |event| matches!(event, Pending::Event { name, .. } if name == "OnLockStateChanged"),
+        )
         .count()
 }
 
@@ -77,7 +79,13 @@ fn hst_03_key_only_missing_record_or_missing_item_never_unlocks() {
     let player = absent_record.player();
     absent_record.world_mut().add_item(player, id(LOCKPICK), 1);
     assert!(!absent_record.attempt_lockpick(id(DOOR), player, id(LOCKPICK), 46.2));
-    assert!(absent_record.world_mut().reference(id(DOOR)).unwrap().locked);
+    assert!(
+        absent_record
+            .world_mut()
+            .reference(id(DOOR))
+            .unwrap()
+            .locked
+    );
 
     let mut absent_item = Game::new(order(50, true));
     let player = absent_item.player();
@@ -101,4 +109,19 @@ fn hst_03_picked_lock_state_survives_engine_save_and_load() {
     assert!(!game.world_mut().reference(id(DOOR)).unwrap().locked);
     assert!(game.activate_no_settle(id(DOOR), player));
     assert!(game.world_mut().reference(id(DOOR)).unwrap().opened);
+}
+
+#[test]
+fn hst_03_repeating_a_success_does_not_emit_another_lock_event_or_spend_a_pick() {
+    let mut game = Game::new(order(50, true));
+    let player = game.player();
+    game.world_mut().add_item(player, id(LOCKPICK), 2);
+
+    assert!(game.attempt_lockpick(id(DOOR), player, id(LOCKPICK), 46.2));
+    assert_eq!(lock_events(&game), 1);
+    assert!(!game.attempt_lockpick(id(DOOR), player, id(LOCKPICK), 46.2));
+
+    assert!(!game.world_mut().reference(id(DOOR)).unwrap().locked);
+    assert_eq!(game.world_mut().item_count(player, id(LOCKPICK)), 2);
+    assert_eq!(lock_events(&game), 1);
 }
