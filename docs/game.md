@@ -151,9 +151,16 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   `SOE_MOD_CORPUS` set to a directory containing one mod directory per child,
   it reports parser failures, unresolved Papyrus native declarations and
   plugin asset paths absent from that corpus and optional `SKYRIM_DATA`.
+  Asset lookup reads known model, icon and marker filename fields, not editor
+  IDs or localized display strings. An empty corpus directory has no mod roots.
+  Field selection follows xEdit's `TES5Edit/Core/wbDefinitionsTES5.pas`,
+  which defines `EDID` as Editor ID, `FULL` as Name and model fields as
+  filenames. Wabbajack's local `README.md` says modlists do not bundle assets,
+  so the sweep reads installed files in place.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
-  WAV containers. Wabbajack's local README describes modlists as reproduced
-  without bundling assets, so the sweep reads the installed files in place.
+  WAV containers.
+  Synthetic tests check each finding category and verify findings stay scoped
+  to their owning mod. The external sweep skips when `SOE_MOD_CORPUS` is unset.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
@@ -3344,9 +3351,9 @@ type at bytes 20 to 23, as xEdit defines it. Type 0x06 is ordinary enchanting
 and type 0x0C is staff enchanting. Staff enchantments can be applied to weapon
 forms, while armor accepts only ordinary enchantments.
 
-Enchanting, skill advancement, routing crafting inputs through Story Manager
-quest selection, item instance state and host menus remain unfinished. The full
-requested execution scope is tracked in [execution-plan.md](execution-plan.md).
+Enchanting, skill advancement, item instance state and host menus remain
+unfinished. The full requested execution scope is tracked in
+[execution-plan.md](execution-plan.md).
 
 ## Story Manager quest routing
 
@@ -3386,14 +3393,19 @@ has no authored Papyrus event name for them.
 
 Successful `Game::craft` transactions enqueue one `CraftItem` Story Manager
 input with bench, current location and created item arguments. Rejected
-transactions enqueue none. `World::take_story_manager_events` transfers these
-inputs to the scheduler. This submission path does not automatically route
-every gameplay action, and event routing remains dependent on the explicit
-Story Manager API and supported predicates above.
+transactions enqueue none. The next `Game::pump` converts each queued crafting
+input to the `CRFT` event and routes it through the authored Story Manager tree.
+The event carries the CK argument kinds for bench, location and created item,
+in that order. A routed quest retains the event and queues `OnStoryCraftItem`
+after `OnInit`. Routing errors are written to the VM log after the committed
+craft remains successful. `World::take_story_manager_events` transfers queued
+inputs out of the world for an external scheduler instead. Other gameplay
+actions still use the explicit Story Manager API. The COBJ recipe fields
+follow `TES5Edit/Core/wbDefinitionsTES5.pas`. The event name and argument
+signature follow `ck-wiki/Quest_Script.wikitext` in the local reference corpus.
 
-Tempering, alchemy, enchanting, skill advancement, routing crafting inputs
-through Story Manager quest selection, item instance state and host menus
-remain unfinished. The full requested execution scope is tracked in
+Tempering, alchemy, enchanting, skill advancement, item instance state and host
+menus remain unfinished. The full requested execution scope is tracked in
 [execution-plan.md](execution-plan.md).
 
 `Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCPT` event
