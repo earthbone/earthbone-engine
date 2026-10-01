@@ -3818,7 +3818,7 @@ host body together. While held, the host body is
 moved to the same eye-relative distance each physics step. Releasing the
 concentration cast, magicka exhaustion or a cast error clears the transient
 World reference, returns the host body to rigid simulation and queues
-`OnRelease`; a successful hold queues `OnGrab`. A second grab is rejected.
+`OnRelease`. A successful hold queues `OnGrab`. A second grab is rejected.
 The World does not serialize the grab because the host body is transient.
 The MAG-20 equip-ability grant is absent in this worktree, so the shipped
 spell's Telekinesis actor-value bonus is not applied.
@@ -3876,7 +3876,7 @@ Archetype 40 resolves its associated item as a winning HAZD record and reads it
 through the FMT-28 typed view. A valid cast places that base at the selected
 target's placement, assigns the caster as owner (or the source when no actor
 caster is available), and stores the reference on the active effect. The
-HAZD's inherited-duration flag selects the spell effect duration; otherwise
+HAZD's inherited-duration flag selects the spell effect duration. Otherwise
 its positive authored lifetime controls the active effect lifetime. Expiry or
 dispel disables and marks the owned hazard reference deleted through the
 existing summoned-reference cleanup. Missing, malformed or invalid HAZD data

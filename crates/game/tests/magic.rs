@@ -2753,12 +2753,15 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
                     examples.push(game.world().editor_id(*spell).unwrap_or_default());
                 }
                 for id in ids {
-                    let effect = game
+                    let Some(effect) = game
                         .world()
                         .active_effects()
                         .find(|effect| effect.id == id)
-                        .unwrap()
-                        .effect;
+                        .map(|effect| effect.effect)
+                    else {
+                        // CONTEXT: Later spell entries can dispel earlier applications.
+                        continue;
+                    };
                     if game.world().magic_effect(effect).unwrap().data.flags & 1 != 0 {
                         hostile_applications += 1;
                     }
