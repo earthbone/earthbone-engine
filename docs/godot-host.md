@@ -26,12 +26,38 @@ exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
 interactive Godot sight run or frame-cost measurement is recorded here.
 
+## Cell ambience, AUD-09
+
+The player owns one non-positional ambience stream through a Godot
+`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
+first eligible single-track path returned by `soe_game::ambience`, which reads
+MUST conditions and palette leaves. This uses Godot's audio server path
+documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
+crossfades, multiple regional sound descriptors and MUSC priority arbitration
+are not implemented.
+
+### Crosshair and held references, HST-18
+
+`PlayerNode` raycasts from the eye along the camera look direction on each
+advance and stores the hit reference in the shared game world. The Game
+Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
+current host values. Holding the mapped Activate input converts a hit
+reference's collision body to kinematic mode and moves it with the look ray.
+Releasing Activate returns its body to rigid mode. The grabbed reference is
+cleared when the cell is replaced. These values are transient and are not
+saved.
+
+The grab path currently uses references with static collision bodies loaded
+for the active cell. Movable-reference body creation and synchronizing their
+physics pose into the shared world remain HST-12 work.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
 selection. `Game.ShowRaceMenu` queues a transient host request that the player
 consumes on its next gameplay advance. The list comes from winning, non-deleted
-`RACE` records whose `DATA` playable flag is set, ordered by resolved FormID.
+`RACE` records whose `DATA` playable flag is set and whose required attributes
+are valid, ordered by resolved FormID.
 Confirmation stores the chosen race and sex through the shared game's player
 actor-base state. Actor values initialize from the confirmed race when the
 player actor is first built, and later confirmations leave initialized values
@@ -54,12 +80,34 @@ controls adjust normalized values from -1 to 1 in 0.1 steps. Confirm writes
 the draft to the player's shared actor state, which SOEW stores in the UI-14
 actor section. Closing the menu discards the draft and leaves the saved actor
 appearance unchanged. The preview is a menu summary of selected records and
-morph values. It is a menu summary, not rendered character appearance.
+morph values.
+
+### Race menu asset cache, UI-17
+
+`Game.PrecacheCharGen` asks the host to read model files for playable race
+head-part choices and the TRI files tagged as chargen morphs on those parts.
+The streamer retains each available path once and reports retained file count,
+NIF count, TRI count, byte total and paths missing from the active data VFS.
+`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
+counts. The asset buffers are CPU-side file data. This does not upload preview
+meshes or apply morphs to a rendered actor.
+
+The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
+clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
+model field and the NAM0 chargen TRI path.
 
 `godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
-record and sex button, and confirms through the connected Control callbacks.
-Run it with `SKYRIM_DATA` set and the extension loaded in
-`target/godot-check`.
+record and sex button, confirms through the connected Control callbacks, then
+reopens the menu and reads both selections back from the player state. It
+passed headlessly on Godot 4.7.2 with installed Skyrim data. The Rust tests
+cover native request queuing, playable race validation, one-time actor-value
+initialization, and the resulting player actor state.
+
+`Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
+the actor form. Valid trainers also reach the UI-16 presenter through its
+pending request. The host opens the training menu once and consumes the typed
+request without presenting it again. Camera-target and first-person geometry
+requests are applied through the transient camera controls.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
@@ -72,6 +120,42 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 0.5.5 (crates.io 2026-08-09, the same version as `engine-refs/gdext`), API floor Godot 4.4
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
+
+### Cart and horse host tether
+
+`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
+supplied cart and horse body RIDs and keys ownership by both resolved
+reference IDs, each encoded as `(file << 32) | object`. Creating another link
+for either endpoint first frees the old one. `untether_reference` frees links
+for explicit untethering. The player
+sync path also releases a link when either endpoint is missing or disabled,
+and `clear` or node teardown frees every remaining joint. The caller supplies
+the rigid bodies and local pivots. The host API does not infer cart bones or
+build the wheel, pole, chassis or horse rig from NIF collision data.
+
+### Editor forms dock, EDT-02
+
+`godot/addons/soe_forms` is a Godot editor plugin. It opens plugin paths in load-order order
+and names the active plugin, then filters winning forms by an optional four-character
+signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
+FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
+creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
+ID and winning plugin. The resource is a view and does not expose record editing.
+
+The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
+property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+`inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
+The plugin must be enabled in the Godot project's Plugins settings after building the
+extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
+field editor.
+
+`DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
+By default the entries live under the user cache directory
+(`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG
+variable is unset). `SOE_PLUGIN_CACHE` selects another directory, and the value
+`off` disables disk caching. The explicit cache argument on
+`open_with_threads_and_cache` and `open_loadout_with_threads_and_cache` is used
+by the cold and warm `soe-bench open-data` measurements.
 
 ## Layout
 
@@ -101,17 +185,44 @@ transforms and reports their largest difference from the cached World pose.
 `PlayerNode` exposes `gameplay_reference_pose`, `set_reference_enabled` and
 `despawn_reference` for host controls and integration checks.
 
+For AI-65, each gameplay input frame passes active sprint intent to the shared
+player actor state. The signal is true only while moving with sprint held and
+is false while standing, after sprint release or while sneaking. This supplies
+the transient state read by CTDA `IsSprinting` (568). The input intent test
+`ai_65_sprint_signal_tracks_movement_and_sneak_state` covers these cases.
+
 `godot/hst_12_movable_test.gd` uses the installed Bannered Mare cell, applies
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
+
+`CellBodies::apply_reference_physics_requests` drains the transient requests
+from `ObjectReference.SetMotionType` and `ApplyHavokImpulse` after placement
+sync. It applies motion modes and central impulses to resident movable bodies.
+Requests for references without a resident movable body are discarded. The
+Papyrus request queue and this host operation do not add saved state.
 
 `CellBodies::grab_movable_reference` changes one resident movable body to
 kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
 from a finite Skyrim-space position. `release_movable_reference` returns the
 body to rigid simulation at that pose. Each `CellBodies` collection permits
-one grabbed reference at a time. The game grab state and these host operations
-are separate APIs, and PlayerNode does not yet wire a targeting or held-input
-loop between them.
+one grabbed reference at a time. PlayerNode routes an Activate press during a
+Telekinesis concentration cast to the resident movable body with the smallest
+eye-ray offset, breaking ties by distance, whose center is within 48 Skyrim
+units of the eye ray and within the 180-unit reach. It confirms the World grab
+before changing the host body, moves the body to a
+fixed eye-relative distance on each physics step, and releases it when World
+clears the grab. A successful grab and release queue the reference's
+`OnGrab` and `OnRelease` events.
+
+### Papyrus Debug host requests, SCR-20
+
+`PlayerNode::advance_game` drains the transient `World::debug_host_requests`
+queue. Quit requests call Godot's `SceneTree.quit`. Cell-center requests move
+the player to the destination CELL origin, run the normal World cell
+transition, and pass the new placement through `sync_game_pose` so the shared
+streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
+latent id is resolved after that sync succeeds. The Game crate owns name
+resolution and rejects unknown CELL editor ids before queuing a request.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -148,6 +259,7 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `units` | no | Skyrim units and axes to Godot metres and Y up |
 | `streaming` | no | which cells to load and unload around a focus, with budgets and hysteresis |
 | `mesh` | no | a decoded NIF shape to `ArrayMesh` surface arrays, with validation |
+| `facegen` | no | apply named TRI morph weights to head-part meshes and compose ordered NPC tint masks into DDS files |
 | `terrain` | no | LAND heights to Terrain3D regions |
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
@@ -158,6 +270,28 @@ unmeasured. Static world collision is not evidence of hazard execution.
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
+
+`facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
+`FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
+passes the changed geometry through the same axis conversion, bounds and surface validation
+as streamed meshes. Normals are generated from the changed geometry. The caller resolves
+the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+
+## FaceGen tint textures, EDT-23
+
+`facegen::generate_face_tint` accepts decoded RGBA8 masks in the order supplied by the
+caller. Each mask alpha is multiplied by its layer opacity, and its color is blended over
+black. The result is encoded as one 512 by 512 BC1 sRGB DDS level. `face_tint_path` returns
+`textures/actors/character/facegendata/facetint/<plugin>/<FORMID>.dds`, where `FORMID` is
+the eight digit uppercase local form id used by Skyrim asset tools.
+
+The path follows Mutagen's `Npc.GetResolvedAssetLinks` implementation. xEdit's TES5
+definitions identify each race tint asset by layer index, texture path and mask type.
+TiltedEvolution's `FaceGenSystem` passes each tint texture, color, alpha and type to the
+engine tint renderer and allocates a 512 by 512 surface. Its `CreateTints` call is an engine
+function, so the blend arithmetic here is a deterministic editor export rule covered by a
+synthetic fixture. PyNifly was named in the backlog read-first list but is absent from the
+local reference corpus, which was unavailable from this worktree during conflict resolution.
 
 ### Game native presentation signals, SCR-29
 
@@ -177,9 +311,35 @@ game World. It keys active visuals by `(EFSH, target reference)`, so a second
 Play refreshes the existing RenderingServer instance. Stop frees it, finite
 durations free it after elapsed host time, and leaving the tree frees every
 remaining instance. Each active effect owns one sphere mesh instance and one
-material, with no scene node. The current material is a generic blue emissive
-fill. EFSH texture inputs, authored colors, blend modes, fade curves and
-attachment to skinned surfaces are not read yet.
+material, with no scene node. The membrane uses the EFSH fill texture through
+the shared data-source DDS cache, the first authored fill color, a mapped
+source/destination blend mode, and the fill alpha fade and persistent ratio.
+Particle emission, palette and edge texture effects, skin-only filtering, and
+attachment to skinned surfaces are not implemented. The local reference
+corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
+corpus has no EffectShader page. The synthetic tests verify request data and
+host fade/blend selection. Live rendered output has not been verified.
+
+## Invisibility rendering, MAG-34
+
+`SkinnedActorNode` reads invisibility from the actor's shared World state and
+sets visibility on every RenderingServer mesh instance. The initial appearance
+bind reads that state before creating instances, and later appearance rebuilds
+reuse the same cached state. Animated and ragdoll poses share these mesh
+instances, so the visibility change applies in either render mode. A later
+process update restores visibility after the effect expires or breaks. The
+game tests cover detection and break actions, while host unit tests cover the
+RenderingServer visibility mapping. Live Godot coverage of actors outside
+`SkinnedActorNode` remains open.
+
+## Runtime summoned lights, MAG-35
+
+Active magic effects that place a runtime reference with an LIGH base also
+create a point light through `RenderingServer` RIDs. The host reads the
+winning LIGH record's 48-byte DATA, using its RGB color, radius and negative
+light flag. The light follows the runtime reference position and is freed
+when the effect reference expires, becomes hidden or the streamer is cleared.
+It adds no scene node. Other LIGH references are not uploaded by this path.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
@@ -204,6 +364,24 @@ in the same divergence report as world and VM state.
 
 ## Streaming
 
+### Attaching a restored player, SAV-19
+
+`PlayerNode::attach_restored_game` accepts a `Game` after its vanilla-save
+restoration has succeeded. It requires shared data and a live cell streamer,
+checks that the player has a cell and finite position and rotation, then uses
+`sync_game_pose` to load the restored location, collision and camera state. It
+advances one 1/60 second host step and reports success only while the game,
+character, cell and camera remain attached. The caller should retain its active
+`Game` until this call succeeds.
+
+The UESP `Player_Location.wikitext` describes a world or cell, exterior cell
+coordinates and a position. FallrimTools' ESS player-location handling keeps
+that data separate from the player's ACHR change form. The game crate in this
+worktree does not expose the SAV-09 atomic world and VM restoration entry point,
+so no vanilla-save import currently calls this host adapter. The host check is
+therefore limited to the adapter's restored-pose validation. An end-to-end
+vanilla import, attached cell and advanced frame still require SAV-09.
+
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell
 (2 gives the game's `uGridsToLoad=5`). Cells are released only beyond `unload_radius`, which
@@ -217,6 +395,28 @@ The streamer assumes a requested load lands. A load that fails has to be reporte
 the streamer tracking load state itself, puts engine state into the decision logic and was
 what made every mod manager VFS in the notes hard to test.
 
+### Editor cell tree and selected view, EDT-03
+
+The Godot project enables `addons/soe_cell_editor`, an `EditorPlugin` dock with a
+worldspace and cell tree beside a `SubViewport`. After loading a Skyrim `Data` directory,
+`CellStreamerNode::editor_cell_tree` exposes winning `CELL` records with resolved form ids,
+editor ids, exterior worldspace and grid coordinates, and indexed placed-object counts.
+Interiors appear under their own tree group. Selecting a row calls
+`CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
+the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
+host renderer. It clears the previous selection first, so the viewport contains one cell.
+The viewport camera frames the rendered bounds after selection.
+
+This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
+cell records, expose reference selection, or add transform gizmos. The Godot project opens
+the cell view only after the author enters a valid `Data` directory or launches the editor
+with `SKYRIM_DATA` set.
+
+`PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
+per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`
+budget category through `Utility.GetBudgetCount`, `GetBudgetName`, `GetCurrentBudget` and
+`OverBudget`.
+
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
 `deleted_references` instead (`docs/esm.md`, "Dirty plugins"). A deleted
@@ -227,14 +427,19 @@ so the host never draws one and never has to test for it.
 triangle and byte totals when the caller supplies a `StreamCost` for each candidate cell.
 Costs may be measured or estimated. Loads stay nearest first, and a cell that does not fit
 either remaining limit is deferred while later smaller cells may be selected. A zero limit
-is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply mesh
-budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, which
-callers can use to calculate or estimate costs. The walking player path measures
-prepared surface arrays and calls `update_with_budget` when its exported
-`exterior_triangle_budget` or `exterior_byte_budget` is positive. The limits
-apply to selected mesh uploads. Preparation may decode more candidates on that
-tick so a smaller later cell can fit. Zero on both exported settings leaves
-the earlier cell-count behavior.
+is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply render
+budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, and
+`PreparedCell::stream_cost` adds payload bytes for textures its materials will use. It counts
+a texture path once within a cell, including every cubemap face, while shared paths in
+different candidate cells are counted again as a conservative estimate. The walking player
+path calls `update_with_budget` when its exported `exterior_triangle_budget` or
+`exterior_byte_budget` is positive. The limits apply to selected mesh and texture uploads.
+Preparation may decode more candidates on that tick so a smaller later cell can fit. Zero on
+both exported settings leaves the earlier cell-count behavior.
+
+The nearest-first planning follows the cell ordering in OpenMW's
+`apps/openmw/mwworld/scene.cpp` `sortCellsToLoad`. The host keeps its deterministic
+distance ordering and adds the per-tick work caps described above.
 
 `CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
 blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
@@ -798,10 +1003,22 @@ around the origin carry their own `LAND`, the city draws Tamriel's under the oth
 have terrain. Whether the shipped engine draws the parent's land under a child cell that has
 its own is not settled here, the override wins.
 
-What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
-layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
-untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
-shots for a quick visual sweep. Distant geometry is Bethesda's precomputed LOD (the `BTO` and
+For each terrain cell, `terrain_texture::bake` samples four 128 by 128 quadrant images. Each
+quadrant starts with its `BTXT` base texture, or `textures/landscape/dirt02.dds` when its
+texture is zero or unavailable. Each `ATXT` layer resolves its `LTEX` record, `TNAM` texture
+set and `TX00` diffuse path, then blends into the base using the `VTXT` opacity points on the
+17 by 17 quadrant grid. Opacity is bilinearly interpolated. Source textures repeat four times
+per quadrant. The baked RGBA image is attached to the terrain surface's ordinary albedo
+material and uploaded through the existing texture path. This uses the LAND/TXST layouts in
+TES5Edit and the UESP LAND description. Terrain3D's control map is a separate layer-index
+representation, but this host already streams one ordinary mesh per cell, so baking keeps
+the rendering path on Godot's existing mesh and material servers without adding Terrain3D.
+`rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
+`LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
+terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
+RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
+block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
 its winners, both streamed. Interior streaming by proximity is still unstarted.
@@ -973,18 +1190,22 @@ screen. This connects the two.
 
 ### Runtime animation requests, HST-10
 
-An appearance-bound `SkinnedActorNode` keeps its actor `GlobalFormId` and a
-cursor into the shared world's animation event log. On each `advance`, it
-passes new events for that actor to its HKX interpreter before updating the
-graph. Events for other forms and events already present when the actor was
-bound are skipped. The cursor advances across the whole log, so one request is
-submitted at most once to that host actor. The interpreter's emitted graph
-events continue through the node's `animation_event` signal after its pose is
-uploaded, once per event returned by `take_events()`. That interpreter method
-also returns submitted input events, so the signal does not report that a
-requested animation finished. `World::animation_event` currently records both
-script requests and listener notifications. The host does not instantiate a
-graph for non actor references, which `ObjectReference.PlayAnimation` requires.
+An appearance-bound `SkinnedActorNode` keeps its target `GlobalFormId` and a
+cursor into the shared world's animation request log. On each `advance`, it
+passes new requests for that target to its HKX interpreter before updating the
+graph. Requests for other forms and requests already present when the visual
+was bound are skipped. The cursor advances across the whole log, so one
+request reaches the matching visual at most once. Graph events are queued back
+to the shared world after their pose is uploaded. `Game` delivers them to
+`OnAnimationEvent` listeners and resolves matching `PlayAnimationAndWait`
+latent calls once. Removing the visual fails any waits for its target.
+
+The CK `PlayAnimationAndWait` contract comes from
+`engine-refs/ck-wiki/PlayAnimationAndWait_-_ObjectReference.wikitext`: send
+the named animation to the target graph, return true on the requested event,
+and false if the graph unloads first. This bridge only drives visuals
+explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
+animation graphs are not instantiated by this bridge.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
@@ -1008,6 +1229,11 @@ Three pieces, none of which touch Godot except the last:
   skeleton **per shape**, not per character: a shape's vertex bone indices
   address its own bone list, so two shapes naming different bones would read
   each other's transforms.
+
+After each pose upload, the actor node emits every graph event by its authored
+name. `PlayerNode.bind_actor_appearance` connects those signals to the shared
+game and reports graph unload when the visual leaves the scene tree. This
+resolves Papyrus event listeners and animation waits against the bound actor.
 
 ### Measured on the installed game
 
@@ -1134,7 +1360,7 @@ its own kind. So a crowded room drops footsteps rather than cutting dialogue.
 
 `tests/real_audio.rs`, gated on `SKYRIM_DATA`. Footsteps are `.wav` and need no
 decoder beyond `hound`, so they play in the default build. Voice lines are xWMA
-inside a FUZ and need the `xwma-ffmpeg` feature.
+inside a FUZ and use the in-process WMA v2 decoder in the default build.
 
 | Check | Result |
 |---|---|
@@ -1151,14 +1377,26 @@ first one measured Bethesda's content rather than this crate's conversion. The
 survey is what separates the two: if the decoder were broken, most of the 60
 would be silent, and 57 are not.
 
-### Untested
+### Live dialogue mixer check
 
-The last step, a speaker. These tests prove the chain up to the exact bytes
-`AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
-device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
-`open_data` pointed at the install, and `play_effect` called with a footstep
-path. Footsteps are driven by the character controller. Dialogue response
-audio is now driven by the dialogue menu.
+`godot/dlg_11_audio_test.gd`, launched by
+`crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
+through `SoundBank::open_data`. The script starts a response at the speaker
+position, captures nonzero samples from Godot's master mixer, stops that
+player, starts a replacement at a second position, and captures its output.
+This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
+Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
+newer executable and the release extension exists at
+`target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
+extension with `cargo build -p soe-godot-host --release` before running it.
+
+When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
+line. Without installed data it uses a generated WAV. The capture proves
+Godot's mixer received both voice buffers. It does not prove that a physical
+speaker or headset produced audible output. That still needs a windowed run
+with installed data and a `SoundBank` in the tree.
+Footsteps are driven by the character controller. Dialogue response audio is
+now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
 their VFS from resolved profile archives and loose roots. Both direct paths
 retain the supplied data directory. The selected
@@ -1242,6 +1480,11 @@ gives: the simulation's authority stays in the engine so a headless run and a re
 cannot drift. The third person boom raycasts against that same world and pulls in short of
 whatever it hits, keeping `collision_padding` clear, so the camera cannot end up inside a
 wall. Activating casts from the eye along the full look direction, pitch included.
+When shared gameplay is active, `PlayerNode` copies this full Skyrim-space
+look direction into `World` before script ticks so `Game.IsPlayerSungazing`
+uses the active camera orientation. `Game.ShakeCamera` requests are drained
+after each game tick and applied through the player `Camera3D` horizontal and
+vertical offsets until their requested duration expires.
 
 ### Untested here
 
@@ -1257,6 +1500,25 @@ Mouse motion drives look. Right/left modifier scan codes map to Godot's shared
 modifier keys, so side-specific chords are not distinguished. The walkthrough
 is a movement prototype. It does not activate game references, cross doors,
 play footsteps or run the gameplay VM.
+
+### Papyrus camera controls, HST-17
+
+The CK `Game_Script.wikitext` describes `SetCameraTarget` as setting the camera
+target actor, `ShowFirstPersonGeometry` as showing or hiding first-person
+geometry, and `SetSittingRotation` as setting the sitting camera offset.
+`skse64/scripts/vanilla/Game.psc` specifies that sitting offset in degrees.
+`soe-game` stores these transient requests in `World::camera_controls`, and
+`PlayerNode` applies them on its next game advance. A selected actor's current
+reference position becomes the camera anchor. The first-person geometry flag
+is retained as host camera state for the renderer. Sitting rotation offsets
+the camera yaw while leaving movement facing unchanged.
+
+`PlayerNode.camera_state()` reports the applied target FormID, geometry flag
+and sitting offset for host inspection. When a skinned appearance is bound to
+the player, the geometry flag controls its RenderingServer instances in first
+person. Third-person view keeps the player appearance visible. The
+`hst_17_camera_controls.rs` test exercises the state readbacks and verifies
+the third-person camera yaw and position respond to the sitting offset.
 
 ### Mouse and gamepad bindings
 
@@ -1658,14 +1920,24 @@ controller pose into the game, dispatches activation, ticks the VM, then
 applies script moves and door landings back to the host. The movement-only
 tests can still run without starting the game.
 
+When gameplay is running, the controller reads paralysis from the shared
+World before applying frame input. A live Paralysis magic effect replaces
+horizontal direction and speed with zero and blocks jumping, while physics
+continues to step for gravity. Once the effect expires, the next controller
+step applies movement input again. Tests
+`mag_42_paralysis_blocks_player_locomotion_and_jump` and
+`mag_42_player_locomotion_returns_when_not_paralyzed` cover both states.
+
 ### Furniture seating, HST-09
 
 Player activation of a FURN reference reserves an active Sit marker in the
 shared game state and moves the actor to the furniture reference transform.
 The player releases the reservation after moving more than 24 Skyrim units
 from that transform or changing cells. Activating the same furniture again
-also releases the reservation. The marker selection and saved actor state are
-described in [game.md](game.md#furniture-activation-hst-09).
+also releases the reservation. The strict distance boundary and cell-change
+release are covered by `hst_09_host_stands_after_movement_or_cell_change`.
+The marker selection and saved actor state are described in
+[game.md](game.md#furniture-activation-hst-09).
 
 ### Player sleep, HST-11
 
@@ -1705,17 +1977,22 @@ from the headless test.
 ## Lockpick activation requests (HST-03)
 
 When player activation reaches a locked, non-key-only reference without a
-matching key, `PlayerNode` retains its FormID as the pending lockpick target if
-the player carries a `Lockpick`. `pending_lockpick` exposes the target and
-authored lock level to an interaction UI. `resolve_pending_lockpick` applies
-the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
-deferred activation, while failure consumes a pick and leaves the reference
-locked. Keyed activation remains on the regular game path.
+matching key, `PlayerNode` opens its native lockpick panel if the player carries
+a `Lockpick`. The angle control submits attempts to the shared `Game`. A
+successful pick unlocks the reference and resumes ordinary activation. A
+failed attempt consumes a pick and leaves the panel available. Keyed activation
+remains on the regular game path.
 
-The UI-08 draft is absent from this worktree, so no lockpick minigame is
-presented and the player cannot resolve the pending request through the
-current host controls. The public host methods provide the handoff point. No
-Godot interaction test exercises that handoff yet.
+PlayerNode presents the current native lockpick panel when activation reaches
+this path. Its angle control and Turn lock button apply the attempt to the
+shared Game, then successful picks resume ordinary activation. The
+`hst_03_lockpick_handoff.gd` runtime test uses the synthetic
+`inventory_fixture` records to activate a keyless locked door, submit the
+record-derived successful angle, activate the unlocked door and reject a
+level 255 key-only door. Generate the fixture with
+`cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
+"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
+in the disposable Godot project used for host runtime tests.
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -1735,13 +2012,24 @@ mesh transform, and the collider remains its descendant, so Godot applies the
 same scene transform to both. `open()` resets controller time and starts its
 per-frame evaluation. The collision option defaults off. This path is for
 small animated references and does not change bulk cell batching.
+Godot's `MeshInstance3D.create_trimesh_collision` creates a `StaticBody3D`
+with a concave shape from that mesh. The controller is advanced by the host
+node's process callback, matching Godot's documented process-frame animation
+updates.
+
+When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
+winning model through the shared load order and VFS, loads the NIF bytes into
+an `AnimatedStaticNode`, enables trimesh collision, places it at the reference
+transform and starts its controller. A NIF with a supported transform
+controller is selected automatically. These nodes are freed when the host
+replaces the loaded location. `gameplay_swing_doors` and `swing_door_count`
+expose the current targets and attached-node count to host tests. Load doors
+keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
 with a rotation track, advances it, and confirms the generated static body
-follows the visual mesh transform. It does not connect ordinary door
-activation in `PlayerNode` to an animated door instance. Plain gameplay doors
-still keep their authored mesh pose and static collision when game state marks
-them open.
+follows the visual mesh transform. The player activation path loads animated
+swing-door NIFs from the VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
@@ -1834,6 +2122,24 @@ Unrestricted runs received SIGTERM while loading, before reaching the assertions
 The full lint gate passed with 1,169 Rust and 11 Python tests, with all optional
 lint tools present. Installed-data checks are separate from that gate.
 
+## Music playback (AUD-05)
+
+`PlayerNode.select_music_type(file, object, draw)` resolves the supplied MUSC
+through the shared `Game`, evaluates MUST conditions against the player, and
+passes the selected leaf to its SoundBank. A silent MUST fades the current
+music out. Other tracks decode through the active VFS into stereo
+`AudioStreamWav` resources and use two non-positional `AudioStreamPlayer`
+children. A transition fades the old MUST using its authored fade-out and
+brings in the selected track using the MUSC fade. Abrupt transitions skip both
+ramps. Starting another transition stops the earlier outgoing slot, so it
+cannot continue under the latest selection.
+
+Loose `.xwm` music and xWMA files in FUZ require the optional
+`xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
+policy, or track cycle/order flags. It uses those records' eligible ordered
+entries to select one track per call. Mixer playback is implemented, while
+physical speaker output remains unverified.
+
 ## Footstep audio integration (2026-09-19)
 
 Starting PlayerNode gameplay now creates a SoundBank sharing the same immutable
@@ -1901,17 +2207,21 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
-Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
-`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
-assets. The dialogue tests use a mock output and do not verify Godot playback.
+The default host build decodes vanilla xWMA in process through the audio
+crate's native WMA v2 decoder. The optional `xwma-ffmpeg` feature selects
+ffmpeg as a comparison decoder. The dialogue tests exercise response selection
+and replacement with mock output. The Godot mixer test checks speaker playback
+with a generated WAV fixture. Installed xWMA playback still needs a live run.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
-samples the native mouth targets against that player's playback position,
-spreading the stored frames over the decoded voice duration. The
-`dialogue_mouth_weights` method returns the current weights in LIP target
-order. Stopping or finishing the voice clears the track and returns its
-weights to zero. Lines without a decodable LIP block keep the mouth weights
-empty or neutral.
+tracks the active dialogue slot and samples the native mouth targets against
+that player's playback position, spreading the stored frames over the decoded
+voice duration. The `dialogue_mouth_weights` method returns the current weights
+in LIP target order. Stopping or finishing the voice clears the track and
+returns its weights to zero. Lines without a decodable LIP block keep the mouth
+weights empty or neutral. `tests/dlg_20_lip_playback.rs` exercises decoded
+frames through the same slot lifecycle used by SoundBank, including playback
+updates and interruption.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
@@ -2001,6 +2311,32 @@ The synthetic host tests cover one returned request, duplicate release markers
 and cancellation with the ammunition count unchanged. No Godot node or
 per-reference resource is created for this release state.
 
+## Projectile flight, CMB-22
+
+`combat::ProjectileFlight` advances the release request with fixed-step
+gravity, checks each segment through `PhysicsDirectSpaceState3D.intersect_ray`,
+and stops on its first actor or obstruction. Actor bodies resolve through the
+existing World-owned RID map, and the firing actor's bodies are excluded. The
+flight ends at PROJ range if it has no contact. Contact is latched once, so
+later updates cannot report another target or obstruction. Flight state is
+transient and adds no node or per-reference resource.
+
+Synthetic tests exercise configured gravity, repeatable fixed steps, range
+termination and one-time actor and obstruction contacts. The query uses a
+segment ray, so PROJ collision radius and actor impact damage are not applied
+by this increment.
+
+## Recoverable missed arrows, CMB-23
+
+`ProjectileFlight::recover_missed_arrow` consumes one recorded world
+obstruction impact and asks the shared `Game` to create a dynamic AMMO
+reference at that point. A second call cannot create another reference.
+Recoverable state comes from an arrow AMMO record whose header and DATA flags
+allow play. Actor contacts and range expiry do not leave an arrow reference.
+The host flight itself remains transient. SOEW persists the placed reference
+through the existing reference table. No scene node or extra save payload is
+added for the arrow.
+
 ## Actor contact bodies and pose segments, CMB-28
 
 `godot_physics::ActorBodies` gives every resident actor one static query body
@@ -2030,19 +2366,45 @@ The contact query now reads two owner maps: bodies registered through
 attacker in either map is excluded. `intersect_ray` returns the nearest hit
 along the segment, so the first actor or unmapped obstruction wins.
 
-`aimed_spell_projectile_contact(spell_file, spell_object, contact_body)` maps
-the contacted actor body RID through that same owner table and applies the
-aimed spell through `World::cast_spell_on_projectile_contact`. Unknown bodies
-and rejected casts return false. The caller discards the projectile after a
-successful contact. This callback allocates no projectile node and stores no
-projectile or save state.
+`cast_touch_spell(spell_file, spell_object)` casts a touch spell at the first
+eligible actor intersected by the camera's forward physics ray. The ray length
+comes from the winning SPEL's SPIT range converted to Godot metres. The player's
+own bodies are excluded, and the nearest static obstruction or unmapped body
+blocks actors behind it. The returned actor must still be enabled, undeleted
+and alive in the shared World. `World::cast_spell` performs its authored reach
+check before applying effects. Invalid spells, unavailable physics space,
+misses and rejected targets return false.
 
-`cast_location_spell(spell_file, spell_object, x, y, z)` sends the selected
-Skyrim world position to `World::cast_spell_at_location`. The player's static
-physics world raycasts from the player feet to the point. Missing physics data
-or any geometry hit rejects the cast before the world applies effects. The
-world checks the authored SPIT range and centers each effect's area at the
-selected point.
+`aimed_spell_projectile_contact(spell_file, spell_object,
+projectile_instance_id, contact_body)` maps the contacted actor body RID
+through that same owner table and applies the aimed spell through
+`World::cast_spell_on_projectile_contact`. The first contact consumes the
+projectile's instance ID before applying effects, so duplicate Godot contact
+signals cannot repeat the hit. Unknown bodies and rejected casts return
+false. The projectile owner calls `aimed_spell_projectile_finished` when it
+frees the projectile, which releases the one-shot guard. This callback does
+not create or advance projectile flight.
+
+xEdit's `wbDefinitionsTES5.pas` defines SPIT delivery value 2 as Aimed. The
+CK `OnHit_-_ObjectReference.wikitext` describes spell projectiles as contact
+hits and notes that each associated magic effect can produce its own hit
+event. The world contact API applies the spell effect list once for the
+reported actor contact. `mag_02_projectile_contact.rs` checks that repeated
+contact signal delivery for one projectile dispatches only once and that
+freeing it releases the guard. Flight creation and movement are not covered.
+
+`selected_location_position()` returns the first static geometry hit along the
+camera look ray in Godot metres. `cast_location_spell_at_look(spell_file,
+spell_object)` sends that same hit point to the shared cast path. The explicit
+`cast_location_spell(spell_file, spell_object, x, y, z)` entry point accepts a
+Skyrim world position. Both check the segment from the player's eye to the
+point, allowing a hit at the endpoint and rejecting an earlier obstruction.
+Missing physics data rejects the cast. The world checks the authored SPIT
+range and centers each effect's area at the selected point.
+
+`godot/mag_17_location_selection_test.gd` loads the installed Bannered Mare,
+checks that the live camera ray selects loaded geometry, and casts the vanilla
+Fire Rune at that selected surface through the host callback.
 
 Pose-derived segments come from two new entry points.
 `melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
@@ -2194,6 +2556,17 @@ existing dedicated directory accepts an absolute path or `user://`, and
 retention must be between 2 and 64. The [generation protocol](save-resilience.md#sav-63-verified-generations)
 documents integrity checks, retention and recovery diagnostics.
 
+## Scripted ragdoll and knockback requests, CMB-38
+
+`SkinnedActorNode` follows the actor's explicit CMB-38 ragdoll override when
+one is set, otherwise it follows the death or unconscious state. It drains queued impulses for
+its bound actor and applies them to the first ragdoll body through the Godot
+physics server. Impulses use the host's Skyrim-to-Godot axis map and metre
+scale. A command drained before a ragdoll exists is discarded. The host path
+uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
+approximation because the CK pages do not state the force unit expected by
+the physics solver.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears
@@ -2205,6 +2578,16 @@ not a claim of whole-host atomic loading or missing-mod recovery play.
 The methods compile in the full feature gate. Synthetic Rust tests execute
 the shared Game file APIs, corruption recovery and interrupted rotation.
 Interactive Godot resource installation after recovery remains untested.
+
+Papyrus `Game.RequestSave` and `Game.RequestAutoSave` write verified native
+generations below `user://saves/manual` and `user://saves/automatic`, retaining
+up to three per directory. The host creates the selected directory when the
+request runs and reports write failures to Godot's error log. `Game.ForceFirstPerson`
+and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
+`Game.FadeOutGame` uses the existing screen overlay, applies the requested
+delay and duration, and chooses black or white from its black-fade flag.
+Negative or non-finite timing values are rejected by the Game native and
+logged. These operations run after the VM tick that enqueued them.
 
 ## Native menu framework
 
@@ -2222,7 +2605,28 @@ execution is not part of this HUD.
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
 The controls compile with gdext, but their appearance in a running Godot
-window has not been exercised.
+window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
+in the installed Bannered Mare cell and checks viewport pixels in the three
+meter labels, bars and compass after Godot processes frames. The synthetic
+Rust update test changes all three shared actor values and checks their
+updated fractions.
+
+Run the host check with the release extension loaded and installed data set:
+
+```sh
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --display-driver wayland --path godot --script ui_06_hud_render_test.gd
+```
+
+The local `engine-refs/skyui/src/HUDWidgets/skyui/widgets/meter/MeterWidget.as`
+and `engine-refs/skyui/src/Common/skyui/components/Meter.as` informed the
+0-to-1 bounded fill. SkyUI keeps a meter hidden until `initCommit` and permits
+fill-direction, color, flash and animation settings. This native HUD displays
+the three meters when gameplay starts and does not implement those Scaleform
+widget calls. `MiniMapWidget.as` reads a player angle separately from a
+compass angle. The native compass currently centers `PlayerNode` camera yaw,
+so it does not apply cell NorthMarker orientation. The CK
+`GetActorValue - Actor` and `GetActorValueMax - Actor` pages define current and
+modified-maximum stat inputs. Compass direction is not an actor value.
 
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
 PanelContainer, two VBoxContainers, one Label and one Button form the fixed
@@ -2246,10 +2650,12 @@ configured script form.
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
 option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
-presentation under the project intent. UI-05 script registration and page
-lifecycle work is not present in this worktree, so the option model and
-presenter are callable host pieces rather than a complete unmodified MCM script
-execution path. UI-11 tests exercise their protocol without Skyrim data.
+presentation under the project intent. The UI-11 fixture starts a Papyrus quest
+using the `SKI_ConfigBase` lifecycle shape, then adds text and toggle rows,
+changes toggle enabled state and checks the `OnOptionSelect` callback count.
+The test uses a focused script fixture rather than executing SkyUI's complete
+source scripts. The host menu manager and Scaleform APIs remain outside this
+path.
 
 ### MCM slider and menu dialogs, UI-12
 
@@ -2277,14 +2683,25 @@ The callback does not change the row value. The config script can apply its
 decision with `set_keymap_value`. Opening a color dialog sends
 `OnOptionColorOpen(option)`, and accepting the active dialog sends
 `OnOptionColorAccept(option, color)`. The config script applies an accepted
-value with `set_color_value`. Cancel clears the active dialog without sending
+value with `set_color_value`. A color dialog starts with SkyUI's `-1` start and
+default colors. Its active dialog setters model `SetColorDialogStartColor` and
+`SetColorDialogDefaultColor`. Cancel clears the active dialog without sending
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. Its Scaleform-bound presenter cannot serve the chosen
-native Godot UI, so this host models the public callback contract. Synthetic
-tests cover callback eligibility, conflict arguments at the API boundary,
-acceptance and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
+first, then registered mod config mappings in registration order. A vanilla
+match has an empty config name, and a mod match reports that config's name.
+`remap_key_scanned` performs this lookup before dispatching the callback. The
+manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
+so this host models the public callback contract and the manager's conflict
+lookup. Conflict maps are currently supplied to `KeyConflictScanner` by the
+caller. The host does not yet query Godot's live input map or ask registered
+Papyrus configs for `GetCustomControl`. Color dialog parameters are exposed by
+the host model. They are not yet wired to Papyrus calls to the two SkyUI setter
+functions. Synthetic tests cover callback eligibility, vanilla and mod
+conflict precedence, callback arguments, color dialog parameters, acceptance
+and cancellation without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -2297,6 +2714,7 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
+Dialogue and MCM presenters remain unimplemented and can use this shell with
 Crafting and MCM are not implemented here. Their menus can use this shell and
 their existing gameplay APIs.
 
@@ -2321,6 +2739,13 @@ contents. CK's local `GetContainerForms_-_ObjectReference.wikitext` describes
 enumerating container forms, and `OnContainerChanged_-_ObjectReference.wikitext`
 documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
+
+The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
+It lists positive inventory totals after applying the optional form or keyword
+filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
+with the accumulated nonnegative gift value. Both giving and taking use the
+same source and target transaction path.
 
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
@@ -2352,6 +2777,26 @@ equipped.
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 
+Creation bench activation opens a native Control recipe list, including an
+empty state when the bench has no eligible COBJ recipes. Rows show the recipe
+name, output and output count. Rows blocked by missing ingredients are
+disabled. The first available recipe receives keyboard/gamepad focus when the
+list opens. Confirming an available row calls
+`Game::craft`, which rechecks eligibility and commits ingredient and output
+inventory events. The host identifies creation benches from their FURN WBDT
+mode. This presenter uses the existing transaction path and adds no crafting
+state to the host.
+
+Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
+native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
+crafting menu's recipe list and selected-recipe confirmation flow.
+
+`Game.ShowTrainingMenu(actor)` requests this presenter through a transient
+World request. The presenter shows the trainer's skill, current value, tier
+cap, DLG-16 price and remaining per-level sessions. The purchase button is
+disabled when the player lacks gold or has reached the skill or session cap.
+Purchases call the shared World transaction and redraw the offer afterward.
+
 The native J shortcut opens the quest journal through the same menu shell.
 It reads loaded active quest state from the shared Game, omits QUST type 0,
 and hides the title for miscellaneous type 6 quests. It lists only objectives
@@ -2360,6 +2805,16 @@ the journal is open, PlayerNode compares the current rows with its last
 snapshot each process frame and rebuilds the presenter when shared quest
 state changes. The menu does not maintain quest or objective state of its
 own.
+
+`crates/godot-host/tests/ui_04_quest_journal.rs` checks the presenter against
+synthetic quest records, including a stage change that replaces the displayed
+objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
+shared Game in Bannered Mare and checks that the native menu panel and quest
+text controls are populated. Run it after building the extension and importing
+the Godot project with
+`SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
+This verifies the Godot control tree and its text, without asserting a rendered
+image.
 
 The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK `Quest_Script.wikitext`
@@ -2373,23 +2828,30 @@ resolved Skyrim position, authored compass lock flag and a visibility value
 derived from the objective's displayed state and the target reference's
 enabled and deleted state. Target CTDA conditions are evaluated against the
 current Game and VM, and a target is omitted when its conditions are false or
-cannot be evaluated. The presenter reads the shared world and adds no saved
-state. QSTA layout rules come from `uesp-modfileformat/QUST.wikitext` and
-`TES5Edit/Core/wbDefinitionsTES5.pas`.
-No Godot map control currently consumes these markers, so their on-screen
-display and spatial projection remain unverified.
+cannot be evaluated. The native map surface is opened from the quest journal.
+It plots marker XY positions north-up on a Godot Control and hides markers
+whose presenter visibility is false. The surface refreshes when its resolved
+marker data changes. The presenter reads the shared world and adds no saved
+state. QUST target rules follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `uesp-modfileformat/QUST.wikitext` and
+the CK `Quest_Script.wikitext` objective display semantics. Location marker
+resolution follows `uesp-modfileformat/LCTN.wikitext`, where `MNAM` identifies
+the world-location marker reference.
 
-The lockpicking presenter (UI-08) opens when player activation reaches a
-locked, non-key-only reference and the player has a lockpick but no matching
-key. Its angle slider and Turn lock button submit attempts to
-`Game::attempt_lockpick`. A miss consumes a pick and leaves the menu available
-for another angle. A successful turn closes the menu and activates the same
-reference through the ordinary Game path. The menu is presenter state only.
-CK Lock and GetLockLevel pages plus xEdit's XLOC definition establish lock
-state, level bands and the key-only level 255 case. The angle rule is the
-game crate policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
-Synthetic `ui_08` game tests cover both outcomes. The Godot control interaction
-has not been exercised in a running scene.
+The lockpicking presenter opens when player activation reaches a locked,
+non-key-only reference and the player has a lockpick but no matching key. Its
+angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
+A miss consumes a pick and leaves the menu available for another angle. A
+successful turn closes the menu and activates the same reference through the
+ordinary Game path. The menu is presenter state only. The
+`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
+synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
+xEdit's XLOC definition establish lock state, level bands and the key-only
+level 255 case. The angle rule is the game crate policy documented in
+[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
+tests cover both outcomes. The Godot control interaction has been exercised
+with the successful turn. Visual presentation and minigame feel remain
+unverified.
 
 ## Dialogue menu, DLG-10
 
@@ -2477,16 +2939,26 @@ The lifetime sources and tested timing policies are documented in
 remain in their winning records. MAG-71 owns their evaluation and visible
 post-processing through the host stack, including renderer resource cleanup.
 
+## Effect shader playback snapshot, SCR-24
+
+`effect_shader::EffectShaderStack` copies active EFSH and target identities
+with each remaining duration from the shared World. PlayerNode syncs this
+snapshot after gameplay startup and each gameplay tick, clears it when the
+data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
+array. It allocates no scene node or server resource. The host does not yet
+render EFSH authored textures, color keys or particles on reference geometry.
+See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
+
 ## Image-space renderer prerequisites, MAG-71
 
-The MAG-71 source audit confirms that the host needs the MAG-72 base IMGS
-pipeline before the complete modifier renderer can be accepted. PlayerNode
-currently synchronizes identity, age and strength only. No Environment,
-CameraAttributes or Compositor consumes that snapshot. `godot/walkthrough.gd`
-constructs a fixed background, ambient light and directional light. Those
-constants are not the cell or weather's authored image space. Substituting
-them for IMGS values would change multiply curves and restoration after a
-modifier ends.
+`ImageSpaceStack::render_layers` samples the active modifiers' authored IMAD
+curves through the shared World and returns their channels beside each layer's
+active strength. It does not attach an Environment, CameraAttributes or
+Compositor to the camera. `godot/walkthrough.gd` constructs a fixed background,
+ambient light and directional light. Those constants are not the cell or
+weather's authored image space. MAG-72's shared base IMGS pipeline is absent
+from this worktree, so the host does not apply the sampled values to rendered
+frames. The rendered acceptance check remains open.
 
 MAG-72 owns resolution and rendering of base IMGS HDR, cinematic, tint and
 depth fields for CELL/XCIM and explicitly selected WTHR/IMSP inputs. Its
@@ -2522,12 +2994,19 @@ Sources read under `engine-refs`:
   `tutorials/shaders/advanced_postprocessing.rst` describes depth access and
   reconstruction. No custom compositor was installed during this audit.
 
+`mag_71_host_frame_keeps_curve_samples_with_their_active_weights` checks that
+the host frame preserves the sample and the independent active weight. The
+game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
+synthetic animated color, blur, depth and HDR keys.
+`mag_71_installed_imad_curves_sample_winning_records` is gated on `SKYRIM_DATA`
+and samples each winning IMAD at its active normalized age. These checks do not
+create rendered image fixtures or verify GPU resource cleanup.
+
 The repeatable installed survey and its exact counts are recorded in
 [game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). It verifies
-record layout and dependency reach. It does not render, measure frame time or
-test GPU resource cleanup. No Godot process was launched and no visible
-image-space behavior is claimed for this audit. The full MAG-71 acceptance
-check remains in BACKLOG.csv without a narrowed color-only substitute.
+record layout and dependency reach. No Godot process was launched, no frame
+time was measured, and no visible image-space behavior is claimed. MAG-71's
+full rendered acceptance check remains in BACKLOG.csv.
 
 ## Record-driven skin refresh (INV-08)
 
@@ -2592,9 +3071,26 @@ pose for an authored idle cue.
 
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
-the current human rig does not contain. Live binding reports this mismatch and
-keeps the previous geometry. Breton, High Elf and Nord addons match that rig.
-ANM-55 tracks record-selected animation rigs without narrowing skin selection.
+the human rig does not contain. Breton, High Elf and Nord addons match that rig.
+ANM-55 reads the sex-specific skeletal `ANAM` NIF and behavior project `MODL`
+from the actor's current race. It follows the project data to the character's
+HKX skeleton and graph. When the NIF skeleton has bones absent from that HKX
+skeleton, the host adds those named nodes with their NIF parent and local
+transform. `SkinnedActorNode.bind_actor_appearance` loads that rig with the
+actor's full selected skin. When the live race or sex changes, the node loads
+the new rig and appearance before replacing the previous view. Every selected
+skin shape must map all its bone names onto the race rig or the replacement is
+rejected. Paths use the data source VFS and its file overlay.
+
+## Facial expression target mapping (ANM-59)
+
+`facial::expression_weights` maps CK expression ids 0 through 16 to the
+corresponding named head blend shape and returns weights for available
+expression names only. `apply_expression` sets the selected shape to the
+requested percentage and zeros competing expression shapes while preserving
+other morph values. The actor NIF pipeline does not currently load Skyrim
+`.tri` targets or upload Godot blend shape arrays, so this mapping is not yet
+connected to a rendered vanilla head.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -2608,9 +3104,21 @@ so that larger startup is not claimed as verified. Rust checks execute the node'
 same `AppearanceCache::prepare` path, including live record mutation, failed-view
 caching and explicit rig mismatch results.
 
+`anm_55_actor_race_rigs` loads installed Nord, Argonian and Draugr skeleton and
+behavior paths and requires every selected skin bone to map onto the chosen rig.
+
 The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
 surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its
 idle-to-walk transition completed with exit status 0.
+
+Skinned actor meshes resolve each shape's NIF material textures through the
+same VFS and DDS loader as streamed meshes. `SkinnedActorNode` opens the nine
+vanilla texture archives alongside its mesh and animation archives, creates a
+`StandardMaterial3D` from each shape's material and decoded textures, and
+attaches it to the uploaded mesh surface. The installed-data check
+`rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
+that the vanilla male body has authored diffuse paths and that each path
+resolves to image data. This verifies material inputs, not a rendered capture.
 
 ## Nearby interior prefetch, HST-07
 
@@ -2758,6 +3266,19 @@ and atlas baking are not part of this path.
 
 ## Distant-terrain LOD residency, RND-03
 
+`DataSource::generate_terrain_lod_block` reads winning CELL and LAND records
+for a selected worldspace block. Where PNAM requests parent land, its LAND
+fills positions without a child LAND. It samples authored heights onto a 33
+by 33 tile grid for levels 4, 8, 16 and 32, edge extends missing height
+samples, and writes triangles only over cells with LAND. The returned BTR
+bytes use the `soe-nif` writer and can be passed to
+`DataSource::load_lod_block_bytes` for preview through the same mesh and
+surface builder as archived BTR files. A block without LAND returns `None`.
+
+The generator writes a land shape with LOD landscape shader flags. It does
+not generate diffuse or normal textures, a water shape, or the vanilla
+`BSMultiBoundNode` chunk root.
+
 `crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
 for full resolution LAND terrain (`exterior.rs::terrain_surface`) beyond the
 cells the cell streamer keeps loaded, and tracks a recorded byte budget for
@@ -2792,8 +3313,8 @@ TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
 `LODLevelMin`/`LODLevelMax`), the only LOD block sizes the corpus documents.
 No corpus source documents landscape LOD generation the way `wbLOD.pas`
 documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
-`TwbLodSettings.BlockForCell` and this crate's own
-`terrain::RegionSpec::region_of` rather than a landscape-specific reference.
+`TwbLodSettings.BlockForCell`, with integer division truncated toward zero
+relative to the worldspace's anchor, including negative offsets.
 
 ### Residency and budget
 
@@ -2915,6 +3436,29 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Per-cell occluder trial, RND-07
+
+`batch::cell_occluder_mesh` selects at most four opaque source surfaces per
+cell, ordered by descending triangle count with source order breaking ties.
+Cutout and blended surfaces are excluded because they contain visible holes
+or transparency. Candidate vertices already converted to Godot coordinates
+are copied into one mesh. A `MultiMesh` surface receives its placement
+transform before it is copied. `CellStreamerNode` creates one server occluder
+instance for a cell when the runtime exposes Godot's 3D occluder methods, and
+frees both associated RIDs when the cell unloads or the node clears. The
+exported `cell_occluders` switch defaults off pending a measured improvement.
+
+Godot's local `ArrayOccluder3D` and `OccluderInstance3D` docs state that
+occlusion culling has CPU cost and is usually not useful for large open
+scenes. The trial therefore uses the existing windowed `bench.gd` sampler
+with the same scene and camera. `SOE_BENCH_OCCLUDERS=0` disables both the
+occlusion setting and generated meshes. Setting it to `1` enables both.
+The first Bannered Mare run loaded 318 statics and 145 draw instances with
+zero mesh failures, but X11 reported `BadAccess` and the process did not
+produce a frame percentile. Baseline p99: not recorded. Occluder p99: not
+recorded. The feature remains off until both values can be collected and the
+occluder run is lower.
 
 ## Water planes, RND-02 (2026-09-24)
 
@@ -3061,6 +3605,23 @@ the unload of the grass cell and restreaming the new set leaves it out.
 `godot/rnd_11_test.gd` runs the same path inside Godot through
 `stream_exterior` and `release_exterior_cell`.
 
+## Main menu lifecycle, UI-18
+
+The Game globals `QuitToMainMenu` and `StartTitleSequence` queue transient
+host requests on the shared World. PlayerNode consumes them after a gameplay
+tick. Returning to the main menu closes any modal menu, drops the active Game,
+streaming source, cell and host physics resources, and emits
+`returned_to_main_menu`. `is_main_menu` reports this state. Starting a title
+sequence first enters the main menu, stores the requested name as the active
+sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
+returns that name or an empty string when none is active. A plain return clears
+any active sequence. Starting a new game leaves the main menu state.
+
+The SCR-31 host tests call both globals through Papyrus, check their transient
+requests, and apply those requests to the same menu state used by the host.
+`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
+preserves the requested sequence name.
+
 Open gaps, none closed by this row:
 
 - Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
@@ -3080,3 +3641,35 @@ Open gaps, none closed by this row:
 - The `CellStreamer` release path in the Godot layer only follows
   `stream_exterior` grid positions. `stream_cell` by editor id does not
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
+
+## Player trigger crossings, HST-14
+
+`PlayerNode::advance_game` submits the player's previous and current world
+positions to `Game::update_trigger_actor_position` after writing the current
+pose into the shared world. The game reads XPRM trigger references in the
+player's current cell, updates occupant membership and queues Papyrus enter or
+leave events. This connects the player controller to trigger scripts without
+adding per-reference Godot nodes. Other actor movement systems submit their
+own position steps through the same game API.
+
+## Named NIF particle emitters (RND-14)
+
+`ParticleEmitterNode::load_nif(path, emitter_name)` parses an SSE NIF through
+`soe-nif`, selects a named volume emitter, and creates one `MultiMesh` and
+one `RenderingServer` instance in its 3D scenario. Each `advance(delta)`
+updates the bounded `soe-nif` timeline, writes the surviving positions as
+MultiMesh transforms and sets the visible instance count. `_process` calls
+`advance` while `playing` is true. `particle_count`, `emitted_count` and
+`rendered_count` expose the timing and upload counts to
+`godot/rnd_14_test.gd`. The node frees its RID on exit.
+
+Each particle draws an untextured, two sided quad in the emitter's initial
+color and radius. The node loads a NIF by path and selects an emitter by name.
+
+## Papyrus screenshot capture, HST-19
+
+The `PlayerNode` gameplay tick drains transient screenshot paths queued by
+`Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
+`take_screenshot(path)` entry point calls the same Papyrus native and services
+its request immediately. `godot/hst_19_screenshot_capture_test.gd`
+checks that this path writes a PNG under Godot headless with installed data.

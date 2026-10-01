@@ -16,6 +16,7 @@ default = []
 encode = ["dep:image_dds"]
 
 [dependencies]
+bcdec_rs = "0.2"
 thiserror = "2"
 image_dds = { version = "0.3", default-features = false, features = [
     "ddsfile",

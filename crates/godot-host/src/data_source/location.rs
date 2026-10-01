@@ -33,15 +33,61 @@ pub(crate) struct PreparedCell {
 #[cfg(feature = "godot")]
 impl PreparedCell {
     pub(crate) fn stream_cost(&self) -> crate::streaming::StreamCost {
+        let mut uploaded = std::collections::HashSet::new();
+        let mut texture_bytes = 0usize;
+        for surface in &self.loaded.surfaces {
+            let material = &surface.arrays.material;
+            let textures = &surface.textures;
+            for (kind, path, texture) in [
+                (
+                    0u8,
+                    material.diffuse.as_deref(),
+                    textures.diffuse.as_deref(),
+                ),
+                (0, material.normal.as_deref(), textures.normal.as_deref()),
+                (0, material.glow_texture(), textures.glow.as_deref()),
+                (
+                    1,
+                    material.environment_texture(),
+                    textures.environment.as_deref(),
+                ),
+                (
+                    0,
+                    material.environment_mask.as_deref(),
+                    textures.environment_mask.as_deref(),
+                ),
+            ] {
+                let Some(texture) = texture else {
+                    continue;
+                };
+                let key = path.map(|path| (kind, soe_bsa::normalize(path)));
+                if key.as_ref().is_none_or(|key| uploaded.insert(key.clone())) {
+                    texture_bytes = texture_bytes.saturating_add(texture_payload_bytes(texture));
+                }
+            }
+        }
         crate::streaming::StreamCost {
             triangles: self.loaded.stats.triangles,
             bytes: self
                 .loaded
                 .surfaces
                 .iter()
-                .map(|surface| surface.arrays.mesh_byte_count())
-                .sum(),
+                .fold(texture_bytes, |bytes, surface| {
+                    bytes.saturating_add(surface.arrays.mesh_byte_count())
+                }),
         }
+    }
+}
+
+#[cfg(feature = "godot")]
+fn texture_payload_bytes(texture: &super::TextureData) -> usize {
+    match texture {
+        super::TextureData::Cubemap(faces) => faces
+            .iter()
+            .map(texture_payload_bytes)
+            .fold(0usize, usize::saturating_add),
+        super::TextureData::Compressed { bytes, .. } => bytes.len(),
+        super::TextureData::Rgba8(image) => image.rgba.len(),
     }
 }
 
@@ -132,6 +178,7 @@ impl DataSource {
         let mut colliders = Vec::new();
         let mut world = SimpleWorld::new();
         let mut references = HashMap::new();
+        let mut placed_colliders = Vec::new();
         let mut collision_cells = BTreeMap::new();
         let mut stats = CollisionStats::default();
         for (id, loaded) in &cells {
@@ -147,7 +194,8 @@ impl DataSource {
                 let body = world.add_static(&placed.collider);
                 references.insert(body, placed.reference);
                 bodies.push(body);
-                colliders.push(placed.collider);
+                colliders.push(placed.collider.clone());
+                placed_colliders.push(placed);
                 stats.bodies += 1;
                 stats.primitives += world.primitive_count() - before;
             }
@@ -161,6 +209,7 @@ impl DataSource {
                 world,
                 stats,
                 references,
+                placed: placed_colliders,
             },
         })
     }
@@ -280,5 +329,98 @@ impl DataSource {
             });
         }
         Ok((placed, stats))
+    }
+}
+
+#[cfg(all(test, feature = "godot"))]
+mod hst_08_tests {
+    use super::*;
+    use crate::data_source::{CellStats, LoadedSurface, SurfaceTextures, TextureData};
+    use crate::mesh::{Aabb, MaterialDesc, SurfaceArrays};
+    use crate::streaming::{CellStreamer, StreamBudget, StreamConfig};
+    use crate::units::{GodotPos, SkyrimPos};
+    use std::sync::Arc;
+
+    fn surface(texture: Arc<TextureData>) -> LoadedSurface {
+        LoadedSurface {
+            reference: GlobalFormId { file: 0, object: 1 },
+            arrays: SurfaceArrays {
+                positions: vec![[0.0; 3]; 3],
+                normals: Vec::new(),
+                tangents: Vec::new(),
+                uvs: Vec::new(),
+                indices: vec![0, 1, 2],
+                bones: Vec::new(),
+                weights: Vec::new(),
+                material: MaterialDesc {
+                    diffuse: Some("textures/shared.dds".into()),
+                    ..MaterialDesc::default()
+                },
+                bounds: Aabb {
+                    min: GodotPos::default(),
+                    max: GodotPos::default(),
+                },
+            },
+            textures: SurfaceTextures {
+                diffuse: Some(texture),
+                ..SurfaceTextures::default()
+            },
+            placement: Iso::IDENTITY,
+            instance_transform: None,
+            mesh_identity: None,
+        }
+    }
+
+    #[test]
+    fn hst_08_prepared_cell_budget_includes_deduplicated_texture_upload_bytes() {
+        let texture = Arc::new(TextureData::Compressed {
+            width: 4,
+            height: 4,
+            format: crate::data_source::BlockFormat::Bc1,
+            mips: 1,
+            mip0_len: 8,
+            bytes: vec![0; 7],
+        });
+        let cell = PreparedCell {
+            id: GlobalFormId { file: 0, object: 2 },
+            loaded: LoadedCell {
+                stats: CellStats {
+                    triangles: 2,
+                    ..CellStats::default()
+                },
+                surfaces: vec![surface(Arc::clone(&texture)), surface(texture)],
+            },
+            colliders: Vec::new(),
+        };
+        let cost = cell.stream_cost();
+        assert_eq!(cost.triangles, 2);
+        assert_eq!(cost.bytes, 103);
+
+        let mut streamer = CellStreamer::new(StreamConfig {
+            load_radius: 0,
+            unload_radius: 0,
+            max_loads_per_tick: 0,
+            max_unloads_per_tick: 0,
+        })
+        .unwrap();
+        let focus = SkyrimPos::new(0.0, 0.0, 0.0);
+        let deferred = streamer.update_with_budget(
+            focus,
+            StreamBudget {
+                triangles: 2,
+                bytes: 102,
+            },
+            |_| cost,
+        );
+        assert!(deferred.load.is_empty());
+        let selected = streamer.update_with_budget(
+            focus,
+            StreamBudget {
+                triangles: 2,
+                bytes: 103,
+            },
+            |_| cost,
+        );
+        assert_eq!(selected.load.len(), 1);
     }
 }

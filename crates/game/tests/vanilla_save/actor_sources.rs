@@ -249,11 +249,25 @@ fn inline_npc_changes_are_private_and_unknown_selection_level_is_not_written_as_
     let mut loaded = World::new(fixture_order());
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.state_hash(), world.state_hash());
-    let mut old = bytes;
-    old.truncate(old.len() - 46);
+    let mut old =
+        legacy::without_ref_sections(&mut world, &[id(0, 0x14), id(0, 0x900), id(0, 0x901)]);
+    // CONTEXT: Version 12 accepts unknown encounter levels, so measure there before
+    // removing its empty inventory-stack table to construct the rejected version 11.
+    legacy::truncate_to_version(&mut old, 12, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    let mut empty_stacks = soe_papyrus::vm::state::Writer::new();
+    empty_stacks.len(0);
+    let stacks_at = old.len() - empty_stacks.out.len();
+    assert_eq!(&old[stacks_at..], &empty_stacks.out);
+    old.truncate(stacks_at);
     old[4..6].copy_from_slice(&11_u16.to_le_bytes());
     assert!(
-        loaded.load_state(&old).is_err(),
+        loaded
+            .load_state(&old)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid saved actor template selection"),
         "v11 did not define an unknown encounter level"
     );
 }

@@ -3,11 +3,9 @@
 
 //! CK death/deferred-kill behavior through shared state, Papyrus and engine saves.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest, Game, Handle, Pending};
@@ -332,9 +330,17 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
-    // CONTEXT: The post-version-14 tail is 44 bytes after normalization.
-    // Scene runtime lives in a named section, so its count is already stripped.
-    bytes.truncate(bytes.len() - 44);
+    let pending = std::mem::take(&mut game.world_mut().pending);
+    let mut probe = legacy::without_exclusive_branches(
+        &mut game.world_mut(),
+        &[id(0x900), id(0x901), id(0x902)],
+    );
+    game.world_mut().pending = pending;
+    let tail = legacy::truncate_to_version(&mut probe, 14, |candidate| {
+        fresh().world_mut().load_state(candidate).is_ok()
+    });
+    // CONTEXT: The valid counterpart measures the tail before rejecting the new pending tag.
+    bytes.truncate(bytes.len() - tail);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
     assert!(game.world_mut().load_state(&bytes).is_err());
@@ -345,7 +351,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
-    bytes.truncate(bytes.len() - 44);
+    bytes.truncate(bytes.len() - tail);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));

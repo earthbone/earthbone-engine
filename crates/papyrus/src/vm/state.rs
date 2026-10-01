@@ -877,6 +877,7 @@ impl Vm {
                 let ret_dest = r.opt_str()?;
                 frames.push(Frame {
                     coverage_recorded: false,
+                    profile_recorded: false,
                     instance,
                     self_object,
                     script: Some(script),
@@ -946,7 +947,7 @@ impl Vm {
             scripts: self.scripts.clone(),
             ..Self::new()
         };
-        scratch.load_state(bytes)
+        scratch.load_state_inner(bytes)
     }
 }
 

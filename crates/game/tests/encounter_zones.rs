@@ -3,8 +3,7 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -134,8 +133,8 @@ fn prg_04_first_entry_locks_zone_and_later_entry_preserves_level_through_save() 
     assert_eq!(world.encounter_level(id(REF)).unwrap(), 8);
     let saved = world.save_state();
     let mut loaded = fixture(6, 20, 0);
-    loaded.player_level = world.player_level;
     loaded.load_state(&saved).unwrap();
+    loaded.player_level = world.player_level;
     assert_eq!(loaded.encounter_level(id(REF)).unwrap(), 8);
     assert_eq!(loaded.state_hash(), world.state_hash());
     assert_eq!(loaded.save_state(), saved);
@@ -242,17 +241,9 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
-    // CONTEXT: Version 26 omits the three empty encounter-level, visit and
-    // dialogue-repeat tables (12 bytes), the detection pool count (4 bytes)
-    // and the normalized world section table (2 bytes).
-    legacy::normalize_world_sections(&mut old);
-    old.truncate(old.len() - 18);
-    // Version 26 predates encounter locks, visits and dialogue repeats.
-    old[4..6].copy_from_slice(&26_u16.to_le_bytes());
-    let tail = legacy::version_tail_len(&old, |candidate| {
+    legacy::truncate_to_version(&mut old, 26, |candidate| {
         fixture(6, 20, 0).load_state(candidate).is_ok()
     });
-    old.truncate(old.len() - tail);
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
@@ -481,20 +472,25 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     let current = world.save_state();
     for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
-        // Detection's now-unconditional empty pool count (4 bytes) and the
-        // empty world-level save-section table version 37 added (2 bytes)
-        // are always past a version 36 or older save's end, since a genuine
-        // save that old never wrote either.
+        // Detection and world sections were absent from these old formats.
         legacy::normalize_world_sections(&mut saved);
         saved.truncate(saved.len() - 6);
+        // Versions 34 to 36 stored learned effects in the body, and version
+        // 36 stored scene runtime state there too.
+        saved.extend_from_slice(&0_u32.to_le_bytes());
+        if version >= 36 {
+            saved.extend_from_slice(&0_u32.to_le_bytes());
+        }
         saved[4..6].copy_from_slice(&version.to_le_bytes());
         let tail = legacy::version_tail_len(&saved, |candidate| {
             reset_fixture(0).load_state(candidate).is_ok()
         });
         saved.truncate(saved.len() - tail);
         let mut loaded = reset_fixture(0);
+        loaded
+            .load_state(&saved)
+            .unwrap_or_else(|error| panic!("version {version}: {error}"));
         loaded.player_level = 20;
-        loaded.load_state(&saved).unwrap();
         loaded.clock.game_days = 12.0;
         assert_eq!(
             loaded.enter_encounter_zone(id(ZONE)).unwrap(),

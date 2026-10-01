@@ -83,6 +83,35 @@ pub fn entries(game: &Game, holder: GlobalFormId, category: Category) -> Vec<Ent
         .collect()
 }
 
+/// List the active gift menu's inventory after matching listed forms or keywords.
+pub fn gift_entries(game: &Game, request: &soe_game::world::GiftMenuRequest) -> Vec<Entry> {
+    let mut entries = entries(game, request.source, Category::All);
+    let mut world = game.world_mut();
+    if let Some(filter) = request.filter {
+        let forms = world.form_list(filter).cloned().unwrap_or_default();
+        entries.retain(|entry| {
+            forms.contains(&entry.item)
+                || forms
+                    .iter()
+                    .any(|keyword| world.keywords(entry.item).contains(keyword))
+        });
+    }
+    if !request.show_stolen {
+        entries.retain(|entry| {
+            world
+                .reference_ref(request.source)
+                .is_none_or(|reference| {
+                    reference.inventory.stacks(entry.item).iter().all(|stack| {
+                        stack.extra(33).is_none_or(|owner| {
+                            !matches!(owner.fields.as_slice(), [soe_game::inventory::Field::Form(Some(id))] if *id != request.giver)
+                        })
+                    })
+                })
+        });
+    }
+    entries
+}
+
 /// Toggle an equipped weapon or armor through the shared game world.
 pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
     let player = game.player();
@@ -137,7 +166,11 @@ mod tests {
 
     fn game() -> Game {
         let mut plugin = Plugin::new(FileHeader::default());
-        plugin.push_top(Record::new(Tag(*b"WEAP"), 0x100).zsub(Tag(*b"FULL"), "Sword"));
+        plugin.push_top(
+            Record::new(Tag(*b"WEAP"), 0x100)
+                .zsub(Tag(*b"FULL"), "Sword")
+                .sub(Tag(*b"KWDA"), 0x200_u32.to_le_bytes()),
+        );
         for (object, name) in [(0x101, "Boots"), (0x103, "Other boots")] {
             plugin.push_top(
                 Record::new(Tag(*b"ARMO"), object)
@@ -158,6 +191,12 @@ mod tests {
                 ),
         );
         plugin.push_top(Record::new(Tag(*b"MISC"), 0x104).zsub(Tag(*b"FULL"), "Gold"));
+        plugin.push_top(Record::new(Tag(*b"KYWD"), 0x200));
+        plugin.push_top(
+            Record::new(Tag(*b"FLST"), 0x201)
+                .sub(Tag(*b"LNAM"), 0x200_u32.to_le_bytes())
+                .sub(Tag(*b"LNAM"), 0x101_u32.to_le_bytes()),
+        );
         plugin.push_top(
             Record::new(Tag(*b"CONT"), 0x105)
                 .zsub(Tag(*b"FULL"), "Treasure Chest")
@@ -241,6 +280,35 @@ mod tests {
         assert!(!entries(&game, player, Category::Weapons)[0].equipped);
         assert!(!toggle_equip(&mut game, id(0x102)));
         assert!(!toggle_equip(&mut game, id(0x999)));
+    }
+
+    #[test]
+    fn ui_15_gift_menu_lists_only_filtered_forms_and_keywords() {
+        let mut game = game();
+        let player = game.player();
+        {
+            let mut world = game.world_mut();
+            world.add_item(player, id(0x100), 2);
+            world.add_item(player, id(0x101), 1);
+        }
+        let request = soe_game::world::GiftMenuRequest {
+            latent: soe_papyrus::vm::LatentId(1),
+            giver: id(0x106),
+            source: player,
+            target: id(0x106),
+            filter: Some(id(0x201)),
+            show_stolen: false,
+            use_favor_points: true,
+            favor_points: 0,
+        };
+        let entries = gift_entries(&game, &request);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Sword", "Boots"]
+        );
     }
 
     #[test]

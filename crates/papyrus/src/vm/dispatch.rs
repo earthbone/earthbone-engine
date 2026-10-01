@@ -281,6 +281,8 @@ impl Vm {
             latent_counter: &mut self.latent_counter,
             objects: &mut self.objects,
             next_object: &mut self.next_object,
+            profiling: self.profiling.clone(),
+            thread_id: self.threads[t].id,
         };
         let ret = f(&mut call);
         let thread = &mut self.threads[t];

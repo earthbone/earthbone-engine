@@ -24,10 +24,14 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod ambience;
 pub mod appearance;
 pub mod class;
 pub mod clock;
 pub mod combat;
+pub mod commonlib;
+pub mod commonlib_api;
+pub mod commonlib_world;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
@@ -43,6 +47,7 @@ pub mod inventory;
 pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;
@@ -53,6 +58,7 @@ pub mod race;
 pub mod save;
 pub mod save_generations;
 pub mod services;
+pub mod shim_world;
 pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
@@ -64,6 +70,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use soe_commonlib_shim::conditions::{
+    ComparisonValue, ConditionContext, ConditionError, ConditionRuntime, CONDITIONITEMOBJECT,
+    CONDITION_ITEM_DATA,
+};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
 use soe_papyrus::value::ElementKind;
 use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
@@ -71,7 +81,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 pub use clock::GameClock;
 pub use natives::Registered;
 pub use world::StoryError;
-pub use world::{Handle, Pending, RefPlacement, World};
+pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
 
@@ -150,6 +160,8 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    /// Parsed OAR submods, ordered by descending priority.
+    oar_submods: Vec<soe_moddata::oar::SubMod>,
     mcm_registered: Vec<GlobalFormId>,
     mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
@@ -157,6 +169,12 @@ pub struct Game {
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
+
+/// Maximum VM instructions executed in one scheduler slice.
+pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
+
+/// Maximum exterior cells the player streamer starts loading per update.
+pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
 
 impl Game {
     /// Evaluate one objective target's QSTA conditions against the current world and VM.
@@ -217,8 +235,9 @@ impl Game {
             world,
             registered,
             bound: None,
-            budget: 100_000,
+            budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
+            oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
@@ -425,6 +444,52 @@ impl Game {
         self.world.clone()
     }
 
+    /// Deliver one host animation event to Papyrus listeners and latent waits.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_event(source, name, &mut |object, class| {
+                vm.create_object_of(object, class)
+            });
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Fail animation waits when their host graph unloads before completion.
+    pub fn report_animation_unloaded(&mut self, target: GlobalFormId) {
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_unloaded(target);
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Drain host graph events after a host frame and deliver them in order.
+    pub fn deliver_animation_reports(&mut self) {
+        let notices = self.world.borrow_mut().take_animation_host_notices();
+        for notice in notices {
+            match notice {
+                world::AnimationHostNotice::Event { source, name } => {
+                    self.report_animation_event(source, &name);
+                }
+                world::AnimationHostNotice::Unloaded { target } => {
+                    self.report_animation_unloaded(target);
+                }
+            }
+        }
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.world.borrow().form(editor_id)
     }
@@ -593,7 +658,70 @@ impl Game {
     /// [`Game::start`]: both distributors run once at load, before any script,
     /// which is what the plugins do. See [`crate::moddata`].
     pub fn apply_mod_data(&mut self, roots: &[std::path::PathBuf]) -> moddata::ModDataReport {
-        crate::moddata::apply(&mut self.world.borrow_mut(), roots)
+        let report = crate::moddata::apply(&mut self.world.borrow_mut(), roots);
+        self.oar_submods = roots
+            .iter()
+            .filter_map(|root| soe_moddata::oar::AnimationMod::scan(root).ok())
+            .flat_map(|animation_mod| animation_mod.sub_mods)
+            .collect();
+        self.oar_submods.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then(a.directory.cmp(&b.directory))
+        });
+        report
+    }
+
+    /// Selects the highest-priority OAR replacement for an actor and clip name.
+    ///
+    /// Conditions use the actor base and race from the loaded records. The
+    /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
+    /// Every condition in a submod must pass. A matching replacement is an
+    /// HKX file with the same filename as `original_animation` under the
+    /// submod's animation directory. OAR's `overrideAnimationsFolder` selects
+    /// a sibling directory for that path.
+    ///
+    /// # Errors
+    ///
+    /// This query reports unavailable actors, conditions and clips as `None`.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[must_use]
+    pub fn select_oar_animation(
+        &self,
+        actor: GlobalFormId,
+        original_animation: &str,
+    ) -> Option<std::path::PathBuf> {
+        let file_name = Path::new(original_animation).file_name()?;
+        let mut world = self.world.borrow_mut();
+        let base = world.reference(actor)?.base?;
+        let base_state = world.actor_base(base)?;
+        let female = base_state.female;
+        let base_race = base_state.race;
+        let race = world
+            .actor(actor)
+            .and_then(|state| state.race)
+            .or(base_race);
+        let order = world.order();
+
+        for sub_mod in &self.oar_submods {
+            if sub_mod.disabled {
+                continue;
+            }
+            if !sub_mod.condition_groups.iter().all(|group| {
+                group
+                    .iter()
+                    .any(|condition| oar_condition_matches(condition, female, base, race, order))
+            }) {
+                continue;
+            }
+            if let Some(path) = find_oar_clip(&sub_mod.animation_directory, file_name) {
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// The same, from a resolved profile, which already knows its data roots
@@ -867,12 +995,75 @@ impl Game {
         moved
     }
 
+    /// Return the active host request for a latent `ShowGiftMenu` call.
+    pub fn gift_menu_request(&self) -> Option<world::GiftMenuRequest> {
+        self.world.borrow().gift_menu.clone()
+    }
+
+    /// Move selected gift items through the ordinary notified inventory path.
+    pub fn gift_menu_transfer(&mut self, item: GlobalFormId, count: i32) -> i32 {
+        let Some(request) = self.gift_menu_request() else {
+            return 0;
+        };
+        if let Some(filter) = request.filter {
+            let mut world = self.world.borrow_mut();
+            let items = world.form_list(filter).cloned().unwrap_or_default();
+            let keywords = world.keywords(item);
+            let allowed =
+                items.contains(&item) || items.iter().any(|entry| keywords.contains(entry));
+            if !allowed {
+                return 0;
+            }
+        }
+        let moved = self.transfer_item(request.source, item, count, request.target);
+        if moved > 0 && request.use_favor_points {
+            let value = self.world.borrow_mut().item_value(item);
+            if let Some(active) = self.world.borrow_mut().gift_menu.as_mut() {
+                active.favor_points = active
+                    .favor_points
+                    .saturating_add(value.saturating_mul(moved));
+            }
+        }
+        moved
+    }
+
+    /// Finish the visible gift menu and resume its Papyrus caller.
+    pub fn close_gift_menu(&mut self) -> bool {
+        let Some(request) = self.world.borrow_mut().gift_menu.take() else {
+            return false;
+        };
+        let result = request.favor_points.max(0);
+        self.vm.resolve_latent(request.latent, Value::Int(result));
+        self.run_until_idle(64);
+        true
+    }
+
     /// Deliver an event to a form's scripts and settle.
     pub fn send_event(&mut self, id: GlobalFormId, name: &str, args: &[Value]) -> Vec<ThreadId> {
         let object = self.object_of_form(id);
         let threads = self.vm.send_event(object, name, args);
         self.run_until_idle(64);
         threads
+    }
+
+    /// Updates trigger membership after an actor movement step and runs the
+    /// resulting `OnTriggerEnter` or `OnTriggerLeave` handlers.
+    pub fn update_trigger_actor_position(
+        &mut self,
+        actor: GlobalFormId,
+        cell: Option<GlobalFormId>,
+        from: [f32; 3],
+        to: [f32; 3],
+    ) {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().update_trigger_actor_position(
+            actor,
+            cell,
+            from,
+            to,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
     }
 
     /// Resume mapped quest story events whose handlers are loaded.
@@ -942,14 +1133,28 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        {
+            let mut world = self.world.borrow_mut();
+            world.menu_mode = menu_mode;
+            world.frame_rate.record_frame(real_seconds);
+        }
         let mut game_hours = 0.0;
         if !menu_mode {
             self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
+            let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
-            w.advance_clock(real_seconds);
+            w.advance_clock_scaled(real_seconds, slow_time_scale);
             w.tick_image_space(real_seconds);
+            w.tick_translations(real_seconds, &mut |name, class| {
+                vm.create_object_of(name, class)
+            });
+            w.tick_shader_particles(real_seconds);
+            w.tick_effect_shaders(real_seconds);
+            if let Err(error) = w.tick_visual_effects(real_seconds) {
+                vm.log.push(vm.time(), error.to_string());
+            }
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
@@ -960,7 +1165,12 @@ impl Game {
             }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            if w.debug_ai_enabled {
+                w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+                    vm.create_object_of(n, c)
+                });
+            }
         }
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
@@ -1017,11 +1227,28 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        self.dispatch_story_manager_events();
+        let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
+        let mut routed = 0;
+        for event in story_events {
+            let result = {
+                let vm = &mut self.vm;
+                self.world.borrow_mut().send_story_event(vm, &event)
+            };
+            match result {
+                Ok(quests) => routed += quests.len(),
+                Err(error) => self
+                    .vm
+                    .log
+                    .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
+            }
+        }
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
-        let n = pending
-            .iter()
-            .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
-            .count();
+        let n = routed
+            + pending
+                .iter()
+                .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
+                .count();
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
@@ -1077,6 +1304,34 @@ impl Game {
                         }
                     }
                 }
+                Pending::BindReference { object, base } => {
+                    let definition = {
+                        let world = self.world.borrow();
+                        world.order().winner_ref(base).and_then(|rref| {
+                            let record = world.order().record(rref);
+                            let raw = record.find(Tag::new(b"VMAD"))?;
+                            Some((rref.file, Vmad::parse(raw, record.tag)))
+                        })
+                    };
+                    if let Some((file, definition)) = definition {
+                        match definition {
+                            Ok(vmad) => {
+                                let mut report = BindReport::default();
+                                self.attach_all(object, base, file, &vmad.scripts, &mut report);
+                                for (script, _) in report.scripts_missing {
+                                    self.vm.log.push(
+                                        self.vm.time(),
+                                        format!("reference script missing: {script}"),
+                                    );
+                                }
+                            }
+                            Err(error) => self
+                                .vm
+                                .log
+                                .push(self.vm.time(), format!("reference VMAD: {error}")),
+                        }
+                    }
+                }
                 Pending::Event { object, name, args } => {
                     self.vm.send_event(object, &name, &args);
                 }
@@ -1105,7 +1360,53 @@ impl Game {
                 }
             }
         }
+        let completed = std::mem::take(&mut self.world.borrow_mut().completed_animation_waits);
+        for (latent, result) in completed {
+            self.vm.resolve_latent(latent, Value::Bool(result));
+        }
         n
+    }
+
+    /// Preserve the original unload entry point for callers of `Game`.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.report_animation_unloaded(source);
+    }
+
+    fn dispatch_story_manager_events(&mut self) {
+        let events = self.world.borrow_mut().take_story_manager_events();
+        for event in events {
+            let (code, parameters) = match event.kind {
+                quest::state::StoryManagerEventKind::CraftItem => (
+                    *b"CRFT",
+                    event
+                        .parameters
+                        .into_iter()
+                        .enumerate()
+                        .map(
+                            |(index, reference)| quest::state::StoryParameter::Reference {
+                                kind: match index {
+                                    0 => 0,
+                                    1 => 2,
+                                    _ => 1,
+                                },
+                                reference,
+                            },
+                        )
+                        .collect(),
+                ),
+            };
+            let story_event = quest::state::StoryEvent {
+                id: 0,
+                code,
+                parameters,
+            };
+            if let Err(error) = self.send_story_event(&story_event) {
+                self.vm.log.push(
+                    self.vm.time(),
+                    format!("Story Manager event routing: {error}"),
+                );
+            }
+        }
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
@@ -1131,4 +1432,157 @@ impl Game {
             .map(|e| e.message.clone())
             .collect()
     }
+}
+
+impl ConditionRuntime for Game {
+    fn evaluate_item(
+        &mut self,
+        item: &CONDITION_ITEM_DATA,
+        context: ConditionContext,
+    ) -> Result<bool, ConditionError> {
+        let mut world = self.world.borrow_mut();
+        let owner = world
+            .from_runtime_id(context.owner.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let subject = world
+            .from_runtime_id(context.subject.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let target = context
+            .target
+            .and_then(|handle| world.from_runtime_id(handle.0));
+        let quest = context.quest.and_then(|id| world.from_runtime_id(id.0));
+        let comparison = match item.comparison {
+            ComparisonValue::Number(value) => soe_esm::records::gameplay::Comparison::Number(value),
+            ComparisonValue::Global(id) => soe_esm::records::gameplay::Comparison::Global(id.0),
+        };
+        if item.object != CONDITIONITEMOBJECT::SelfRef {
+            return Err(ConditionError::UnsupportedTarget(item.object as u32));
+        }
+        let condition = soe_esm::records::gameplay::Condition {
+            flags: item.flags,
+            comparison,
+            function: item.function,
+            parameters: item.parameters,
+            run_on: item.run_on,
+            reference: item.reference.0,
+            parameter_3: item.parameter_3,
+            strings: [None, None],
+        };
+        let context = conditions::Context {
+            owner,
+            subject,
+            target,
+            quest,
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        conditions::evaluate_one(&mut world, &self.vm, context, &condition).map_err(|error| {
+            match error {
+                conditions::Error::Function(function) => {
+                    ConditionError::UnsupportedFunction(function)
+                }
+                conditions::Error::Target(target) => ConditionError::UnsupportedTarget(target),
+                conditions::Error::Form(_) | conditions::Error::Variable(_) => {
+                    ConditionError::UnavailableState
+                }
+                _ => ConditionError::InvalidCondition,
+            }
+        })
+    }
+}
+
+fn oar_condition_matches(
+    condition: &soe_moddata::oar::Condition,
+    female: bool,
+    base: GlobalFormId,
+    race: Option<GlobalFormId>,
+    order: &LoadOrder,
+) -> bool {
+    // OAR requires the named SKSE plugin before it evaluates this condition.
+    // The runtime has no SKSE plugin loader for that dependency.
+    if condition
+        .required_plugin
+        .as_deref()
+        .is_some_and(|name| !name.is_empty())
+    {
+        return false;
+    }
+    let result = match condition.name.as_str() {
+        "IsFemale" => Some(female),
+        "IsActorBase" => oar_condition_form(condition, order).map(|form| form == base),
+        "IsRace" => oar_condition_form(condition, order).map(|form| Some(form) == race),
+        _ => None,
+    };
+    result.is_some_and(|value| value != condition.negated)
+}
+
+fn oar_condition_form(
+    condition: &soe_moddata::oar::Condition,
+    order: &LoadOrder,
+) -> Option<GlobalFormId> {
+    let (plugin, raw_id) = if let Some(form) = condition
+        .parameters
+        .get("form")
+        .and_then(|value| value.as_object())
+    {
+        let plugin = form.get("pluginName")?.as_str()?;
+        let raw_id = form.get("formID")?;
+        let raw_id = raw_id
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| raw_id.as_u64().map(|id| format!("0x{id:X}")))?;
+        (plugin.to_string(), raw_id)
+    } else {
+        let raw = condition.parameters.get("raw")?.as_str()?;
+        let (_, argument) = raw.split_once('(')?;
+        let argument = argument.strip_suffix(')')?;
+        let (plugin, raw_id) = argument.split_once('|')?;
+        (
+            plugin.trim().trim_matches('"').to_string(),
+            raw_id.trim().to_string(),
+        )
+    };
+    if plugin.is_empty() {
+        return None;
+    }
+    let raw_id = if raw_id.starts_with("0x") || raw_id.starts_with("0X") {
+        raw_id
+    } else {
+        format!("0x{raw_id}")
+    };
+    let form_ref = soe_moddata::FormRef::parse(&format!("{raw_id}~{plugin}"));
+    form_ref.resolve(order)
+}
+
+fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            if let Some(found) = find_oar_clip(&path, file_name) {
+                return Some(found);
+            }
+        } else if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("hkx"))
+            && path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .eq_ignore_ascii_case(&file_name.to_string_lossy())
+            })
+        {
+            return Some(path);
+        }
+    }
+    None
 }

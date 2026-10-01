@@ -10,8 +10,7 @@
 //! `pub` and mutable, so these tests mutate already-loaded, real reference
 //! state to build precise scenarios rather than fabricate plugin records.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 

@@ -31,7 +31,9 @@ impl World {
                     roots.push(Value::Object(*object));
                     roots.extend(args.iter().cloned());
                 }
-                Pending::BindEffect { object, .. } => roots.push(Value::Object(*object)),
+                Pending::BindEffect { object, .. } | Pending::BindReference { object, .. } => {
+                    roots.push(Value::Object(*object));
+                }
                 Pending::ActorDeath { recipients, .. } => roots.extend(
                     recipients
                         .iter()

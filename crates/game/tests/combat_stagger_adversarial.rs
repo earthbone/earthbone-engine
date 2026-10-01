@@ -20,8 +20,7 @@
 //! exercise this field. This file builds its own weapon record with a
 //! configurable Stagger fraction instead.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, Game};
@@ -448,18 +447,17 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
-    legacy::strip_world_sections(&mut bytes);
-    // Only the detection pool count remains after the version 28 fields.
-    // Scene runtime state was removed with the named world sections above.
-    assert_eq!(bytes[bytes.len() - 4..], [0; 4]);
-    bytes.truncate(bytes.len() - 4);
-    // Keep the version 27 encounter-level count and version 28 repeat
-    // history. The version 34 visit count is the four-byte field between
-    // them.
-    let visit_count = bytes.len() - 8;
-    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
-    bytes.drain(visit_count..visit_count + 4);
-    bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
+    // CONTEXT: Empty visit and repeat tables have identical encodings in this fixture.
+    legacy::truncate_to_version(&mut bytes, 28, |candidate| {
+        fixture(
+            weapon(0xA00, 10, 6, 1.0),
+            None,
+            &[("fStaggerThreshold", 0.001)],
+        )
+        .world_mut()
+        .load_state(candidate)
+        .is_ok()
+    });
 
     let loaded = fixture(
         weapon(0xA00, 10, 6, 1.0),
