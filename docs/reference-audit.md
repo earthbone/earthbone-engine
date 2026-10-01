@@ -159,6 +159,7 @@ methods listed there. Alias reference getter and setter variants are compared
 against the ReferenceAlias class page, which includes their return types and
 shorthand relationships. The current check is synthetic because these methods
 do not require installed game records.
+
 ## Cell and Clear native contracts, SCR-56
 
 The registry-derived inventory is tested by
