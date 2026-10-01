@@ -93,6 +93,8 @@ pub struct FlightRequest {
     pub range: f32,
     /// AMMO base damage.
     pub damage: f32,
+    /// Whether an arrow of this ammunition can be recovered from an impact.
+    pub recoverable: bool,
 }
 
 /// One straight segment of a gravity-affected projectile's path, in Skyrim units.

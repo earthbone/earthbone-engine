@@ -94,8 +94,11 @@ pub enum Procedure {
     Travel,
     Sandbox,
     Sleep,
-    Sit,
+    Flee,
     Patrol,
+    /// Hold an assigned location and react to detected actors within its radius.
+    Guard,
+    Sit,
     UseMagic,
     /// Issue one ordinary contact against the actor's current combat target.
     UseWeapon,
@@ -224,7 +227,7 @@ pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     Some(package)
 }
 
-fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+pub(crate) fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
     let (default_tag, offset, fallback) = movement_input(preferred);
     let Some(race) = world.actor(actor).and_then(|state| state.race) else {
         return fallback;
@@ -727,7 +730,7 @@ fn function_value(
             let r = form(world, c.param1)?;
             world.distance(subject, r)
         }
-        14 | 128 | 277 | 408 | 430 | 494 => {
+        14 | 128 | 277 | 408 | 430 | 494 | 580 | 694 => {
             crate::conditions::actor_query(world, package_id, subject, c.function, c.param1).ok()?
         }
         18 => world.calendar().hour as f32,
@@ -1139,6 +1142,18 @@ fn begin_procedure(
             ai.center_cell = bed
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
+        }
+        Procedure::Flee => ai.speed = movement_speed(world, actor, speed::RUN),
+        Procedure::Guard => {
+            let center = place.map_or(position, |p| p.position);
+            ai.center = Some(center);
+            ai.center_cell = place.and_then(|p| p.cell).or(cell);
+            ai.radius = location.map_or(0.0, |(_, l)| l.radius.max(0) as f32);
+            if distance(position, center) > ai.radius.max(ARRIVAL_DISTANCE) {
+                ai.destination = Some(center);
+            } else {
+                ai.arrived = true;
+            }
         }
         Procedure::Hover => {
             if let Some(place) = place {
@@ -1735,6 +1750,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if ignore_combat {
             clear_combat_engagement(world, actor);
         }
+        if world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0 {
+            clear_combat_engagement(world, actor);
+        }
         let turn_undead_threat = world.turn_undead_threat(actor);
         if world.is_fleeing(actor) || turn_undead_threat.is_some() {
             if let Some(state) = world.actor(actor) {
@@ -1754,6 +1772,12 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             continue;
         }
         let active_target = combat_target(world, actor);
+        if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
+            clear_combat_engagement(world, actor);
+        }
+        let fleeing = world
+            .actor(actor)
+            .is_some_and(|state| state.ai.procedure == Procedure::Flee);
         if active_target.is_none() {
             let due = world.actor(actor).is_some_and(|state| {
                 state.ai.package.is_none()
@@ -1764,19 +1788,27 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 evaluate(world, actor, alloc);
             }
         }
-        if active_target.is_some() && !ignores_combat(world, actor) {
+        if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
             let due = world.actor(actor).is_some_and(|a| {
-                a.ai.reevaluate || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                a.ai.package.is_none()
+                    || a.ai.reevaluate
+                    || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
             });
             if due {
                 evaluate(world, actor, alloc);
             }
-            if !ignores_combat(world, actor) && combat_target(world, actor).is_some() {
+            if !ignores_combat(world, actor)
+                && world
+                    .actor(actor)
+                    .is_none_or(|state| state.ai.procedure != Procedure::Flee)
+                && combat_target(world, actor).is_some()
+            {
                 pursue_combat_target(world, actor, dt as f32);
                 continue;
             }
         } else if !ignore_combat
             && !ignores_combat(world, actor)
+            && !fleeing
             && acquire_combat_target(world, actor)
         {
             pursue_combat_target(world, actor, dt as f32);
@@ -1934,8 +1966,7 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
         .filter(|state| state.in_combat)
         .and_then(|state| state.combat_target);
     let target = target?;
-    let valid = world.actor(target).is_some_and(|state| !state.dead)
-        && world.actor_value(actor, "aggression") >= 1.0;
+    let valid = world.actor(target).is_some_and(|state| !state.dead);
     if valid {
         return Some(target);
     }
@@ -1944,6 +1975,23 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
         state.ai.reevaluate = true;
     }
     None
+}
+
+/// A Guard only engages targets inside its assigned area.
+fn target_in_guard_area(world: &mut World, actor: GlobalFormId, target: GlobalFormId) -> bool {
+    let Some(state) = world.actor(actor) else {
+        return false;
+    };
+    if state.ai.procedure != Procedure::Guard {
+        return true;
+    }
+    let Some(center) = state.ai.center else {
+        return true;
+    };
+    let radius = state.ai.radius.max(ARRIVAL_DISTANCE);
+    world
+        .reference(target)
+        .is_some_and(|reference| distance(center, reference.position) <= radius)
 }
 
 /// Acquire the nearest detected target for an aggressive actor.
@@ -1982,6 +2030,15 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
         let Some(position) = world.reference(target).map(|reference| reference.position) else {
             continue;
         };
+        let in_guard_area = world.actor(actor).is_some_and(|state| {
+            state.ai.procedure != Procedure::Guard
+                || state.ai.center.is_none_or(|center| {
+                    distance(center, position) <= state.ai.radius.max(ARRIVAL_DISTANCE)
+                })
+        });
+        if !in_guard_area {
+            continue;
+        }
         let candidate = (target, distance(from, position));
         if best.is_none_or(|current| {
             candidate
@@ -2134,6 +2191,50 @@ fn plan_combat(
     Some((path.points[1..].to_vec(), cells))
 }
 
+/// Choose a reachable navmesh point that increases distance from the threat.
+fn plan_flee(
+    world: &mut World,
+    from: [f32; 3],
+    threat: [f32; 3],
+) -> Option<([f32; 3], PlannedPath)> {
+    ensure_nav_graph(world);
+    let graph = world.ai.nav.as_ref()?;
+    let start = graph.locate(from).or_else(|| graph.nearest(from))?;
+    let start_distance = distance(from, threat);
+    let mut candidates: Vec<_> = graph
+        .reachable(start)
+        .into_iter()
+        .filter(|node| !graph.triangle(*node).blocked)
+        .map(|node| (node, graph.centroid(node)))
+        .filter(|(_, point)| distance(*point, threat) > start_distance + f32::EPSILON)
+        .collect();
+    candidates.sort_by(|(a_node, a), (b_node, b)| {
+        distance(*b, threat)
+            .total_cmp(&distance(*a, threat))
+            .then_with(|| a_node.cmp(b_node))
+    });
+    for (_node, destination) in candidates {
+        let Some(path) = graph.find_path_between(from, destination) else {
+            continue;
+        };
+        let cells = path
+            .point_nodes
+            .iter()
+            .skip(1)
+            .map(|point| {
+                world
+                    .ai
+                    .nav_cells
+                    .get(point.mesh as usize)
+                    .copied()
+                    .flatten()
+            })
+            .collect();
+        return Some((destination, (path.points[1..].to_vec(), cells)));
+    }
+    None
+}
+
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
@@ -2198,6 +2299,40 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
+    }
+    if ai.procedure == Procedure::Flee && ai.tree.as_ref().is_some_and(|tree| tree.active) {
+        let target = combat_target(world, actor);
+        if let Some(threat) = target.and_then(|target| world.reference(target).map(|r| r.position))
+        {
+            let from = world
+                .reference(actor)
+                .map(|r| r.position)
+                .unwrap_or(position);
+            let needs_route = ai.destination.is_none()
+                || ai.path.is_empty()
+                || ai.destination.is_some_and(|destination| {
+                    distance(destination, threat) <= distance(from, threat) + f32::EPSILON
+                });
+            if needs_route {
+                if let Some((destination, (path, cells))) = plan_flee(world, from, threat) {
+                    ai.destination = Some(destination);
+                    ai.path = path;
+                    ai.path_cells = cells;
+                    ai.arrived = false;
+                } else {
+                    ai.destination = None;
+                    ai.path.clear();
+                    ai.path_cells.clear();
+                    ai.arrived = false;
+                }
+            }
+        } else {
+            tree::succeeded(world, &mut ai);
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = false;
+        }
     }
     if ai.procedure == Procedure::Follow {
         follow_target(world, actor, &mut ai, position);
@@ -2277,6 +2412,21 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             }
             Procedure::Sleep => ai.sleeping = true,
             _ => {}
+        }
+    }
+    if ai.procedure == Procedure::Guard {
+        if let Some(center) = ai.center {
+            if distance(position, center) <= ai.radius.max(ARRIVAL_DISTANCE) {
+                ai.arrived = true;
+                ai.destination = None;
+                ai.path.clear();
+                ai.path_cells.clear();
+            } else if ai.destination.is_none() || ai.arrived {
+                ai.arrived = false;
+                ai.destination = Some(center);
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
         }
     }
     if !ai.arrived && ai.destination.is_none() && ai.procedure == Procedure::Sandbox {
@@ -2394,7 +2544,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             if ai.procedure == Procedure::Sandbox {
                 ai.dwell_until = hours + f64::from(world.random_float(0.1, 0.4));
             }
-            if ai.procedure == Procedure::Travel {
+            if matches!(ai.procedure, Procedure::Travel | Procedure::Flee) {
                 tree::succeeded(world, &mut ai);
             } else if ai.procedure == Procedure::Sit {
                 world.stand_from_furniture(actor);
@@ -2645,11 +2795,18 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
+        Procedure::Flee => w.u8(if version >= 37 { 19 } else { 7 }),
         Procedure::Patrol => {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
-        Procedure::Sit if version >= 43 => w.u8(18),
+        Procedure::Guard => {
+            // Reuse the named-procedure representation without changing the
+            // actor record layout or its save version.
+            w.u8(4);
+            w.str("AI-30 Guard");
+        }
+        Procedure::Sit => w.u8(if version >= 37 { 18 } else { 9 }),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -2804,11 +2961,25 @@ pub(crate) fn read_state_mapped(
         1 => Procedure::Travel,
         2 => Procedure::Sandbox,
         3 => Procedure::Sleep,
-        4 => Procedure::Unsupported(r.str()?),
+        7 if world_version < 34 => Procedure::Flee,
+        7 => {
+            let height = r.f32()?;
+            if !height.is_finite() {
+                return Err(VmError::State("invalid Hover height".into()));
+            }
+            a.hover_height = height;
+            Procedure::Hover
+        }
+        19 => Procedure::Flee,
+        4 => match r.str()?.as_str() {
+            "AI-30 Guard" => Procedure::Guard,
+            other => Procedure::Unsupported(other.to_owned()),
+        },
         6 => {
             a.patrol = Some(patrol::read(r)?);
             Procedure::Patrol
         }
+        9 if world_version < 37 => Procedure::Sit,
         5 => {
             let stop_movement = r.bool()?;
             if r.bool()? {
@@ -2819,14 +2990,6 @@ pub(crate) fn read_state_mapped(
                 a.wait_until = Some(until);
             }
             Procedure::Wait { stop_movement }
-        }
-        7 => {
-            let height = r.f32()?;
-            if !height.is_finite() {
-                return Err(VmError::State("invalid Hover height".into()));
-            }
-            a.hover_height = height;
-            Procedure::Hover
         }
         8 => Procedure::Follow,
         10 => Procedure::ForceGreet,
@@ -2880,10 +3043,10 @@ pub(crate) fn read_state_mapped(
             };
             Procedure::UseIdleMarker { marker }
         }
-        18 if world_version >= 43 => Procedure::Sit,
+        18 if world_version >= 37 => Procedure::Sit,
         18 => {
             return Err(VmError::State(
-                "Sit procedure requires actor section revision 43".into(),
+                "Sit procedure requires world version 37".into(),
             ))
         }
         17 => {

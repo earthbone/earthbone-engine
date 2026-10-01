@@ -471,12 +471,19 @@ impl World {
     /// # Errors
     /// Returns an error when the form is not an actor.
     pub fn resurrect_actor(&mut self, id: GlobalFormId) -> Result<(), crate::actor_values::Error> {
+        let was_dead = self.actor_ref(id).is_some_and(|actor| actor.dead);
+        let base = was_dead.then(|| self.base_of(id)).flatten();
         let actor = self
             .actor(id)
             .ok_or(crate::actor_values::Error::Actor(id))?;
         actor.values.restore("health", f32::MAX)?;
         actor.dead = false;
         actor.killer = None;
+        if let Some(base) = base {
+            if let Some(state) = self.actor_base(base) {
+                state.dead_count = state.dead_count.saturating_sub(1).max(0);
+            }
+        }
         self.pending.retain(
             |event| !matches!(event, super::Pending::DeferredDeath { actor, .. } if *actor == id),
         );

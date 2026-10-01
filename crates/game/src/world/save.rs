@@ -134,8 +134,10 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
 /// records and native game-save dependency provenance. AI-88 retains each
 /// actor's reserved furniture marker, and AI-36 retains the UseWeapon
-/// package procedure. Reference sections retain persistence, world record
-/// flags and the current destruction stage through CMB-37.
+/// package procedure. Actor sections also retain voice recovery deadlines,
+/// Shout, Flee and Guard procedure state. Reference sections retain
+/// persistence, world record flags and the current destruction stage through
+/// CMB-37.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1626,12 +1628,14 @@ fn read_ref_state_with_table(
         on_map,
         fast_travel,
         destroyed,
+        destruction_health: None,
         destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,
         anim_bools,
         alpha,
+        translation: None,
         persistent: false,
     };
     if version >= 37 {
@@ -1841,6 +1845,11 @@ fn read_actor_state_with_table(
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Guard {
+        return Err(VmError::State(
+            "Guard procedure requires world version 37".into(),
         ));
     }
     if version < 34 && a.ai.procedure == crate::ai::Procedure::Hover {

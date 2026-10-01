@@ -200,8 +200,10 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
-        Some("sit") => Procedure::Sit,
+        Some("flee") => Procedure::Flee,
         Some("patrol") => Procedure::Patrol,
+        Some("guard") => Procedure::Guard,
+        Some("sit") => Procedure::Sit,
         Some("usemagic") => Procedure::UseMagic,
         Some("useweapon") => Procedure::UseWeapon,
         Some("wait") => Procedure::Wait {

@@ -386,7 +386,8 @@ returns a transient `FlightRequest` with normalized direction and record-backed
 flight fields. A rejected request leaves ammunition unchanged. The host's
 `RangedRelease` captures the weapon at draw start and invokes that transaction
 only on `bowRelease`. `attackStop` and `bowCancel` clear the armed shot. Flight
-movement and impact remain CMB-22 work. No runtime or save field was added.
+movement and impact handling remain CMB-22 work. Projectile damage and `OnHit`
+events remain out of scope. No runtime or save field was added.
 
 Sources read for CMB-08:
 
@@ -420,6 +421,27 @@ increment. OpenMW's projectile collision callback and manager informed the
 segment-query and one-terminal-hit state shape. It was not ported because it
 uses OpenMW and Bullet object lifetimes, while this host already has Godot
 PhysicsServer query bodies and RID ownership maps.
+
+## Recoverable missed arrows, CMB-23
+
+AMMO release requests retain whether their ammunition is an arrow, the linked
+PROJ DATA Can Be Picked Up flag, and whether neither its record header nor
+DATA flags mark it Non-Playable. When a
+`ProjectileFlight` ends on a world obstruction, the host can consume its impact
+once to create a dynamic reference whose base is that AMMO record and whose
+placement is the impact point. Actor contacts and range expiry do not create a
+placed arrow. The reference's cell comes from the shooter. Existing SOEW
+reference serialization preserves its created identity, AMMO base and
+placement, with no new save fields.
+
+TES5Edit's `AMMO` definition names the DATA projectile link and its record and
+DATA Non-Playable flags, plus the DATA Non-Bolt flag. The `PROJ` DATA bit 6 is
+Can Be Picked Up, separate from its projectile type field. Its placed
+projectile record list identifies `PARW` as a placed arrow. UESP's local AMMO
+and PROJ descriptions confirm those flag meanings. CK's `ObjectReference_Script.wikitext`
+defines `OnHit` with an optional projectile argument, which supports treating
+actor hits separately from world impacts. The referenced CK corpus has no
+separate projectile page.
 
 ### Live contact prerequisites
 
