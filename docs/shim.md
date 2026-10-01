@@ -75,28 +75,29 @@ after changing the header mapping with `cargo run -p soe-commonlib-shim --bin ge
 The RE and SKSE interface declarations are source-level headers only. They do not provide engine
 bindings. `SKSE/Plugin.h` declares the `SKSEPlugin_Query`, `SKSEPlugin_Load` and
 `SKSEPlugin_Version` exports used by CommonLibSSE-NG plugins. The loader checks the version data,
-calls query and then load, and reports failures from either entry point. Its query and load
-interfaces are placeholders, not bindings to a running engine.
+calls query and then load, and reports failures from either entry point. It supplies a non-null
+runtime descriptor to both entry points, but its interface query callback returns no services and
+does not bind to a running engine.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
-The SHM-02 fixture adapts Papyrus Extender's startup shape from
+The SHM-02 fixture models Papyrus Extender's startup shape cited from
 `engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
 exports, compiles as a shared library against the shim headers, and runs through
 `crates/commonlib-shim/tools/plugin-loader.cpp`. It prints unsupported trampoline, scene graph
-and Havok hooks during load. The loader does not supply engine interfaces. The fixture validates
-the source-level entry-point path on this host, not the complete upstream Papyrus Extender
-library or compatibility with Windows SKSE binaries.
+and Havok hooks declared in its unsupported-hook metadata. The fixture validates the source-level
+entry-point path on this host, not a build of the upstream Papyrus Extender source, the unavailable
+engine services, or compatibility with Windows SKSE binaries.
 
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles a Papyrus Extender startup
-adaptation against the headers, loads it through the standard SKSE export names and checks its
-unsupported hook report. It does not compile the full upstream plugin, whose game interfaces and
-trampoline hooks have no engine implementation here. The declarations are not linked to engine
-behavior. The counts are token counts,
+adaptation against the headers, checks PluginVersionData's layout, loads it through the standard
+SKSE export names and checks its unsupported-hook metadata. It does not compile the surveyed
+upstream plugin, whose game interfaces and trampoline hooks have no engine implementation here.
+The declarations are not linked to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

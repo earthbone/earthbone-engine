@@ -464,22 +464,31 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             form_value(world, call, scene)
         }
     );
-    method!(
-        vm,
-        w,
+    let animation_waits = w.clone();
+    vm.natives.register_method(
         "ObjectReference",
         "PlayAnimationAndWait",
-        |world, call, me| {
+        Box::new(move |call| {
+            let Some(source) = call
+                .self_object
+                .and_then(|object| animation_waits.borrow().form_of(object))
+            else {
+                return b(false);
+            };
             let animation = text(&call.arg(0));
             let event = text(&call.arg(1));
-            if animation.is_empty() || event.is_empty() || world.reference(me).is_none() {
+            if animation.is_empty()
+                || event.is_empty()
+                || animation_waits.borrow_mut().reference(source).is_none()
+            {
                 return b(false);
             }
-            world.animation_event(me, &animation, alloc!(call));
-            // The world has no reference graph completion callback, so the accepted
-            // request is reported immediately instead of suspending the VM.
-            b(true)
-        }
+            let latent = call.defer();
+            animation_waits
+                .borrow_mut()
+                .wait_for_animation_event(source, &event, latent);
+            NativeReturn::Latent(latent)
+        }),
     );
     method!(
         vm,
@@ -491,7 +500,6 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             if animation.is_empty() || world.reference(me).is_none() {
                 return b(false);
             }
-            world.animation_event(me, &animation, alloc!(call));
             b(true)
         }
     );
@@ -528,8 +536,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             let magnitude = call.arg(3).as_float();
             let length = direction
                 .iter()
-                .map(|value| value * value)
-                .sum::<f32>()
+                .map(|value| f64::from(*value) * f64::from(*value))
+                .sum::<f64>()
                 .sqrt();
             if world.reference(me).is_none()
                 || !magnitude.is_finite()
@@ -539,7 +547,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 return none();
             }
             for value in &mut direction {
-                *value /= length;
+                *value = (f64::from(*value) / length) as f32;
             }
             world.request_reference_physics(ReferencePhysicsRequest::Impulse {
                 reference: me,

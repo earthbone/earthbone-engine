@@ -30,6 +30,16 @@ use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
 
+/// Map valid Skyrim Havok motion types to the host body mode they require.
+pub fn motion_type_to_body_mode(motion_type: u32) -> Option<BodyMode> {
+    match motion_type {
+        1 | 2 | 3 | 6 => Some(BodyMode::RIGID),
+        4 | 7 => Some(BodyMode::KINEMATIC),
+        5 => Some(BodyMode::STATIC),
+        _ => None,
+    }
+}
+
 /// What went into the space, so a caller can report it the way the cell
 /// streamer reports its surfaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -145,11 +155,8 @@ impl CellBodies {
                     else {
                         continue;
                     };
-                    let mode = match motion_type {
-                        1 | 2 | 3 | 6 => BodyMode::RIGID,
-                        4 => BodyMode::KINEMATIC,
-                        5 => BodyMode::STATIC,
-                        _ => continue,
+                    let Some(mode) = motion_type_to_body_mode(motion_type) else {
+                        continue;
                     };
                     server.body_set_mode(entry.body, mode);
                     if motion_type == 1 && !allow_activate {

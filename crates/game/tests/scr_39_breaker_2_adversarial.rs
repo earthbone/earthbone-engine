@@ -41,7 +41,10 @@ fn type_of(value: &Value) -> &'static str {
 }
 
 fn start_call(game: &mut Game, name: &str, args: &[Value]) -> soe_papyrus::vm::ThreadId {
-    let script_name = format!("Scr39Breaker2Probe{}", PROBE_ID.fetch_add(1, Ordering::Relaxed));
+    let script_name = format!(
+        "Scr39Breaker2Probe{}",
+        PROBE_ID.fetch_add(1, Ordering::Relaxed)
+    );
     let mut function = FunctionBuilder::new("Run", "Var")
         .global()
         .param("reference", "ObjectReference")
@@ -81,10 +84,18 @@ fn play_animation_and_wait_returns_only_after_the_named_graph_event() {
         &[Value::string("Open"), Value::string("OpenDone")],
     );
     game.run_until_idle(64);
-    assert_eq!(game.vm.thread_result(thread), None, "latent native must wait for OpenDone");
+    assert_eq!(
+        game.vm.thread_result(thread),
+        None,
+        "latent native must wait for OpenDone"
+    );
     game.report_animation_event(id(REFERENCE), "OtherEvent");
     game.run_until_idle(64);
-    assert_eq!(game.vm.thread_result(thread), None, "a different event must not release the wait");
+    assert_eq!(
+        game.vm.thread_result(thread),
+        None,
+        "a different event must not release the wait"
+    );
     game.report_animation_event(id(REFERENCE), "OpenDone");
     game.run_until_idle(64);
     assert_eq!(game.vm.thread_result(thread), Some(Value::Bool(true)));
@@ -97,7 +108,11 @@ fn gamebryo_animation_does_not_report_a_graph_animation_event() {
         call(
             &mut game,
             "PlayGamebryoAnimation",
-            &[Value::string("Forward"), Value::Bool(true), Value::Float(0.75)],
+            &[
+                Value::string("Forward"),
+                Value::Bool(true),
+                Value::Float(0.75)
+            ],
         ),
         Some(Value::Bool(true))
     );
@@ -135,7 +150,11 @@ fn scene_none_and_character_motion_type_keep_their_documented_contracts() {
     let mut game = game();
     assert_eq!(call(&mut game, "GetCurrentScene", &[]), Some(Value::None));
     assert_eq!(
-        call(&mut game, "SetMotionType", &[Value::Int(7), Value::Bool(false)]),
+        call(
+            &mut game,
+            "SetMotionType",
+            &[Value::Int(7), Value::Bool(false)]
+        ),
         Some(Value::None)
     );
     assert_eq!(

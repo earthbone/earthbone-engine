@@ -41,7 +41,7 @@ fn type_of(value: &Value) -> &'static str {
     }
 }
 
-fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
+fn start_call(game: &mut Game, name: &str, args: &[Value]) -> soe_papyrus::vm::ThreadId {
     let script_name = format!("Scr39Probe{}", PROBE_ID.fetch_add(1, Ordering::Relaxed));
     let mut function = FunctionBuilder::new("Run", "Var")
         .global()
@@ -64,23 +64,41 @@ fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     game.load_script(&bytes).unwrap();
     let mut values = vec![Value::Object(game.object_of_form(id(REFERENCE)))];
     values.extend_from_slice(args);
-    let thread = game.vm.call_global(&script_name, "Run", &values).unwrap();
+    game.vm.call_global(&script_name, "Run", &values).unwrap()
+}
+
+fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
+    let thread = start_call(game, name, args);
     game.run_until_idle(64);
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
 #[test]
-fn scr_39_animation_and_wait_records_animation_and_rejects_empty_arguments() {
+fn scr_39_animation_and_wait_waits_for_the_named_graph_event() {
     let mut game = game();
-    let result = call(
+    let thread = start_call(
         &mut game,
         "PlayAnimationAndWait",
         &[Value::string("Open"), Value::string("OpenDone")],
     );
-    assert_eq!(result, Value::Bool(true));
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), None);
     assert_eq!(
         game.world().animation_events,
-        vec![(id(REFERENCE), "Open".to_owned())]
+        Vec::<(GlobalFormId, String)>::new()
+    );
+    game.report_animation_event(id(REFERENCE), "OtherEvent");
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), None);
+    game.report_animation_event(id(REFERENCE), "OpenDone");
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), Some(Value::Bool(true)));
+    assert_eq!(
+        game.world().animation_events,
+        vec![
+            (id(REFERENCE), "OtherEvent".to_owned()),
+            (id(REFERENCE), "OpenDone".to_owned())
+        ]
     );
     let rejected = call(
         &mut game,
@@ -88,11 +106,10 @@ fn scr_39_animation_and_wait_records_animation_and_rejects_empty_arguments() {
         &[Value::string(""), Value::string("OpenDone")],
     );
     assert_eq!(rejected, Value::Bool(false));
-    assert_eq!(game.world().animation_events.len(), 1);
 }
 
 #[test]
-fn scr_39_gamebryo_animation_records_the_named_animation() {
+fn scr_39_gamebryo_animation_does_not_report_a_graph_event() {
     let mut game = game();
     let result = call(
         &mut game,
@@ -104,10 +121,7 @@ fn scr_39_gamebryo_animation_records_the_named_animation() {
         ],
     );
     assert_eq!(result, Value::Bool(true));
-    assert_eq!(
-        game.world().animation_events,
-        vec![(id(REFERENCE), "Forward".to_owned())]
-    );
+    assert!(game.world().animation_events.is_empty());
     assert_eq!(
         call(&mut game, "PlayGamebryoAnimation", &[Value::string("")]),
         Value::Bool(false)

@@ -51,9 +51,13 @@ fn run_fixture(dir: &Path, source: &str) -> Output {
 
 const PAPYRUS_EXTENDER_ADAPTATION: &str = r#"
 #include <SKSE/SKSE.h>
-#include <cstdio>
 
 SKSE_PLUGIN_VERSION = {1, 100, "Papyrus Extender source adaptation"};
+static const char* unsupportedHooks[] = {
+    "Papyrus Extender trampoline patches",
+    "Papyrus Extender scene graph and Havok natives"
+};
+SKSE_PLUGIN_UNSUPPORTED_HOOKS = {unsupportedHooks, 2};
 
 SKSE_PLUGIN_QUERY(SKSE::QueryInterface*, SKSE::PluginInfo* info)
 {
@@ -65,8 +69,6 @@ SKSE_PLUGIN_QUERY(SKSE::QueryInterface*, SKSE::PluginInfo* info)
 
 SKSE_PLUGIN_LOAD(const SKSE::LoadInterface*)
 {
-    std::puts("unsupported hook: Papyrus Extender trampoline patches");
-    std::puts("unsupported hook: Papyrus Extender scene graph and Havok natives");
     return true;
 }
 "#;

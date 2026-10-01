@@ -25,6 +25,8 @@ int main(int argc, char** argv)
         dlsym(library, "SKSEPlugin_Load"));
     const auto* version = static_cast<const SKSE::PluginVersionData*>(
         dlsym(library, "SKSEPlugin_Version"));
+    const auto* unsupported = static_cast<const SKSE::UnsupportedHooks*>(
+        dlsym(library, "SKSEPlugin_UnsupportedHooks"));
     if (!query || !load || !version) {
         std::cerr << "load error: missing SKSEPlugin_Query, SKSEPlugin_Load or SKSEPlugin_Version\n";
         dlclose(library);
@@ -38,8 +40,14 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    SKSE::QueryInterface queryInterface{
+        0x01000000U,
+        0,
+        0,
+        [](std::uint32_t) -> void* { return nullptr; },
+    };
     SKSE::PluginInfo info{};
-    if (!query(nullptr, &info)) {
+    if (!query(&queryInterface, &info)) {
         std::cerr << "load error: plugin query rejected this runtime\n";
         dlclose(library);
         return 1;
@@ -52,10 +60,25 @@ int main(int argc, char** argv)
     }
 
     std::cout << "plugin: " << info.name << " v" << info.version << '\n';
-    if (!load(nullptr)) {
+    if (!load(&queryInterface)) {
         std::cerr << "load error: plugin entry point returned false\n";
         dlclose(library);
         return 1;
+    }
+    if (unsupported) {
+        if (unsupported->count != 0 && !unsupported->names) {
+            std::cerr << "load error: invalid unsupported hook list\n";
+            dlclose(library);
+            return 1;
+        }
+        for (std::uint32_t i = 0; i < unsupported->count; ++i) {
+            if (!unsupported->names[i] || unsupported->names[i][0] == '\0') {
+                std::cerr << "load error: unnamed unsupported hook\n";
+                dlclose(library);
+                return 1;
+            }
+            std::cout << "unsupported hook: " << unsupported->names[i] << '\n';
+        }
     }
     std::cout << "loaded: " << info.name << '\n';
     dlclose(library);

@@ -307,13 +307,16 @@ collision and rendering change detection, is documented in
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an
-active participant. `PlayAnimationAndWait` and `PlayGamebryoAnimation` record
-the requested animation in the world's animation event log and return whether
-the request has nonempty animation arguments and a loaded reference.
-`PlayAnimationAndWait` returns immediately because reference graph completion
-does not reach the VM yet. `SetMotionType` validates the documented motion
-range and queues the motion request for the host. `ApplyHavokImpulse` rejects
-zero-length or non-finite direction data, normalizes the direction, and queues
+active participant. `PlayAnimationAndWait` validates the animation and event
+names, then waits for the named graph event before returning true. The host
+does not yet dispatch the requested animation on arbitrary references, so a
+call can remain latent until that event arrives or the graph unloads.
+`PlayGamebryoAnimation` validates its animation name and reference but legacy
+NIF playback is not implemented. Neither native fabricates a graph event.
+`SetMotionType` validates the documented motion range and queues the motion
+request for the host. Motion type 7 maps to a kinematic host body.
+`ApplyHavokImpulse` rejects zero-length or non-finite direction data,
+normalizes finite directions without intermediate float overflow, and queues
 the magnitude and direction for the host. These contracts follow the local
 `GetCurrentScene_-_ObjectReference.wikitext`,
 `PlayAnimationAndWait_-_ObjectReference.wikitext`,

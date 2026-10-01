@@ -42,7 +42,10 @@ fn type_of(value: &Value) -> &'static str {
 }
 
 fn call(game: &mut Game, reference: GlobalFormId, name: &str, args: &[Value]) -> Option<Value> {
-    let script_name = format!("Scr39BreakerProbe{}", PROBE_ID.fetch_add(1, Ordering::Relaxed));
+    let script_name = format!(
+        "Scr39BreakerProbe{}",
+        PROBE_ID.fetch_add(1, Ordering::Relaxed)
+    );
     let mut function = FunctionBuilder::new("Run", "Var")
         .global()
         .param("reference", "ObjectReference")
@@ -90,7 +93,11 @@ fn gamebryo_animation_does_not_emit_a_graph_animation_event() {
             &mut game,
             id(REFERENCE),
             "PlayGamebryoAnimation",
-            &[Value::string("Forward"), Value::Bool(false), Value::Float(1.0)],
+            &[
+                Value::string("Forward"),
+                Value::Bool(false),
+                Value::Float(1.0)
+            ],
         ),
         Some(Value::Bool(true))
     );
@@ -186,12 +193,7 @@ fn missing_reference_rejects_animation_and_physics_requests() {
         ),
         Some(Value::Bool(false))
     );
-    call(
-        &mut game,
-        missing,
-        "SetMotionType",
-        &[Value::Int(4)],
-    );
+    call(&mut game, missing, "SetMotionType", &[Value::Int(4)]);
     call(
         &mut game,
         missing,
