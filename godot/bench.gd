@@ -68,12 +68,14 @@ func _initialize() -> void:
 	bench_cell = cell
 	bench_radius = radius_text
 	var batch := OS.get_environment("SOE_BENCH_BATCH") != "0"
+	var occluders := OS.get_environment("SOE_BENCH_OCCLUDERS") != "0"
 	capture_path = OS.get_environment("SOE_BENCH_CAPTURE")
 
-	call_deferred("_setup_scene", skyrim_data, cell, radius_text, batch)
+	ProjectSettings.set_setting("rendering/occlusion_culling/use_occlusion_culling", occluders)
+	call_deferred("_setup_scene", skyrim_data, cell, radius_text, batch, occluders)
 
 
-func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch: bool) -> void:
+func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch: bool, occluders: bool) -> void:
 	var scene_root := Node3D.new()
 	get_root().add_child(scene_root)
 	var streamer := ClassDB.instantiate("CellStreamerNode") as Node3D
@@ -82,6 +84,7 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 		quit(1)
 		return
 	streamer.set("batch_surfaces", batch)
+	streamer.set("cell_occluders", occluders)
 	scene_root.add_child(streamer)
 	var started := Time.get_ticks_usec()
 	if not streamer.call("load_data", skyrim_data):
@@ -100,6 +103,7 @@ func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch:
 	var finished := Time.get_ticks_usec()
 	print("godot_scene %s scene" % label)
 	print("godot_batch %s bool" % str(batch))
+	print("godot_cell_occluders %s bool" % str(occluders))
 	print("godot_display_driver %s driver" % DisplayServer.get_name())
 	print("godot_load_data %.3f s" % ((opened - started) / 1_000_000.0))
 	print("godot_stream_%s %.3f s" % [label, (finished - opened) / 1_000_000.0])

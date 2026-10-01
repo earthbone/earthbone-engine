@@ -37,6 +37,15 @@ fn character_vfs() -> Option<Vfs> {
         "Skyrim - Meshes0.bsa",
         "Skyrim - Meshes1.bsa",
         "Skyrim - Animations.bsa",
+        "Skyrim - Textures0.bsa",
+        "Skyrim - Textures1.bsa",
+        "Skyrim - Textures2.bsa",
+        "Skyrim - Textures3.bsa",
+        "Skyrim - Textures4.bsa",
+        "Skyrim - Textures5.bsa",
+        "Skyrim - Textures6.bsa",
+        "Skyrim - Textures7.bsa",
+        "Skyrim - Textures8.bsa",
     ] {
         let path = dir.join(name);
         if !path.exists() {

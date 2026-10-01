@@ -104,18 +104,26 @@ badly would be worse than handing the caller a string.
 - Base Object Swapper's property field is its own small language of `pos`,
   `rot`, `scale` and `flags` calls, with a location based `ChanceL` variant.
 
-Open Animation Replacer's conditions are structural for a different reason: the
-plugin lets other plugins register new condition types at runtime, so the set is
-open ended and no fixed list would stay correct. Each condition keeps its name,
-its negation, the plugin it needs and its raw parameters, which is enough to
-report what a mod asks for and to implement the common ones later.
+Open Animation Replacer's conditions remain structural in `soe-moddata` because
+the plugin lets other plugins register new condition types at runtime. The game
+runtime evaluates `IsFemale`, `IsActorBase` and `IsRace`. Unknown, unresolved or
+plugin-registered condition types do not select a replacement. JSON condition
+arrays are ANDed. Legacy `OR` blocks are kept as groups, alternatives within a
+group are ORed, and separate groups are ANDed.
 
-For a modern submod, `user.json` replaces its priority and condition list. The
-author `config.json` still supplies the required name. The priority in either
-data file must fit an `i32`, since it orders the scanned submods. A legacy
+For a modern submod, `config.json` must supply its name. A sibling `user.json`
+replaces the submod's data, including its required priority, conditions and
+optional disabled flag, while retaining the name from `config.json`. The
+priority must fit an `i32`, since it orders the scanned submods. A legacy
 numbered directory with `_conditions.txt` accepts `user.json` as an OAR
-override, using its priority and condition list instead of the directory number
-and text conditions. The scan sorts both layouts by the resulting priority.
+override, using its priority, conditions and optional disabled flag instead of
+the directory number and text conditions. `AnimationMod::select_submod`
+returns the highest-priority enabled submod accepted by a caller-provided
+condition matcher. Equal priorities retain scan order. The condition matcher
+remains outside this crate because OAR condition types can be registered by
+other plugins. `overrideAnimationsFolder` selects a sibling directory as the
+submod's animation source. If that directory is missing, the submod is skipped,
+matching `Parsing.cpp`.
 
 ## Conflicts resolve by file name
 
@@ -144,25 +152,36 @@ headers, and a standard ini crate models none of that.
 ## Measured
 
 The installed game Data directory has no `_DISTR`, `_KID` or `_SWAP` files, so
-the gated real-file tests have nothing to read. Every fixture in the test suite
-is authored from the syntax examples in the sources above and is marked as
-authored rather than real. The MOD-07
+the gated real-file tests have nothing to read. Most fixtures in the test suite
+are authored from the syntax examples in the sources above. The MOD-07
 provenance regression checks that SPID, KID and BOS patches retain their input
-file and line. No shipped mod has been run through the parser or game application
-yet.
+file and line.
+
+MOD-07 also carries one real KID rule from DeviousDevicesNG as an inline test
+fixture. Its source is `Devious Devices_KID.ini` at revision
+`6b89b4160fffe62e38c9d3d777e66fb3a06b8419`, licensed Apache-2.0. The test
+parses the exact rule, resolves its keyword against a synthetic load order,
+and checks the source path and line. The rule refers to a form supplied by
+Schlongs of Skyrim, so the test models that keyword record rather than needing
+the external mod installed. No real SPID, BOS or OAR mod fixture is available
+yet, and this test does not run the rule through `soe-game`.
 
 | Test suite | Count | What it covers |
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
-| `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
+| `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
+| `tests/mod_04_adversarial.rs` | 4 | A user priority override changes selection, disabled overrides exclude submods, user conditions replace author conditions, and an empty animation folder keeps the submod path |
+| `tests/mod_04_breaker_adversarial.rs` | 4 | Negative and maximum priorities select correctly, missing user priority does not fall back, and out of range priority is rejected |
+| `game/tests/mod_04_breaker_2_adversarial.rs` | 2 | User priority selects the game clip and `overrideAnimationsFolder` supplies it from a sibling directory |
 
 ## Not done
 
-- No real mod has been parsed, see above.
+- MOD-07 covers one real KID rule. Real SPID, BOS and OAR mod fixtures and
+  game-side application of a real mod remain untested.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written.
-- Exact chance selection and actor lifecycle compatibility, detailed below.
+- Exact ordinary SPID and KID chance selection, detailed below.
 
 ## Applying, added 2026-09-18
 
@@ -172,8 +191,8 @@ under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
 resolved `soe_profile::Loadout` instead, which already knows those roots in
 order.
 
-Call it before `Game::start`. This engine applies distributions once at load.
-That is a current limitation, not a claim of matching SPID's actor lifecycle.
+Call it before `Game::start`. The load pass resolves rules. Deterministic SPID
+rules are evaluated for each actor as its state is built.
 
 ### Where each format lands, and why there
 
@@ -182,7 +201,7 @@ That is a current limitation, not a claim of matching SPID's actor lifecycle.
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
-| OAR | Counted only | The animation system will read the trees |
+| OAR | Parsed submods are retained by `Game`. Callers can select the highest-priority enabled submod matching actor conditions | Runtime animation playback will consume the selected paths |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
 into the same list `World::keywords` returns for a record's own `KWDA`, so
@@ -190,6 +209,11 @@ into the same list `World::keywords` returns for a record's own `KWDA`, so
 from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
+
+`AnimationMod::select_submod` selects among parsed OAR submods using a caller's
+condition matcher and skips disabled submods. `Game::select_oar_animation`
+binds supported conditions to actor records and returns a matching clip path.
+Automatic animation playback does not yet consume that path.
 
 Distribution is keyed by `NPC_` base rather than applied to loaded actors,
 because an actor's state is built from its base on first use. A reference that
@@ -209,17 +233,22 @@ Tests cover `0!`, `50!`, `100!`, ordinary percentages and malformed values.
 
 Ordinary SPID chance rolls occur per matching NPC base using the world's
 seeded generator. Deterministic `0!` and `100!` work without a random choice.
-Fractional deterministic rules are skipped and counted in
-`skipped_unsupported_chance`. Their per-actor seed and lifecycle are not
-implemented. References are SPID `SPID/src/LookupConfigs.h`, `Defs.h` and
-`LookupFilters.cpp`, especially `ChanceComponentParser` and the deterministic
-branch combining line seed, player ID and actor FormID.
+Fractional deterministic rules are evaluated for each actor when its state is
+built. Their seed combines the parsed entry seed, the active save character ID
+and the actor runtime FormID, following SPID's `LookupFilters.cpp`. The host
+sets the active ID with `World::set_player_character_id`. This input metadata
+is not serialized by the engine. SPID obtains the value from its save manager,
+or from the character ID in a standard save filename. References are SPID
+`SPID/src/LookupConfigs.h`, `Defs.h`, `LookupFilters.cpp` and
+`PCLevelMultManager.cpp`, especially `ChanceComponentParser` and
+`GetPlayerIDFromSave`.
 
 KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
 on keyword editor ID and target form. Our KID application still rolls once
-per rule with the world RNG. Neither distributor should be described as
-matching upstream chance selection. The `world.mod_data` hash covers the
-resulting keywords, distributions and swaps for engine replay.
+per rule with the world RNG. Ordinary chance and the conversion from a
+deterministic SPID seed to a draw remain engine policy, not an exact upstream
+random sequence. The `world.mod_data` hash covers the resulting keywords,
+distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
@@ -252,19 +281,18 @@ A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the
 record-backed NPC base before distribution. A rule that fails one of those
 filters is ignored. A `starts-dead` filter remains skipped and counted in
-`skipped_unsupported_filter`, because it belongs to a placed actor and this
-startup path applies distributions per NPC base. MOD-01's per-actor lifecycle
-work is not present in this worktree, so different placed actors using one
-base cannot receive different filter results or deterministic chance results.
-The checks use SPID's `LookupFilters.cpp` and `LookupNPC.cpp` behavior for
-level and traits, with the record fields available to this engine.
+`skipped_unsupported_filter`, because it belongs to a placed actor and the
+supported filter path reads NPC base data. Deterministic chance is evaluated
+per placed actor when its state is built. The checks use SPID's
+`LookupFilters.cpp` and `LookupNPC.cpp` behavior for level and traits, with the
+record fields available to this engine.
 
 ### Measured
 
 The gated scan over the installed game reports zero of everything, because the
 install is vanilla and ships no mod using any of these formats. It starts
-reporting the moment one is installed, which remains the crate's one honest gap:
-every fixture is still authored.
+reporting the moment one is installed. The gated scan reports formats in the
+installed game, but the current vanilla installation has no such mod files.
 
 | Test suite | Count | What it covers |
 |---|---|---|

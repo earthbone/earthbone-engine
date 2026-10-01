@@ -18,6 +18,8 @@ pub const VERTS_PER_SIDE: usize = 33;
 pub const VERTS: usize = VERTS_PER_SIDE * VERTS_PER_SIDE;
 pub const ALPHA_GRID_SIDE: usize = 17;
 pub const HEIGHT_SCALE: f32 = 8.0;
+const CELL_SIZE: f32 = 4096.0;
+const QUADRANT_SIZE: f32 = CELL_SIZE / 2.0;
 
 pub mod flags {
     pub const HAS_NORMALS_AND_HEIGHTS: u32 = 0x001;
@@ -171,6 +173,9 @@ impl Land {
         for s in &rec.subrecords {
             match s.tag.as_bytes() {
                 b"BTXT" => {
+                    if let Some((q, layer)) = open.take() {
+                        quadrants[q].layers.push(layer);
+                    }
                     let mut f = Fields::new(rec.tag, s.tag, &s.data);
                     f.exact(8)?;
                     let texture = f.u32()?;
@@ -254,6 +259,468 @@ impl Land {
             world: rec.placement.world,
         })
     }
+}
+
+/// Apply one circular height brush dab to a LAND record and rebuild its
+/// vertex normals from the edited heights.
+///
+/// `center` and `radius` use cell-local world units. `strength` is the height
+/// change at the brush centre. A smooth radial falloff reaches zero at the
+/// radius. Existing LAND subrecords and unknown data are preserved.
+pub fn apply_height_brush(
+    record: &mut Record,
+    center: [f32; 2],
+    radius: f32,
+    strength: f32,
+) -> Result<()> {
+    if record.tag != tag::LAND {
+        return Err(Error::Invalid("height brush requires a LAND record".into()));
+    }
+    if !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !strength.is_finite()
+    {
+        return Err(Error::Invalid(
+            "height brush center, radius and strength must be finite, with a positive radius"
+                .into(),
+        ));
+    }
+
+    let land = Land::from_record(record)?;
+    for subrecord_tag in [b"DATA", b"VHGT", b"VNML"] {
+        ensure_unique_subrecord(record, Tag::new(subrecord_tag))?;
+    }
+    let mut heights = land
+        .heights
+        .map(|values| values.decode())
+        .unwrap_or_else(|| vec![0.0; VERTS]);
+    let spacing = 4096.0 / (VERTS_PER_SIDE - 1) as f32;
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let x = col as f32 * spacing;
+            let y = row as f32 * spacing;
+            let distance = (x - center[0]).hypot(y - center[1]);
+            if distance < radius {
+                let t = 1.0 - distance / radius;
+                let weight = t * t * (3.0 - 2.0 * t);
+                heights[row * VERTS_PER_SIDE + col] += strength * weight;
+            }
+        }
+    }
+
+    ensure_encodable_heights(&heights)?;
+    let encoded = Heights::encode(&heights);
+    let mut normals = Vec::with_capacity(VERTS * 3);
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let left = row * VERTS_PER_SIDE + col.saturating_sub(1);
+            let right = row * VERTS_PER_SIDE + (col + 1).min(VERTS_PER_SIDE - 1);
+            let south = row.saturating_sub(1) * VERTS_PER_SIDE + col;
+            let north = (row + 1).min(VERTS_PER_SIDE - 1) * VERTS_PER_SIDE + col;
+            let dx = (heights[right] - heights[left])
+                / (spacing
+                    * if col == 0 || col == VERTS_PER_SIDE - 1 {
+                        1.0
+                    } else {
+                        2.0
+                    });
+            let dy = (heights[north] - heights[south])
+                / (spacing
+                    * if row == 0 || row == VERTS_PER_SIDE - 1 {
+                        1.0
+                    } else {
+                        2.0
+                    });
+            let length = (dx * dx + dy * dy + 1.0).sqrt();
+            for component in [-dx / length, -dy / length, 1.0 / length] {
+                normals.push((component * 127.0).round().clamp(-127.0, 127.0) as i8 as u8);
+            }
+        }
+    }
+
+    let flags = land.flags | flags::HAS_NORMALS_AND_HEIGHTS;
+    if record
+        .subrecords
+        .iter()
+        .find(|subrecord| subrecord.tag == Tag::new(b"DATA"))
+        .is_some()
+    {
+        let data = record
+            .subrecords
+            .iter_mut()
+            .find(|subrecord| subrecord.tag == Tag::new(b"DATA"));
+        if let Some(data) = data {
+            data.data = flags.to_le_bytes().to_vec();
+        }
+    } else {
+        record.subrecords.insert(
+            0,
+            crate::plugin::Subrecord::new(Tag::new(b"DATA"), flags.to_le_bytes()),
+        );
+    }
+    set_unique_subrecord(record, Tag::new(b"VHGT"), encoded.to_bytes())?;
+    set_unique_subrecord(record, Tag::new(b"VNML"), normals)?;
+    Ok(())
+}
+
+/// Apply one circular texture brush dab to a LAND quadrant.
+///
+/// `center` and `radius` use cell-local world units. `strength` changes the
+/// selected texture's alpha weight by a smooth radial falloff. Existing
+/// texture and layer indices are retained. If the texture has no alpha layer
+/// in the quadrant, the first unused layer index is assigned.
+pub fn apply_texture_brush(
+    record: &mut Record,
+    texture: u32,
+    quadrant: u8,
+    center: [f32; 2],
+    radius: f32,
+    strength: f32,
+) -> Result<()> {
+    if record.tag != tag::LAND {
+        return Err(Error::Invalid(
+            "texture brush requires a LAND record".into(),
+        ));
+    }
+    if quadrant >= 4
+        || !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !strength.is_finite()
+    {
+        return Err(Error::Invalid(
+            "texture brush requires a valid quadrant, finite center and strength, and a positive finite radius"
+                .into(),
+        ));
+    }
+
+    let land = Land::from_record(record)?;
+    ensure_unique_subrecord(record, Tag::new(b"DATA"))?;
+    let layer_headers = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter(|(_, subrecord)| {
+            subrecord.tag == Tag::new(b"BTXT") || subrecord.tag == Tag::new(b"ATXT")
+        })
+        .map(|(position, subrecord)| {
+            if subrecord.data.len() != 8 {
+                return Err(Error::Invalid(format!(
+                    "LAND has malformed {} layer header",
+                    subrecord.tag
+                )));
+            }
+            let header_quadrant = subrecord.data[4];
+            if header_quadrant >= 4 {
+                return Err(Error::Invalid(format!(
+                    "LAND layer quadrant {header_quadrant} is out of range"
+                )));
+            }
+            let index = u16::from_le_bytes([subrecord.data[6], subrecord.data[7]]);
+            Ok((position, subrecord.tag, header_quadrant, index))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let matching = layer_headers
+        .iter()
+        .filter(|(position, kind, layer_quadrant, _)| {
+            *kind == Tag::new(b"ATXT")
+                && *layer_quadrant == quadrant
+                && record.subrecords[*position].data[..4] == texture.to_le_bytes()
+        })
+        .collect::<Vec<_>>();
+    if matching.len() > 1 {
+        return Err(Error::Invalid(
+            "LAND has repeated alpha layers for the selected texture and quadrant".into(),
+        ));
+    }
+
+    let target_header = matching.first().map(|entry| entry.0);
+    let mut target_index = matching.first().map(|entry| entry.3);
+    if target_header.is_none() {
+        let used = layer_headers
+            .iter()
+            .filter(|(_, _, layer_quadrant, _)| *layer_quadrant == quadrant)
+            .map(|(_, _, _, index)| *index)
+            .collect::<std::collections::HashSet<_>>();
+        target_index = (0..8).find(|index| !used.contains(index));
+        if target_index.is_none() {
+            return Err(Error::Invalid(
+                "LAND quadrant has no free texture layer index".into(),
+            ));
+        }
+    }
+
+    let data_flags = land.flags | flags::HAS_LAYERS;
+    let quadrant_origin = [
+        if quadrant & 1 == 0 {
+            0.0
+        } else {
+            QUADRANT_SIZE
+        },
+        if quadrant & 2 == 0 {
+            0.0
+        } else {
+            QUADRANT_SIZE
+        },
+    ];
+    let mut touched = Vec::new();
+    for row in 0..ALPHA_GRID_SIDE {
+        for col in 0..ALPHA_GRID_SIDE {
+            let spacing = QUADRANT_SIZE / (ALPHA_GRID_SIDE - 1) as f32;
+            let x = quadrant_origin[0] + col as f32 * spacing;
+            let y = quadrant_origin[1] + row as f32 * spacing;
+            let distance = (x - center[0]).hypot(y - center[1]);
+            if distance < radius {
+                let t = 1.0 - distance / radius;
+                let weight = t * t * (3.0 - 2.0 * t);
+                touched.push((
+                    row * ALPHA_GRID_SIDE + col,
+                    (strength * weight).clamp(-1.0, 1.0),
+                ));
+            }
+        }
+    }
+
+    let (header_position, new_layer) = if let Some(position) = target_header {
+        (position, false)
+    } else {
+        let mut header = Vec::with_capacity(8);
+        header.extend_from_slice(&texture.to_le_bytes());
+        header.push(quadrant);
+        header.push(0);
+        header.extend_from_slice(&target_index.unwrap_or_default().to_le_bytes());
+        record
+            .subrecords
+            .push(crate::plugin::Subrecord::new(Tag::new(b"ATXT"), header));
+        (record.subrecords.len() - 1, true)
+    };
+
+    let target_end = record.subrecords[header_position + 1..]
+        .iter()
+        .position(|subrecord| {
+            subrecord.tag == Tag::new(b"ATXT") || subrecord.tag == Tag::new(b"BTXT")
+        })
+        .map_or(record.subrecords.len(), |offset| {
+            header_position + 1 + offset
+        });
+    let mut alpha_entries = std::collections::HashMap::new();
+    for position in header_position + 1..target_end {
+        let subrecord = &record.subrecords[position];
+        if subrecord.tag != Tag::new(b"VTXT") {
+            continue;
+        }
+        if !subrecord.data.len().is_multiple_of(8) {
+            return Err(Error::Invalid(
+                "LAND VTXT data length is not a multiple of 8".into(),
+            ));
+        }
+        for entry in subrecord.data.as_chunks::<8>().0 {
+            let alpha_position = u16::from_le_bytes([entry[0], entry[1]]);
+            let opacity = f32::from_le_bytes([entry[4], entry[5], entry[6], entry[7]]);
+            if usize::from(alpha_position) >= ALPHA_GRID_SIDE * ALPHA_GRID_SIDE
+                || !opacity.is_finite()
+                || !(0.0..=1.0).contains(&opacity)
+                || alpha_entries.insert(alpha_position, opacity).is_some()
+            {
+                return Err(Error::Invalid(
+                    "LAND VTXT contains an invalid or repeated alpha weight".into(),
+                ));
+            }
+        }
+    }
+
+    for (position, change) in touched {
+        let position = u16::try_from(position).map_err(|_| {
+            Error::Invalid("LAND texture alpha position does not fit its field".into())
+        })?;
+        let previous = alpha_entries.get(&position).copied().unwrap_or(0.0);
+        let opacity = (previous + change).clamp(0.0, 1.0);
+        alpha_entries.insert(position, opacity);
+    }
+
+    let mut updated = Vec::with_capacity(alpha_entries.len() * 8);
+    let mut ordered = alpha_entries.into_iter().collect::<Vec<_>>();
+    ordered.sort_unstable_by_key(|(position, _)| *position);
+    for (position, opacity) in ordered {
+        updated.extend_from_slice(&position.to_le_bytes());
+        updated.extend_from_slice(&[0, 0]);
+        updated.extend_from_slice(&opacity.to_le_bytes());
+    }
+
+    let vtxt_positions = (header_position + 1..target_end)
+        .filter(|position| record.subrecords[*position].tag == Tag::new(b"VTXT"))
+        .collect::<Vec<_>>();
+    if let Some(position) = vtxt_positions.first() {
+        record.subrecords[*position].data = updated;
+        for position in vtxt_positions.iter().skip(1).rev() {
+            record.subrecords.remove(*position);
+        }
+    } else if !updated.is_empty() {
+        record.subrecords.insert(
+            header_position + 1,
+            crate::plugin::Subrecord::new(Tag::new(b"VTXT"), updated),
+        );
+    }
+
+    if new_layer || data_flags != land.flags {
+        if let Some(data) = record
+            .subrecords
+            .iter_mut()
+            .find(|subrecord| subrecord.tag == Tag::new(b"DATA"))
+        {
+            data.data = data_flags.to_le_bytes().to_vec();
+        } else {
+            record.subrecords.insert(
+                0,
+                crate::plugin::Subrecord::new(Tag::new(b"DATA"), data_flags.to_le_bytes()),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Blend a circular brush color into a LAND record's vertex colors.
+///
+/// `center` and `radius` use cell-local world units. `strength` ranges from
+/// zero to one and is multiplied by a smooth radial falloff. A LAND record
+/// without VCLR starts with white vertex colors. Existing LAND subrecords and
+/// unknown data are preserved.
+pub fn apply_vertex_color_brush(
+    record: &mut Record,
+    center: [f32; 2],
+    radius: f32,
+    color: [u8; 3],
+    strength: f32,
+) -> Result<()> {
+    if record.tag != tag::LAND {
+        return Err(Error::Invalid(
+            "vertex color brush requires a LAND record".into(),
+        ));
+    }
+    if !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !strength.is_finite()
+        || !(0.0..=1.0).contains(&strength)
+    {
+        return Err(Error::Invalid(
+            "vertex color brush center and radius must be finite, radius positive, and strength in 0 to 1"
+                .into(),
+        ));
+    }
+
+    let land = Land::from_record(record)?;
+    for subrecord_tag in [b"DATA", b"VCLR"] {
+        ensure_unique_subrecord(record, Tag::new(subrecord_tag))?;
+    }
+    let mut colours = land.colours.unwrap_or_else(|| vec![[255; 3]; VERTS]);
+    let spacing = 4096.0 / (VERTS_PER_SIDE - 1) as f32;
+    for row in 0..VERTS_PER_SIDE {
+        for col in 0..VERTS_PER_SIDE {
+            let x = col as f32 * spacing;
+            let y = row as f32 * spacing;
+            let distance = (x - center[0]).hypot(y - center[1]);
+            if distance < radius {
+                let t = 1.0 - distance / radius;
+                let falloff = t * t * (3.0 - 2.0 * t) * strength;
+                let vertex = &mut colours[row * VERTS_PER_SIDE + col];
+                for channel in 0..3 {
+                    let current = f32::from(vertex[channel]);
+                    let target = f32::from(color[channel]);
+                    vertex[channel] = (current + (target - current) * falloff)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+
+    let data_flags = land.flags | flags::HAS_VERTEX_COLOURS;
+    if let Some(data) = record
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == Tag::new(b"DATA"))
+    {
+        data.data = data_flags.to_le_bytes().to_vec();
+    } else {
+        record.subrecords.insert(
+            0,
+            crate::plugin::Subrecord::new(Tag::new(b"DATA"), data_flags.to_le_bytes()),
+        );
+    }
+    let bytes = colours.into_iter().flatten().collect();
+    set_unique_subrecord(record, Tag::new(b"VCLR"), bytes)?;
+    Ok(())
+}
+
+fn ensure_encodable_heights(heights: &[f32]) -> Result<()> {
+    let quantized = heights
+        .iter()
+        .map(|height| (*height / HEIGHT_SCALE).round())
+        .collect::<Vec<_>>();
+    if quantized.iter().any(|height| !height.is_finite()) {
+        return Err(Error::Invalid(
+            "height brush produced a non-finite LAND height".into(),
+        ));
+    }
+    let mut row_start = quantized[0];
+    for row in 0..VERTS_PER_SIDE {
+        let mut previous = 0.0;
+        for col in 0..VERTS_PER_SIDE {
+            let target = quantized[row * VERTS_PER_SIDE + col];
+            let delta = if col == 0 {
+                let delta = target - row_start;
+                row_start = target;
+                delta
+            } else {
+                target - previous
+            };
+            if !(-128.0..=127.0).contains(&delta) {
+                return Err(Error::Invalid(
+                    "height brush exceeds LAND gradient range".into(),
+                ));
+            }
+            previous = target;
+        }
+    }
+    Ok(())
+}
+
+fn set_unique_subrecord(record: &mut Record, tag: Tag, data: Vec<u8>) -> Result<()> {
+    let mut found = record
+        .subrecords
+        .iter_mut()
+        .filter(|subrecord| subrecord.tag == tag);
+    if let Some(subrecord) = found.next() {
+        if found.next().is_some() {
+            return Err(Error::Invalid(format!(
+                "LAND has repeated {tag} subrecords"
+            )));
+        }
+        subrecord.data = data;
+    } else {
+        record
+            .subrecords
+            .push(crate::plugin::Subrecord::new(tag, data));
+    }
+    Ok(())
+}
+
+fn ensure_unique_subrecord(record: &Record, tag: Tag) -> Result<()> {
+    if record
+        .subrecords
+        .iter()
+        .filter(|subrecord| subrecord.tag == tag)
+        .count()
+        > 1
+    {
+        return Err(Error::Invalid(format!(
+            "LAND has repeated {tag} subrecords"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

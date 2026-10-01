@@ -132,7 +132,7 @@ impl World {
                     value.saved_form_flags =
                         decoded.form_flags.map(|flags| (flags.flags, flags.unknown));
                     if let Some((flags, _)) = value.saved_form_flags {
-                        value.record.flags = flags;
+                        value.record.flags ^= flags;
                     }
                 }
                 "FACT" => {
@@ -142,7 +142,7 @@ impl World {
                     value.saved_form_flags =
                         decoded.form_flags.map(|flags| (flags.flags, flags.unknown));
                     if let Some((flags, _)) = value.saved_form_flags {
-                        value.record.flags = flags;
+                        value.record.flags ^= flags;
                     }
                     let mut cached_reactions = None;
                     let mut cached_tracks_crime = None;
@@ -186,7 +186,7 @@ impl World {
                     value.saved_form_flags =
                         decoded.form_flags.map(|flags| (flags.flags, flags.unknown));
                     if let Some((flags, _)) = value.saved_form_flags {
-                        value.record.flags = flags;
+                        value.record.flags ^= flags;
                     }
                     if let Some(created) = decoded.created {
                         let parent = mapping.reference(created[0])?;
@@ -200,6 +200,12 @@ impl World {
                             .map_err(|reason| invalid(id, reason))?;
                     }
                     if let Some(rank) = decoded.rank {
+                        if !(-4..=8).contains(&rank) {
+                            return Err(invalid(
+                                id,
+                                "relationship rank is outside the supported range -4 through 8",
+                            ));
+                        }
                         let mut data = value.record.find(T(b"DATA")).unwrap_or(&[]).to_vec();
                         if data.len() < 16 {
                             data.resize(16, 0);

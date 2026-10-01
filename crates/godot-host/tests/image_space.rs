@@ -119,6 +119,38 @@ fn mag_72_render_values_follow_cell_source_and_clear_on_replacement() {
 }
 
 #[test]
+fn mag_71_host_frame_keeps_curve_samples_with_their_active_weights() {
+    let mut header = vec![0; 244];
+    header[..4].copy_from_slice(&1u32.to_le_bytes());
+    header[4..8].copy_from_slice(&2.0f32.to_le_bytes());
+    header[180..184].copy_from_slice(&2u32.to_le_bytes());
+    let mut curve = Vec::new();
+    for (time, value) in [(0.0f32, 0.0f32), (1.0, 1.0)] {
+        curve.extend_from_slice(&time.to_le_bytes());
+        curve.extend_from_slice(&value.to_le_bytes());
+    }
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag::new(b"IMAD"), 1)
+            .sub(Tag::new(b"DNAM"), header)
+            .sub(Tag::new(b"BNAM"), curve),
+    );
+    let mut order = LoadOrder::new();
+    order.add("HostImageCurves.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let modifier = GlobalFormId { file: 0, object: 1 };
+    game.world_mut().apply_image_space(modifier, 0.4).unwrap();
+    game.tick(1.0);
+    let mut host = ImageSpaceStack::default();
+    host.sync(&game.world()).unwrap();
+    let frame = host.render_layers(&game.world()).unwrap();
+    assert_eq!(frame.len(), 1);
+    assert_eq!(frame[0].strength, 0.4);
+    assert_eq!(frame[0].channels[0].channel, *b"BNAM");
+    assert!((frame[0].channels[0].values[0] - 0.5).abs() < 0.000_001);
+}
+
+#[test]
 fn image_space_host_snapshot_follows_game_fades_and_replacement() {
     let mut plugin = Plugin::new(FileHeader::default());
     for id in [1, 2] {

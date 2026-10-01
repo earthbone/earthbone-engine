@@ -12,7 +12,7 @@
 //! and waypoint ownership. Non-geometric graph links remain explicit segments.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 mod funnel;
@@ -25,6 +25,7 @@ use spatial::SpatialIndex;
 
 const WATER_FLAG: u16 = 0x0200;
 const PREFERRED_FLAG: u16 = 0x0040;
+const DOOR_BINDING_Z_TOLERANCE: f32 = 64.0;
 
 /// Traversal costs for the NAVM triangle flags this graph understands.
 ///
@@ -153,13 +154,143 @@ pub struct Path {
     pub cost: f32,
 }
 
+/// Stable handle for a runtime obstacle registered with a navigation graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObstacleId(u64);
+
+/// Explicit obstacle geometry used to keep routes away from blocked triangles.
+///
+/// A triangle is blocked when its projected footprint intersects this shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ObstacleShape {
+    /// A vertical cylinder with a base center in graph `(x, y, z)` coordinates.
+    Cylinder {
+        base: [f32; 3],
+        radius: f32,
+        height: f32,
+    },
+    /// An axis-aligned box in the graph's `(x, y, z)` coordinates.
+    Box { min: [f32; 3], max: [f32; 3] },
+}
+
+impl ObstacleShape {
+    fn is_valid(self) -> bool {
+        match self {
+            Self::Cylinder {
+                base,
+                radius,
+                height,
+            } => {
+                base.iter().all(|value| value.is_finite())
+                    && radius.is_finite()
+                    && radius > 0.0
+                    && height.is_finite()
+                    && height > 0.0
+            }
+            Self::Box { min, max } => {
+                min.iter().chain(max.iter()).all(|value| value.is_finite())
+                    && (0..3).all(|axis| min[axis] < max[axis])
+            }
+        }
+    }
+
+    fn intersects_triangle(self, points: [[f32; 3]; 3]) -> bool {
+        match self {
+            Self::Cylinder {
+                base,
+                radius,
+                height,
+            } => {
+                let bottom = base[2];
+                triangle_overlaps_z(points, bottom, bottom + height)
+                    && (point_in_triangle_xy([base[0], base[1]], points)
+                        || (0..3).any(|edge| {
+                            distance_to_segment_squared(
+                                [base[0], base[1]],
+                                [points[edge][0], points[edge][1]],
+                                [points[(edge + 1) % 3][0], points[(edge + 1) % 3][1]],
+                            ) <= radius * radius
+                        }))
+            }
+            Self::Box { min, max } => {
+                triangle_overlaps_z(points, min[2], max[2])
+                    && triangle_overlaps_box_xy(points, min, max)
+            }
+        }
+    }
+}
+
+fn triangle_overlaps_z(points: [[f32; 3]; 3], min: f32, max: f32) -> bool {
+    let low = points
+        .iter()
+        .map(|point| point[2])
+        .fold(f32::INFINITY, f32::min);
+    let high = points
+        .iter()
+        .map(|point| point[2])
+        .fold(f32::NEG_INFINITY, f32::max);
+    low <= max && high >= min
+}
+
+fn point_in_triangle_xy(point: [f32; 2], triangle: [[f32; 3]; 3]) -> bool {
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+    };
+    let signs = [
+        cross(triangle[0], triangle[1]),
+        cross(triangle[1], triangle[2]),
+        cross(triangle[2], triangle[0]),
+    ];
+    signs.iter().all(|sign| *sign >= -1e-5) || signs.iter().all(|sign| *sign <= 1e-5)
+}
+
+fn distance_to_segment_squared(point: [f32; 2], start: [f32; 2], end: [f32; 2]) -> f32 {
+    let segment = [end[0] - start[0], end[1] - start[1]];
+    let length_squared = segment[0] * segment[0] + segment[1] * segment[1];
+    let along = if length_squared == 0.0 {
+        0.0
+    } else {
+        (((point[0] - start[0]) * segment[0] + (point[1] - start[1]) * segment[1]) / length_squared)
+            .clamp(0.0, 1.0)
+    };
+    let dx = point[0] - (start[0] + along * segment[0]);
+    let dy = point[1] - (start[1] + along * segment[1]);
+    dx * dx + dy * dy
+}
+
+fn triangle_overlaps_box_xy(triangle: [[f32; 3]; 3], min: [f32; 3], max: [f32; 3]) -> bool {
+    let center = [min[0].midpoint(max[0]), min[1].midpoint(max[1])];
+    let half = [(max[0] - min[0]) * 0.5, (max[1] - min[1]) * 0.5];
+    let points = triangle.map(|point| [point[0] - center[0], point[1] - center[1]]);
+    let axes = [
+        [1.0, 0.0],
+        [0.0, 1.0],
+        [points[1][1] - points[0][1], points[0][0] - points[1][0]],
+        [points[2][1] - points[1][1], points[1][0] - points[2][0]],
+        [points[0][1] - points[2][1], points[2][0] - points[0][0]],
+    ];
+    axes.iter().all(|axis| {
+        let projection = points.map(|point| point[0] * axis[0] + point[1] * axis[1]);
+        let triangle_min = projection.into_iter().fold(f32::INFINITY, f32::min);
+        let triangle_max = projection.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        let box_radius = half[0] * axis[0].abs() + half[1] * axis[1].abs();
+        triangle_min <= box_radius && triangle_max >= -box_radius
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NavGraph {
     meshes: Vec<Mesh>,
     /// NAVM door references mapped to the triangles authored for them.
     door_nodes: HashMap<u64, Vec<NodeId>>,
+    /// Door nodes whose placed reference footprint overlaps their triangle.
+    door_bindings: HashMap<u64, Vec<NodeId>>,
+    /// A closed door blocks its bound NAVM triangle during path searches.
+    closed_doors: HashSet<u64>,
     spatial: OnceLock<SpatialIndex>,
     components: OnceLock<Vec<usize>>,
+    obstacles: BTreeMap<ObstacleId, ObstacleShape>,
+    next_obstacle_id: u64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -290,6 +421,50 @@ impl NavGraph {
         self.meshes[node.mesh as usize].triangles[node.triangle as usize].blocked = blocked;
     }
 
+    /// Add an explicit cylinder or axis-aligned box obstacle.
+    ///
+    /// Routes are recalculated on the next query. Only triangles whose
+    /// footprints intersecting the shape become dynamically blocked. The
+    /// triangle adjacency and unrelated graph nodes remain unchanged.
+    ///
+    /// # Errors
+    /// Returns `None` for invalid geometry or when obstacle ids are exhausted.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    pub fn add_obstacle(&mut self, shape: ObstacleShape) -> Option<ObstacleId> {
+        if !shape.is_valid() {
+            return None;
+        }
+        let id = ObstacleId(self.next_obstacle_id);
+        self.next_obstacle_id = self.next_obstacle_id.checked_add(1)?;
+        self.obstacles.insert(id, shape);
+        Some(id)
+    }
+
+    /// Remove an obstacle and restore routes through its triangles.
+    ///
+    /// # Errors
+    /// Returns `false` when the id is not registered.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    pub fn remove_obstacle(&mut self, id: ObstacleId) -> bool {
+        self.obstacles.remove(&id).is_some()
+    }
+
+    fn is_blocked(&self, node: NodeId) -> bool {
+        let triangle = self.triangle(node);
+        if triangle.blocked {
+            return true;
+        }
+        let mesh = &self.meshes[node.mesh as usize];
+        let points = triangle.vertices.map(|index| mesh.vertices[index as usize]);
+        self.obstacles
+            .values()
+            .any(|shape| shape.intersects_triangle(points))
+    }
+
     /// Associate a resolved door reference with its authored NAVM triangle.
     /// This association does not make the triangle an edge or change its
     /// walkability.
@@ -307,6 +482,81 @@ impl NavGraph {
     /// raw door FormID. The association does not control pathfinding.
     pub fn door_nodes(&self, door: u64) -> &[NodeId] {
         self.door_nodes.get(&door).map_or(&[], Vec::as_slice)
+    }
+
+    /// Resolved door reference keys retained by NAVM door links.
+    pub fn door_keys(&self) -> impl Iterator<Item = u64> + '_ {
+        self.door_nodes.keys().copied()
+    }
+
+    /// Resolve NAVM door associations against the placed door's XY position.
+    /// The authored link supplies candidate triangles, and the reference
+    /// position must fall within the triangle footprint to bind it.
+    pub fn bind_door_footprint(&mut self, door: u64, position: [f32; 3]) -> bool {
+        let candidates = self.door_nodes(door).to_vec();
+        let nodes: Vec<_> = candidates
+            .into_iter()
+            .filter(|node| self.contains_xy(*node, position))
+            .collect();
+        let binding = if nodes.is_empty() { None } else { Some(nodes) };
+        let changed = self.door_bindings.get(&door) != binding.as_ref();
+        if let Some(nodes) = binding {
+            self.door_bindings.insert(door, nodes);
+        } else {
+            self.door_bindings.remove(&door);
+        }
+        changed
+    }
+
+    /// Set whether a bound door is open. Closed links block only their
+    /// authored door triangle. Returns whether the effective state changed.
+    pub fn set_door_open(&mut self, door: u64, open: bool) -> bool {
+        if !self.door_bindings.contains_key(&door) {
+            return false;
+        }
+        if open {
+            self.closed_doors.remove(&door)
+        } else {
+            self.closed_doors.insert(door)
+        }
+    }
+
+    fn node_blocked(&self, node: NodeId) -> bool {
+        self.is_blocked(node)
+            || self.closed_doors.iter().any(|door| {
+                self.door_bindings
+                    .get(door)
+                    .is_some_and(|nodes| nodes.contains(&node))
+            })
+    }
+
+    fn contains_xy(&self, node: NodeId, point: [f32; 3]) -> bool {
+        let Some(mesh) = self.meshes.get(node.mesh as usize) else {
+            return false;
+        };
+        let Some(triangle) = mesh.triangles.get(node.triangle as usize) else {
+            return false;
+        };
+        let Some(height) = mesh.height_at(node.triangle, point[0], point[1]) else {
+            return false;
+        };
+        if (height - point[2]).abs() > DOOR_BINDING_Z_TOLERANCE {
+            return false;
+        }
+        let [a, b, c] = triangle.vertices.map(|index| mesh.vertices[index as usize]);
+        let cross = |p: [f32; 3], q: [f32; 3], r: [f32; 3]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        let area = cross(a, b, c);
+        if !area.is_finite() || area.abs() < 1e-6 || !point[0].is_finite() || !point[1].is_finite()
+        {
+            return false;
+        }
+        let eps = area.abs() * 1e-5;
+        let ab = cross(a, b, point);
+        let bc = cross(b, c, point);
+        let ca = cross(c, a, point);
+        (ab >= -eps && bc >= -eps && ca >= -eps) || (ab <= eps && bc <= eps && ca <= eps)
     }
 
     /// Set the vanilla NAVM triangle flags used by path cost selection.
@@ -365,13 +615,45 @@ impl NavGraph {
                 for ti in 0..mesh.triangles.len() {
                     if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
                         let candidate = ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
-                        if best.is_none_or(|old| candidate < old) {
+                        if !self.is_blocked(candidate.1) && best.is_none_or(|old| candidate < old) {
                             best = Some(candidate);
                         }
                     }
                 }
             });
         best.map(|(_, n)| n)
+    }
+
+    /// Whether a point lies on any triangle, including dynamically blocked ones.
+    ///
+    /// # Errors
+    /// This function does not return errors.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    pub fn contains_point(&self, point: [f32; 3]) -> bool {
+        if !point.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let mut found = false;
+        self.spatial
+            .get_or_init(|| SpatialIndex::build(&self.meshes))
+            .visit_xy(point, |mi| {
+                let mesh = &self.meshes[mi];
+                if point[0] < mesh.min[0]
+                    || point[0] > mesh.max[0]
+                    || point[1] < mesh.min[1]
+                    || point[1] > mesh.max[1]
+                {
+                    return;
+                }
+                found |= mesh
+                    .triangles
+                    .iter()
+                    .enumerate()
+                    .any(|(ti, _)| mesh.height_at(ti as u32, point[0], point[1]).is_some());
+            });
+        found
     }
 
     /// The triangle whose centroid is nearest, for points just off the mesh.
@@ -385,10 +667,11 @@ impl NavGraph {
             .visit_nearest(point, |mi, radius| {
                 let mesh = &self.meshes[mi];
                 for ti in 0..mesh.triangles.len() {
-                    let candidate = (
-                        distance(mesh.centroid(ti as u32), point),
-                        NodeId::new(mi as u32, ti as u32),
-                    );
+                    let node = NodeId::new(mi as u32, ti as u32);
+                    if self.node_blocked(node) {
+                        continue;
+                    }
+                    let candidate = (distance(mesh.centroid(ti as u32), point), node);
                     if best.is_none_or(|old| candidate < old) {
                         *radius = candidate.0;
                         best = Some(candidate);
@@ -471,17 +754,15 @@ impl NavGraph {
         if !costs.is_valid() {
             return None;
         }
-        let start = self
-            .meshes
+        self.meshes
             .get(from.mesh as usize)?
             .triangles
             .get(from.triangle as usize)?;
-        let end = self
-            .meshes
+        self.meshes
             .get(to.mesh as usize)?
             .triangles
             .get(to.triangle as usize)?;
-        if start.blocked || end.blocked {
+        if self.node_blocked(from) || self.node_blocked(to) {
             return None;
         }
         if from.mesh != to.mesh
@@ -520,7 +801,7 @@ impl NavGraph {
                 let Some(nt) = m.triangles.get(next.triangle as usize) else {
                     continue;
                 };
-                if nt.blocked {
+                if self.node_blocked(next) {
                     continue;
                 }
                 let tentative =
@@ -583,12 +864,16 @@ impl NavGraph {
             if !seen.insert(n) {
                 continue;
             }
+            if self.node_blocked(n) {
+                continue;
+            }
             out.push(n);
             for next in self.triangle(n).neighbors.iter().flatten() {
                 if self
                     .meshes
                     .get(next.mesh as usize)
                     .is_some_and(|m| (next.triangle as usize) < m.triangles.len())
+                    && !self.node_blocked(*next)
                 {
                     stack.push(*next);
                 }
@@ -601,6 +886,35 @@ impl NavGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_09_physical_door_binding_blocks_its_navm_triangle_until_opened() {
+        let mut graph = NavGraph::new();
+        let mesh = graph.add_mesh_with_adjacency(
+            vec![
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        let door = 0x0001_0000_0000_0001;
+        let linked = NodeId::new(mesh, 0);
+        let other = NodeId::new(mesh, 1);
+        graph.add_door_node(door, linked);
+
+        assert!(graph.bind_door_footprint(door, [7.0, 2.0, 0.0]));
+        assert!(graph.bind_door_footprint(door, [20.0, 20.0, 0.0]));
+        assert!(graph.find_path(linked, other).is_some());
+        assert!(graph.bind_door_footprint(door, [7.0, 2.0, 0.0]));
+        assert!(graph.set_door_open(door, false));
+        assert!(graph.find_path(linked, other).is_none());
+        assert!(graph.find_path(other, other).is_some());
+        assert!(!graph.set_door_open(door, false));
+        assert!(graph.set_door_open(door, true));
+        assert!(graph.find_path(linked, other).is_some());
+    }
 
     /// A 1 by 4 strip of squares, two triangles each, 100 units per square.
     fn strip() -> NavGraph {

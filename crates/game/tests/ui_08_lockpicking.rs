@@ -94,3 +94,42 @@ fn ui_08_invalid_input_does_not_spend_an_item_or_unlock() {
     assert_eq!(game.world_mut().item_count(player, other), 1);
     assert!(game.world_mut().reference(target).unwrap().locked);
 }
+
+#[test]
+fn ui_08_malformed_xloc_does_not_spend_a_pick() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    let mut lock = vec![0; 8];
+    lock[0] = 25;
+    for record in [
+        Record::new(T(b"NPC_"), 7).zsub(T(b"EDID"), "Player"),
+        Record::new(T(b"DOOR"), 0x10),
+        Record::new(T(b"MISC"), PICK).zsub(T(b"EDID"), "Lockpick"),
+        Record::new(T(b"REFR"), DOOR)
+            .sub(T(b"NAME"), 0x10_u32.to_le_bytes())
+            .sub(T(b"XLOC"), lock),
+    ] {
+        plugin.push_top(record);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    let pick = game.world().form("Lockpick").unwrap();
+    game.world_mut().add_item(player, pick, 1);
+
+    assert!(!game.attempt_lockpick(id(DOOR), player, pick, 46.2));
+    assert_eq!(game.world_mut().item_count(player, pick), 1);
+}
+
+#[test]
+fn ui_08_out_of_range_angles_leave_pick_and_lock_unchanged() {
+    let (mut game, player) = game_with_pick();
+    let pick = game.world().form("Lockpick").unwrap();
+    let target = id(DOOR);
+
+    for angle in [-0.1, 90.1, f32::INFINITY] {
+        assert!(!game.attempt_lockpick(target, player, pick, angle));
+    }
+    assert_eq!(game.world_mut().item_count(player, pick), 1);
+    assert!(game.world_mut().reference(target).unwrap().locked);
+}

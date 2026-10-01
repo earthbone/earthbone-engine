@@ -23,11 +23,22 @@ use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
 use soe_game::world::ContactActor;
+use soe_game::world::ReferencePhysicsRequest;
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
 use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
+
+/// Map valid Skyrim Havok motion types to the host body mode they require.
+pub fn motion_type_to_body_mode(motion_type: u32) -> Option<BodyMode> {
+    match motion_type {
+        1 | 2 | 3 | 6 => Some(BodyMode::RIGID),
+        4 | 7 => Some(BodyMode::KINEMATIC),
+        5 => Some(BodyMode::STATIC),
+        _ => None,
+    }
+}
 
 /// What went into the space, so a caller can report it the way the cell
 /// streamer reports its surfaces.
@@ -40,6 +51,15 @@ pub struct GodotCollisionStats {
     /// flattened rather than skipped, so this counts only genuinely unknown
     /// geometry.
     pub skipped: usize,
+}
+
+pub(crate) fn is_opened_door(world: &soe_game::World, reference: GlobalFormId) -> bool {
+    world.reference_ref(reference).is_some_and(|state| {
+        state.opened
+            && state
+                .base
+                .is_some_and(|base| world.tag_of(base) == Some(soe_esm::Tag::new(b"DOOR")))
+    })
 }
 
 /// One collider's live server state, grouped so a reference's body and
@@ -88,6 +108,105 @@ pub struct CellBodies {
 }
 
 impl CellBodies {
+    /// Find the server body carrying a placed reference.
+    pub fn body_for_reference(&self, reference: GlobalFormId) -> Option<Rid> {
+        self.entries
+            .iter()
+            .find(|entry| entry.reference == Some(reference))
+            .map(|entry| entry.body)
+    }
+
+    /// Put a reference body into kinematic mode while the player holds it.
+    pub fn set_held(&self, reference: GlobalFormId, held: bool) -> bool {
+        let Some(body) = self.body_for_reference(reference) else {
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        server.body_set_mode(
+            body,
+            if held {
+                BodyMode::KINEMATIC
+            } else {
+                BodyMode::RIGID
+            },
+        );
+        true
+    }
+
+    /// Move a held reference body by a Godot-space offset from its authored pose.
+    pub fn move_held(&self, reference: GlobalFormId, offset: Vector3) -> bool {
+        let Some(body) = self.body_for_reference(reference) else {
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        let mut transform = Transform3D::IDENTITY;
+        transform.origin = offset;
+        server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
+        true
+    }
+
+    /// Apply queued Papyrus motion and impulse operations to resident bodies.
+    pub fn apply_reference_physics_requests(&mut self, world: &mut soe_game::World) -> usize {
+        let requests = world.take_reference_physics_requests();
+        let mut applied = 0;
+        let mut server = PhysicsServer3D::singleton();
+        for request in requests {
+            match request {
+                ReferencePhysicsRequest::MotionType {
+                    reference,
+                    motion_type,
+                    allow_activate,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter_mut()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let Some(mode) = motion_type_to_body_mode(motion_type) else {
+                        continue;
+                    };
+                    server.body_set_mode(entry.body, mode);
+                    if motion_type == 1 && !allow_activate {
+                        server.body_set_state(entry.body, BodyState::SLEEPING, &true.to_variant());
+                    }
+                    applied += 1;
+                }
+                ReferencePhysicsRequest::Impulse {
+                    reference,
+                    direction,
+                    magnitude,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let direction = crate::units::SkyrimPos::new(
+                        direction[0] * magnitude,
+                        direction[1] * magnitude,
+                        direction[2] * magnitude,
+                    )
+                    .to_godot();
+                    server.body_apply_central_impulse(
+                        entry.body,
+                        Vector3::new(direction.x, direction.y, direction.z),
+                    );
+                    applied += 1;
+                }
+            }
+        }
+        applied
+    }
+
+    #[must_use]
+    pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
+        self.grabbed_reference
+    }
+
     /// Every live body's RID, in insertion order. Diagnostic callers may
     /// inspect these handles, but must not free them, `free` owns that.
     pub fn body_rids(&self) -> impl Iterator<Item = Rid> + '_ {
@@ -252,12 +371,13 @@ impl CellBodies {
                 continue;
             };
             let target_iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, target_iso);
+            let visible = target.visible && !is_opened_door(world, reference);
+            let key = (visible, target_iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if !target.visible {
+            if !visible {
                 server.body_set_space(entry.body, Rid::Invalid);
                 continue;
             }
@@ -298,12 +418,13 @@ impl CellBodies {
                 continue;
             };
             let iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, iso);
+            let visible = target.visible && !is_opened_door(world, entry.reference);
+            let key = (visible, iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if target.visible {
+            if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
                     for shape in entry.shapes.drain(..) {
@@ -408,8 +529,34 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     out
 }
 
+/// Adds placed static colliders while retaining reference identity for grabbing.
+pub fn add_placed_query_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
+    let _span = soe_trace::Span::new("host.godot_physics", "host");
+    let mut server = PhysicsServer3D::singleton();
+    let mut out = CellBodies::default();
+    for placed in colliders.iter().filter(|p| p.collider.is_static()) {
+        if let Some((body, shapes)) = build_body(
+            &mut server,
+            space,
+            &placed.collider,
+            BodyMode::STATIC,
+            &mut out.stats,
+        ) {
+            out.entries.push(StaticEntry {
+                reference: Some(placed.reference),
+                original: Some(placed.original),
+                source: placed.collider.clone(),
+                synced: None,
+                body,
+                shapes,
+            });
+        }
+    }
+    out
+}
+
 /// Adds placed static and movable collision to `space`, keeping each body's
-/// owning reference and load-time placement for runtime synchronization.
+/// reference and load-time placement for grabbing and runtime synchronization.
 pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
     let _span = soe_trace::Span::new("host.godot_physics", "host");
     let mut server = PhysicsServer3D::singleton();
@@ -916,6 +1063,25 @@ mod tests {
 
     fn close(a: Vector3, b: Vector3) {
         assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");
+    }
+
+    #[test]
+    fn hst_18_hold_target_offset_uses_skyrim_to_godot_axes() {
+        let authored_hit = Vec3::new(10.0, 20.0, 30.0);
+        let target = Vec3::new(15.0, 26.0, 42.0);
+        let offset = godot_point(Vec3::new(
+            target.x - authored_hit.x,
+            target.y - authored_hit.y,
+            target.z - authored_hit.z,
+        ));
+        close(
+            offset,
+            Vector3::new(
+                5.0 * METRES_PER_UNIT,
+                12.0 * METRES_PER_UNIT,
+                -6.0 * METRES_PER_UNIT,
+            ),
+        );
     }
 
     #[test]

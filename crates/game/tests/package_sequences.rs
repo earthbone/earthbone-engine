@@ -3,8 +3,7 @@
 
 //! Authored PACK branch fixtures, using xEdit PRCB and FNAM layouts.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
@@ -400,15 +399,11 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     );
     let mut game = game(tree, 0);
     let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Drop the zone, loose-item and image-space blocks, plus detection's
-    // now-unconditional empty pool count and the empty world-level
-    // save-section table version 37 added, six bytes always past those
-    // blocks regardless of version. What remains is the cursor count.
-    bytes.truncate(bytes.len() - 35);
-    assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
-    bytes.truncate(bytes.len() - 4);
-    // Version 20 is the last one written without a cursor block.
-    bytes[4..6].copy_from_slice(&20u16.to_le_bytes());
+    legacy::truncate_to_version(&mut bytes, 20, |candidate| {
+        soe_game::World::new(LoadOrder::new())
+            .load_state(candidate)
+            .is_ok()
+    });
     game.world_mut().load_state(&bytes).unwrap();
     game.tick(2.0);
     assert_eq!(position(&mut game), 110.0);
@@ -421,24 +416,44 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     game.tick(0.1);
     let original = game.world().save_state();
     let mut invalid = original.clone();
-    // The cursor block sits ahead of the image-space, loose-item and zone
-    // blocks, and detection's now-unconditional empty pool count and the
-    // world-level save-section table version 37 added, six bytes always
-    // past those blocks regardless of version, push it 6 bytes further
-    // from the end than before.
-    let finished = invalid.len() - 36;
+    let cursor = game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .tree
+        .clone()
+        .unwrap();
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&id(ACTOR).file.to_le_bytes());
+    marker.extend_from_slice(&ACTOR.to_le_bytes());
+    marker.push(1);
+    marker.extend_from_slice(&cursor.owner.file.to_le_bytes());
+    marker.extend_from_slice(&cursor.owner.object.to_le_bytes());
+    marker.extend_from_slice(&cursor.branch.to_le_bytes());
+    marker.push(u8::from(cursor.active));
+    let finished = legacy::unique_offset(&invalid, &marker) + marker.len();
     invalid[finished] = 1;
     assert!(
-        game.world_mut().load_state(&invalid).is_err(),
+        game.world_mut()
+            .load_state(&invalid)
+            .unwrap_err()
+            .to_string()
+            .contains("finished package tree has an active child"),
         "active and finished conflict"
     );
     assert_eq!(game.world().save_state(), original);
     let mut invalid = original.clone();
-    // Same 6-byte push as `finished` above.
-    let actor_object = invalid.len() - 52;
+    let actor_object = legacy::unique_offset(&invalid, &marker)
+        + std::mem::size_of::<u32>()
+        + std::mem::size_of::<u16>();
     invalid[actor_object..actor_object + 4].copy_from_slice(&0xffffu32.to_le_bytes());
     assert!(
-        game.world_mut().load_state(&invalid).is_err(),
+        game.world_mut()
+            .load_state(&invalid)
+            .unwrap_err()
+            .to_string()
+            .contains("package cursor names a missing actor"),
         "cursor actor must exist"
     );
     assert_eq!(game.world().save_state(), original);

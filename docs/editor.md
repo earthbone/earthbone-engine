@@ -158,14 +158,14 @@ game-facing side.
 ### 3.5 Navmesh regeneration on save
 
 Navmesh generation in the Creation Kit is a manual step that authors forget and that
-produces broken meshes when references move. In the editor, saving a cell whose references
-or landscape changed marks its navmesh stale, and the save step regenerates it through
-`soe-navmesh` from the cell's collision and LAND heights, then reruns finalization for the
-edge links to neighbours. Hand edits survive as overrides on triangles the author marked
-locked. A stale navmesh that the author chooses not to regenerate is saved with a flag the
-engine reads, so the runtime can generate it at load instead. This is the one place the
-editor does something the Creation Kit does not: the workaround (running xEdit's navmesh
-checks, or a generation pass in a separate session) becomes the default behaviour.
+produces broken meshes when references move. `EditorDocument::save_with_navmesh_regeneration`
+accepts the changed cell scene, agent dimensions and locked triangle indices, then uses
+`soe-navmesh` to generate the replacement geometry before writing the plugin. Exterior
+scenes need neighboring geometry around the cell border for Recast's erosion padding. The
+save retains locked triangles and triangles that own authored edge or door links, rebuilds
+adjacency and the spatial grid, and keeps their link metadata. The current editor API does
+not detect cell changes, finalize links with neighboring NAVMs, or write a stale flag when
+regeneration is skipped. Those behaviors remain part of the editor milestone design.
 
 ### 3.6 What the editor renders
 
@@ -238,7 +238,10 @@ year or more or blocked.
    chain per field. Needs the Godot binary installed.
 3. **Cell view and render view** (M). Worldspace and cell tree, the 3D main screen driven
    by `CellStreamer`, selection, transform gizmos, drop to ground through `soe-physics`,
-   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here.
+   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here. EDT-03
+   adds the worldspace and cell tree plus a read-only `SubViewport` preview using the
+   existing host cell renderer. Reference selection, transform tools and play-from-here
+   are not part of that implementation.
 4. **Import and export pipeline** (M). NIF and DDS import plugins for preview, glTF to NIF
    and PNG to DDS export with the material and slot mappings, archive packing. Depends on
    the `soe-nif` writer and the `dds` crate.
@@ -272,10 +275,14 @@ year or more or blocked.
 ### Editor core implementation
 
 `soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
-plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
-to a supported winning top-level `STAT` or `GLOB` record creates an active-plugin override. Undo
-restores the prior active plugin. Saving writes the active plugin bytes and parses those
-bytes again before returning the saved plugin. The TES4 record count is updated with edits.
+plugin, and updates the resolved order when an edit is applied or undone. Supported winning
+top-level `STAT` and `GLOB` edits, and QUST stage and objective text edits, create an active
+plugin override. DIAL topic field edits remap BNAM branch and QNAM quest links into the active
+plugin's master order. INFO response text edits select responses by TRDT order, retain the
+other responses, and write an INFO override in its TopicChildren group under the owning DIAL.
+The topic group label uses the active plugin's local DIAL FormID. Undo restores the prior
+active plugin. Saving writes the active plugin bytes and parses those bytes again before
+returning the saved plugin. The TES4 record count is updated with edits.
 
 `save_with_script` compiles PSC source through `soe-papyrus`, attaches its scalar auto
 properties to the selected record in an unfragmented Skyrim VMAD subrecord, and saves the
@@ -286,26 +293,151 @@ files, run a language server, edit existing script bindings, or generate quest f
 The VMAD primary section follows UESP's `VMAD_Field` description and
 `TES5Edit/Core/wbDefinitionsTES5.pas`'s `wbVMAD` definition.
 
+Dialogue topic and response edits follow `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`
+DIAL and INFO definitions and `engine-refs/uesp-modfileformat/{DIAL,INFO,QUST}.wikitext`.
+xEdit declares the DIAL branch and quest link types, and UESP documents INFO records as
+children of their DIAL topic. No source code was copied. Dialogue edits change existing
+fields, they do not create dialogue records or change quest ownership.
+
+Scene edits can rename a SCEN phase or set a Dialogue action's DIAL topic. A copied
+top-level SCEN override relocates its parent QUST, dialogue DIAL and package PACK links from
+the source plugin's master table into the active plugin's master table. The editor checks those
+link types and each action's zero-based phase indexes before accepting the edit, and keeps the
+other SCEN subrecords in order. Undo restores the prior active plugin. Saving writes the active
+plugin bytes and parses those bytes again before returning the saved plugin. The TES4 record
+count is updated with edits.
+
 Copying a winning record whose owner differs from the active plugin requires relocating
-FormIDs in the record and its group path. The editor currently rejects nested records and
-supports copied top-level `STAT` and `GLOB` records. The FMT-15 FormID renumbering and FMT-26
-master relocation rows remain open. The Spriggit output guide describes separate text files
-per record, while the current editor writes plugin files only. No text plugin translation
-or `.spriggit` configuration reader is implemented.
+FormIDs in the record and its group path. The editor supports copied top-level `STAT` and
+`GLOB` records, top-level DIAL records, nested INFO placement, and QUST text edits when
+source and active master order align. Other nested records remain rejected. The FMT-15
+FormID renumbering and FMT-26 master relocation rows remain open. The Spriggit output guide
+describes separate text files per record, while the current editor writes plugin files
+only. No text plugin translation or `.spriggit` configuration reader is implemented.
 
 `EditorDocument::search_forms` filters the load order's winning forms by an optional record
 signature and a case-insensitive substring of `EDID`. It yields `GlobalFormId` values, so a
 caller can fetch a winning record when selected instead of building a Godot resource for
-every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
+every form. `EditorDocument::override_chain` returns the selected form's versions in load
+order, with each source plugin and record and a winner flag. The final version is the winner,
+including when the selected form has only one version. This is the record-chain data for the
+conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
-and inspector controls that can display those results. This row implements the Rust search
-operation only, not the Godot dock or inspector controls.
+and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
+and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
+the resolved identity, record signature, editor ID and winning plugin. It does not own or
+edit a copy of the record.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
 an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
 updates door and cover triangle indices after deletion. Triangle and vertex indices are
-checked against NVNM limits, malformed or degenerate edits are rejected before changing the
-plugin, and save writes the packed geometry back through the plugin writer. Editing a
-winning navmesh owned by another plugin is not supported yet because its parent, door and
-edge-link FormIDs need relocation when an override is created.
+checked against NVNM limits, including the full range of signed 16-bit triangle indices.
+External edge-link indices are retained when triangle indices change. Malformed or
+degenerate edits are rejected before changing the plugin, and save writes the packed
+geometry back through the plugin writer. Editing a winning navmesh owned by another plugin
+is not supported yet because its parent, door and edge-link FormIDs need relocation when
+an override is created.
+
+`EditorDocument::brush_land_heights` applies a single circular dab to a LAND record already
+present in the active plugin. The dab takes its center and radius in cell-local world units
+and its strength as the center height change. It updates VHGT and derived VNML in one undo
+step, then rebuilds the load order so the edited record is the winner. Saving writes the
+edited plugin, whose LAND data can be parsed after reload. The operation uses the
+position-based builder contract in local Terrain3D's `project/addons/terrain_3d/src/operation_builder.gd`.
+It is a Rust document operation, not a Terrain3D brush UI, and it does not create an override
+for a LAND owned by another plugin.
+
+`EditorDocument::set_reference_transform` updates the 24-byte `DATA` transform on a `REFR`
+already owned by the active plugin, then rebuilds the winning form table. Its edit log keeps
+the prior plugin so undo restores the record pose used by the renderer and by plugin save.
+The operation rejects missing or malformed transform data and repeated `DATA` fields. It
+does not create overrides for references owned by another plugin. The Godot cell editor does
+not yet connect a transform gizmo to this operation.
+
+The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. Their
+Godot callback is not wired to this Rust operation yet.
+
+`EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
+`soe-esm::records::stat::Static` view and returns the value with the file name of the winning
+record. `set_stat_model_field` accepts a NIF path without embedded NUL bytes, stores it as the
+record's NUL-terminated `MODL` string, and creates or updates the active-plugin record through
+the undoable edit log. Undo restores both the prior field value and the prior winning plugin.
+The typed access uses xEdit's `STAT` definition, where the generic model data is part of the
+record, and follows Godot's inspector plugin guidance to route property edits through the
+document model. It does not add a Godot inspector control.
+
+### Quest stage and objective text edits, EDT-07
+
+`EditorDocument::edit_quest_stage_log_entry_text` edits an existing QUST `CNAM` journal
+entry, selected by the occurrence of its `INDX` stage and the occurrence of its `QSDT` log
+entry. `edit_quest_objective_text` edits an existing `NNAM` display string, selected by
+objective occurrence. Occurrences are used because stage and objective numbers may repeat.
+Both operations preserve the remaining ordered QUST subrecords, including stage flags,
+objective flags, targets, conditions and aliases. A winning top-level QUST becomes an
+override in the active plugin, and both operations use the editor document's undo history.
+
+The field grouping follows xEdit's `wbRecord(QUST)` definition in
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `QUST.wikitext`: each `INDX`
+starts a stage, each `QSDT` starts a log entry, each `QOBJ` starts an objective, and
+`QSTA` targets and following conditions are retained. UESP notes that stage and objective
+numbers are not unique. xEdit's DIAL definition and UESP's `DIAL.wikitext` identify QNAM as
+the QUST owner link. DIAL editing is not part of this operation. No source implementation
+was copied.
+
+The plugin writer stores non-localized quest strings inline as NUL-terminated UTF-8. Editing
+a localized QUST string returns `LocalizedQuestText`, because this writer does not write
+the companion string tables. Creating an override from another plugin is allowed only when
+its masters and the active plugin's master prefix match the load-order prefix. That keeps
+the raw QUST links in their original FormID context. Nested records and QUST records with a
+different master order still require FMT-15 and FMT-26 relocation support. The editor does
+not add stages, log entries, objectives or targets, and it does not add DIAL or INFO records.
+`crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
+undo, duplicate stage and objective numbers, preserved targets and safe rejection of
+localized text.
+
+### Quest alias fill rules and match conditions, EDT-18
+
+`EditorDocument::set_quest_alias_fill_rule` sets or removes an alias's optional four-byte
+`ALFI` field, selected by the occurrence of its `ALST` marker. Setting a missing field
+places it after the alias flags and before its fill type. `set_quest_alias_conditions` replaces
+the alias's ordered `CTDA`, `CIS1` and `CIS2` subrecords. It validates the condition
+sequence with the `soe-esm` condition reader and preserves every other alias subrecord in
+its original order. Both edits create a top-level QUST override through the editor's
+existing master-order check and participate in undo.
+
+The layout follows xEdit's `wbRecord(QUST)` in
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`: aliases start at `ALST`, contain the
+optional fill rule and fill type, then match conditions, and end at `ALED`. The same
+definition identifies DIAL's `QNAM` as its QUST link. This operation edits only reference
+aliases with `ALID` and `FNAM`, and does not resolve alias FormIDs or evaluate conditions.
+`crates/editor/tests/edt_18_quest_aliases.rs` covers override save and reload, retained
+alias fields, undo, and rejection of an orphan condition string.
+
+The override-chain API follows Mutagen's winning-override rule and Wrye Bash's description
+of whole-record override resolution. It does not compare individual fields or run patchers.
+
+`EditorDocument::brush_land_texture` takes a resolved texture FormID and applies a circular
+alpha-weight dab to that texture in one quadrant of a LAND record already present in the
+active plugin. The texture ID is converted to the active plugin's local FormID for output.
+The center and radius
+use cell-local world units, and its strength adds or removes alpha weight with smooth radial
+falloff. A missing alpha layer uses the first free quadrant index. The operation preserves
+other texture identities and weights, records the whole dab as one undo step, and updates
+the load order. Saving and parsing the active plugin preserves the edited LAND data. Its
+record layout follows local xEdit's LAND layer definition, and its brush operation model
+follows local Terrain3D's `Terrain3DEditor` operation interface. This is a Rust document
+operation, not a Godot brush UI, and it does not create an override for LAND owned by
+another plugin.
+
+`EditorDocument::brush_land_vertex_colors` blends a selected RGB color into the VCLR vertices of
+a LAND record already present in the active plugin. The circular brush uses cell-local world
+units, a smooth radial falloff and a strength from zero to one. One stroke is one undo entry.
+Saving writes VCLR and the LAND vertex-color flag into the active plugin, and the saved plugin
+can be parsed again. When a LAND has no VCLR, the brush starts with white vertex colors. The
+record operation follows the position-based boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`. UESP's local LAND format page documents
+VCLR as the vertex-color grid. This remains a Rust document operation without Terrain3D brush UI,
+and it edits only LAND records already in the active plugin.
