@@ -556,7 +556,8 @@ owning system has no behavior yet.
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
-| Weather, Weapon, Scroll | | SetActive, Fire, Cast |
+| Weather, Scroll | | SetActive, Cast |
+| Weapon | Fire | |
 
 Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
 (`GetIgnoreFriendlyHits`) use the local CK contracts and xEdit function
@@ -1946,9 +1947,12 @@ the appearance empty.
   are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
-  are recorded, no effect applies. Arrest choice accounting and jail
-  sentences exist, but guard movement, jail placement and resistance combat
-  are not implemented.
+  are recorded, no effect applies. Crime has bounty and infamy ledgers, no
+  arrest implementation. Arrest choice accounting and jail sentences exist,
+  but guard movement, jail placement and resistance combat are not implemented.
+- `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
+  the shared form table. It logs a typed unsupported error for valid requests
+  until ranged projectile execution exists. See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
