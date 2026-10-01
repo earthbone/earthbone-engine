@@ -23,7 +23,11 @@ fn moved(mask: u32, second: u16, version: u8) -> ChangeForm {
 #[test]
 fn sav_54_mask_words_remain_distinct_unsigned_fields_at_supported_layout_versions() {
     for version in [55, 78] {
-        for (mask, second) in [(0x8000_0400, 0x8000), (0x0000_0c00, 0x7fff), (u32::MAX, u16::MAX)] {
+        for (mask, second) in [
+            (0x8000_0400, 0x8000),
+            (0x0000_0c00, 0x7fff),
+            (u32::MAX, u16::MAX),
+        ] {
             let change = moved(mask, second, version);
             let header = change.reference_header(version).unwrap().unwrap();
             assert_eq!(header.form_flags, Some((mask, second)));
