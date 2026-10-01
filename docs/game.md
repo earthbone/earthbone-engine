@@ -4956,6 +4956,11 @@ the applications, ages and in-progress fade. Older saves start with an empty
 stack. Loading validates identities, finite values and the correspondence
 between fade time and weights before replacing live state.
 
+`crates/game/tests/image_space.rs` calls all five natives through Papyrus
+dispatch. Its SCR-33 cases cover default arguments, unclamped strengths,
+crossfade interruption and removal, PopTo preservation, invalid-form errors,
+and the installed IMAD winner survey.
+
 `tests/image_space.rs` exercises all five natives, interruption, menu pause,
 animated expiry, invalid-call atomicity, save continuation and corrupt-save
 rejection. Its installed-record test is gated on `SKYRIM_DATA`. The host
