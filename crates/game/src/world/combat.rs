@@ -677,6 +677,13 @@ impl World {
             self.validate_weapon_enchantment_after_hit(prepared, &values)?;
         }
         let lethal = values.get("health").current() <= 0.0;
+        let attacked_factions = if self.player == Some(hit.attacker) {
+            self.actor(hit.target)
+                .map(|actor| actor.factions.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![
@@ -727,6 +734,11 @@ impl World {
         if let Some(values) = attacker_stamina {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values = values;
+            }
+        }
+        for faction in attacked_factions {
+            if let Some(state) = self.faction(faction) {
+                state.player_attacked = true;
             }
         }
         // Poison (CMB-25) applies and clears last, after every other part of

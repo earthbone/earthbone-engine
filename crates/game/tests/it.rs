@@ -247,6 +247,10 @@ mod ai_71_reference_conditions;
 mod ai_72_adversarial;
 #[path = "ai_72_reference_state_conditions.rs"]
 mod ai_72_reference_state_conditions;
+#[path = "ai_73_breaker_adversarial.rs"]
+mod ai_73_breaker_adversarial;
+#[path = "ai_73_reference_conditions.rs"]
+mod ai_73_reference_conditions;
 #[path = "ai_74_adversarial.rs"]
 mod ai_74_adversarial;
 #[path = "ai_74_conditions.rs"]
@@ -263,8 +267,38 @@ mod ai_76_breaker2_adversarial;
 mod ai_76_breaker_adversarial;
 #[path = "ai_76_reference_conditions.rs"]
 mod ai_76_reference_conditions;
+#[path = "ai_77_breaker_adversarial.rs"]
+mod ai_77_breaker_adversarial;
+#[path = "ai_77_reference_conditions.rs"]
+mod ai_77_reference_conditions;
 #[path = "ai_78_adversarial.rs"]
 mod ai_78_adversarial;
+#[path = "ai_79_breaker_adversarial.rs"]
+mod ai_79_breaker_adversarial;
+#[path = "ai_79_relationship_conditions.rs"]
+mod ai_79_relationship_conditions;
+#[path = "ai_80_breaker_adversarial.rs"]
+mod ai_80_breaker_adversarial;
+#[path = "ai_80_player_conditions.rs"]
+mod ai_80_player_conditions;
+#[path = "ai_81_breaker_adversarial.rs"]
+mod ai_81_breaker_adversarial;
+#[path = "ai_82_breaker_adversarial.rs"]
+mod ai_82_breaker_adversarial;
+#[path = "ai_82_relationship_conditions.rs"]
+mod ai_82_relationship_conditions;
+#[path = "ai_83_breaker_adversarial.rs"]
+mod ai_83_breaker_adversarial;
+#[path = "ai_83_relationship_conditions.rs"]
+mod ai_83_relationship_conditions;
+#[path = "ai_84_breaker_adversarial.rs"]
+mod ai_84_breaker_adversarial;
+#[path = "ai_84_world_conditions.rs"]
+mod ai_84_world_conditions;
+#[path = "ai_85_adversarial.rs"]
+mod ai_85_adversarial;
+#[path = "ai_85_conditions_batch_2.rs"]
+mod ai_85_conditions_batch_2;
 #[path = "ai_86_adversarial.rs"]
 mod ai_86_adversarial;
 #[path = "ai_86_condition_contracts.rs"]

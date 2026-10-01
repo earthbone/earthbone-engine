@@ -396,6 +396,53 @@ come from `TES5Edit/Core/wbDefinitionsTES5.pas`. Association, family, parent
 and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
+The CTDA evaluator also reads actor ghost and unconscious flags for functions
+237 and 242, checks a tested reference's explicit XOWN against an `NPC_` or
+FACT owner for function 278, and reads the tested reference's parent CELL
+interior flag for function 300. `IsOwner` with no owner parameter checks the
+player's `NPC_` base, matching the optional-owner note in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no usable
+semantics for functions 262 `IsWarningAbout`, 274 `IsSmallBump`, 285
+`IsLeftUp` or 305 `GetPlayerAction`, so these remain unsupported with a
+function diagnostic. Function 577 `IsCloserToAThanB` compares the subject's
+world distance to both reference parameters and is true only when it is
+strictly closer to the first. Invalid reference parameters return a form
+diagnostic. Functions 608 `GetKeywordDataForAlias`, 611
+`IsNullPackageData`, 612 `GetNumericPackageData`, 631
+`IsEnteringInteractionQuick`, 638 `IsInFriendStateWithPlayer`, 642
+`GetLastBumpDirection` and 645 `GetIsInjured` remain unsupported with a
+function diagnostic because the local CK corpus provides no usable condition
+semantics and the required alias keyword, package or actor-process state is
+not represented. The reference conditions are covered by
+`ai_73_reference_conditions.rs` and `ai_77_reference_conditions.rs`.
+`ai_79_relationship_conditions.rs` covers condition functions 42 `SameFaction`,
+43 `SameRace`, 44 `SameSex`, 60 `GetFactionRankDifference`, 68 `GetIsClass`,
+129 `GetPCIsClass` and 130 `GetPCIsRace`. These read actor factions, race,
+sex and class from the runtime actor and its winning `NPC_` base. Function 60
+subtracts the parameter actor's rank in the requested faction from the tested
+actor's rank, treating an absent faction as rank -2 and preserving authored
+rank -1 membership. Function 64 `GetIsCreature` remains unsupported because
+the local CK corpus does not define a usable condition contract.
+`ai_82_relationship_conditions.rs` covers 453 `GetPlayerTeammate`, 615
+`GetHighestRelationshipRank`, 616 `GetLowestRelationshipRank`, 617
+`HasAssociationTypeAny` and 618 `HasFamilyRelationshipAny`. Teammate state
+comes from the runtime actor. Relationship extrema use winning authored RELA
+ranks, decoding Lover through Archnemesis as 4 through -4. This follows the CK
+note that the Papyrus highest-rank call does not account for runtime changes.
+Association and family queries check all RELA records for the actor base.
+Functions 449 `GetFactionRelation`, 454 `GetPlayerTeammateCount` and 637
+`IsExitingInstant` remain unsupported because the local CK pages define no
+usable condition semantics for them. Function ids and RELA fields come from
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Behavior follows the CK pages for
+`IsPlayerTeammate`, `GetHighestRelationshipRank`, `GetLowestRelationshipRank`,
+`HasAssociation` and `HasFamilyRelationship`.
+`ai_83_relationship_conditions.rs` covers 641 `IsUnique` by reading the
+tested actor's winning NPC_ base flag, with a form diagnostic for a non-actor
+subject and parameter diagnostics for authored values on unused slots. CK's
+`ActorBase.IsUnique` page defines the flag query and xEdit supplies function
+641 with no parameters. The CK corpus provides no usable condition contract
+for 703 `IsExitingInteractionQuick` or 715 `IsUndead`, so both remain
+unsupported with explicit function diagnostics.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 Its SCR-57 section compares all 26 registered Debug globals and both
 EffectShader methods with the local CK and PSC contracts, including quiet
@@ -1387,6 +1434,15 @@ Creation Engine frame capture or memory budgets.
   playing scene. Negative or unknown identifiers and actions outside a playing
   scene return false. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
+  scene's scripts. SOEW version 37 stores the current phase and completed
+  action slots in the `DLG-09` world section. Action slots use zero-based
+  positions from the SCEN action list because two vanilla scenes reuse action
+  numbers. Version 37 also stores each reference's persistent flag in its
+  named section. The SCEN layout follows
+
+  `TES5Edit/Core/wbDefinitionsTES5.pas` and
+  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
+  action dispatch, and the scene flags are not implemented. `Sound.Play`
   scene's scripts. SOEW version 36 stores the current phase and completed
   action slots. Version 37 stores each reference's persistent flag and appends
   named state sections. The `DLG-19` world and actor sections store started
@@ -2088,6 +2144,17 @@ delegates condition calls through `ConditionRuntime`. `Game` implements that
 boundary by resolving supplied runtime handles and running the condition
 against its current world and Papyrus VM. Condition copy hooks return an
 explicit unsupported-hook error.
+
+Condition function 170, `GetDayOfWeek`, reads the live calendar and returns
+zero for Sundas, with the starting date 17 Last Seed 4E 201 as day zero.
+Functions 12 `GetSecondsPassed`, 62 `IsRaining`, 75 `IsSnowing`, 148
+`GetCurrentWeatherPercent`, 149 `GetIsCurrentWeather`, 153 `CanHaveFlames` and
+154 `HasFlames` return explicit unsupported-function diagnostics. The local
+xEdit table supplies their identities and parameter types, but the CK corpus
+has no usable condition contracts for these queries. The runtime also has no
+condition state for elapsed evaluation time, current weather or reference
+flames. The evaluator checks the required `WTHR` parameter for function 149
+and rejects nonzero unused parameter slots on the parameterless functions.
 
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
@@ -3146,6 +3213,24 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
+The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
+182, 244, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659 and 716. This is a bounded set,
+not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+global comparisons, explicit references and caller-supplied quest aliases.
+Reserved PlayerRef resolves to the runtime player even without a placed record.
+
+The condition evaluator supports these implemented CTDA function IDs across the
+integrated branches: 1, 14, 18, 46, 47, 53, 56, 58, 59, 67, 69, 70, 71, 72,
+73, 74, 79, 80, 91, 98, 106, 107, 110, 111, 116, 123, 125, 127, 128, 136,
+182, 185, 214, 219, 223, 225, 230, 248, 249, 250, 264, 277, 280, 286, 287,
+289, 310, 313, 315, 318, 325, 327, 339, 359, 360, 378, 403, 408, 430, 434,
+435, 444, 445, 446, 447, 448, 470, 491, 494, 500, 501, 528, 543, 550, 560,
+561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592, 598, 600, 601, 603,
+604, 605, 606, 610, 625, 626, 629, 630, 635, 636, 639, 640, 651, 655, 659,
+660, 675, 683, 691, 692, 693, 696, 698, 699, 704, 706, 711, 713, 718, 721,
+723, 724, 730, 731, 734 and 735. This is a bounded set, not the full CTDA
+contract. Evaluation supports ordered AND/OR groups, numeric or global
+comparisons, explicit references and caller-supplied quest aliases.
 The integrated condition evaluator implements these CTDA function IDs across its branches:
 1, 14, 18, 24, 35, 45, 46, 47, 50, 53, 56, 58, 59, 61
 67, 69, 70, 71, 72, 73, 74, 77, 79, 80, 91, 98, 99, 106
@@ -3173,6 +3258,7 @@ but do not define a usable runtime result. Functions 644, 684, 714 and 730
 report unavailable runtime state. Functions 683, 698 and 704 read current
 actor package and flying state. Reserved PlayerRef resolves to the runtime
 player even without a placed record.
+
 New runtime players retain reserved FormID 00000014 and use the Player NPC
 base when present, so forced player aliases and inventory notifications agree.
 Conditional Papyrus variables for script and quest variable conditions come
@@ -3213,6 +3299,21 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+Condition functions 244 and 716 implement `GetRestrained` and
+`GetRealHoursPassed`. `GetRestrained` reads actor state, rejects either parameter,
+and reports false when an actor is unconscious because the CK's `SetRestrained`
+contract excludes the restrained and unconscious states. `GetRealHoursPassed`
+returns `GameClock.real_seconds` in hours and rejects either parameter. xEdit's
+`wbConditionFunctions` declares both functions parameterless. The UESP raw function
+table describes real hours as elapsed real-life play time and identifies
+`IsWaterObject` as a drinking-animation query. Function 304 checks whether the
+tested reference's base record is `WATR`. No usable local CK behavior contract
+was found for functions 255, 265, 266, 267 or 332. Those function IDs remain
+unsupported and return `conditions::Error::Function`, rather than inventing vendor
+or weather state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
+`uesp-modfileformat/Raw_Function_Data.wikitext`, CK
+`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
 
 `HasMagicEffect` matches an active MGEF on its subject. `IsSpellTarget` matches
 an active application from its magic item parameter. `HasShout` checks known
@@ -5730,6 +5831,25 @@ coverage is in `tests/ai_54_location_conditions.rs`.
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
 dependency or save format was added.
+
+## Player identity and faction conditions (AI-80)
+
+The shared CTDA evaluator implements GetPCIsSex (131), GetPCInFaction (132),
+SameFactionAsPC (133), SameRaceAsPC (134), SameSexAsPC (135),
+GetPCEnemyofFaction (197) and GetPCFactionAttack (199). Player sex uses the
+resolved player NPC traits, faction membership uses the player's faction
+entries, and the Same* conditions compare the subject actor with the player.
+Enemy state reads the faction's `SetPlayerEnemy` value. A successful player
+melee hit records each faction membership of its target, and the attack flag
+is retained in SOEW version 36. Older saves read that flag as false.
+
+The local xEdit `wbConditionFunctions` table supplies the indices and
+parameter types. CK `IsInFaction`, `GetFactionRank`, `GetRace` and
+`ActorBase.GetSex` pages establish the underlying actor queries. The local CK
+corpus does not define a usable contract for GetIsClassDefault (228), so the
+evaluator returns `Error::Function(228)` and does not list it as supported.
+`ai_80_player_conditions.rs` checks positive, negative and invalid-context
+cases, including a successful attack, a no-attack faction and save/load.
 
 ## Reference state conditions AI-76
 

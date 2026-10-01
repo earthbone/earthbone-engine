@@ -21,7 +21,6 @@ use soe_papyrus::VmError;
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
-    Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
@@ -38,6 +37,8 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "DLG-09", write: write_scene_runtime, read: read_scene_runtime },
+    Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
@@ -773,5 +774,87 @@ fn read_saved_form_flags(
         value.saved_form_flags = Some((flags, unknown));
         value.record.flags = flags;
     }
+    Ok(())
+}
+
+fn write_scene_runtime(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(world.scene_runs.len());
+    for (id, run) in &world.scene_runs {
+        super::save::write_form_id(writer, *id);
+        writer.u32(run.phase);
+        writer.len(run.completed_actions.len());
+        for slot in &run.completed_actions {
+            writer.u32(*slot);
+        }
+    }
+}
+
+fn read_scene_runtime(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let count = reader.len()?;
+    let mut runs = BTreeMap::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        let phase = reader.u32()?;
+        let action_count = reader.len()?;
+        let mut completed_actions = BTreeSet::new();
+        for _ in 0..action_count {
+            if !completed_actions.insert(reader.u32()?) {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-09 duplicate completed scene action".into(),
+                ));
+            }
+        }
+        let scene_record = world.record(id).ok_or_else(|| {
+            soe_papyrus::VmError::State("DLG-09 scene runtime state names a missing form".into())
+        })?;
+        let scene =
+            soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(|error| {
+                soe_papyrus::VmError::State(format!("DLG-09 invalid scene: {error}"))
+            })?;
+        let valid_phase = if scene.phases.is_empty() {
+            phase == 0 && completed_actions.is_empty()
+        } else {
+            (phase as usize) < scene.phases.len()
+        };
+        if !world.scenes.contains(&id)
+            || !valid_phase
+            || completed_actions.iter().any(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_none_or(|action| action.end_phase != Some(phase))
+            })
+            || runs
+                .insert(
+                    id,
+                    super::SceneRunState {
+                        phase,
+                        completed_actions,
+                        ..Default::default()
+                    },
+                )
+                .is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "DLG-09 invalid scene runtime state".into(),
+            ));
+        }
+    }
+    if runs.len() != world.scenes.len() || world.scenes.iter().any(|id| !runs.contains_key(id)) {
+        return Err(soe_papyrus::VmError::State(
+            "DLG-09 scene runtime state is incomplete".into(),
+        ));
+    }
+    world.scene_runs = runs;
     Ok(())
 }

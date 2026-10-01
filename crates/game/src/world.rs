@@ -498,6 +498,8 @@ pub struct FactionState {
     pub infamy_nonviolent: i32,
     pub player_expelled: bool,
     pub player_enemy: bool,
+    /// Whether the player has committed a melee hit against this faction.
+    pub player_attacked: bool,
     /// The `Track Crime` flag in `DATA`.
     pub tracks_crime: bool,
 }

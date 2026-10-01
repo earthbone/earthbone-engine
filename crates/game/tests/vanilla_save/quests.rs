@@ -534,6 +534,8 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
     // CONTEXT: One quest extension: count, FormID, empty runtime, and one
     // journal instance with a single global and no alias text.
     bytes[4..6].copy_from_slice(&10_u16.to_le_bytes());
+    // Detect and remove the quest extension and current-version tail by asking
+    // the version 10 reader for its longest accepted prefix.
     let tail = legacy::version_tail_len(&bytes, |candidate| {
         fixture().world_mut().load_state(candidate).is_ok()
     });
