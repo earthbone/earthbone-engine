@@ -2248,7 +2248,7 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "SetInChargen", |world, call| {
-        world.in_chargen = call.args.first().is_some_and(Value::as_bool);
+        world.chargen_disable_saving = call.args.first().is_some_and(Value::as_bool);
         world.chargen_disable_waiting = call.args.get(1).is_some_and(Value::as_bool);
         world.chargen_show_controls_disabled_message = call.args.get(2).is_some_and(Value::as_bool);
         none()

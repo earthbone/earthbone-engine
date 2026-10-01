@@ -62,6 +62,7 @@ fn write_scr_60_game_flags(world: &World, writer: &mut Writer, _pool: &mut Array
         writer.bool(enabled);
     }
     writer.i32(world.player_control_pov_type);
+    writer.bool(world.chargen_disable_saving);
     writer.bool(world.chargen_disable_waiting);
     writer.bool(world.chargen_show_controls_disabled_message);
 }
@@ -75,6 +76,7 @@ fn read_scr_60_game_flags(
         *enabled = reader.bool()?;
     }
     world.player_control_pov_type = reader.i32()?;
+    world.chargen_disable_saving = reader.bool()?;
     world.chargen_disable_waiting = reader.bool()?;
     world.chargen_show_controls_disabled_message = reader.bool()?;
     world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);

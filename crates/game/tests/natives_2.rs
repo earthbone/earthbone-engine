@@ -2638,10 +2638,13 @@ fn game_state_natives_round_trip() {
         &mut g,
         "Game",
         "SetInChargen",
-        &[Value::Bool(true), Value::Bool(true), Value::Bool(false)],
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(true)],
     );
     call_global(&mut g, "Game", "SetBeastForm", &[Value::Bool(true)]);
-    assert!(g.world().player_ai_driven && g.world().in_chargen && g.world().beast_form);
+    assert!(g.world().player_ai_driven && !g.world().in_chargen && g.world().beast_form);
+    assert!(g.world().chargen_disable_saving);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(g.world().chargen_show_controls_disabled_message);
     let word = obj(&mut g, "WordFus");
     assert_eq!(
         call_global(&mut g, "Game", "IsWordUnlocked", &[word.clone()]),
@@ -2772,21 +2775,25 @@ fn game_control_and_chargen_flags_follow_ck_and_save() {
         &mut g,
         "Game",
         "SetInChargen",
-        &[Value::Bool(true), Value::Bool(true), Value::Bool(false)],
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(true)],
     );
-    assert!(g.world().in_chargen);
+    assert!(!g.world().in_chargen);
+    assert!(g.world().chargen_disable_saving);
     assert!(g.world().chargen_disable_waiting);
-    assert!(!g.world().chargen_show_controls_disabled_message);
+    assert!(g.world().chargen_show_controls_disabled_message);
 
     let saved = g.world().save_state();
     g.world_mut().player_control_flags = [false; 8];
     g.world_mut().player_control_pov_type = 1;
+    g.world_mut().chargen_disable_saving = false;
     g.world_mut().chargen_disable_waiting = false;
+    g.world_mut().chargen_show_controls_disabled_message = false;
     g.world_mut().load_state(&saved).unwrap();
     assert_eq!(g.world().player_control_flags, [true; 8]);
     assert_eq!(g.world().player_control_pov_type, 0);
+    assert!(g.world().chargen_disable_saving);
     assert!(g.world().chargen_disable_waiting);
-    assert!(!g.world().chargen_show_controls_disabled_message);
+    assert!(g.world().chargen_show_controls_disabled_message);
 }
 
 /// Everything above survives a save and load: the leveled list addition,

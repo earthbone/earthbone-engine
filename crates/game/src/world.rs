@@ -734,6 +734,8 @@ pub struct World {
     pub fast_travel: bool,
     pub player_ai_driven: bool,
     pub in_chargen: bool,
+    /// Whether chargen disables saving.
+    pub chargen_disable_saving: bool,
     /// Whether chargen should block waiting and show a controls-disabled HUD message.
     pub chargen_disable_waiting: bool,
     pub chargen_show_controls_disabled_message: bool,
@@ -923,6 +925,7 @@ impl World {
             fast_travel: true,
             player_ai_driven: false,
             in_chargen: false,
+            chargen_disable_saving: false,
             chargen_disable_waiting: false,
             chargen_show_controls_disabled_message: false,
             hud_cart_mode: false,
