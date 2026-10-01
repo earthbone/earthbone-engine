@@ -1324,6 +1324,10 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    method!(vm, w, "Actor", "SetEssential", |world, call, me| {
+        world.set_actor_essential(me, call.arg(0).as_bool());
+        none()
+    });
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -3841,7 +3845,10 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("Actor", "SetEssential"),
+        ("ObjectReference", "ClearDestruction"),
+        ("ObjectReference", "DamageObject"),
+        ("ObjectReference", "KnockAreaEffect"),
+        ("ObjectReference", "PushActorAway"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
