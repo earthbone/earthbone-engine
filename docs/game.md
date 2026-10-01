@@ -4259,7 +4259,6 @@ For timed effects, taper adds its authored duration after EFIT duration. Non-REC
 
 Hostile effects first apply the target's current `resistmagic`, then the MGEF `Resist Value` actor value when it names poison, fire, shock, frost, magic or disease resistance. Each term is clamped from 0 to 85 percent and reductions multiply. `DamageResist` and unsupported resistance indices return an error before state changes. The `-1` sentinel omits specific resistance, and non-hostile effects bypass resistance. Current values include base, permanent, temporary and damage components.
 
-
 The runtime executes MGEF archetype 33, Stagger, for spells and ingestibles.
 Each prepared Stagger application passes its authored magnitude and caster
 form, falling back to the cast source, to the shared stagger lifecycle once.
