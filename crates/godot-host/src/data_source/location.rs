@@ -79,6 +79,7 @@ impl PreparedCell {
     }
 }
 
+#[cfg(feature = "godot")]
 fn texture_payload_bytes(texture: &super::TextureData) -> usize {
     match texture {
         super::TextureData::Cubemap(faces) => faces
