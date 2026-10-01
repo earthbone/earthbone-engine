@@ -49,7 +49,10 @@ fn fmt_30_explicit_cache_precedence_and_both_disable_paths() {
     std::env::set_var("SOE_PLUGIN_CACHE", &selected);
     drop(DataSource::open_with_threads(&data, 1).expect("open with explicit cache"));
     assert_eq!(cache_entries(&selected), 5);
-    assert_eq!(cache_entries(&xdg.join("skyrim-open-engine").join("plugins")), 0);
+    assert_eq!(
+        cache_entries(&xdg.join("skyrim-open-engine").join("plugins")),
+        0
+    );
 
     let off_root = root.join("off");
     std::env::set_var("XDG_CACHE_HOME", &off_root);

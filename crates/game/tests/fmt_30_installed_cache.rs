@@ -65,7 +65,7 @@ fn fmt_30_installed_helper_persists_master_entries_for_another_test_binary() {
     assert_eq!(entries(), masters.len());
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .arg("--exact")
-        .arg("fmt_30_installed_helper_second_binary_child")
+        .arg("fmt_30_installed_cache::fmt_30_installed_helper_second_binary_child")
         .arg("--nocapture")
         .env("FMT_30_GAME_CHILD", "1")
         .output()
