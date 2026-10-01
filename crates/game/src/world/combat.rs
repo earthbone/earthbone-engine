@@ -569,7 +569,7 @@ impl World {
         })
     }
 
-    /// Damage from supported enchantments attached by live Enhance Weapon
+    /// Damage from supported enchantments attached by active MGEF archetype 39
     /// effects. The owning actor and equipped melee weapon are both required.
     fn enhance_weapon_contribution(&self, attacker: GlobalFormId) -> Result<(f32, f32), Error> {
         let mut health_damage = 0.0_f32;
