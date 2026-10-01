@@ -218,9 +218,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. Downward snapping accepts only the
-current probe step, so a larger drop continues as a fall across ticks instead
-of moving the character to the lower floor at once. The fall per step is
+`on_ground` and cancel downward velocity. Walking snaps descend at most a
+quarter capsule radius per tick, so a larger drop continues as a fall across
+ticks instead of moving the character to the lower floor at once. Settling
+after a step-up trial can use the full step height. The fall per step is
 capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,
@@ -468,9 +469,11 @@ back down no further than it was lifted. It only runs from the ground, so it
 cannot be used to climb in mid air, and it is refused when the lift itself does
 not fit or when nothing standable is underneath the new spot.
 
-**A downward snap of the same size.** Walking off a riser used to launch the
-capsule into a short fall. It now follows the floor down by at most one step
-height, so a 30 unit drop reads as a step rather than as a fall.
+**A bounded downward snap.** Following OpenMW's `mwphysics/stepper.cpp`,
+the solver probes down to the first supporting contact. OpenMW uses a Bullet
+sweep, while this endpoint solver probes in radius-bounded increments.
+Walking accepts a snap only within a quarter capsule radius of the prior
+position. Larger drops continue under gravity across ticks.
 
 **Crouch.** `set_crouch` swaps the capsule to `crouch_height` (72 units against
 128 standing), and standing up is refused while the taller capsule would not
@@ -502,7 +505,7 @@ answer. Two copies of a rotation convention drift, so there is now one, and
 | A 24 unit stair riser, under the step height | Climbs eight steps, z 0 to 168, x -200 to 288, on ground throughout, never above the tread ahead of it |
 | A 72 unit riser, over the step height | Stops at x 33.0, the riser at 0 plus the 32 unit radius, and never rises a step |
 | A 12 unit door threshold | Crosses it and stays on the ground |
-| Walking off a 30 unit slab | Follows the floor down, at most two frames of real descent, lands at z 0 |
+| Walking off a 30 unit slab | Descends at most 8 units per tick, lands at z 0 |
 | A ceiling at 110 units | Crouched fits, standing up is refused, and it is allowed again once clear of the ceiling |
 | A standing jump | Peak 74.6 units against the 76 configured, lands back on the floor, a second jump in mid air is refused |
 | One second at jog speed | 180.1 units, and a 45 degree direction moves equally in x and y |

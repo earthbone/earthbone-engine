@@ -446,7 +446,12 @@ impl SimpleWorld {
 
         // Walking off a riser should follow the floor down rather than launch.
         if was_ground && !ground && vel.z <= 0.0 {
-            if let Some(snapped) = self.snap_down(pos, &s, height) {
+            // CONTEXT: Settling a raised stair trial needs the full step height,
+            // but walking off an edge must not drop that far in one tick.
+            if let Some(snapped) = self
+                .snap_down(pos, &s, height)
+                .filter(|landed| start.z - landed.z <= s.radius * 0.25)
+            {
                 pos = snapped;
                 vel.z = 0.0;
                 ground = true;

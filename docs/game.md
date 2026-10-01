@@ -260,15 +260,15 @@ the map's third open seam.
 The four `Debug` script and stack profiling natives delegate to the VM's
 transient profiler. Stop calls write Chrome trace JSON profile files, with
 per-function VM instruction time and call counts, under the configured profile
-directory. Script profiling uses the supplied script name, case-insensitively;
-stack profiling uses the current Papyrus thread. A failed file write is added
+directory. Script profiling uses the supplied script name, case-insensitively.
+Stack profiling uses the current Papyrus thread. A failed file write is added
 to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
 native layer has no host frame-capture request path.
 
 **Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
 `Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
 package driver while it is false. `Debug.ToggleCollisions` flips
-`World::debug_collisions_enabled`; the host collision path does not read this
+`World::debug_collisions_enabled`. The host collision path does not read this
 flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
 or `empty`, and logs a diagnostic when its argument is not a quest or has no
 runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments

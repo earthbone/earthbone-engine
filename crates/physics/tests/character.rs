@@ -386,7 +386,7 @@ fn a_capsule_steps_over_a_door_threshold() {
 }
 
 #[test]
-fn walking_off_a_riser_follows_the_floor_down_instead_of_launching() {
+fn walking_off_a_riser_descends_without_a_sudden_drop() {
     let mut world = SimpleWorld::new();
     // A raised slab that ends at x 0, with the ground one step below it.
     world.add_static(&floor(0.0, 900.0));
@@ -419,12 +419,15 @@ fn walking_off_a_riser_follows_the_floor_down_instead_of_launching() {
         "should be on the lower floor, z {}",
         end.position.z
     );
-    // A 30 unit drop is inside the step height, so it is a step, not a fall.
-    let airborne = track.windows(2).filter(|w| w[1].z < w[0].z - 2.0).count();
-    assert!(
-        airborne <= 2,
-        "fell instead of stepping down, {airborne} frames of real descent"
-    );
+    for pair in track.windows(2) {
+        let descent = pair[0].z - pair[1].z;
+        assert!(
+            descent <= 8.0,
+            "sudden drop of {descent} units: {:?} -> {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
 }
 
 #[test]
