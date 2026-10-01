@@ -256,6 +256,11 @@ fn scripts() -> Vec<Vec<u8>> {
             &[("abIsWerewolf", "Bool")],
             "lycanthropy changed",
         ))
+        .function(event_tracing(
+            "OnVampireFeed",
+            &[("akTarget", "Actor")],
+            "vampire feed started",
+        ))
         .function(
             FunctionBuilder::new("TurnToVampire", "None")
                 .ins(
@@ -907,6 +912,84 @@ fn the_systems_without_an_engine_answer_quietly() {
     let player = obj(&mut g, "PlayerRef");
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK `UnequipAll` forces the actor to unequip every currently equipped item.
+#[test]
+fn scr_16_unequip_all_clears_equipment_and_hand_assignments() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let id = form(&g, "PlayerRef");
+    let armor = form(&g, "FarmClothes");
+    let spell = form(&g, "TestFlames");
+    g.world_mut().add_item(id, armor, 1);
+    g.world_mut().equip_item(id, armor).unwrap();
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        actor.spells.insert(spell);
+        actor.equipped.insert(spell);
+        actor.left_spell = Some(spell);
+        actor.right_weapon = Some(armor);
+    }
+    call(&mut g, &player, "UnequipAll", &[]);
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        assert!(actor.equipped.is_empty());
+        assert_eq!(actor.left_spell, None);
+        assert_eq!(actor.right_spell, None);
+        assert_eq!(actor.left_weapon, None);
+        assert_eq!(actor.right_weapon, None);
+    }
+    assert_eq!(g.world_mut().item_count(id, armor), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// RemoveAllSpells removes known spells and clears their equipped hand state.
+#[test]
+fn scr_16_remove_all_spells_preserves_non_spell_equipment() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let id = form(&g, "PlayerRef");
+    let spell = form(&g, "TestFlames");
+    let armor = form(&g, "FarmClothes");
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        actor.spells.insert(spell);
+        actor.equipped.insert(spell);
+        actor.equipped.insert(armor);
+        actor.left_spell = Some(spell);
+        actor.right_spell = Some(spell);
+    }
+    call(&mut g, &player, "RemoveAllSpells", &[]);
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        assert!(actor.spells.is_empty());
+        assert!(!actor.equipped.contains(&spell));
+        assert!(actor.equipped.contains(&armor));
+        assert_eq!(actor.left_spell, None);
+        assert_eq!(actor.right_spell, None);
+    }
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK `StartVampireFeed` raises the actor's `OnVampireFeed` with the target.
+#[test]
+fn scr_16_start_vampire_feed_delivers_actor_event() {
+    let mut g = game();
+    g.start();
+    let vampire = obj(&mut g, "VampireRef");
+    let player = obj(&mut g, "PlayerRef");
+    call(&mut g, &vampire, "StartVampireFeed", &[player]);
+    g.pump();
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace == "vampire feed started"));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
