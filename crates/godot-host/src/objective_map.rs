@@ -5,7 +5,7 @@
 //! QUST target layout follows xEdit's `wbDefinitionsTES5.pas` and the local
 //! `uesp-modfileformat/QUST.wikitext` description.
 
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Tag};
 use soe_game::Game;
 
 /// One mapped target belonging to a quest objective.
@@ -152,7 +152,9 @@ fn resolve_target(game: &mut Game, quest: GlobalFormId, alias: u32) -> Option<Gl
     let is_location = world.alias_is_location(quest, alias);
     let target = world.alias_ref(quest, alias)?;
     if is_location {
-        world.location_marker(target)
+        let marker = world.location_marker(target)?;
+        let base = world.reference(marker)?.base?;
+        (world.tag_of(base) == Some(Tag(*b"STAT"))).then_some(marker)
     } else {
         Some(target)
     }

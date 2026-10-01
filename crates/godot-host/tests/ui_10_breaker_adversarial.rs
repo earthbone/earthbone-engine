@@ -41,9 +41,7 @@ fn bad_marker_game() -> Game {
             .sub(tag(*b"NAME"), 0x400_u32.to_le_bytes())
             .sub(tag(*b"DATA"), transform),
     );
-    plugin.push_top(
-        Record::new(tag(*b"LCTN"), 0x200).sub(tag(*b"MNAM"), 0x301_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(tag(*b"LCTN"), 0x200).sub(tag(*b"MNAM"), 0x301_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Ui10Breaker.esm", plugin).unwrap();
     let mut game = Game::new(order);
@@ -62,5 +60,8 @@ fn ui_10_location_marker_requires_stat_backing_record() {
 
     let markers = objective_map::markers(&mut game);
 
-    assert!(markers.is_empty(), "invalid MNAM target produced markers: {markers:?}");
+    assert!(
+        markers.is_empty(),
+        "invalid MNAM target produced markers: {markers:?}"
+    );
 }

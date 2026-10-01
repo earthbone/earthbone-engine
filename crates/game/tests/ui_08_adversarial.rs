@@ -54,7 +54,9 @@ fn ui_08_success_does_not_consume_a_pick_and_cannot_unlock_twice() {
     let angle = (u64::from(target.object) * 37 + u64::from(target.file) * 101) % 901;
     let angle = angle as f32 / 10.0;
 
-    assert!(soe_game::lockpicking::angle_succeeds(target, level, skill, angle));
+    assert!(soe_game::lockpicking::angle_succeeds(
+        target, level, skill, angle
+    ));
     assert!(game.attempt_lockpick(target, player, pick, angle));
     assert_eq!(game.world_mut().item_count(player, pick), 2);
     assert!(!game.attempt_lockpick(target, player, pick, angle));
