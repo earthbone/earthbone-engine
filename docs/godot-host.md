@@ -2678,7 +2678,7 @@ xEdit's XLOC definition establish lock state, level bands and the key-only
 level 255 case. The angle rule is the game crate policy documented in
 [game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
 tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn; visual presentation and minigame feel remain
+with the successful turn. Visual presentation and minigame feel remain
 unverified.
 
 ## Dialogue menu, DLG-10

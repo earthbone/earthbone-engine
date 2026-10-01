@@ -3012,18 +3012,6 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
             });
         none()
     });
-    method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
-        let event = keyword_story_event(world, me, &call.args);
-        let mut alloc = |name: &str, class: &str| call.create_object(name, class);
-        match world.send_story_event_without_vm(&event, &mut alloc) {
-            Ok(_) => none(),
-            Err(error) => {
-                call.log
-                    .push(call.time, format!("Keyword.SendStoryEvent: {error}"));
-                none()
-            }
-        }
-    });
     method!(
         vm,
         w,
