@@ -182,6 +182,17 @@ function, so the blend arithmetic here is a deterministic editor export rule cov
 synthetic fixture. PyNifly was named in the backlog read-first list but is absent from the
 local reference corpus, which was unavailable from this worktree during conflict resolution.
 
+### Game native presentation signals, SCR-29
+
+`PlayerNode` drains transient `GameUiRequest` values from the shared `World`
+after each gameplay tick. It emits `race_menu_requested`,
+`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
+mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
+native. A change to `World::hud_cart_mode` emits
+`hud_cart_mode_changed(enabled)`. These signals are the host presentation
+boundary. A connected UI or media presenter supplies the corresponding race
+editor, overlay and video playback.
+
 ## EffectShader playback, MAG-14
 
 `CellStreamerNode` consumes transient EffectShader requests from the shared
