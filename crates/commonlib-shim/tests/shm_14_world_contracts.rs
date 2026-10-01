@@ -29,7 +29,7 @@ static_assert(std::same_as<decltype(&RE::PlayerCharacter::position), std::option
 static_assert(std::same_as<decltype(&RE::PlayerCharacter::actor_value), std::optional<float> (RE::PlayerCharacter::*)(const char*)>);
 static_assert(std::same_as<decltype(&RE::ProcessLists::actor_forms), std::vector<RE::FormKey> (RE::ProcessLists::*)() const>);
 static_assert(std::same_as<decltype(&RE::Projectile::runtime), RE::UnsupportedHook (RE::Projectile::*)() const noexcept>);
-struct Fixture final : RE::WorldState {
+struct Fixture final : RE::PlayerWorldState {
     std::optional<RE::FormKey> player() override { return RE::FormKey{2, 0x14}; }
     std::vector<RE::FormKey> loaded_actors() const override { return {{2, 0x14}}; }
     std::optional<RE::Position> reference_position(RE::FormKey) override { return RE::Position{1, 2, 3}; }
