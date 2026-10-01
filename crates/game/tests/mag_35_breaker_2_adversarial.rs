@@ -58,7 +58,7 @@ fn mag_35_rejects_a_non_light_winning_override_without_partial_application() {
     let mut order = LoadOrder::new();
     order.add("Base.esm", base).unwrap();
     order.add("Override.esp", override_plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     for actor in [ACTOR, TARGET] {
         game.world_mut()
             .set_actor_value(id(actor), "health", 100.0)

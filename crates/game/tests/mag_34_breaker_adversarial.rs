@@ -64,7 +64,7 @@ fn game() -> Game {
 
     let mut order = LoadOrder::new();
     order.add("Magic.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     game.world_mut()
         .set_actor_value(id(ACTOR), "health", 100.0)
         .unwrap();
