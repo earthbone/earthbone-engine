@@ -16,10 +16,7 @@ use soe_game::{
     combat::{Difficulty, Error, Hand},
     Game,
 };
-use soe_godot_host::{
-    combat::{contact_annotation_triggers, MeleeContact},
-    input::{Action, Bindings, ControlMap, InputState},
-};
+use soe_godot_host::combat::{contact_annotation_triggers, MeleeContact};
 use soe_hkx::{
     animation::{Annotation, AnnotationTrack, SplineCompressedAnimation},
     behavior::{BehaviorGraph, BehaviorGraphData, ClipGenerator, Node, NodeId, NodeKind},
@@ -444,7 +441,10 @@ fn templated_hand_weapon_reaches_contact_damage_with_selected_identity() {
 }
 
 #[test]
+#[cfg(feature = "godot")]
 fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
+    use soe_godot_host::input::{Action, Bindings, ControlMap, InputState};
+
     let mut game = fixture();
     let mut bindings = Bindings::default();
     bindings.apply_control_map(&ControlMap::parse(
