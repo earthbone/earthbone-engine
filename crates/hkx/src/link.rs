@@ -409,6 +409,8 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *activate_event_id = map.event(*activate_event_id);
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
+        NodeKind::TimerModifier { alarm_event, .. }
+        | NodeKind::BsTimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
         NodeKind::IStateManager {
             state_variable,
             state_data,
@@ -419,7 +421,6 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 entry.state_machine = shift(entry.state_machine, offset);
             }
         }
-        NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
         NodeKind::EventsFromRangeModifier { ranges, .. } => {
             for (_, range) in ranges {
                 remap_event_property(&mut range.event, map);
@@ -438,6 +439,25 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 expression.assignment_event_index = map.event(expression.assignment_event_index);
             }
         }
+        NodeKind::ModifyOnce {
+            on_activate,
+            on_deactivate,
+            ..
+        } => {
+            *on_activate = shift_opt(*on_activate, offset);
+            *on_deactivate = shift_opt(*on_deactivate, offset);
+        }
+        NodeKind::PassByTargetTrigger { trigger, .. } => {
+            remap_event_property(&mut trigger.trigger_event, map);
+        }
+        NodeKind::RagdollContactListener { contact_event, .. } => {
+            remap_event_property(contact_event, map);
+        }
+        NodeKind::FootIkControls { controls, .. } => {
+            for leg in &mut controls.legs {
+                remap_event_property(&mut leg.ungrounded_event, map);
+            }
+        }
         NodeKind::EveryNEventsModifier {
             event_to_check_for,
             event_to_send,
@@ -449,14 +469,24 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
+        | NodeKind::Tweener { .. }
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::DirectAt { .. }
         | NodeKind::InterpValue { .. }
+        | NodeKind::GetUpModifier { .. }
         | NodeKind::IsActiveModifier { .. }
+        | NodeKind::TwistModifier(_)
         | NodeKind::DecomposeVector { .. }
         | NodeKind::RotateCharacterModifier { .. }
+        | NodeKind::SpeedSampler { .. }
+        | NodeKind::DampingModifier { .. }
         | NodeKind::LookAtModifier { .. }
         | NodeKind::LimbIk { .. }
+        | NodeKind::FootIk { .. }
+        | NodeKind::KeyframeBonesModifier { .. }
+        | NodeKind::PoweredRagdollControls { .. }
+        | NodeKind::RigidBodyRagdollControlsModifier { .. }
+        | NodeKind::TransformVector { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }

@@ -22,6 +22,7 @@ soe-bsa = { path = "../bsa" }
 soe-navmesh = { path = "../navmesh" }
 soe-moddata = { path = "../moddata" }
 soe-profile = { path = "../profile" }
+soe-commonlib-shim = { path = "../commonlib-shim" }
 soe-save = { path = "../save" }
 soe-nif = { path = "../nif" }
 soe-hkx = { path = "../hkx" }
