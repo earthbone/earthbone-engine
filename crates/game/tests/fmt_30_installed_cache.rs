@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-#[path = "common/installed.rs"]
-mod installed;
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::common::installed;
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
