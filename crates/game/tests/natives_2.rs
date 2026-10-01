@@ -18,7 +18,10 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
+};
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
@@ -50,6 +53,9 @@ const RAGS: u32 = 0x90F;
 const LOOT_LIST: u32 = 0x910;
 const GOLD: u32 = 0x911;
 const SWORD: u32 = 0x912;
+const SHIELD: u32 = 0x987;
+const DAGGER: u32 = 0x988;
+const BROKEN_ARMOR: u32 = 0x989;
 const WEAPON_KEYWORD: u32 = 0x980;
 const CARRIED_ITEMS: u32 = 0x981;
 const GOLD_REF: u32 = 0x982;
@@ -200,6 +206,24 @@ fn test_plugin() -> Plugin {
             .zsub(EDID, "IronSword")
             .sub(T(b"KWDA"), le(WEAPON_KEYWORD)),
     );
+    p.push_top(
+        Record::new(T(b"WEAP"), DAGGER)
+            .zsub(EDID, "IronDagger")
+            .sub(T(b"KWDA"), le(WEAPON_KEYWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"ARMO"), SHIELD)
+            .zsub(EDID, "IronShield")
+            .sub(T(b"DNAM"), le(0))
+            .sub(
+                T(b"BOD2"),
+                [1u32 << 9, 2]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ),
+    );
+    p.push_top(Record::new(T(b"ARMO"), BROKEN_ARMOR).zsub(EDID, "BrokenArmor"));
     p.push_top(
         Record::new(T(b"FLST"), CARRIED_ITEMS)
             .zsub(EDID, "CarriedItems")
@@ -1432,6 +1456,99 @@ fn combat_targets_and_killers_are_remembered() {
         "essential actors do not die"
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetEquippedWeapon selects the right hand by default and the left hand
+/// when true. GetEquippedShield returns equipped armor in BOD2 shield slot 9.
+#[test]
+fn scr_14_equipped_weapon_hands_and_shield_follow_equipment() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let shield = GlobalFormId {
+        file: 0,
+        object: SHIELD,
+    };
+    let dagger = GlobalFormId {
+        file: 0,
+        object: DAGGER,
+    };
+    assert!(g.world_mut().record(shield).is_some());
+    assert_eq!(
+        g.world_mut().record(shield).unwrap().find(T(b"BOD2")),
+        Some(
+            [le(1 << 9).as_slice(), le(2).as_slice()]
+                .concat()
+                .as_slice()
+        )
+    );
+    assert!(g.world_mut().record(dagger).is_some());
+
+    assert_eq!(call(&mut g, &guard, "GetEquippedWeapon", &[]), Value::None);
+    assert_eq!(
+        call(&mut g, &guard, "GetEquippedWeapon", &[Value::Bool(true)]),
+        Value::None
+    );
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+
+    g.world_mut().equip_item(actor, sword).unwrap();
+    g.world_mut().equip_item(actor, shield).unwrap();
+    g.world_mut().equip_item(actor, dagger).unwrap();
+    let mut world = g.world_mut();
+    let state = world.actor(actor).unwrap();
+    state.left_weapon = Some(dagger);
+    state.right_weapon = Some(sword);
+    drop(world);
+    assert!(g
+        .world_mut()
+        .actor(actor)
+        .unwrap()
+        .equipped
+        .contains(&shield));
+    assert_eq!(g.world_mut().item_count(actor, shield), 1);
+    assert_eq!(g.world_mut().equipped_shield(actor).unwrap(), Some(shield));
+
+    let right = call(&mut g, &guard, "GetEquippedWeapon", &[]);
+    let left = call(&mut g, &guard, "GetEquippedWeapon", &[Value::Bool(true)]);
+    assert!(is(&mut g, &right, "IronSword"));
+    assert!(matches!(
+        left,
+        Value::Object(object) if g.world_mut().form_of(object) == Some(dagger)
+    ));
+    let equipped_shield = call(&mut g, &guard, "GetEquippedShield", &[]);
+    assert!(matches!(
+        equipped_shield,
+        Value::Object(object) if g.world_mut().form_of(object) == Some(shield)
+    ));
+
+    g.world_mut().unequip_item(actor, shield).unwrap();
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetEquippedShield returns no form and logs its typed record error when an
+/// equipped armor record has no required physical fields.
+#[test]
+fn scr_14_equipped_shield_reports_malformed_equipment() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    let broken = GlobalFormId {
+        file: 0,
+        object: BROKEN_ARMOR,
+    };
+    g.world_mut().add_item(actor, broken, 1);
+    g.world_mut().actor(actor).unwrap().equipped.insert(broken);
+
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+    assert!(
+        g.traces()
+            .iter()
+            .any(|trace| trace.contains("Actor.GetEquippedShield:")),
+        "{:?}",
+        g.traces()
+    );
 }
 
 /// GetCrimeFaction reads CRIF, SetCrimeFaction "if the actor does not
