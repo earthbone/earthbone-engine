@@ -2490,7 +2490,28 @@ execution is not part of this HUD.
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
 The controls compile with gdext, but their appearance in a running Godot
-window has not been exercised.
+window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
+in the installed Bannered Mare cell and checks viewport pixels in the three
+meter labels, bars and compass after Godot processes frames. The synthetic
+Rust update test changes all three shared actor values and checks their
+updated fractions.
+
+Run the host check with the release extension loaded and installed data set:
+
+```sh
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --display-driver wayland --path godot --script ui_06_hud_render_test.gd
+```
+
+The local `engine-refs/skyui/src/HUDWidgets/skyui/widgets/meter/MeterWidget.as`
+and `engine-refs/skyui/src/Common/skyui/components/Meter.as` informed the
+0-to-1 bounded fill. SkyUI keeps a meter hidden until `initCommit` and permits
+fill-direction, color, flash and animation settings. This native HUD displays
+the three meters when gameplay starts and does not implement those Scaleform
+widget calls. `MiniMapWidget.as` reads a player angle separately from a
+compass angle. The native compass currently centers `PlayerNode` camera yaw,
+so it does not apply cell NorthMarker orientation. The CK
+`GetActorValue - Actor` and `GetActorValueMax - Actor` pages define current and
+modified-maximum stat inputs. Compass direction is not an actor value.
 
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
 PanelContainer, two VBoxContainers, one Label and one Button form the fixed
@@ -2657,6 +2678,16 @@ snapshot each process frame and rebuilds the presenter when shared quest
 state changes. The menu does not maintain quest or objective state of its
 own.
 
+`crates/godot-host/tests/ui_04_quest_journal.rs` checks the presenter against
+synthetic quest records, including a stage change that replaces the displayed
+objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
+shared Game in Bannered Mare and checks that the native menu panel and quest
+text controls are populated. Run it after building the extension and importing
+the Godot project with
+`SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
+This verifies the Godot control tree and its text, without asserting a rendered
+image.
+
 The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK `Quest_Script.wikitext`
 lists the objective display, completion and failure operations. The presenter
@@ -2669,11 +2700,15 @@ resolved Skyrim position, authored compass lock flag and a visibility value
 derived from the objective's displayed state and the target reference's
 enabled and deleted state. Target CTDA conditions are evaluated against the
 current Game and VM, and a target is omitted when its conditions are false or
-cannot be evaluated. The presenter reads the shared world and adds no saved
-state. QSTA layout rules come from `uesp-modfileformat/QUST.wikitext` and
-`TES5Edit/Core/wbDefinitionsTES5.pas`.
-No Godot map control currently consumes these markers, so their on-screen
-display and spatial projection remain unverified.
+cannot be evaluated. The native map surface is opened from the quest journal.
+It plots marker XY positions north-up on a Godot Control and hides markers
+whose presenter visibility is false. The surface refreshes when its resolved
+marker data changes. The presenter reads the shared world and adds no saved
+state. QUST target rules follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `uesp-modfileformat/QUST.wikitext` and
+the CK `Quest_Script.wikitext` objective display semantics. Location marker
+resolution follows `uesp-modfileformat/LCTN.wikitext`, where `MNAM` identifies
+the world-location marker reference.
 
 The lockpicking presenter (UI-08) opens when player activation reaches a
 locked, non-key-only reference and the player has a lockpick but no matching

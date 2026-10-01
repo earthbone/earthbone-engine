@@ -114,3 +114,32 @@ fn ui_10_target_conditions_control_objective_map_targets() {
     assert_eq!(markers.len(), 1);
     assert_eq!(markers[0].objective, 20);
 }
+
+#[test]
+fn ui_10_map_control_projects_world_xy_north_up_and_keeps_hidden_bounds() {
+    let mut game = game();
+    let markers = objective_map::markers(&mut game);
+    let points = objective_map::project(&markers, 640.0, 360.0);
+
+    assert_eq!(points.len(), 2);
+    assert_eq!((points[0].x, points[0].y), (24.0, 336.0));
+    assert_eq!((points[1].x, points[1].y), (616.0, 24.0));
+    assert!(points.iter().all(|point| point.visible));
+
+    game.world_mut().objective(id(0x100), 10).unwrap().displayed = false;
+    let updated = objective_map::project(&objective_map::markers(&mut game), 640.0, 360.0);
+    assert_eq!((updated[1].x, updated[1].y), (616.0, 24.0));
+    assert!(!updated[0].visible);
+    assert!(updated[1].visible);
+}
+
+#[test]
+fn ui_10_map_control_handles_empty_and_degenerate_marker_sets() {
+    let mut game = game();
+    let marker = objective_map::markers(&mut game).remove(0);
+
+    assert!(objective_map::project(&[], 640.0, 360.0).is_empty());
+    let points = objective_map::project(std::slice::from_ref(&marker), 640.0, 360.0);
+    assert_eq!((points[0].x, points[0].y), (320.0, 180.0));
+    assert!(objective_map::project(std::slice::from_ref(&marker), f32::NAN, 360.0).is_empty());
+}
