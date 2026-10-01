@@ -8,10 +8,11 @@ use std::collections::BTreeMap;
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, PriorOwner, World};
+use super::{ActiveEffect, CloakState, EffectId, PriorOwner, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
+use crate::world::{ActorState, WerewolfTransformState};
 
 pub(crate) const SECTION: crate::world::save_sections::Section<World> =
     crate::world::save_sections::Section {
@@ -46,6 +47,66 @@ impl World {
                 w.f32(*amount);
             }
         }
+    }
+
+    pub(crate) fn write_cloaks(&self, w: &mut Writer) {
+        w.len(self.cloak_effects.len());
+        for (id, state) in &self.cloak_effects {
+            w.u64(id.0);
+            w.f64(state.elapsed);
+            w.len(state.owned.len());
+            for owned in &state.owned {
+                w.u64(owned.0);
+            }
+        }
+    }
+
+    pub(crate) fn read_cloaks(&mut self, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        let count = r.len()?;
+        let mut cloaks = BTreeMap::new();
+        for _ in 0..count {
+            let id = EffectId(r.u64()?);
+            let elapsed = r.f64()?;
+            let owned_count = r.len()?;
+            let mut owned = Vec::with_capacity(owned_count);
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..owned_count {
+                let owned_id = EffectId(r.u64()?);
+                if owned_id.0 == 0 || !seen.insert(owned_id) {
+                    return Err(VmError::State("invalid cloak owned effect identity".into()));
+                }
+                owned.push(owned_id);
+            }
+            if !elapsed.is_finite()
+                || !(0.0..1.0).contains(&elapsed)
+                || id.0 == 0
+                || cloaks.insert(id, CloakState { elapsed, owned }).is_some()
+            {
+                return Err(VmError::State("invalid cloak effect state".into()));
+            }
+        }
+        self.cloak_effects = cloaks;
+        Ok(())
+    }
+
+    pub(crate) fn validate_cloaks(&self) -> Result<(), VmError> {
+        for (id, state) in &self.cloak_effects {
+            let parent = self
+                .active_effects
+                .get(id)
+                .ok_or_else(|| VmError::State("cloak state names a missing effect".into()))?;
+            if !self
+                .magic_effect(parent.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+                || state
+                    .owned
+                    .iter()
+                    .any(|owned| !self.active_effects.contains_key(owned))
+            {
+                return Err(VmError::State("invalid cloak effect ownership".into()));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -170,4 +231,73 @@ pub(in crate::world) fn read_magic(
         return Err(VmError::State("invalid next effect identity".into()));
     }
     Ok((next, effects))
+}
+
+pub(in crate::world) fn write_werewolf_transform(actor: &ActorState, w: &mut Writer) {
+    let Some(transform) = &actor.werewolf_transform else {
+        w.bool(false);
+        return;
+    };
+    w.bool(true);
+    w.u64(transform.effect.0);
+    write_opt_form_id(w, transform.prior_race);
+    write_form_id(w, transform.transformed_race);
+    w.len(transform.added_spells.len());
+    for spell in &transform.added_spells {
+        write_form_id(w, *spell);
+    }
+    w.len(transform.added_shouts.len());
+    for shout in &transform.added_shouts {
+        write_form_id(w, *shout);
+    }
+    w.len(transform.added_effects.len());
+    for effect in &transform.added_effects {
+        w.u64(effect.0);
+    }
+}
+
+pub(in crate::world) fn read_werewolf_transform(
+    actor: &mut ActorState,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    if !r.bool()? {
+        return Ok(());
+    }
+    let effect = EffectId(r.u64()?);
+    let prior_race = read_opt_form_id(r)?;
+    let transformed_race = read_form_id(r)?;
+    let count = r.len()?;
+    let mut added_spells = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !added_spells.insert(read_form_id(r)?) {
+            return Err(VmError::State("duplicate werewolf race effect".into()));
+        }
+    }
+    let count = r.len()?;
+    let mut added_shouts = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !added_shouts.insert(read_form_id(r)?) {
+            return Err(VmError::State("duplicate werewolf race shout".into()));
+        }
+    }
+    let count = r.len()?;
+    let mut added_effects = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        if id.0 == 0 || !added_effects.insert(id) {
+            return Err(VmError::State("invalid owned werewolf effect".into()));
+        }
+    }
+    if effect.0 == 0 || actor.race != Some(transformed_race) || transformed_race.object == 0 {
+        return Err(VmError::State("invalid werewolf transform state".into()));
+    }
+    actor.werewolf_transform = Some(WerewolfTransformState {
+        effect,
+        prior_race,
+        transformed_race,
+        added_spells,
+        added_shouts,
+        added_effects,
+    });
+    Ok(())
 }

@@ -149,6 +149,7 @@ pub enum Format {
     Bc3,
     Bc4 { signed: bool },
     Bc5 { signed: bool },
+    Bc6h { signed: bool },
     Bc7,
     Uncompressed(Masks),
 }
@@ -226,7 +227,9 @@ impl Format {
     pub fn block_size(&self) -> Option<usize> {
         match self {
             Format::Bc1 | Format::Bc4 { .. } => Some(8),
-            Format::Bc2 | Format::Bc3 | Format::Bc5 { .. } | Format::Bc7 => Some(16),
+            Format::Bc2 | Format::Bc3 | Format::Bc5 { .. } | Format::Bc6h { .. } | Format::Bc7 => {
+                Some(16)
+            }
             Format::Uncompressed(_) => None,
         }
     }
@@ -262,6 +265,7 @@ impl Format {
             Format::Bc3 => "BC3".into(),
             Format::Bc4 { signed } => format!("BC4{}", if *signed { " snorm" } else { "" }),
             Format::Bc5 { signed } => format!("BC5{}", if *signed { " snorm" } else { "" }),
+            Format::Bc6h { signed } => format!("BC6H{}", if *signed { " sf16" } else { " uf16" }),
             Format::Bc7 => "BC7".into(),
             Format::Uncompressed(m) if *m == Masks::RGBA8 => "RGBA8".into(),
             Format::Uncompressed(m) if *m == Masks::BGRA8 => "BGRA8".into(),
@@ -341,7 +345,8 @@ fn from_dxgi(n: u32) -> Result<(Format, ColorSpace)> {
         dxgi::B5G6R5_UNORM => (Format::Uncompressed(Masks::B5G6R5), Linear),
         dxgi::B5G5R5A1_UNORM => (Format::Uncompressed(Masks::B5G5R5A1), Linear),
         dxgi::B4G4R4A4_UNORM => (Format::Uncompressed(Masks::B4G4R4A4), Linear),
-        dxgi::BC6H_UF16 | dxgi::BC6H_SF16 => return Err(Error::Unsupported(Unsupported::Bc6h)),
+        dxgi::BC6H_UF16 => (Format::Bc6h { signed: false }, Linear),
+        dxgi::BC6H_SF16 => (Format::Bc6h { signed: true }, Linear),
         other => return Err(Error::Unsupported(Unsupported::Dxgi(other))),
     };
     Ok((f, cs))
@@ -399,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn dxgi_formats_carry_srgb_and_refuse_bc6h() {
+    fn dxgi_formats_carry_srgb_and_bc6h_signedness() {
         let dx = |n| {
             header(
                 fourcc(*b"DX10"),
@@ -420,10 +425,14 @@ mod tests {
             Format::from_header(&dx(dxgi::B8G8R8A8_UNORM)).unwrap(),
             (Format::Uncompressed(Masks::BGRA8), ColorSpace::Linear)
         );
-        assert!(matches!(
-            Format::from_header(&dx(dxgi::BC6H_UF16)),
-            Err(Error::Unsupported(Unsupported::Bc6h))
-        ));
+        assert_eq!(
+            Format::from_header(&dx(dxgi::BC6H_UF16)).unwrap(),
+            (Format::Bc6h { signed: false }, ColorSpace::Linear)
+        );
+        assert_eq!(
+            Format::from_header(&dx(dxgi::BC6H_SF16)).unwrap(),
+            (Format::Bc6h { signed: true }, ColorSpace::Linear)
+        );
         assert!(matches!(
             Format::from_header(&dx(10)),
             Err(Error::Unsupported(Unsupported::Dxgi(10)))

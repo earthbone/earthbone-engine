@@ -25,6 +25,7 @@
 //! same lever the real game offers. Do not let a later reader mistake these
 //! for measured constants.
 
+use soe_esm::GlobalFormId;
 use soe_physics::Vec3;
 
 use crate::units::SkyrimPos;
@@ -35,6 +36,60 @@ use crate::units::SkyrimPos;
 pub struct CameraMotion {
     previous: (Vec3, f32),
     current: (Vec3, f32),
+}
+
+/// Camera controls currently applied by the host player node.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraHostState {
+    target: Option<GlobalFormId>,
+    first_person_geometry_visible: bool,
+    sitting_rotation_degrees: f32,
+}
+
+impl Default for CameraHostState {
+    fn default() -> Self {
+        Self {
+            target: None,
+            first_person_geometry_visible: true,
+            sitting_rotation_degrees: 0.0,
+        }
+    }
+}
+
+impl CameraHostState {
+    pub fn apply(&mut self, controls: soe_game::world::CameraControls) {
+        self.target = controls.target;
+        self.first_person_geometry_visible = controls.first_person_geometry;
+        self.sitting_rotation_degrees = controls.sitting_rotation_degrees;
+    }
+
+    #[must_use]
+    pub fn target(&self) -> Option<GlobalFormId> {
+        self.target
+    }
+
+    #[must_use]
+    pub fn first_person_geometry_visible(&self) -> bool {
+        self.first_person_geometry_visible
+    }
+
+    #[must_use]
+    pub fn sitting_rotation_degrees(&self) -> f32 {
+        self.sitting_rotation_degrees
+    }
+
+    #[must_use]
+    pub fn anchor(
+        &self,
+        player_feet: Vec3,
+        player_height: f32,
+        target_pose: Option<(GlobalFormId, Vec3, f32)>,
+    ) -> (Vec3, f32) {
+        match (self.target, target_pose) {
+            (Some(target), Some((pose_id, feet, height))) if target == pose_id => (feet, height),
+            _ => (player_feet, player_height),
+        }
+    }
 }
 
 impl CameraMotion {
@@ -195,6 +250,7 @@ pub struct CameraRig {
     pub mode: CameraMode,
     yaw: f32,
     pitch: f32,
+    camera_yaw_offset: f32,
     /// Whether a weapon is drawn, which only changes the boom length.
     pub combat: bool,
 }
@@ -213,6 +269,7 @@ impl CameraRig {
             mode: CameraMode::default(),
             yaw: 0.0,
             pitch: 0.0,
+            camera_yaw_offset: 0.0,
             combat: false,
         }
     }
@@ -240,6 +297,16 @@ impl CameraRig {
     #[must_use]
     pub fn pitch(&self) -> f32 {
         self.pitch
+    }
+
+    /// Apply the seated camera's yaw offset without changing movement facing.
+    pub fn set_camera_yaw_offset_degrees(&mut self, degrees: f32) {
+        self.camera_yaw_offset = degrees.to_radians();
+    }
+
+    #[must_use]
+    pub fn camera_yaw_offset_degrees(&self) -> f32 {
+        self.camera_yaw_offset.to_degrees()
     }
 
     /// Point the camera outright, used when a save or a door sets a facing.
@@ -328,6 +395,9 @@ impl CameraRig {
     #[must_use]
     pub fn eye(&self, feet: Vec3, capsule_height: f32, clear_distance: Option<f32>) -> Eye {
         let head = self.head(feet, capsule_height);
+        let camera_yaw = wrap_angle(self.yaw + self.camera_yaw_offset);
+        let camera_look = look_vector(camera_yaw, self.pitch);
+        let camera_right = Vec3::new(camera_yaw.cos(), -camera_yaw.sin(), 0.0);
         let position = match self.mode {
             CameraMode::First => head,
             CameraMode::Third => {
@@ -335,8 +405,8 @@ impl CameraRig {
                 if let Some(clear) = clear_distance {
                     boom = boom.min((clear - self.settings.collision_padding).max(0.0));
                 }
-                let back = self.look_direction() * -boom;
-                let side = self.right_flat() * self.settings.over_shoulder_pos_x;
+                let back = Vec3::new(camera_look.0, camera_look.1, camera_look.2) * -boom;
+                let side = camera_right * self.settings.over_shoulder_pos_x;
                 Vec3::new(
                     head.x + back.x + side.x,
                     head.y + back.y + side.y,
@@ -346,7 +416,7 @@ impl CameraRig {
         };
         Eye {
             position: SkyrimPos::new(position.x, position.y, position.z),
-            yaw: self.yaw,
+            yaw: camera_yaw,
             pitch: self.pitch,
         }
     }
@@ -356,7 +426,9 @@ impl CameraRig {
     #[must_use]
     pub fn boom_target(&self, feet: Vec3, capsule_height: f32) -> Vec3 {
         let head = self.head(feet, capsule_height);
-        let back = self.look_direction() * -self.boom_length();
+        let yaw = wrap_angle(self.yaw + self.camera_yaw_offset);
+        let look = look_vector(yaw, self.pitch);
+        let back = Vec3::new(look.0, look.1, look.2) * -self.boom_length();
         Vec3::new(head.x + back.x, head.y + back.y, head.z + back.z)
     }
 

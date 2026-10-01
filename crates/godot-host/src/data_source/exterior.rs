@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Exterior block selection and LAND construction, from CELL and WRLD
-//! records in the load order. Parent terrain follows CommonLib's kUseLandData.
+//! records in the load order. LAND texture layouts follow TES5Edit and UESP,
+//! parent terrain follows CommonLib's kUseLandData.
 //!
 //! Each cell's terrain is meshed on its own, so two neighbouring cells only
 //! meet exactly where their VHGT data already agrees. Bethesda's own LAND
@@ -12,9 +13,11 @@
 //! by averaging the disagreeing edge before any mesh is built. See
 //! `docs/godot-host.md`'s exterior section (RND-15) for the case this fixes.
 
+use soe_esm::records::ltex::LandTexture;
 use soe_esm::records::{cell::Cell, land::Land, wrld::World};
-use soe_esm::{tag, GlobalFormId, Record};
+use soe_esm::{tag, GlobalFormId, Record, Tag};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{
     DataSource, DataSourceError, ExteriorBlock, ExteriorCell, LoadedCell, LoadedExterior,
@@ -293,13 +296,46 @@ impl DataSource {
         out
     }
 
+    fn terrain_diffuse(&self, land_id: GlobalFormId, land: &Land) -> soe_dds::Image {
+        let land_ref = self.order.winner_ref(land_id);
+        let mut image_for = |raw_ltex: u32| {
+            let path = if raw_ltex == 0 {
+                "textures/landscape/dirt02.dds".to_string()
+            } else {
+                let land_ref = land_ref?;
+                let ltex_id = self.order.resolve(land_ref.file, raw_ltex);
+                let ltex_ref = self.order.winner_ref(ltex_id)?;
+                let ltex_record = self.order.record(ltex_ref);
+                if ltex_record.tag != tag::LTEX {
+                    return None;
+                }
+                let ltex = LandTexture::from_record(ltex_record).ok()?;
+                let texture_set = ltex.texture_set?;
+                let txst_id = self.order.resolve(ltex_ref.file, texture_set);
+                let txst_ref = self.order.winner_ref(txst_id)?;
+                let txst = self.order.record(txst_ref);
+                if txst.tag != Tag::new(b"TXST") {
+                    return None;
+                }
+                let diffuse = soe_esm::cursor::zstring(txst.find(Tag::new(b"TX00"))?);
+                if diffuse.is_empty() {
+                    return None;
+                }
+                diffuse
+            };
+            self.textures
+                .decode_rgba(&self.vfs, &path)
+                .map(|image| (*image).clone())
+        };
+        super::terrain_texture::bake(land, &mut image_for)
+    }
+
     /// Streams every cell of the block around `editor_id` and appends each
     /// cell's terrain as one more surface, so the Godot layer treats land like
     /// any other geometry. A cell without its own `LAND` takes the parent
     /// worldspace's at the same grid position when the worldspace inherits
-    /// land data. Terrain carries no texture yet: the LAND quadrant layers
-    /// (`LTEX` base plus alpha layers) need a splat material the host does
-    /// not have, so it draws in the untextured material.
+    /// land data. LAND quadrant base and alpha layers are sampled into one
+    /// RGBA albedo texture per terrain cell.
     pub fn stream_exterior(
         &self,
         editor_id: &str,
@@ -401,13 +437,18 @@ impl DataSource {
                 if let Some(h) = heights.get(&(cell.x, cell.y)) {
                     let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
                     match terrain_surface_from_heights(cell, h, land.normals.as_deref()) {
-                        Ok(arrays) => {
+                        Ok(mut arrays) => {
+                            let diffuse = self.terrain_diffuse(*land_id, land);
+                            arrays.material.diffuse = Some(format!("terrain:{land_id}"));
                             has_land = true;
                             loaded.stats.triangles += arrays.triangle_count();
                             loaded.surfaces.push(LoadedSurface {
                                 reference: *land_id,
                                 arrays,
-                                textures: SurfaceTextures::default(),
+                                textures: SurfaceTextures {
+                                    diffuse: Some(Arc::new(super::TextureData::Rgba8(diffuse))),
+                                    ..SurfaceTextures::default()
+                                },
                                 placement: soe_physics::Iso::IDENTITY,
                                 instance_transform: None,
                                 mesh_identity: None,

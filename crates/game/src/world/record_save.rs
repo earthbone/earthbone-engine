@@ -8,8 +8,9 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Record, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    normalize_unresolved_id, raw_words, DialogueRecordExtra, ListRecordExtra, NavmeshRecordExtra,
-    NpcRecordExtra, PackRecordExtra, RecordOverride, UnresolvedRecord, UnresolvedRecordId,
+    normalize_unresolved_id, raw_words, BaseObjectRecordExtra, DialogueRecordExtra,
+    ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
+    StaticObjectRecordExtra, UnresolvedRecord, UnresolvedRecordId,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -35,55 +36,6 @@ fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, Vm
 }
 
 impl World {
-    pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
-        if world.unresolved_records.is_empty() {
-            return;
-        }
-        w.len(world.unresolved_records.len());
-        for (id, value) in &world.unresolved_records {
-            write_unresolved_id(w, id);
-            w.bytes(&value.payload);
-            w.len(value.links.len());
-            for link in &value.links {
-                write_unresolved_id(w, link);
-            }
-        }
-    }
-
-    pub(super) fn read_unresolved_records(
-        world: &mut World,
-        r: &mut FormReader<'_, '_>,
-    ) -> Result<(), VmError> {
-        let mut records = BTreeMap::new();
-        let count = r.len()?;
-        if count > r.remaining() / 13 {
-            return Err(bad("unresolved record count exceeds remaining bytes"));
-        }
-        for _ in 0..count {
-            let mut id = read_unresolved_id(r)?;
-            normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
-            let payload = r.bytes()?.to_vec();
-            let link_count = r.len()?;
-            if link_count > r.remaining() / 13 {
-                return Err(bad("unresolved link count exceeds remaining bytes"));
-            }
-            let mut links = Vec::with_capacity(link_count);
-            for _ in 0..link_count {
-                let mut link = read_unresolved_id(r)?;
-                normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
-                links.push(link);
-            }
-            if records
-                .insert(id.clone(), UnresolvedRecord { id, payload, links })
-                .is_some()
-            {
-                return Err(bad("duplicate unresolved record identity"));
-            }
-        }
-        world.unresolved_records = records;
-        Ok(())
-    }
-
     fn saved_record_identity(&self, id: GlobalFormId) -> Result<(), VmError> {
         let limit = if id.file == super::DYNAMIC_FILE {
             0xFFFFFF
@@ -208,6 +160,16 @@ impl World {
                                 | b"LVLN"
                                 | b"LVLI"
                                 | b"LVSP"
+                                | b"LIGH"
+                                | b"STAT"
+                                | b"MSTT"
+                                | b"CONT"
+                                | b"MISC"
+                                | b"FURN"
+                                | b"APPA"
+                                | b"IDLM"
+                                | b"WOOP"
+                                | b"MGEF"
                                 | b"CLAS"
                                 | b"FACT"
                                 | b"RELA"
@@ -235,6 +197,16 @@ impl World {
                                 | b"LVLN"
                                 | b"LVLI"
                                 | b"LVSP"
+                                | b"LIGH"
+                                | b"STAT"
+                                | b"MSTT"
+                                | b"CONT"
+                                | b"MISC"
+                                | b"FURN"
+                                | b"APPA"
+                                | b"IDLM"
+                                | b"WOOP"
+                                | b"MGEF"
                                 | b"CLAS"
                                 | b"FACT"
                                 | b"RELA"
@@ -276,7 +248,7 @@ impl World {
             } else {
                 None
             };
-            let list = if version >= 35 && r.bool()? {
+            let list = if version >= 37 && r.bool()? {
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {
@@ -361,7 +333,7 @@ impl World {
                 return Err(bad("unused link token"));
             }
             if record.editor_id() != original.editor_id() {
-                return Err(bad("NPC override changed editor identity"));
+                return Err(bad("record override changed editor identity"));
             }
             if dialogue.is_some() {
                 let valid = match record.tag {
@@ -408,6 +380,16 @@ impl World {
                     | b"CLAS"
                     | b"FACT"
                     | b"RELA"
+                    | b"LIGH"
+                    | b"STAT"
+                    | b"MSTT"
+                    | b"CONT"
+                    | b"MISC"
+                    | b"FURN"
+                    | b"APPA"
+                    | b"IDLM"
+                    | b"WOOP"
+                    | b"MGEF"
                     | b"PACK"
                     | b"NAVM"
             ) {
@@ -474,6 +456,60 @@ impl World {
                     || links.keys().any(|token| *token != raw)
                 {
                     return Err(bad("invalid race skin link"));
+                }
+            } else if matches!(&record.tag.0, b"CONT" | b"MISC" | b"FURN") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved static-object override"));
+                }
+            } else if matches!(&record.tag.0, b"LIGH" | b"STAT" | b"MSTT") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved base-object override"));
+                }
+            } else if matches!(&record.tag.0, b"APPA" | b"IDLM") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.flags != original.flags
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved APPA or IDLM override"));
+                }
+            } else if matches!(&record.tag.0, b"WOOP" | b"MGEF") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record != *original
+                    || !links.is_empty()
+                {
+                    return Err(bad("invalid saved WOOP or MGEF override"));
+                }
+                if record.tag == T(b"MGEF") {
+                    soe_esm::records::gameplay::MagicEffect::from_record(&record, localized)
+                        .map_err(|e| VmError::State(e.to_string()))?;
                 }
             } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
                 if temporary_for.is_some()
@@ -603,6 +639,8 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                base_object: None,
+                static_object: None,
                 saved_form_flags: None,
                 dialogue,
                 pack,
@@ -614,22 +652,346 @@ impl World {
         }
         Ok(values)
     }
-}
 
-pub(super) fn write_unresolved_records(
-    world: &World,
-    w: &mut Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
-    World::write_unresolved_records(world, w);
-}
+    pub(super) fn write_base_object_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"LIGH" | b"STAT" | b"MSTT"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+        }
+    }
 
-pub(super) fn read_unresolved_records(
-    world: &mut World,
-    r: &mut FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), VmError> {
-    World::read_unresolved_records(world, r)
+    pub(super) fn read_base_object_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 6 {
+            return Err(bad("base-object section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let extra = BaseObjectRecordExtra {
+                form_flags,
+                change_flags: u32::from(form_flags.is_some())
+                    | (u32::from(value_changed) << 1)
+                    | (u32::from(full_name_changed) << 2),
+                value_changed,
+                full_name_changed,
+                unnamed_flags: 0,
+            };
+            let value = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("base-object section names a missing record override"))?;
+            if !matches!(&value.record.tag.0, b"LIGH" | b"STAT" | b"MSTT")
+                || value.base_object.is_some()
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate base-object section entry"));
+            }
+            values.push((id, extra));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("base-object override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_woop_mgef_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"WOOP" | b"MGEF"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+            w.u32(extra.unnamed_flags);
+        }
+    }
+
+    pub(super) fn read_woop_mgef_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 15 {
+            return Err(bad("WOOP/MGEF section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let unnamed_flags = r.u32()?;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("WOOP/MGEF section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"WOOP" | b"MGEF")
+                || record.base_object.is_some()
+                || form_flags.is_some() != (change_flags & 1 != 0)
+                || value_changed != (change_flags & 2 != 0)
+                || full_name_changed != (change_flags & 4 != 0)
+                || unnamed_flags != (change_flags & !7)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate WOOP/MGEF section entry"));
+            }
+            if record.record.tag == T(b"MGEF") {
+                let localized = self
+                    .order
+                    .winner_ref(id)
+                    .is_some_and(|r| self.order.file(r.file).plugin.header.is_localized());
+                soe_esm::records::gameplay::MagicEffect::from_record(&record.record, localized)
+                    .map_err(|error| bad(&error.to_string()))?;
+            }
+            values.push((
+                id,
+                BaseObjectRecordExtra {
+                    form_flags,
+                    change_flags,
+                    value_changed,
+                    full_name_changed,
+                    unnamed_flags,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("WOOP/MGEF override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_appa_idlm_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"APPA" | b"IDLM"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+        }
+    }
+
+    pub(super) fn read_appa_idlm_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 11 {
+            return Err(bad("APPA/IDLM section count exceeds remaining bytes"));
+        }
+        let flags = soe_save::base_object::flags::FORM;
+        let value = soe_save::base_object::flags::VALUE;
+        let full_name = soe_save::base_object::flags::FULL_NAME;
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("APPA/IDLM section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"APPA" | b"IDLM")
+                || record.base_object.is_some()
+                || record.static_object.is_some()
+                || form_flags.is_some() != (change_flags & flags != 0)
+                || value_changed != (change_flags & value != 0)
+                || full_name_changed != (change_flags & full_name != 0)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate APPA/IDLM section entry"));
+            }
+            values.push((
+                id,
+                BaseObjectRecordExtra {
+                    form_flags,
+                    change_flags,
+                    value_changed,
+                    full_name_changed,
+                    unnamed_flags: 0,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("APPA/IDLM override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_static_object_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| value.static_object.as_ref().map(|extra| (*id, extra)))
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+            w.bytes(&extra.opaque_suffix);
+        }
+    }
+
+    pub(super) fn read_static_object_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 6 {
+            return Err(bad("static-object section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let opaque_suffix = r.bytes()?.to_vec();
+            let flags = soe_save::base_object::static_object_flags::FORM;
+            let value = soe_save::base_object::static_object_flags::VALUE;
+            let full_name = soe_save::base_object::static_object_flags::FULL_NAME;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("static-object section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"CONT" | b"MISC" | b"FURN")
+                || record.static_object.is_some()
+                || record.base_object.is_some()
+                || form_flags.is_some() != (change_flags & flags != 0)
+                || value_changed != (change_flags & value != 0)
+                || full_name_changed != (change_flags & full_name != 0)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate static-object section entry"));
+            }
+            values.push((
+                id,
+                StaticObjectRecordExtra {
+                    change_flags,
+                    form_flags,
+                    value_changed,
+                    full_name_changed,
+                    opaque_suffix,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("static-object override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.static_object = Some(extra);
+        }
+        Ok(())
+    }
 }
 
 pub(super) fn write_pack_navmesh_section(
@@ -718,6 +1080,60 @@ pub(super) fn read_pack_navmesh_section(
 
 fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
     record.subrecords.clone()
+}
+
+pub(super) fn write_unresolved_records(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    if world.unresolved_records.is_empty() {
+        return;
+    }
+    w.len(world.unresolved_records.len());
+    for (id, value) in &world.unresolved_records {
+        write_unresolved_id(w, id);
+        w.bytes(&value.payload);
+        w.len(value.links.len());
+        for link in &value.links {
+            write_unresolved_id(w, link);
+        }
+    }
+}
+
+pub(super) fn read_unresolved_records(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let mut records = BTreeMap::new();
+    let count = r.len()?;
+    if count > r.remaining() / 13 {
+        return Err(bad("unresolved record count exceeds remaining bytes"));
+    }
+    for _ in 0..count {
+        let mut id = read_unresolved_id(r)?;
+        normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
+        let payload = r.bytes()?.to_vec();
+        let link_count = r.len()?;
+        if link_count > r.remaining() / 13 {
+            return Err(bad("unresolved link count exceeds remaining bytes"));
+        }
+        let mut links = Vec::with_capacity(link_count);
+        for _ in 0..link_count {
+            let mut link = read_unresolved_id(r)?;
+            normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
+            links.push(link);
+        }
+        if records
+            .insert(id.clone(), UnresolvedRecord { id, payload, links })
+            .is_some()
+        {
+            return Err(bad("duplicate unresolved record identity"));
+        }
+    }
+    world.unresolved_records = records;
+    Ok(())
 }
 
 fn write_unresolved_id(w: &mut Writer, id: &UnresolvedRecordId) {

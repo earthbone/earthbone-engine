@@ -20,7 +20,8 @@ use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
-    reaction, AnimationListener, Handle, LeveledEntry, LosListener, MenuRequest, World,
+    reaction, AnimationListener, BinkOptions, Handle, HostRequest, LeveledEntry, LosListener,
+    MenuRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -204,7 +205,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 367;
+pub const NATIVE_COUNT: usize = 373;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -475,19 +476,71 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "DamageObject",
+        |world, call, me| {
+            world.damage_object(me, call.arg(0).as_float(), alloc!(call));
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetCurrentDestructionStage",
+        |world, call, me| i(world.destruction_stage(me))
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "ClearDestruction",
+        |world, call, me| {
+            world.clear_destruction(me, alloc!(call));
+            none()
+        }
+    );
+    let waits = w.clone();
+    vm.natives.register_method(
+        "ObjectReference",
+        "WaitForAnimationEvent",
+        Box::new(move |call| {
+            let Some(source) = call
+                .self_object
+                .and_then(|object| waits.borrow().form_of(object))
+            else {
+                return b(false);
+            };
+            let event = text(&call.arg(0));
+            let latent = call.defer();
+            waits
+                .borrow_mut()
+                .wait_for_animation_event(source, &event, latent);
+            NativeReturn::Latent(latent)
+        }),
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "InterruptCast",
+        |world, _call, me| {
+            world.interrupt_spell_cast(me);
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = true;
-            }
+            world.set_reference_enabled(me, true);
             none()
         });
     }
     for name in ["Disable", "DisableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = false;
-            }
+            world.set_reference_enabled(me, false);
             none()
         });
     }
@@ -497,16 +550,35 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "IsDisabled", |world, call, me| b(
         world.reference(me).is_some_and(|r| !r.enabled)
     ));
+    method!(vm, w, "ObjectReference", "Is3DLoaded", |world, call, me| b(
+        world.is_reference_3d_loaded(me)
+    ));
     method!(vm, w, "ObjectReference", "Delete", |world, call, me| {
         if let Some(r) = world.reference(me) {
             r.deleted = true;
-            r.enabled = false;
         }
+        world.set_reference_enabled(me, false);
         none()
     });
     method!(vm, w, "ObjectReference", "IsDeleted", |world, call, me| b(
         world.reference(me).is_some_and(|r| r.deleted)
     ));
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetTriggerObjectCount",
+        |world, call, me| match world.trigger_object_count(me) {
+            Some(count) => i(count as i32),
+            None => {
+                call.log.push(
+                    call.time,
+                    "Error: GetTriggerObjectCount called on a non-trigger",
+                );
+                i(0)
+            }
+        }
+    );
     method!(
         vm,
         w,
@@ -595,6 +667,70 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(6).as_float(),
+                call.args.get(7).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Linear,
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SplineTranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(7).as_float(),
+                call.args.get(8).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Spline {
+                    tangent_magnitude: call.arg(6).as_float(),
+                },
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "StopTranslation",
+        |world, call, me| {
+            world.stop_translation(me, alloc!(call));
+            none()
+        }
+    );
     method!(vm, w, "ObjectReference", "MoveTo", |world, call, me| {
         let offset = [
             call.arg(1).as_float(),
@@ -919,6 +1055,34 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "MoveToMyEditorLocation",
         |world, call, me| b(world.move_to_editor_location(me))
     );
+    method!(vm, w, "ObjectReference", "Reset", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
+        world.reset_reference(me, target);
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TetherToHorse",
+        |world, call, me| {
+            let Some(horse) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let Some((position, rotation, cell)) = world
+                .reference(me)
+                .map(|cart| (cart.position, cart.rotation, cart.cell))
+            else {
+                return none();
+            };
+            if let Some(horse) = world.reference(horse) {
+                horse.position = position;
+                horse.rotation = rotation;
+                horse.cell = cell;
+            }
+            none()
+        }
+    );
     for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             let owner = world
@@ -977,9 +1141,70 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             }
         );
     }
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PushActorAway",
+        |world, call, me| {
+            if let Some(target) = world.form_arg(&call.arg(0)) {
+                let _ = world.push_actor_away(me, target, call.arg(1).as_float());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "KnockAreaEffect",
+        |world, call, me| {
+            let _ = world.knock_area_effect(me, call.arg(0).as_float(), call.arg(1).as_float());
+            none()
+        }
+    );
+    for (name, enabled) in [
+        ("ForceAddRagdollToWorld", true),
+        ("ForceRemoveRagdollFromWorld", false),
+    ] {
+        method!(vm, w, "ObjectReference", name, |world, _call, me| {
+            let _ = world.force_ragdoll(me, enabled);
+            none()
+        });
+    }
 }
 
 fn actor(vm: &mut Vm, w: &Shared) {
+    {
+        let w = w.clone();
+        vm.natives.register_method(
+            "Actor",
+            "ShowGiftMenu",
+            Box::new(move |call| {
+                let mut world = w.borrow_mut();
+                let Some(giver) = call.self_object.and_then(|object| world.form_of(object)) else {
+                    return i(0);
+                };
+                if world.gift_menu.is_some() {
+                    return i(0);
+                }
+                let player = world.player();
+                let giving = matches!(call.arg(0), Value::Bool(true));
+                let request = crate::world::GiftMenuRequest {
+                    latent: call.defer(),
+                    giver,
+                    source: if giving { player } else { giver },
+                    target: if giving { giver } else { player },
+                    filter: world.form_arg(&call.arg(1)),
+                    show_stolen: matches!(call.arg(2), Value::Bool(true)),
+                    use_favor_points: !matches!(call.arg(3), Value::Bool(false)),
+                    favor_points: 0,
+                };
+                world.gift_menu = Some(request.clone());
+                NativeReturn::Latent(request.latent)
+            }),
+        );
+    }
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -1054,6 +1279,32 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsDead", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.dead)));
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SetExpressionOverride",
+        |world, call, me| {
+            let mood = call.args.first().map_or(-1, Value::as_int);
+            let strength = call.args.get(1).map_or(100, Value::as_int);
+            if let Err(error) = world.set_expression_override(me, mood, strength) {
+                call.log.push(call.time, error);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "ClearExpressionOverride",
+        |world, call, me| {
+            if let Err(error) = world.clear_expression_override(me) {
+                call.log.push(call.time, error);
+            }
+            none()
+        }
+    );
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -1072,6 +1323,39 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsInCombat", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.in_combat)));
+    method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
+        i32::from(world.actor(me).is_some_and(|a| a.in_combat))
+    ));
+    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(
+        if world.actor(me).is_some_and(|a| a.ai.sleeping) {
+            3
+        } else {
+            0
+        }
+    ));
+    method!(vm, w, "Actor", "HasLOS", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = world.reference(target).and_then(|reference| {
+            (reference.enabled && !reference.deleted).then_some(reference.position)
+        });
+        b(from.zip(to).is_some_and(|(from, to)| from == to))
+    });
+    method!(vm, w, "Actor", "PathToReference", |world, call, me| {
+        let speed = call.arg(1).as_float();
+        let target = world.form_arg(&call.arg(0));
+        let from = world.reference(me).map(|reference| reference.position);
+        let to = target.and_then(|target| {
+            world.reference(target).and_then(|reference| {
+                (reference.enabled && !reference.deleted).then_some(reference.position)
+            })
+        });
+        b(speed.is_finite()
+            && (0.0..=1.0).contains(&speed)
+            && from.zip(to).is_some_and(|(from, to)| from == to))
+    });
     method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
         world.evaluate_package(me, alloc!(call));
         none()
@@ -1134,8 +1418,10 @@ fn actor(vm: &mut Vm, w: &Shared) {
     ));
     method!(vm, w, "Actor", "SetPlayerTeammate", |world, call, me| {
         let on = call.args.first().is_none_or(Value::as_bool);
+        let can_do_favors = call.args.get(1).is_none_or(Value::as_bool);
         if let Some(a) = world.actor(me) {
             a.teammate = on;
+            a.can_do_favors = can_do_favors;
         }
         none()
     });
@@ -1192,9 +1478,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         });
     }
-    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(world
-        .actor(me)
-        .is_some_and(|a| a.alerted)));
+    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsAlarmed", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsBleedingOut", |world, call, me| b(
+        world.actor_is_bleeding_out(me)
+    ));
     // StartSneaking toggles (the page's note), IsSneaking reads it.
     method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -1342,7 +1634,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let Some(spell) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        b(world.actor(me).is_some_and(|a| a.spells.contains(&spell)))
+        b(world.has_spell(me, spell))
     });
     method!(vm, w, "Actor", "EquipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
@@ -1713,9 +2005,22 @@ fn alias(vm: &mut Vm, w: &Shared) {
             .and_then(|q| q.def.alias(alias).map(|a| a.name.clone()))
             .unwrap_or_default())
     });
-    for name in ["GetReference", "GetRef", "GetActorReference", "GetActorRef"] {
+    for name in ["GetReference", "GetRef"] {
         alias_method!(vm, w, name, |world, call, quest, alias| {
-            let r = world.alias_ref(quest, alias);
+            let r = world.alias_ref(quest, alias).filter(|target| {
+                matches!(
+                    world.class_of(Handle::Form(*target)),
+                    "ObjectReference" | "Actor"
+                )
+            });
+            form_value(world, call, r)
+        });
+    }
+    for name in ["GetActorReference", "GetActorRef"] {
+        alias_method!(vm, w, name, |world, call, quest, alias| {
+            let r = world
+                .alias_ref(quest, alias)
+                .filter(|target| world.class_of(Handle::Form(*target)) == "Actor");
             form_value(world, call, r)
         });
     }
@@ -1760,15 +2065,100 @@ fn alias(vm: &mut Vm, w: &Shared) {
 }
 
 fn game(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Game", "GetCurrentCrosshairRef", |world, call| {
+        form_value(world, call, world.crosshair_reference())
+    });
+    global!(vm, w, "Game", "GetPlayerGrabbedRef", |world, call| {
+        form_value(world, call, world.grabbed_reference())
+    });
+    global!(vm, w, "Game", "QuitToMainMenu", |world, _call| {
+        world.host_requests.push(HostRequest::QuitToMainMenu);
+        none()
+    });
+    global!(vm, w, "Game", "StartTitleSequence", |world, call| {
+        world
+            .host_requests
+            .push(HostRequest::StartTitleSequence(text(&call.arg(0))));
+        none()
+    });
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "SetCameraTarget", |world, call| {
+        let target = world.form_arg(&call.arg(0));
+        if let Some(target) = target.filter(|id| {
+            world
+                .reference(*id)
+                .is_some_and(|reference| reference.is_actor)
+        }) {
+            world.camera_controls.target = Some(target);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ShowFirstPersonGeometry", |world, call| {
+        world.camera_controls.first_person_geometry = call.arg(0).as_bool();
+        none()
+    });
+    global!(vm, w, "Game", "SetSittingRotation", |world, call| {
+        world.camera_controls.sitting_rotation_degrees = call.arg(0).as_float();
+        none()
+    });
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let trainer = match call.arg(0) {
+            Value::Object(object) => world.form_of(object),
+            _ => None,
+        };
+        if let Some(trainer) = trainer {
+            world.request_training_menu(trainer);
+        }
+        none()
     });
     global!(vm, w, "Game", "AdvanceSkill", |world, call| {
         let skill = text(&call.arg(0));
         let magnitude = call.arg(1).as_float();
         let player = world.player();
-        let _ = world.advance_skill(player, &skill, magnitude);
+        if let Err(error) = world.advance_skill(player, &skill, magnitude) {
+            world.report_native_error("Game.AdvanceSkill", error.to_string());
+        }
+        none()
+    });
+    global!(vm, w, "Game", "SetHudCartMode", |world, call| {
+        world.set_hud_cart_mode(call.arg(0).as_bool());
+        none()
+    });
+    global!(vm, w, "Game", "ShowRaceMenu", |world, _call| {
+        world.show_race_menu();
+        none()
+    });
+    global!(vm, w, "Game", "TriggerScreenBlood", |world, call| {
+        world.trigger_screen_blood(call.arg(0).as_int());
+        none()
+    });
+    global!(vm, w, "Game", "PlayBink", |world, call| {
+        let file_name = text(&call.arg(0));
+        if let Err(error) = world.play_bink(
+            &file_name,
+            BinkOptions {
+                interruptible: call.arg(1).as_bool(),
+                mute_audio: call.arg(2).as_bool(),
+                mute_music: call.arg(3).as_bool(),
+                letterbox: call.arg(4).as_bool(),
+            },
+        ) {
+            world.report_native_error("Game.PlayBink", error.to_string());
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ServeTime", |world, _call| {
+        let player = world.player();
+        if let Some(faction) = world.actor(player).and_then(|actor| actor.crime_faction) {
+            let _ = world.serve_jail_time(faction);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ClearPrison", |world, _call| {
+        world.clear_prison();
         none()
     });
     for name in ["GetForm", "GetFormEx"] {
@@ -1901,6 +2291,10 @@ fn debug(vm: &mut Vm, w: &Shared) {
         world.message_boxes.push(text(&call.arg(0)));
         none()
     });
+    global!(vm, w, "Debug", "TakeScreenshot", |world, call| {
+        world.request_screenshot(text(&call.arg(0)));
+        none()
+    });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
         match world.form_arg(&call.arg(0)) {
             Some(target) => {
@@ -1909,6 +2303,28 @@ fn debug(vm: &mut Vm, w: &Shared) {
             }
             None => b(false),
         }
+    });
+    global!(vm, w, "Debug", "StartScriptProfiling", |_world, call| {
+        call.start_script_profiling(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Debug", "StopScriptProfiling", |_world, call| {
+        if let Err(error) = call.stop_script_profiling(&text(&call.arg(0))) {
+            call.log
+                .push(call.time, format!("Papyrus profile write failed: {error}"));
+        }
+        none()
+    });
+    global!(vm, w, "Debug", "StartStackProfiling", |_world, call| {
+        call.start_stack_profiling();
+        none()
+    });
+    global!(vm, w, "Debug", "StopStackProfiling", |_world, call| {
+        if let Err(error) = call.stop_stack_profiling() {
+            call.log
+                .push(call.time, format!("Papyrus profile write failed: {error}"));
+        }
+        none()
     });
 }
 
@@ -1933,6 +2349,41 @@ fn utility(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
+    vm.natives.register_global(
+        "Utility",
+        "GetBudgetCount",
+        Box::new(|_| i(ENGINE_BUDGETS.len() as i32)),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "GetBudgetName",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .map_or_else(|| s(""), |budget| s(budget.0))
+        }),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "GetCurrentBudget",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .map_or_else(|| i(0), |budget| i(budget.1))
+        }),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "OverBudget",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            b(ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .is_some_and(|budget| budget.2))
+        }),
+    );
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -1980,6 +2431,19 @@ fn utility(vm: &mut Vm, w: &Shared) {
             .map_or("", String::as_str))
     });
 }
+
+const ENGINE_BUDGETS: [(&str, i32, bool); 2] = [
+    (
+        "Papyrus instructions per slice",
+        crate::PAPYRUS_INSTRUCTIONS_PER_SLICE as i32,
+        false,
+    ),
+    (
+        "Exterior cell loads per update",
+        crate::EXTERIOR_CELL_LOADS_PER_UPDATE as i32,
+        false,
+    ),
+];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "GlobalVariable", "GetValue", |world, call, me| f(
@@ -2878,6 +3342,19 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
+    // The Hover package owns the only flight state implemented by the driver.
+    method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
+        i32::from(
+            world
+                .actor(me)
+                .is_some_and(|actor| actor.ai.procedure == crate::ai::Procedure::Hover)
+        ) * 3
+    ));
+    method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(
+            |actor| actor.ai.procedure == crate::ai::Procedure::Hover
+        )));
     // "Can this actor fly here?" Allowed to fly, and out under the sky.
     method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
         if !world.actor(me).is_some_and(|a| a.allow_flying) {
@@ -3276,21 +3753,23 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let mut n = 0;
-    let shared = world.clone();
-    vm.natives.register_global(
-        "Game",
-        "ShowRaceMenu",
-        Box::new(move |_| {
-            shared.borrow_mut().menu_requests.push(MenuRequest::Race);
-            none()
-        }),
-    );
-    n += 1;
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = world.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+        n += 1;
+    }
     let bools: &[(&str, &str, bool)] = &[
-        ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
-        ("Actor", "IsAlarmed", false),
-        ("Actor", "IsBleedingOut", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
@@ -3299,16 +3778,13 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
-        ("Actor", "HasLOS", true),
-        ("Actor", "PathToReference", true),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Flight and ragdoll execution are not implemented.
-        ("Actor", "IsFlying", false),
+        // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -3325,12 +3801,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let ints: &[(&str, &str, i32)] = &[
-        ("ObjectReference", "GetTriggerObjectCount", 0),
-        ("ObjectReference", "GetCurrentDestructionStage", 0),
-        ("Actor", "GetCombatState", 0),
-        ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
-        ("Actor", "GetFlyingState", 0),
         ("Location", "GetRefTypeAliveCount", 0),
         ("Location", "GetRefTypeDeadCount", 0),
     ];
@@ -3351,18 +3822,11 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("ObjectReference", "ClearDestruction"),
-        ("ObjectReference", "DamageObject"),
-        ("ObjectReference", "KnockAreaEffect"),
-        ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
         ("Actor", "SetHeadTracking"),
-        ("Actor", "SetExpressionOverride"),
-        ("Actor", "ClearExpressionOverride"),
-        ("Actor", "ShowGiftMenu"),
         ("Actor", "ShowBarterMenu"),
         ("Actor", "OpenInventory"),
         ("Actor", "SendTrespassAlarm"),
@@ -3378,8 +3842,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        ("ObjectReference", "WaitForAnimationEvent"),
-        ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
@@ -3390,12 +3852,8 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
         ("Actor", "StartVampireFeed"),
-        // The arrow 3d, the ragdoll and the cart tether are renderer and
-        // physics work, the DLC scripts only ask for them.
+        // The arrow 3d is renderer work, the DLC scripts only ask for it.
         ("Actor", "ClearExtraArrows"),
-        ("ObjectReference", "ForceAddRagdollToWorld"),
-        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
-        ("ObjectReference", "TetherToHorse"),
         // The effect, music and particle systems are not implemented yet.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
@@ -3408,10 +3866,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
         ("Actor", "DoCombatSpellApply"),
-        ("ObjectReference", "TranslateTo"),
-        ("ObjectReference", "SplineTranslateTo"),
-        ("ObjectReference", "StopTranslation"),
-        ("ObjectReference", "Reset"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),
@@ -3442,11 +3896,9 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     }
     let globals_none: &[(&str, &str)] = &[
         ("Game", "ShakeCamera"),
-        // Werewolf crime, jail time and sun gazing are crime and weather
-        // systems the engine has not written yet.
+        // Werewolf crime and sun gazing are crime and weather systems not
+        // implemented by the runtime yet.
         ("Game", "SendWereWolfTransformation"),
-        ("Game", "ServeTime"),
-        ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
@@ -3455,19 +3907,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "RequestAutoSave"),
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
-        ("Game", "SetHudCartMode"),
-        ("Game", "TriggerScreenBlood"),
-        ("Game", "PlayBink"),
-        ("Game", "PrecacheCharGen"),
-        ("Game", "PrecacheCharGenClear"),
-        ("Game", "ShowTrainingMenu"),
-        ("Game", "ShowFirstPersonGeometry"),
-        ("Game", "SetCameraTarget"),
-        ("Game", "QuitToMainMenu"),
-        ("Game", "SetSittingRotation"),
-        ("Game", "StartTitleSequence"),
-        ("Game", "GetCurrentCrosshairRef"),
-        ("Game", "GetPlayerGrabbedRef"),
         ("Game", "FindClosestActor"),
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),
@@ -3482,11 +3921,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Debug", "ToggleCollisions"),
         ("Debug", "DumpAliasData"),
         ("Debug", "DebugChannelNotify"),
-        ("Debug", "StartScriptProfiling"),
-        ("Debug", "StopScriptProfiling"),
-        ("Debug", "StartStackProfiling"),
-        ("Debug", "StopStackProfiling"),
-        ("Debug", "TakeScreenshot"),
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
         ("Debug", "PlayerMoveToAndWait"),
@@ -3498,10 +3932,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Utility", "GetMinFrameRate"),
         ("Utility", "GetMaxFrameRate"),
         ("Utility", "GetCurrentMemory"),
-        ("Utility", "GetBudgetCount"),
-        ("Utility", "GetBudgetName"),
-        ("Utility", "GetCurrentBudget"),
-        ("Utility", "OverBudget"),
     ];
     for (class, name) in globals_none {
         vm.natives
@@ -3529,6 +3959,35 @@ mod tests {
         assert_eq!(r.natives - r.stubs, NATIVE_COUNT);
         assert!(vm.natives.has_method("quest", "setstage"));
         assert!(vm.natives.has_global("game", "getplayer"));
+        assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
+        assert!(vm.natives.has_global("game", "getplayergrabbedref"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+    }
+
+    #[test]
+    fn hst_18_world_exposes_current_crosshair_and_grabbed_references() {
+        let mut world = World::new(LoadOrder::new());
+        let crosshair = GlobalFormId {
+            file: 1,
+            object: 0x123,
+        };
+        let grabbed = GlobalFormId {
+            file: 2,
+            object: 0x456,
+        };
+        world.set_crosshair_reference(Some(crosshair));
+        world.set_grabbed_reference(Some(grabbed));
+        assert_eq!(world.crosshair_reference(), Some(crosshair));
+        assert_eq!(world.grabbed_reference(), Some(grabbed));
+        world.set_crosshair_reference(None);
+        world.set_grabbed_reference(None);
+        assert_eq!(world.crosshair_reference(), None);
+        assert_eq!(world.grabbed_reference(), None);
+
+        let mut vm = Vm::new();
+        let shared = Rc::new(RefCell::new(world));
+        register(&mut vm, &shared);
+        assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
+        assert!(vm.natives.has_global("game", "getplayergrabbedref"));
     }
 }

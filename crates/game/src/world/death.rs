@@ -100,6 +100,7 @@ impl World {
         killer: Option<GlobalFormId>,
         silent: bool,
     ) -> bool {
+        let base = self.base_of(id);
         let Some(actor) = self.actor(id) else {
             return false;
         };
@@ -114,6 +115,11 @@ impl World {
         actor.killer = killer;
         actor.in_combat = false;
         actor.combat_target = None;
+        if let Some(base) = base {
+            if let Some(state) = self.actor_base(base) {
+                state.dead_count = state.dead_count.saturating_add(1);
+            }
+        }
         if !silent {
             let recipients = self.actor_event_recipients(id);
             self.pending.push(Pending::ActorDeath {

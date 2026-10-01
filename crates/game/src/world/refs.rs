@@ -56,6 +56,7 @@ impl World {
             b"REFR" => {
                 let r = Refr::from_record(rec).ok()?;
                 let mut st = RefState::new(Some(self.order.resolve(file, r.base)));
+                st.opened = rec.find(T(b"ONAM")).is_some();
                 if let Some(t) = r.transform {
                     st.position = t.position;
                     st.rotation = t.rotation;
@@ -435,6 +436,10 @@ impl World {
         id
     }
 
+    pub(crate) fn is_player_reference(&self, id: GlobalFormId) -> bool {
+        self.player == Some(id)
+    }
+
     pub fn player(&mut self) -> GlobalFormId {
         if let Some(player) = self.player {
             return player;
@@ -556,6 +561,33 @@ impl World {
         }
     }
 
+    /// Reset a reference to its winning record state and base inventory.
+    /// An optional loaded target supplies the destination position and cell.
+    /// Actor faction and relationship state lives outside `RefState` and is
+    /// retained, while actors are resurrected.
+    pub fn reset_reference(&mut self, id: GlobalFormId, target: Option<GlobalFormId>) -> bool {
+        let Some(mut fresh) = self.load_ref(id) else {
+            return false;
+        };
+        let destination = if fresh.cell.is_some_and(|cell| self.cell_is_resident(cell)) {
+            target
+                .and_then(|target| self.reference(target))
+                .map(|target| (target.position, target.cell))
+        } else {
+            None
+        };
+        if let Some((position, cell)) = destination {
+            fresh.position = position;
+            fresh.cell = cell;
+        }
+        let is_actor = fresh.is_actor;
+        self.refs.insert(id, fresh);
+        if is_actor {
+            let _ = self.resurrect_actor(id);
+        }
+        true
+    }
+
     pub fn distance(&mut self, a: GlobalFormId, b: GlobalFormId) -> f32 {
         let (Some(pa), Some(pb)) = (
             self.reference(a).map(|r| r.position),
@@ -592,6 +624,9 @@ impl World {
         defer_unload: bool,
         alloc: Alloc<'_>,
     ) -> bool {
+        if self.is_ethereal(activator) {
+            return false;
+        }
         let Some((blocked, base, teleport)) = self
             .reference(target)
             .map(|r| (r.activation_blocked, r.base, r.teleport))

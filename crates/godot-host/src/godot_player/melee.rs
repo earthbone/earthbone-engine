@@ -283,7 +283,15 @@ impl PlayerNode {
         let actors = shared.contact_actors();
         let living: Vec<_> = actors
             .into_iter()
-            .filter(|actor| shared.actor(actor.actor).is_none_or(|state| !state.dead))
+            .filter(|actor| {
+                shared.actor(actor.actor).is_none_or(|state| {
+                    !crate::ragdoll::actor_uses_ragdoll(
+                        state.dead,
+                        state.unconscious,
+                        state.ragdoll_forced,
+                    )
+                })
+            })
             .collect();
         self.actor_bodies.sync(space, &living);
         true
@@ -366,9 +374,9 @@ impl PlayerNode {
         if !space.is_valid() {
             return None;
         }
-        Some(crate::godot_physics::add_statics(
+        Some(crate::godot_physics::add_placed_query_statics(
             space,
-            &collision.colliders,
+            &collision.placed,
         ))
     }
 }

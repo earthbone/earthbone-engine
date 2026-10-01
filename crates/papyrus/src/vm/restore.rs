@@ -125,6 +125,7 @@ impl Vm {
                 }
                 frames.push(Frame {
                     coverage_recorded: false,
+                    profile_recorded: false,
                     instance: Some(instance),
                     self_object: Some(saved_frame.object),
                     script: Some(script),

@@ -55,17 +55,24 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   nif.xml for stream 20.2.0.7 at Bethesda version 83 and 100, cross-read
   against OpenMW's `physics.cpp`. Fallout 4 (130) is refused as
   `Unsupported`. Covered: `bhkCollisionObject` and its P, SP and Blend
-  variants, `bhkRigidBody`, `bhkRigidBodyT`, `bhkSimpleShapePhantom`, box, sphere, capsule,
+  variants, `bhkRigidBody`, `bhkRigidBodyT`, `bhkSimpleShapePhantom`, box, sphere, capsule, cylinder,
   convex vertices, `bhkTransformShape` and `bhkConvexTransformShape`,
   `bhkListShape`, `bhkMoppBvTreeShape` (the MOPP tree itself is Havok's
   closed code and is skipped, the wrapped shape is used),
   `bhkCompressedMeshShape` and its data with chunks, strips, big
-  triangles and per chunk transforms. Everything else comes back as
+  triangles and per chunk transforms, and `bhkNiTriStripsShape` with its
+  referenced `NiTriStripsData` geometry. Everything else comes back as
   `Bhk::Other(name)`.
 - `shape`: walks the scene graph the way `soe_nif::mesh` does, resolves
   each collision object to a `Collider` with a world `Iso` transform and a
   `Shape` (box, sphere, capsule, convex hull, triangle mesh, compound),
   converted from Havok metres to game units at 69.99125 units per metre.
+  The shell radius on `bhkBoxShape` expands each half extent. On
+  `bhkConvexVerticesShape`, the converter samples 26 axis and diagonal
+  support directions to approximate the rounded shell. Axis bounds retain
+  the authored radius, so the common 0.05 metre radius
+  adds 3.49956 game units to the surface. Non-finite and negative convex
+  radii are rejected during block decoding.
   A `bhkRigidBodyT`'s own translation and rotation are applied, a plain
   `bhkRigidBody`'s are ignored, as the game does.
 - `hull`: faces of a convex point set, brute force, for the convex
@@ -77,8 +84,8 @@ moves on. The `controller` item of round 6 is what will use the last of those.
 `export::export_collision_mesh` applies the `_collision` name suffix
 convention to imported geometry. An unmarked mesh is ignored. A marked mesh
 with 4 to 1024 finite positions becomes a static `bhkRigidBodyT` carrying a
-`bhkConvexVerticesShape` with the original point set. Source positions are
-Skyrim game units, and the shape encoder divides them by
+`bhkConvexVerticesShape` with the original point set and zero shell radius.
+Source positions are Skyrim game units, and the shape encoder divides them by
 `UNITS_PER_METER`. `shape::collect` converts them back when reading the block
 graph. The generated block graph is a standalone `NifFile` model with local
 references. A complete NIF byte writer is not part of this API.
@@ -105,6 +112,102 @@ against the archives.
   zero is what Havok treats as immovable. `Collider::is_static` therefore
   tests mass first and the motion type second.
 
+### `bhkNiTriStripsShape` collision meshes (FMT-09)
+
+The decoder reads the material, radius, grow-by value, versioned XYZ scale,
+strip-data references and one Havok filter per reference. It rejects invalid
+radii, non-finite scales and mismatched filter counts. The referenced blocks
+must be `NiTriStripsData`, represented by `soe-nif` as `GeometryData` with
+triangle strips already unrolled. Their vertices are scaled, their triangles
+are appended with adjusted indices, and each triangle inherits the shape's
+Havok material. A missing or wrong-type geometry reference is reported in
+`Collected::skipped`. The resulting `TriangleMesh` is the triangle input used
+by the host's concave shape path.
+
+The layout and scale version gate follow `engine-refs/nifxml/nif.xml` for
+`bhkNiTriStripsShape`. OpenMW's `components/nif/physics.cpp` cross-checks the
+field order and filter list. The NIF reader applies alternating triangle
+winding and drops degenerate triangles. Jolt's `MeshShape` accepts triangle
+geometry, which matches the neutral triangle-mesh representation. This
+decoder does not add a separate Jolt dependency. The synthetic
+`fmt_09_strips_fixture_preserves_collision_triangles_and_winding` test checks
+the output triangles, material and scale.
+
+### Convex shell radius on boxes and hulls (FMT-10)
+
+`bhkConvexShape` supplies the shell radius used to form the collision surface.
+The converter adds this radius to each box half extent and samples 26
+normalized axis and diagonal support offsets on convex hull vertices. The
+sampled hull keeps the exact authored offset on axis bounds and approximates
+the rounded edges and corners. At 69.99125 game units per metre, the common
+0.05 metre radius adds 3.49956 units. Synthetic checks verify that boxes and
+hulls reach that surface and that non-finite or negative radii fail decoding.
+
+The field layout and shell meaning come from `engine-refs/nifxml/nif.xml`,
+which defines the convex radius as a thin shell and the convex vertex normals
+as outward half spaces. The local Jolt `BoxShape.h` and `ConvexHullShape.h`
+explain that their input size includes convex radius, which they subtract
+internally to retain the total outer size. This crate keeps its current
+renderer-neutral `Shape` API and converts the NIF core directly to its outer
+surface, rather than adding a Jolt dependency.
+
+### `bhkCylinderShape` collision geometry (FMT-20)
+
+The decoder reads the convex material and shell radius, the two Vector4 axis
+endpoints, and the cylinder radius from `bhkCylinderShape`. It rejects
+non-finite endpoints or radii, a non-positive cylinder radius, a zero-length
+axis and an outer radius that overflows. Shape collection adds the convex shell
+radius to the cylinder radius and samples 32 points around each endpoint to
+produce a convex hull in game units. The sample points retain the endpoint
+planes and outer radius while fitting the existing neutral shape model used by
+both physics paths.
+
+The field order and the shell field come from
+`engine-refs/nifxml/nif.xml`. Jolt's local `CylinderShape.h` and
+`CylinderShape.cpp` describe a centered cylinder with two half-height ends and
+a separately specified convex radius. The neutral `Shape` API has no
+finite-cylinder variant, so this crate samples the end circles into the
+existing `ConvexHull` variant rather than adding a Jolt-specific shape or
+dependency. `fmt_20_cylinder_fixture_preserves_endpoints_and_radius` checks
+both endpoint planes and the outer radial extent.
+
+### `bhkPlaneShape` collision geometry (FMT-21)
+
+The decoder reads the Havok material, plane normal and distance, and the AABB
+half extents and center. It rejects non-finite plane values, a zero normal, and
+negative half extents. Shape collection normalizes the plane normal, intersects
+the plane with the authored AABB, triangulates the bounded polygon, and applies
+the material. Its vertices and plane distance therefore convert from Havok
+metres to game units at 69.99125 units per metre. Planes that do not cut the
+AABB produce no shape.
+
+The field order and distance meaning come from
+`engine-refs/nifxml/nif.xml`'s `bhkPlaneShape`. Havok's local
+`hkpPlaneShape.h` confirms that the AABB bounds broad-phase work and plane
+edges do not collide. Jolt's local `PlaneShape.h` describes an infinite plane,
+so collection uses the bounded triangle mesh representation already supported
+by both physics paths. `fmt_21_plane_fixture_preserves_normal_and_distance_after_unit_conversion`
+checks the decoded fields and converted surface. The decoder test checks
+truncation and invalid values.
+
+### Limited hinge constraint data (FMT-23)
+
+The block decoder supports the Skyrim SE `bhkLimitedHingeConstraint` layout.
+It retains both rigid-body block references, priority, each body's full
+four-component axis frame and pivot, the minimum and maximum angles in radians,
+maximum friction, and the motor type with its serialized payload. Entity counts
+other than two, unsupported motor types, truncated fields, non-finite values,
+negative friction and reversed limits are rejected. Other constraint block
+types remain opaque.
+
+The field order and body count follow `engine-refs/nifxml/nif.xml` and the
+matching descriptors in `TES5Edit/Core/wbDataFormatNif.pas`. Jolt's local
+`HingeConstraint.h` uses two body frames and a min/max angular limit, matching
+the decoded data model. The decoder does not create or simulate a Jolt
+constraint. `fmt_23_limited_hinge_retains_body_links_frames_and_limits` checks
+all retained fields, while the companion rejection test covers malformed
+counts, limits and truncated payloads.
+
 ## SimpleWorld
 
 Statics are flattened to world-space primitives on insert: triangles
@@ -115,8 +218,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. The fall per step is capped at
-one radius so a thin floor cannot be tunnelled. Rays test triangles,
+`on_ground` and cancel downward velocity. Downward snapping accepts only the
+current probe step, so a larger drop continues as a fall across ticks instead
+of moving the character to the lower floor at once. The fall per step is
+capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,
 triggers, non collidable, char controller, zones) are skipped by the
@@ -269,10 +374,8 @@ code change was needed.
 - Rigid bodies, constraints and ragdolls in the headless world. Godot's side
   has them through Jolt already, `SimpleWorld` has statics, one capsule and
   rays, which is what the simulation needs so far.
-- The convex shell radius (0.05 m on most shapes) is not added to boxes
-  and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
-- `bhkNiTriStripsShape`, `bhkCylinderShape`, `bhkPlaneShape`, phantoms,
-  constraints (hinge and ragdoll data are parsed as `Other`).
+- AABB and caching phantoms are not decoded. Limited hinge fields are decoded,
+  but constraints and ragdolls are not simulated by `SimpleWorld`.
 - Keyframed and animated statics (doors, drawbridges) are loaded at their
   rest pose only.
 - Skyrim LE files are decoded by the same layouts but were not run
@@ -444,18 +547,29 @@ routes and render-camera interpolation are covered in `docs/godot-host.md`.
 ## Authored actor controller geometry, CMB-29
 
 `bhkSimpleShapePhantom` decodes the published shape reference, Havok filter
-(layer, flags and group), and matrix. `shape::collect` retains controller-layer
-phantoms in `Collected::phantoms`, separate from static rigid bodies. Each
-entry carries its node, material-bearing shape tree and root-space transform.
-Lengths are converted from Havok metres to game units once. Capsule endpoints
-are cap centres, so total axial extent includes two radii.
+(layer, flags and group), and matrix. `shape::collect` retains these phantoms
+in `Collected::phantoms`, separate from static rigid bodies. Each entry carries
+its node, material-bearing shape tree and root-space transform. Lengths are
+converted from Havok metres to game units once. Capsule endpoints are cap
+centres, so total axial extent includes two radii. Trigger and other non-
+controller layers keep their volume and filter data but are not static
+colliders. The controller-shape helpers consider only `CHAR_CONTROLLER`
+phantoms.
 
 The layout comes from local `nifxml/nif.xml` (`bhkWorldObject` and
 `bhkSimpleShapePhantom`) and `nifly/src/bhk.cpp`. The reader reuses the existing
-shape-tree decoder and matrix conversion. Non-controller phantoms retain the
-previous skipped behavior. Truncation, non-finite geometry, invalid capsule
-radii, singular transforms and incomplete controller shape trees reject.
-No phantom is automatically installed as a static body.
+shape-tree decoder and matrix conversion. Truncation, non-finite geometry,
+invalid capsule radii, singular transforms and incomplete phantom shape trees
+reject. Nif.xml describes phantoms as non-physical objects that report overlap
+transitions. This decoder preserves their data only. No phantom is
+automatically installed as a static body or treated as a solid contact body.
+
+`fmt_22_named_trigger_phantom_keeps_volume_and_filter_without_solid_body` in
+`crates/physics/tests/synthetic.rs` builds a named trigger phantom from the
+published layout. It checks the volume, transform and filter fields, and that
+the controller resolver does not use it as an actor controller. Jolt's sensor
+API likewise separates overlap notifications from collision response, but
+this decoder does not create a Jolt sensor.
 
 The source choice was corrected using the published
 [Dynamic Collision Adjustment implementation](https://github.com/ersh1/DynamicCollisionAdjustment/blob/main/src/AdjustmentHandler.cpp)
@@ -522,6 +636,16 @@ NPC or RACE records itself, keeping `soe_physics` free of game-state
 dependencies as the crate split in the module doc above requires. A
 non-finite or non-positive scale falls back to 1.0 inside
 `generated_controller_shape` rather than producing degenerate geometry.
+
+### Scripted ragdoll impulses, CMB-38
+
+`World` queues scripted actor impulses for the host. The Godot host forwards
+each queued Skyrim-space vector to the first body in the actor's authored
+ragdoll, converted to Godot axes and metres, through
+`PhysicsServer3D.body_apply_central_impulse`. This path uses Godot's server and
+Jolt. `SimpleWorld` remains a headless static and character-controller solver
+and does not simulate ragdolls. The CK pages do not define impulse units or
+the area effect falloff. The game's linear area attenuation is an approximation.
 
 `godot_host::DataSource::actor_controller_shape` is the only caller, and it
 has no caller of its own yet. CMB-28, host body installation, has not
