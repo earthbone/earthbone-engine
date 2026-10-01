@@ -123,8 +123,9 @@ fn sav_49_external_corpus_accounts_for_woop_and_mgef_payloads() {
         return;
     }
     assert!(
-        paths.len() >= 50,
-        "SAV-49 requires the full external corpus"
+        paths.len() >= 60,
+        "SAV-49 requires all 60 external saves, found {}",
+        paths.len()
     );
     let mut variants = BTreeMap::new();
     let mut payload_bytes = 0_usize;
