@@ -205,7 +205,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 374;
+pub const NATIVE_COUNT: usize = 379;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2410,6 +2410,45 @@ fn debug(vm: &mut Vm, w: &Shared) {
         world.request_screenshot(text(&call.arg(0)));
         none()
     });
+    global!(vm, w, "Debug", "SetGodMode", |world, call| {
+        world.debug_god_mode = call.arg(0).as_bool();
+        none()
+    });
+    global!(vm, w, "Debug", "ToggleAI", |world, _call| {
+        world.debug_ai_enabled = !world.debug_ai_enabled;
+        none()
+    });
+    global!(vm, w, "Debug", "ToggleCollisions", |world, _call| {
+        world.debug_collisions_enabled = !world.debug_collisions_enabled;
+        none()
+    });
+    global!(vm, w, "Debug", "DumpAliasData", |world, call| {
+        let Some(quest) = world.form_arg(&call.arg(0)) else {
+            call.log
+                .push(call.time, "Debug.DumpAliasData: argument is not a quest");
+            return none();
+        };
+        let Some(state) = world.quest_state(quest) else {
+            call.log
+                .push(call.time, "Debug.DumpAliasData: quest has no runtime state");
+            return none();
+        };
+        let mut aliases: Vec<_> = state.aliases.iter().collect();
+        aliases.sort_by_key(|(id, _)| **id);
+        for (id, reference) in aliases {
+            let fill = (*reference).map_or_else(|| "empty".to_string(), |form| form.to_string());
+            call.log
+                .push(call.time, format!("Debug.DumpAliasData: {id} {fill}"));
+        }
+        none()
+    });
+    global!(vm, w, "Debug", "DebugChannelNotify", |_world, call| {
+        call.log.push(
+            call.time,
+            format!("[{}] {}", text(&call.arg(0)), text(&call.arg(1))),
+        );
+        none()
+    });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
         match world.form_arg(&call.arg(0)) {
             Some(target) => {
@@ -4130,6 +4169,11 @@ mod tests {
         assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
         assert!(vm.natives.has_global("game", "getplayergrabbedref"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+        assert!(vm.natives.has_global("debug", "setgodmode"));
+        assert!(vm.natives.has_global("debug", "toggleai"));
+        assert!(vm.natives.has_global("debug", "togglecollisions"));
+        assert!(vm.natives.has_global("debug", "dumpaliasdata"));
+        assert!(vm.natives.has_global("debug", "debugchannelnotify"));
     }
 
     #[test]

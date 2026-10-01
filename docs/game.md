@@ -262,6 +262,19 @@ transient profiler. Stop calls write Chrome trace JSON profile files, with
 per-function VM instruction time and call counts, under the configured profile
 directory. A failed file write is added to the Papyrus log.
 
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
+`Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
+package driver while it is false. `Debug.ToggleCollisions` flips
+`World::debug_collisions_enabled`; the host collision path does not read this
+flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
+or `empty`, and logs a diagnostic when its argument is not a quest or has no
+runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments
+as `[channel] message`. The CK `Debug` class page documents these global
+functions. The local Skyrim Platform function catalog supplies the two-string
+signature for `DebugChannelNotify`, which is absent from that CK page.
+God-mode damage immunity and host collision switching are not implemented by
+these runtime flags.
+
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
@@ -538,7 +551,7 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 374 stateful registrations and 177 quiet stubs,
+`natives::register` has 379 stateful registrations and 172 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
 `Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
 `IsBleedingOut` requires an actor to be unconscious, alive and at or below its
@@ -558,7 +571,7 @@ owning system has no behavior yet.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
-| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait | SetGodMode and 14 more |
+| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify | SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |

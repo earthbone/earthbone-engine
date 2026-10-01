@@ -722,6 +722,10 @@ pub struct World {
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
+    /// Runtime switches changed by the Papyrus `Debug` globals.
+    pub debug_god_mode: bool,
+    pub debug_ai_enabled: bool,
+    pub debug_collisions_enabled: bool,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -918,6 +922,9 @@ impl World {
             debug_host_requests: Vec::new(),
             player_controls: true,
             camera_controls: CameraControls::default(),
+            debug_god_mode: false,
+            debug_ai_enabled: true,
+            debug_collisions_enabled: true,
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),
