@@ -4393,7 +4393,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
         ("Cell", "IsAttached", true),
-        ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
