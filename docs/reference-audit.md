@@ -19,6 +19,53 @@ LOD and TRI morph data.
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
 
+## SCR-57 Debug and EffectShader contracts
+
+The inventory below follows registrations in `game/src/natives.rs`, including
+quiet stubs. `Debug_Script.wikitext` provides the class-level Papyrus
+signatures and summaries. The CK corpus has an individual page only for
+`CenterOnCell`, which specifies its `None` return and warns that it can freeze
+the application. Individual CK pages for the other registered names are not
+present locally. `skse64/scripts/vanilla/EffectShader.psc` supplies the two
+EffectShader signatures and the optional duration default because there is no
+EffectShader CK page in the corpus.
+
+| Registry binding | CK or PSC contract | Current behavior and resolution |
+|---|---|---|
+| `Debug.Trace` global | String, Int severity, no result. Write to Papyrus log and debug text page. | Logs the stringified first argument. SCR-07 covers form-id conversion. Severity and debug text page output have no owning open backlog row. |
+| `Debug.TraceUser` global | String log name, String text, Int severity, Bool result. Write to named user log and debug text page. | Writes to Papyrus log and returns `None`. User log behavior and Bool result belong with SCR-20's user-log system. |
+| `Debug.TraceConditional` global | String, Bool condition, no result. Log only when true. | Logs only when true. Matches the documented condition and result. |
+| `Debug.TraceStack` global | String, Int severity, no result. Write message and full call stack. | Logs the stringified message without a call stack. Native calls do not expose stack frames yet, and no open backlog row owns this gap. |
+| `Debug.Notification` global | String, no result. Display an in-game notification. | Adds the text to `World::notifications`; the host display path is separate. Matches the runtime queue contract. |
+| `Debug.MessageBox` global | String, no result. Display an OK message box. | Adds the text to `World::message_boxes`; the host display path is separate. Matches the runtime queue contract. |
+| `Debug.SendAnimationEvent` global | ObjectReference, String, no result. Send the event to the reference. | Queues the event when its target resolves and returns `None`, matching the Papyrus result shape. |
+| `Debug.OpenUserLog` global | String, Bool result. Open a user log and fail if already open. | Returns `true` without creating a log. SCR-20 owns user-log behavior. |
+| `Debug.QuitGame` global | No arguments or result. Quit the game. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCell` global | String cell name, no result. Teleport the player. The individual CK page warns it can freeze. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCellAndWait` global | String cell name, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-20 owns the debug host action. |
+| `Debug.CloseUserLog` global | String log name, no result. Close the named log. | Quiet stub. SCR-20 owns user-log behavior. |
+| `Debug.DumpAliasData` global | Quest, no result. Dump alias fill information. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.DebugChannelNotify` global | No local CK contract found. | Quiet stub. SCR-21 owns this registry-only debug binding until a local contract is established. |
+| `Debug.SetGodMode` global | Bool, no result. Set god mode. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleAI` global | No arguments or result. Toggle AI. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleCollisions` global | No arguments or result. Toggle collision. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.StartScriptProfiling` global | String script name, no result. Start script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopScriptProfiling` global | String script name, no result. Stop script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StartStackProfiling` global | No arguments or result. Start profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopStackProfiling` global | No arguments or result. Stop profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.TakeScreenshot` global | No arguments or result. Take a screenshot. | Quiet stub. SCR-22 owns the debug host action. |
+| `Debug.SetFootIK` global | Bool, no result. Enable or disable foot IK. | Quiet stub. SCR-23 owns the host animation control. |
+| `Debug.ShowRefPosition` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `Debug.PlayerMoveToAndWait` global | String destination reference, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-23 owns the debug host action. |
+| `Debug.MoveToCell` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `EffectShader.Play` method | PSC: ObjectReference and optional Float duration defaulting to -1 seconds. Negative duration means infinite. | Quiet stub. SCR-24 owns Papyrus behavior; MAG-14 owns host shader lifetime and rendering. |
+| `EffectShader.Stop` method | PSC: ObjectReference. Stop the shader on that target. | Quiet stub. SCR-24 owns Papyrus behavior; MAG-14 owns host shader lifetime and rendering. |
+
+`scr_57_registry_contains_every_audited_binding` checks the 26 Debug globals
+and two EffectShader methods against the actual native registry. The audit
+does not claim that queued notifications or message boxes are drawn by a host,
+that debug-only host controls execute, or that effect shaders render.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares

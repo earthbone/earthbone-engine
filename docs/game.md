@@ -284,6 +284,9 @@ and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
+Its SCR-57 section compares all 26 registered Debug globals and both
+EffectShader methods with the local CK and PSC contracts, including quiet
+stubs and the host behavior they still require.
 
 **Game presentation natives, SCR-29.** `Game.SetHudCartMode` updates the
 transient `World::hud_cart_mode` flag. `ShowRaceMenu`, `TriggerScreenBlood`
