@@ -318,6 +318,16 @@ pub(super) fn orbit_parameters(
     Some((owner, location, *inner, *outer, *height))
 }
 
+pub(super) fn force_greet_without_inputs(world: &World, ai: &AiState) -> bool {
+    let Some(tree) = ai.package.and_then(|id| Tree::load(world, id)) else {
+        return false;
+    };
+    ai.tree
+        .as_ref()
+        .and_then(|cursor| tree.branches.get(cursor.branch as usize))
+        .is_some_and(|branch| branch.inputs.is_empty())
+}
+
 pub(super) fn force_greet_parameters(
     world: &World,
     ai: &AiState,

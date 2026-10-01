@@ -20,6 +20,10 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn fixture(force_greet_topic: bool) -> Game {
+    fixture_with_inputs(force_greet_topic, &[])
+}
+
+fn fixture_with_inputs(force_greet_topic: bool, inputs: &[u8]) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(T(b"NPC_"), 7)
@@ -44,7 +48,12 @@ fn fixture(force_greet_topic: bool) -> Game {
         package::build_template(TEMPLATE, "ForceGreet"),
         None,
     ));
-    plugin.push_top(package::with_procedure(template, "ForceGreet", &[], true));
+    plugin.push_top(package::with_procedure(
+        template,
+        "ForceGreet",
+        inputs,
+        true,
+    ));
     let package = package::build_record(PACK, "GreetPlayer", 0, Schedule::default());
     plugin.push_top(package::finish(package::close_header(
         package,
@@ -165,4 +174,16 @@ fn dlg_14_force_greet_package_rejects_an_ineligible_topic() {
     let actor = world.actor(id(ACTOR)).unwrap();
     assert_eq!(actor.ai.procedure, Procedure::ForceGreet);
     assert!(!actor.ai.completed.contains_key(&id(PACK)));
+}
+
+#[test]
+fn dlg_14_force_greet_missing_bound_inputs_remain_unsupported() {
+    let mut game = fixture_with_inputs(false, &[0, 1]);
+    game.tick(0.016);
+
+    assert!(game.world().dialogue_session().is_none());
+    assert_eq!(
+        game.world_mut().actor(id(ACTOR)).unwrap().ai.procedure,
+        Procedure::Unsupported("ForceGreet inputs".into())
+    );
 }

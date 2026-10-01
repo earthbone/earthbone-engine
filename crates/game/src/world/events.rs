@@ -3,7 +3,7 @@
 //! Events natives raise for registered listeners: tracked stats, sleep,
 //! animation events, line of sight, scenes and sound instances. Each one
 //! queues into `pending` for the VM to deliver. SCEN action fields follow
-//! xEdit `wbRecord(SCEN)` and the UESP SCEN layout; the local CK scene index is
+//! xEdit `wbRecord(SCEN)` and the UESP SCEN layout. The local CK scene index is
 //! in `Papyrus_Introduction.wikitext`.
 
 use soe_esm::records::gameplay::{Scene, SceneActionData};

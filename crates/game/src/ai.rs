@@ -1244,7 +1244,7 @@ fn begin_procedure(
                 } else {
                     ai.procedure = Procedure::Unsupported("ForceGreet target".into());
                 }
-            } else {
+            } else if !tree::force_greet_without_inputs(world, ai) {
                 ai.procedure = Procedure::Unsupported("ForceGreet inputs".into());
             }
         }
@@ -2574,6 +2574,9 @@ fn approach_assigned_target(
     position: [f32; 3],
 ) {
     if ai.force_greet_started || ai.activate_started || ai.dialogue_activate_started {
+        return;
+    }
+    if ai.procedure == Procedure::ForceGreet && tree::force_greet_without_inputs(world, ai) {
         return;
     }
     let target_data = match ai.procedure {

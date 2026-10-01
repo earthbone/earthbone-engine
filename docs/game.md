@@ -1023,13 +1023,15 @@ branch carrying that flag. `Success Completes Package` stops the whole tree,
 including enclosing repeats. Once Per Day is recorded after the tree finishes,
 not at every Travel arrival. Conditions are checked when entering each branch.
 Unsupported group types hold with an explicit `Procedure::Unsupported` value.
-`ForceGreet` is retained as an active package procedure. The actor follows the
-package driver's navmesh path toward the player while no greeting conversation
-is open. When the actor is within the dialogue distance and has an eligible
-Player-category ForceGreet topic, the ordinary dialogue selector opens it.
-Closing that conversation completes the active procedure branch. Package
-target and assigned-topic inputs are not read. The `DLG-14` actor section
-retains the procedure identity in SOEW version 37.
+`ForceGreet` is retained as an active package procedure. Without bound inputs,
+the actor follows the package driver's navmesh path toward the player while no
+greeting conversation is open. When the actor is within the dialogue distance
+and has an eligible Player-category ForceGreet topic, the ordinary dialogue
+selector opens it.
+Closing that conversation completes the active procedure branch. Bound target
+and topic inputs use the assigned greeting path described below. Missing bound
+inputs remain unsupported. The `DLG-14` actor section retains the procedure
+identity in SOEW version 37.
 The tooling helper `procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
