@@ -80,6 +80,7 @@ mod npc_restore;
 mod objects;
 mod outfits;
 mod package_navmesh_restore;
+mod performance;
 pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
@@ -686,6 +687,8 @@ pub struct World {
     pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
     pub clock: GameClock,
+    pub(crate) menu_mode: bool,
+    pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
@@ -887,6 +890,8 @@ impl World {
             pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
+            menu_mode: false,
+            frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
             story_manager_events: Vec::new(),

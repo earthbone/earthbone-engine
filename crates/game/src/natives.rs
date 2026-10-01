@@ -2330,6 +2330,64 @@ fn debug(vm: &mut Vm, w: &Shared) {
 }
 
 fn utility(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Utility", "IsInMenuMode", |world, _call| b(
+        world.menu_mode
+    ));
+    global!(vm, w, "Utility", "CaptureFrameRate", |world, call| {
+        let Value::Int(frame_count) = call.arg(0) else {
+            call.log.push(
+                call.time,
+                "Utility.CaptureFrameRate requires an integer frame count",
+            );
+            return s("");
+        };
+        match world.frame_rate.capture_recent(frame_count) {
+            Ok(result) => s(&result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                s("")
+            }
+        }
+    });
+    global!(vm, w, "Utility", "StartFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.start() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "EndFrameRateCapture", |world, call| {
+        if let Err(error) = world.frame_rate.end() {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    global!(vm, w, "Utility", "GetAverageFrameRate", |world, call| {
+        match world.frame_rate.average() {
+            Ok(result) => f(result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                f(0.0)
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMinFrameRate", |world, call| {
+        match world.frame_rate.minimum() {
+            Ok(result) => f(result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                f(0.0)
+            }
+        }
+    });
+    global!(vm, w, "Utility", "GetMaxFrameRate", |world, call| {
+        match world.frame_rate.maximum() {
+            Ok(result) => f(result),
+            Err(error) => {
+                call.log.push(call.time, error);
+                f(0.0)
+            }
+        }
+    });
     global!(vm, w, "Utility", "RandomInt", |world, call| {
         let (min, max) = (
             call.args.first().map_or(0, Value::as_int),
@@ -3851,7 +3909,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "IsPlayerSungazing", false),
         // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
-        ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
@@ -3985,12 +4042,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Debug", "ShowRefPosition"),
         ("Debug", "PlayerMoveToAndWait"),
         ("Debug", "MoveToCell"),
-        ("Utility", "CaptureFrameRate"),
-        ("Utility", "StartFrameRateCapture"),
-        ("Utility", "EndFrameRateCapture"),
-        ("Utility", "GetAverageFrameRate"),
-        ("Utility", "GetMinFrameRate"),
-        ("Utility", "GetMaxFrameRate"),
         ("Utility", "GetCurrentMemory"),
     ];
     for (class, name) in globals_none {

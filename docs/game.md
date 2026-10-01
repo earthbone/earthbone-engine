@@ -521,12 +521,14 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 373 stateful registrations and 178 quiet stubs,
+`natives::register` has 375 stateful registrations and 173 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
-`Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
+`Actor.IsBleedingOut`, the shader-particle controls and Utility's frame-rate
+functions. `IsAlarmed` reads the actor's alert flag.
 `IsBleedingOut` requires an actor to be unconscious, alive and at or below its
-record-derived bleedout threshold. A quiet stub returns the idle value the game
-gives when nothing is going on, so vanilla scripts can continue when their
+record-derived bleedout threshold. `Utility.IsInMenuMode` reads the state most
+recently supplied to `tick_menu_mode`. A quiet stub returns the idle value the
+game gives when nothing is going on, so vanilla scripts can continue when their
 owning system has no behavior yet.
 
 | Class | Implemented | Stubbed |
@@ -542,7 +544,7 @@ owning system has no behavior yet.
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
-| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
+| Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | GetCurrentMemory. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
@@ -646,6 +648,17 @@ Their CK contracts are described by
   `Game.ShowFirstPersonGeometry` sets the host's first-person geometry
   visibility state, and `Game.SetSittingRotation` stores the camera offset in
   degrees. These presentation controls are transient and are not saved.
+- `Utility.IsInMenuMode` reads the most recently supplied `tick_menu_mode`
+  state. Frame-rate calls use valid host tick durations as transient samples.
+  `StartFrameRateCapture` resets and starts the sample set, `EndFrameRateCapture`
+  freezes it, and the average, minimum and maximum functions read those
+  captured samples. An empty capture or invalid lifecycle call logs an error
+  and returns zero or no value.
+  `CaptureFrameRate` returns the requested recent samples as comma-separated
+  frames per second, capped by the Creation Kit contract at 1,000 characters.
+  Its frame history is limited to 512 samples and invalid requests log an
+  error and return an empty string. These contracts follow the local CK
+  `Utility_Script.wikitext` page and shipped `Utility.psc` declarations.
 - Inventories start from the base record's `CNTO` list.
 - Actor values keep base, permanent, temporary and damage components in one
   store. Set changes base, Mod changes permanent, Force adjusts permanent
