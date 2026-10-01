@@ -2892,9 +2892,14 @@ fn cell(vm: &mut Vm, w: &Shared) {
             form_value(world, call, owner)
         });
     }
-    for name in ["SetActorOwner", "SetFactionOwner"] {
+    for (name, expected) in [
+        ("SetActorOwner", Tag::new(b"NPC_")),
+        ("SetFactionOwner", Tag::new(b"FACT")),
+    ] {
         method!(vm, w, "Cell", name, |world, call, me| {
-            let owner = world.form_arg(&call.arg(0));
+            let owner = world
+                .form_arg(&call.arg(0))
+                .filter(|owner| cell_owner_tag_matches(world.tag_of(*owner), expected));
             if let Some(c) = world.cell_state(me) {
                 c.owner = owner;
             }
@@ -2908,6 +2913,10 @@ fn cell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+}
+
+fn cell_owner_tag_matches(actual: Option<soe_esm::Tag>, expected: soe_esm::Tag) -> bool {
+    actual == Some(expected)
 }
 
 fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
@@ -4188,5 +4197,65 @@ mod tests {
         assert!(backlog.contains("\"SCR-18\""));
         assert!(backlog.contains("\"SCR-68\""));
         assert!(backlog.contains("\"SCR-59\""));
+    }
+
+    #[test]
+    fn scr_56_registry_inventory_matches_ck_contracts() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+        let mut inventory: Vec<_> = vm
+            .natives
+            .method_bindings()
+            .filter(|(class, name)| *class == "cell" || *name == "clear")
+            .collect();
+        inventory.sort_unstable();
+        let global_inventory: Vec<_> = vm
+            .natives
+            .global_bindings()
+            .filter(|(class, name)| *class == "cell" || *name == "clear")
+            .collect();
+        let mut compared = vec![
+            ("alias", "clear"),
+            ("cell", "getactorowner"),
+            ("cell", "getfactionowner"),
+            ("cell", "isattached"),
+            ("cell", "isinterior"),
+            ("cell", "reset"),
+            ("cell", "setactorowner"),
+            ("cell", "setfactionowner"),
+            ("cell", "setpublic"),
+        ];
+        compared.sort_unstable();
+        // Each binding is compared with its CK page or the corresponding
+        // vanilla PSC declaration. Unsupported effects are assigned in
+        // docs/reference-audit.md to the existing owning rows.
+        assert_eq!(inventory, compared);
+        assert!(global_inventory.is_empty());
+    }
+
+    #[test]
+    fn scr_56_cell_owner_setters_require_the_ck_record_type() {
+        assert!(cell_owner_tag_matches(
+            Some(Tag::new(b"NPC_")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(cell_owner_tag_matches(
+            Some(Tag::new(b"FACT")),
+            Tag::new(b"FACT")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"FACT")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"NPC_")),
+            Tag::new(b"FACT")
+        ));
+        assert!(!cell_owner_tag_matches(
+            Some(Tag::new(b"ACHR")),
+            Tag::new(b"NPC_")
+        ));
+        assert!(!cell_owner_tag_matches(None, Tag::new(b"FACT")));
     }
 }

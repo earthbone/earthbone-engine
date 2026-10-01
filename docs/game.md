@@ -704,6 +704,10 @@ Their CK contracts are described by
   `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
   Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
   `GetFactionOwner` answer by the owner's record type.
+- `Cell.SetActorOwner` accepts an `NPC_` base or `None`, and
+  `Cell.SetFactionOwner` accepts a `FACT` or `None`. Other record types leave
+  the existing owner unchanged. The SCR-56 registry-derived CK comparison
+  and remaining native gaps are listed in [reference-audit](reference-audit.md).
 - The listener registrations (`RegisterForSleep`, `RegisterForTrackedStatsEvent`,
   `RegisterForAnimationEvent`, `RegisterForLOS` and the single variants) keep
   lists of VM objects. `Game.IncrementStat` fires `OnTrackedStatsEvent`,

@@ -112,6 +112,33 @@ methods listed there. Alias reference getter and setter variants are compared
 against the ReferenceAlias class page, which includes their return types and
 shorthand relationships. The current check is synthetic because these methods
 do not require installed game records.
+## Cell and Clear native contracts, SCR-56
+
+The registry-derived inventory is tested by
+`scr_56_registry_inventory_matches_ck_contracts`. It includes every registered
+method whose class is `Cell` and every method or global whose name is exactly
+`Clear`. There are no matching global bindings. Contract statements below
+come from `engine-refs/ck-wiki` and the shipped
+`skse64/scripts/vanilla` declarations.
+
+| Binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Cell.GetActorOwner` | `GetActorOwner_-_Cell.wikitext` returns the cell's actor base owner and states that inherited ownership is separate. | Returns only an `NPC_` owner from the cell's `XOWN` state. |
+| `Cell.GetFactionOwner` | `Cell_Script.wikitext` says it returns the owning faction. | Returns only a `FACT` owner from the cell's `XOWN` state. |
+| `Cell.IsInterior` | `Cell_Script.wikitext` asks whether the cell is an interior. | Uses absence of a worldspace in the record placement. |
+| `Cell.IsAttached` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a boolean attached-state query. | Quiet true stub does not track attachment. SCR-19 owns the live attachment query. |
+| `Cell.Reset` | `Cell_Script.wikitext` says it flags the cell for reset on next load. | Quiet no-op stub. SCR-19 owns cell reset behavior. |
+| `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`; `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
+| `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
+| `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
+| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-55 owns alias contract completion. |
+
+The Cell method comparison has eight bindings. The exact-name `Clear` comparison
+has one method binding and no global binding. The setter type discrepancy is
+corrected by checking resolved record tags before changing `XOWN`.
+`scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted
+record tags, cross-type rejection, reference rejection and `None`. The
+remaining gaps are already assigned to their feature rows above.
 
 ## Sources to use for current gaps and future systems
 
