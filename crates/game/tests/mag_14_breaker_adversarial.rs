@@ -112,3 +112,17 @@ fn repeated_effect_shader_play_keeps_each_lifetime_refresh_for_the_same_pair() {
     assert_eq!(requests[0].duration, 2.0);
     assert_eq!(requests[1].duration, 8.0);
 }
+
+#[test]
+fn mag_14_efsh_fields_use_the_authored_membrane_offsets() {
+    let mut game = fixture();
+    let shader = soe_esm::GlobalFormId {
+        file: 0,
+        object: 0x801,
+    };
+    let plugin_record = game.world().effect_shader_appearance(shader);
+    assert_eq!(plugin_record.fill_texture.as_deref(), Some("textures\\effects\\start.dds"));
+    assert_eq!(plugin_record.color, [0; 4]);
+    assert_eq!(plugin_record.blend, (0, 0));
+    assert_eq!(plugin_record.fade, [0.0; 4]);
+}
