@@ -3070,7 +3070,7 @@ owned applications.
 
 The xEdit source `TES5Edit/Core/wbDefinitionsTES5.pas` maps archetype 35 to a
 SPEL associated item. Local `uesp-modfileformat/MGEF.wikitext` agrees on the
-archetype and area fields. The local CK dump has no Magic Effect page; the
+archetype and area fields. The local CK dump has no Magic Effect page. The
 published [Creation Kit Magic Effect page](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
 specifies the associated concentration spell and says Cloak casts it on area
 targets. Its concentration section establishes one-second reapplication.

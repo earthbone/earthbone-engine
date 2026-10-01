@@ -1858,9 +1858,8 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
-            let duration = if definition.data.cast_type == 0
-                && data.archetype != TURN_UNDEAD
-                && !(data.archetype == 32 && data.flags & NO_DURATION != 0)
+            let duration = if (definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD)
+                || (data.archetype == 32 && data.flags & NO_DURATION != 0)
             {
                 None
             } else {
