@@ -384,7 +384,7 @@ fn cmb_15_invalid_damage_mult_rejects_without_health_or_event_changes() {
 }
 
 #[test]
-fn cmb_15_perk_driven_combat_modifiers_reject_without_applying_a_hit() {
+fn cmb_15_combat_modifier_actor_values_need_perk_entries() {
     let names = [
         "onehandedmodifier",
         "twohandedmodifier",
@@ -404,15 +404,9 @@ fn cmb_15_perk_driven_combat_modifiers_reject_without_applying_a_hit() {
             game.world_mut()
                 .set_actor_value(id(actor), name, 10.)
                 .unwrap();
-            let before = game.save_state().unwrap();
-            assert!(
-                matches!(
-                    game.melee_hit(hit(0x14, 0x901)),
-                    Err(Error::Unsupported("combat actor-value multipliers"))
-                ),
-                "{name} on actor {actor:#x} must remain gated until its PERK effects are evaluated"
-            );
-            assert_eq!(game.save_state().unwrap(), before, "{name} changed state");
+            let result = game.melee_hit(hit(0x14, 0x901)).unwrap();
+            close(result.weapon_damage, 15.);
+            close(result.health_damage, 15.);
         }
     }
 }
