@@ -404,12 +404,10 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             world.actor(actor).unwrap().stagger_end_time = Some(value);
         }
     }
-    // Each of the three actors above is a paired reference too, and that
-    // reference's own record ends with an empty save-section table version
-    // 37 added, positioned in the refs block ahead of the actors block this
-    // loop searches below. Strip those three tables before anything else.
+    // Strip paired reference tables. The actor tables are removed with the
+    // stagger and later versioned fields below.
     let mut bytes =
-        legacy::without_ref_sections(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
+        legacy::without_recent_ai_fields(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
     for (_, value) in sentinels {
         let mut marker = vec![1_u8];
         marker.extend_from_slice(&value.to_le_bytes());
@@ -455,7 +453,10 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
     // pool count (version 37) are the last two fields, eight bytes together,
     // all past where a version 28 save ends.
     bytes.truncate(bytes.len() - 8);
-    let visit_count = bytes.len() - 12;
+    // Keep the version 27 encounter-level count and version 28 repeat
+    // history. The version 34 visit count is the four-byte field between
+    // them.
+    let visit_count = bytes.len() - 8;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());

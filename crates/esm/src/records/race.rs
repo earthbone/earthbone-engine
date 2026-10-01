@@ -76,8 +76,12 @@ impl Race {
     /// name is not a phoneme or the file stopped before reaching it.
     #[must_use]
     pub fn weights_for(&self, phoneme: &str) -> Option<&[f32]> {
-        let i = PHONEMES.iter().position(|p| *p == phoneme)?;
-        self.phoneme_weights.get(i).map(Vec::as_slice)
+        for (index, name) in PHONEMES.iter().enumerate() {
+            if *name == phoneme {
+                return self.phoneme_weights.get(index).map(Vec::as_slice);
+            }
+        }
+        None
     }
 
     /// True when every phoneme has a row and every row covers every target,

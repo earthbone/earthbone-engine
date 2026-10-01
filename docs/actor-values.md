@@ -70,9 +70,11 @@ Bleedout, protected-actor attacker rules and invulnerability remain unfinished.
 
 ## Persistence
 
-SOEW version 10 writes sorted names and all four components. Case-insensitive
+SOEW writes sorted names and all four components. Case-insensitive
 duplicate names, non-finite values, positive damage components and truncated
-input are rejected. State hashes include every component.
+input are rejected. State hashes include every component. The SAV-06
+`sav_06_actor_value_modifiers` checks exercise current and permanent values
+through the complete game save and load path.
 
 Versions 4 to 6 only restore actor values whose current and base totals agree.
 Old saves with different totals lack the information needed to distinguish

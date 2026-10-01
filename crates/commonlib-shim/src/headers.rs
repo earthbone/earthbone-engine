@@ -4,8 +4,8 @@
 //!
 //! The declarations are kept here beside the Rust API they project. Run
 //! `cargo run -p soe-commonlib-shim --bin generate-headers` after changing
-//! this map. The generated headers are a source-level API and do not provide
-//! an FFI bridge to a running engine.
+//! this map. The RE and SKSE interface declarations are a source-level API.
+//! The plugin entry point has a C ABI but no bridge to a running engine.
 
 use std::fs;
 use std::io;
@@ -324,6 +324,28 @@ inline constexpr Unsupported TRAMPOLINE{
 } // namespace SKSE
 "#;
 
+const SKSE_PLUGIN: &str = r#"// Generated from crates/commonlib-shim/src/headers.rs. Do not edit.
+#pragma once
+#include <cstddef>
+#include <cstdint>
+
+namespace SKSE {
+inline constexpr std::uint32_t SOE_PLUGIN_ABI_VERSION = 1;
+
+struct SoePluginManifest {
+    std::uint32_t abi_version;
+    const char* name;
+    const char* const* unsupported_hooks;
+    std::size_t unsupported_hook_count;
+};
+
+using SoePluginLoad = bool (*)();
+} // namespace SKSE
+
+#define SOE_PLUGIN_MANIFEST extern "C" const SKSE::SoePluginManifest SOEPlugin_Manifest
+#define SOE_PLUGIN_LOAD extern "C" bool SOEPlugin_Load()
+"#;
+
 const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
@@ -333,7 +355,8 @@ const FILES: &[(&str, &str)] = &[
     ("RE/VirtualMachine.h", RE_VM),
     ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
-    ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n"),
+    ("SKSE/Plugin.h", SKSE_PLUGIN),
+    ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n#include \"SKSE/Plugin.h\"\n"),
 ];
 
 /// Write every generated header below `root` and return its relative paths.
