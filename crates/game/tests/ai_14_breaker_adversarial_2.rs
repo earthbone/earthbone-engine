@@ -18,12 +18,19 @@ fn id(object: u32) -> GlobalFormId {
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
-    let tree = package::close_header(package::build_template(TEMPLATE, "FlaggedConcurrentWaits"), None);
+    let tree = package::close_header(
+        package::build_template(TEMPLATE, "FlaggedConcurrentWaits"),
+        None,
+    );
     let tree = package::with_float_input(tree, 5, 0.25);
     let tree = package::with_bool_input(tree, 9, false);
     let tree = package::with_float_input(tree, 6, 2.0);
     let tree = package::with_bool_input(tree, 10, true);
-    let tree = package::finish(tree).zsub(T(b"ANAM"), "Simultaneous");
+    let mut prcb = 2u32.to_le_bytes().to_vec();
+    prcb.extend_from_slice(&0u32.to_le_bytes());
+    let tree = package::finish(tree)
+        .zsub(T(b"ANAM"), "Simultaneous")
+        .sub(T(b"PRCB"), prcb);
     let mut tree = package::with_procedure(tree, "Wait", &[5, 9], true);
     tree = package::with_procedure(tree, "Wait", &[6, 10], false);
     plugin.push_top(tree);
@@ -32,8 +39,14 @@ fn game() -> Game {
         Some(TEMPLATE),
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     let mut data = vec![0; 24];
     data[..4].copy_from_slice(&0.0f32.to_le_bytes());
@@ -43,7 +56,12 @@ fn game() -> Game {
             .sub(T(b"DATA"), data),
     );
     let mut order = LoadOrder::new();
-    order.add("FlaggedWaits.esm", Plugin::parse(&plugin.to_bytes()).unwrap()).unwrap();
+    order
+        .add(
+            "FlaggedWaits.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
+        .unwrap();
     let game = Game::new(order);
     assert!(game.world_mut().drive_actor(id(ACTOR)));
     game

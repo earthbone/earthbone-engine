@@ -50,8 +50,14 @@ fn order(first_wait: f32, second_wait: f32) -> LoadOrder {
         &enabled,
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     let mut data = vec![0; 24];
     data[..4].copy_from_slice(&0.0f32.to_le_bytes());
@@ -67,7 +73,10 @@ fn order(first_wait: f32, second_wait: f32) -> LoadOrder {
     );
     let mut order = LoadOrder::new();
     order
-        .add("Simultaneous.esp", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Simultaneous.esp",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     order
 }
@@ -95,8 +104,28 @@ fn ai_14_split_ticks_and_save_load_complete_at_the_longest_deadline() {
     restored.load_state(&saved).unwrap();
     original.tick(0.75);
     restored.tick(0.75);
-    assert!(original.world().actor_ref(id(ACTOR)).unwrap().ai.tree.as_ref().unwrap().active);
-    assert!(restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree.as_ref().unwrap().active);
+    assert!(
+        original
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .as_ref()
+            .unwrap()
+            .active
+    );
+    assert!(
+        restored
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .as_ref()
+            .unwrap()
+            .active
+    );
     original.tick(1.25);
     restored.tick(1.25);
     for current in [&original, &restored] {
@@ -132,14 +161,26 @@ fn ai_14_completed_group_keeps_its_completion_through_save_load() {
     original.tick(0.25);
     original.tick(1.0);
     assert_eq!(
-        original.world().actor_ref(id(ACTOR)).unwrap().ai.completed.get(&id(PACK)),
+        original
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .completed
+            .get(&id(PACK)),
         Some(&0)
     );
     let saved = original.save_state().unwrap();
     let mut restored = Game::new(order(0.5, 1.0));
     restored.load_state(&saved).unwrap();
     assert_eq!(
-        restored.world().actor_ref(id(ACTOR)).unwrap().ai.completed.get(&id(PACK)),
+        restored
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .completed
+            .get(&id(PACK)),
         Some(&0)
     );
 }

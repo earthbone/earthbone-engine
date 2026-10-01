@@ -123,7 +123,7 @@ fn ai_09_unresolved_navmesh_door_reference_does_not_close_its_triangle() {
     plugin.push_top(Record::new(Tag(*b"NAVM"), 0x805).sub(Tag(*b"NVNM"), mesh.to_bytes()));
     let mut order = LoadOrder::new();
     order.add("MissingDoor.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     let mut world = game.world_mut();
     let graph = ai::nav_graph(&mut world);
     let door_key = (u64::from(id(0x900).file) << 32) | u64::from(id(0x900).object);

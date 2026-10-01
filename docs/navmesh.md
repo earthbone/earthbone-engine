@@ -191,7 +191,8 @@ was needed.
 
 - No large-creature path policy. Its NAVM flag is retained, but actor size is not
   yet part of navigation queries.
-- No dynamic obstacles or door state, the graph is static.
+- Door links follow the placed door reference position and opened state. Host
+  physics obstacle shapes still need a caller to register and update them.
 - Generation reads render meshes, not `bhk` collision, until `soe-nif` decodes
   those. Interiors are not tested against real data, only Tamriel's exteriors.
 - Generated `NVNM` does not author cover triangles or location CRC. NAVI info

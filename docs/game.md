@@ -1311,12 +1311,15 @@ selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
 An immediate `Simultaneous` group of condition-eligible `Wait` procedure
-children starts every timer against the same non-menu clock value. The group
-completes after its longest finite timer and records package completion once.
-A zero duration keeps it active. Changing the winning package clears the group
-cursor and deadline without recording completion. Other simultaneous child
-procedures remain unsupported until the completion policy in AI-87 is
-established from paired authored records.
+children starts every timer against the same non-menu clock value. Without a
+successful child, the group completes after its longest finite timer and
+records package completion once. A finite child with `Success Completes
+Package` ends the tree when its own timer expires, even if another child has a
+longer or indefinite timer. A zero duration keeps the group active when no
+finite successful child completes the package. Changing the winning package
+clears the group cursor and deadline without recording completion. Other
+simultaneous child procedures remain unsupported until the completion policy
+in AI-87 is established from paired authored records.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
 plus the local UESP PACK page. xEdit names the PKDT interrupt override values
