@@ -1157,6 +1157,7 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        self.dispatch_story_manager_events();
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
         let n = pending
             .iter()
@@ -1294,6 +1295,43 @@ impl Game {
     /// Complete waits false when the reference's behavior graph unloads.
     pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
         self.world.borrow_mut().animation_graph_unloaded(source);
+    }
+
+    fn dispatch_story_manager_events(&mut self) {
+        let events = self.world.borrow_mut().take_story_manager_events();
+        for event in events {
+            let (code, parameters) = match event.kind {
+                quest::state::StoryManagerEventKind::CraftItem => (
+                    *b"CRFT",
+                    event
+                        .parameters
+                        .into_iter()
+                        .enumerate()
+                        .map(
+                            |(index, reference)| quest::state::StoryParameter::Reference {
+                                kind: match index {
+                                    0 => 0,
+                                    1 => 2,
+                                    _ => 1,
+                                },
+                                reference,
+                            },
+                        )
+                        .collect(),
+                ),
+            };
+            let story_event = quest::state::StoryEvent {
+                id: 0,
+                code,
+                parameters,
+            };
+            if let Err(error) = self.send_story_event(&story_event) {
+                self.vm.log.push(
+                    self.vm.time(),
+                    format!("Story Manager event routing: {error}"),
+                );
+            }
+        }
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
