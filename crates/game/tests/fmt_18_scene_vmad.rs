@@ -3,8 +3,7 @@
 
 //! SCEN VMAD fixtures follow xEdit's `wbVMADFragmentedSCEN` field order.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::Tag;
 use soe_game::vmad::Vmad;

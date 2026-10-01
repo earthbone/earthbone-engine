@@ -167,7 +167,8 @@ pub fn entries(game: &Game) -> Vec<Entry> {
             let data = record.find(Tag(*b"DATA"))?;
             let flags = data.get(32..36)?;
             let playable = u32::from_le_bytes(flags.try_into().ok()?) & 1 != 0;
-            (!record.is_deleted() && playable).then(|| Entry {
+            let attributes = soe_game::race::Attributes::from_record(record).ok()?;
+            (!record.is_deleted() && playable && attributes.is_some()).then(|| Entry {
                 race,
                 name: world.name_of(race).unwrap_or_else(|| format!("{race}")),
             })

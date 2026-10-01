@@ -371,8 +371,12 @@ impl ConfigPage {
         let Ok(option_id) = i32::try_from(id) else {
             return false;
         };
-        game.send_event(script, "OnOptionSelect", &[Value::Int(option_id)]);
-        true
+        if !game.world().order().contains(script) {
+            return false;
+        }
+        !game
+            .send_event(script, "OnOptionSelect", &[Value::Int(option_id)])
+            .is_empty()
     }
 
     /// Dispatch the SkyUI slider-open event and return its authored parameters.

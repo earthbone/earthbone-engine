@@ -96,6 +96,40 @@ fn mod_01_actor_seed_is_stable_per_reference_even_when_built_repeatedly() {
         "same-base references must receive distinct per-actor choices: {first:?}"
     );
 }
+
+#[test]
+fn mod_01_deterministic_actor_results_use_save_character_id() {
+    let d = Dir::new("save-character-id");
+    fs::write(
+        d.0.join("Seed_DISTR.ini"),
+        "Spell = SeedSpell|SeedBase|NONE|NONE|NONE|1|50!\n",
+    )
+    .unwrap();
+    let results = |character_id| {
+        let mut g = game(24);
+        g.world_mut().set_player_character_id(character_id);
+        assert_eq!(g.world_mut().player_character_id(), character_id);
+        g.apply_mod_data(&d.roots());
+        (0..=24)
+            .map(|n| {
+                g.world_mut()
+                    .actor(id(REF + n))
+                    .unwrap()
+                    .spells
+                    .contains(&id(SPELL))
+            })
+            .collect::<Vec<_>>()
+    };
+    let save_id = results(0x2A73_F01A);
+    let repeat = results(0x2A73_F01A);
+    let other_save_id = results(0x19B4_7C20);
+    assert_eq!(save_id, repeat, "one save identity repeats actor choices");
+    assert_ne!(
+        save_id, other_save_id,
+        "different save character IDs produce the source-defined seed inputs"
+    );
+    assert!(save_id.iter().any(|result| *result) && save_id.iter().any(|result| !*result));
+}
 #[test]
 fn mod_01_deterministic_rule_keeps_base_filter_and_rejects_missing_actor() {
     let d = Dir::new("missing");

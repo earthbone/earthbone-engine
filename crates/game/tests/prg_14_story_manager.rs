@@ -64,7 +64,7 @@ fn do_all_game() -> Game {
     plugin.push_top(
         Record::new(t(*b"SMQN"), QUEST_NODE)
             .sub(t(*b"PNAM"), EVENT.to_le_bytes())
-            .sub(t(*b"DNAM"), (1u32 | (1 << 16) | (1 << 18)).to_le_bytes())
+            .sub(t(*b"DNAM"), (1_u32 << 16 | 1 << 18).to_le_bytes())
             .sub(t(*b"XNAM"), 1u32.to_le_bytes())
             .sub(t(*b"MNAM"), 1u32.to_le_bytes())
             .sub(t(*b"NNAM"), QUEST.to_le_bytes())
