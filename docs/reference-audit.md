@@ -36,8 +36,8 @@ EffectShader CK page in the corpus.
 | `Debug.TraceUser` global | String log name, String text, Int severity, Bool result. Write to named user log and debug text page. | Writes to Papyrus log and returns `None`. User log behavior and Bool result belong with SCR-20's user-log system. |
 | `Debug.TraceConditional` global | String, Bool condition, no result. Log only when true. | Logs only when true. Matches the documented condition and result. |
 | `Debug.TraceStack` global | String, Int severity, no result. Write message and full call stack. | Logs the stringified message without a call stack. Native calls do not expose stack frames yet, and no open backlog row owns this gap. |
-| `Debug.Notification` global | String, no result. Display an in-game notification. | Adds the text to `World::notifications`; the host display path is separate. Matches the runtime queue contract. |
-| `Debug.MessageBox` global | String, no result. Display an OK message box. | Adds the text to `World::message_boxes`; the host display path is separate. Matches the runtime queue contract. |
+| `Debug.Notification` global | String, no result. Display an in-game notification. | Adds the text to `World::notifications`. The host display path is separate. Matches the runtime queue contract. |
+| `Debug.MessageBox` global | String, no result. Display an OK message box. | Adds the text to `World::message_boxes`. The host display path is separate. Matches the runtime queue contract. |
 | `Debug.SendAnimationEvent` global | ObjectReference, String, no result. Send the event to the reference. | Queues the event when its target resolves and returns `None`, matching the Papyrus result shape. |
 | `Debug.OpenUserLog` global | String, Bool result. Open a user log and fail if already open. | Returns `true` without creating a log. SCR-20 owns user-log behavior. |
 | `Debug.QuitGame` global | No arguments or result. Quit the game. | Quiet stub. SCR-20 owns the debug host action. |
@@ -58,8 +58,8 @@ EffectShader CK page in the corpus.
 | `Debug.ShowRefPosition` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
 | `Debug.PlayerMoveToAndWait` global | String destination reference, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-23 owns the debug host action. |
 | `Debug.MoveToCell` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
-| `EffectShader.Play` method | PSC: ObjectReference and optional Float duration defaulting to -1 seconds. Negative duration means infinite. | Quiet stub. SCR-24 owns Papyrus behavior; MAG-14 owns host shader lifetime and rendering. |
-| `EffectShader.Stop` method | PSC: ObjectReference. Stop the shader on that target. | Quiet stub. SCR-24 owns Papyrus behavior; MAG-14 owns host shader lifetime and rendering. |
+| `EffectShader.Play` method | PSC: ObjectReference and optional Float duration defaulting to -1 seconds. Negative duration means infinite. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
+| `EffectShader.Stop` method | PSC: ObjectReference. Stop the shader on that target. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
 
 `scr_57_registry_contains_every_audited_binding` checks the 26 Debug globals
 and two EffectShader methods against the actual native registry. The audit
@@ -106,9 +106,9 @@ also say both classes have no global functions.
 | `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
 | `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
 | `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
-| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic; package reevaluation remains unimplemented there. |
+| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic. Package reevaluation remains unimplemented there. |
 | `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
-| `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method; Alias runtime objects have no resolved form ID. |
+| `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method. Alias runtime objects have no resolved form ID. |
 | `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
 | `Form.GetName` inherited by `Alias` | Returns the form name. Alias declares its own SKSE `GetName`, which shadows this binding. | Alias-specific binding returns the alias definition name. |
 | `Form.GetType` inherited by `ActorBase` | Returns the form type code. | Reads the resolved record type. |
@@ -175,7 +175,7 @@ come from `engine-refs/ck-wiki` and the shipped
 | `Cell.IsInterior` | `Cell_Script.wikitext` asks whether the cell is an interior. | Uses absence of a worldspace in the record placement. |
 | `Cell.IsAttached` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a boolean attached-state query. | Quiet true stub does not track attachment. SCR-19 owns the live attachment query. |
 | `Cell.Reset` | `Cell_Script.wikitext` says it flags the cell for reset on next load. | Quiet no-op stub. SCR-19 owns cell reset behavior. |
-| `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`; `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
+| `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`. `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
 | `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
 | `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
 | `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
@@ -217,7 +217,7 @@ semantics beyond their declared signatures and summaries.
 | `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
 | `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
 | `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
-| `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias; an empty alias accepts the form. SCR-59 owns reference-type validation. |
+| `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias. An empty alias accepts the form. SCR-59 owns reference-type validation. |
 
 The inventory tests cover 22 `Faction` methods, including the three quiet
 stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no

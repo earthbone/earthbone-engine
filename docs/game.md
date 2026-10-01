@@ -690,8 +690,8 @@ comments. No bindings in this inventory are globals.
 | Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
 | Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
 | Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
-| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding; witnessed assault handling is part of PRG-12's arrest path. |
-| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding; jail, property handling and sentence effects belong to PRG-13. |
+| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding. Witnessed assault handling is part of PRG-12's arrest path. |
+| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding. Jail, property handling and sentence effects belong to PRG-13. |
 | Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
 | ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
 
@@ -5205,7 +5205,7 @@ their owning load-order namespace and expose the resulting shared base state.
 Its weather input is an explicitly selected weather and time blend.
 Autonomous climate selection and weather scheduling are outside that row.
 SCR-54 now exposes the selected `WTHR` and transition flags through the shared
-weather request API; host sky rendering remains outside the native binding.
+weather request API. Host sky rendering remains outside the native binding.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation
