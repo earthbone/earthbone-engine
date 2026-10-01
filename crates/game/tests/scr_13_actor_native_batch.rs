@@ -77,7 +77,7 @@ fn plugin() -> Plugin {
     plugin
 }
 
-fn game() -> Game {
+pub fn game() -> Game {
     let mut order = LoadOrder::new();
     order
         .add("SCR13.esm", Plugin::parse(&plugin().to_bytes()).unwrap())
@@ -94,7 +94,7 @@ fn type_of(value: &Value) -> &'static str {
     }
 }
 
-fn call(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
+pub fn call(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
     let index = PROBES.fetch_add(1, Ordering::SeqCst);
     let script = format!("Scr13Probe{index}");
     let mut function = FunctionBuilder::new("Run", "Var")
@@ -123,7 +123,7 @@ fn call(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
-fn object(game: &mut Game, id: GlobalFormId) -> Value {
+pub fn object(game: &mut Game, id: GlobalFormId) -> Value {
     Value::Object(game.object_of_form(id))
 }
 

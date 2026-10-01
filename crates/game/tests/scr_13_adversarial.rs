@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-include!("scr_13_actor_native_batch.rs");
+#[path = "scr_13_actor_native_batch.rs"]
+mod batch;
+
+use batch::{call, game, object};
 
 #[test]
 fn scr_13_repeated_alarm_stop_is_idempotent_and_preserves_other_actor() {
