@@ -347,12 +347,28 @@ fn every_saved_created_namespace_entry_reserves_allocation_space() {
 #[test]
 fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
     let mut save = fixture();
-    let created_base = 0x800900;
-    let mut object_table = vec![4];
-    reference(created_base).write(&mut object_table);
-    object_table.extend(7_u32.to_le_bytes());
-    object_table.push(0);
-    object_table.extend([0, 0, 0]);
+    let created_base = 0x800902;
+    let mut object_table = Vec::new();
+    for (object, effect) in [
+        (0x900, None),
+        (0x901, None),
+        (0x902, Some(0x400900)),
+        (0x903, None),
+    ] {
+        object_table.push(4);
+        reference(0x800000 | object).write(&mut object_table);
+        object_table.extend(7_u32.to_le_bytes());
+        if let Some(effect) = effect {
+            object_table.push(4);
+            reference(effect).write(&mut object_table);
+            object_table.extend(12.5_f32.to_le_bytes());
+            object_table.extend(30_u32.to_le_bytes());
+            object_table.extend(2_u32.to_le_bytes());
+            object_table.extend(4.25_f32.to_le_bytes());
+        } else {
+            object_table.push(0);
+        }
+    }
     save.table_1.push(GlobalData {
         kind: GlobalData::CREATED_OBJECTS,
         data: object_table,
@@ -374,21 +390,54 @@ fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
 
     let mut world = World::new(fixture_order());
     let report = world.restore_vanilla_reference_placements(&save).unwrap();
-    let base = id(DYNAMIC_FILE, 0x900);
-    assert!(report.missing_bases.contains(&base));
+    let base = id(DYNAMIC_FILE, 0x902);
+    assert!(!report.missing_bases.contains(&base));
+    for (object, tag) in [
+        (0x900, Tag(*b"ENCH")),
+        (0x901, Tag(*b"ENCH")),
+        (0x902, Tag(*b"ALCH")),
+    ] {
+        assert_eq!(world.record(id(DYNAMIC_FILE, object)).unwrap().tag, tag);
+    }
+    let record = world.record(base).unwrap();
+    assert_eq!(record.tag, Tag(*b"ALCH"));
+    assert_eq!(record.find(Tag(*b"ENIT")), Some(&[0; 20][..]));
+    assert_eq!(
+        world.resolve_from(
+            base,
+            u32::from_le_bytes(record.find(Tag(*b"EFID")).unwrap().try_into().unwrap())
+        ),
+        Some(id(0, 0x900))
+    );
     assert_eq!(
         world.reference_ref(id(DYNAMIC_FILE, 0x800)).unwrap().base,
         Some(base)
     );
     assert_eq!(
         world.place_at(id(0, 0x900), id(0, 0x14), false),
-        id(DYNAMIC_FILE, 0x901)
+        id(DYNAMIC_FILE, 0x904)
     );
 
     let inventory = world.restore_vanilla_inventories(&save).unwrap();
     assert_eq!(inventory.references, 3);
-    assert!(inventory.missing_items.contains(&base));
+    assert!(!inventory.missing_items.contains(&base));
     assert_eq!(world.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+
+    let bytes = world.save_state();
+    let mut loaded = World::new(fixture_order());
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(loaded.state_hash(), world.state_hash());
+    assert_eq!(loaded.record(base).unwrap().tag, Tag(*b"ALCH"));
+    assert_eq!(loaded.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+    let loaded_record = loaded.record(base).unwrap();
+    let effect = u32::from_le_bytes(
+        loaded_record
+            .find(Tag(*b"EFID"))
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    );
+    assert_eq!(loaded.resolve_from(base, effect), Some(id(0, 0x900)));
 }
 
 #[test]

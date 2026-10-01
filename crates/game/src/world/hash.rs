@@ -978,6 +978,7 @@ impl World {
         }
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
+        super::reference_restore::write_created_base_section(self, &mut records);
         h.bytes(&records.out);
         let scenes = h.finish();
 

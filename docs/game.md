@@ -200,12 +200,14 @@ the FormID array and the four Created Objects tables before runtime placement
 can allocate another identity. Regular and light plugin IDs map by their saved
 owner names. Their masks follow Mutagen's `FormID.cs`, while the FormID array
 and Created Objects table order follow UESP's save format. The reservation
-keeps identities stable, but it does not materialize saved enchantment, potion
-or poison definitions as live records. Inventory restoration accepts a
-missing base identity listed in those tables, applies item deltas by saved
-identity and reports items without live records. Created Objects decoding
-follows UESP `Created_Objects` and skymp's reader and writer field order in
-`soe-save`.
+also materializes entries in those tables into the shared record lookup as
+dynamic `ENCH` or `ALCH` records before references are installed. Their saved
+effect forms are relocated through the saved plugin map. Fields absent from
+the ESS table remain zero, and the created records use the existing record
+fields are persisted in the `SAV-17` world section. Inventory restoration
+requires each holder base to have a live record, applies item deltas by saved
+identity and reports inventory items whose records are absent. Created Objects decoding follows UESP
+`Created_Objects` and skymp's reader and writer field order in `soe-save`.
 
 `World::restore_vanilla_record_changes` validates CLAS changes and atomically
 applies FACT and RELA fields to record overrides. FACT reaction records feed

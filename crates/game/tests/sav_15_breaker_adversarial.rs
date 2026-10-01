@@ -1,8 +1,10 @@
+#![allow(clippy::unwrap_used)]
+
 use soe_esm::{FileHeader, LoadOrder, Plugin};
 use soe_game::World;
 use soe_save::{
-    reference::{flags, PlayerLocation}, ChangeForm, Compression, FileLocationTable, GlobalData,
-    Header, RefId, Save, WString,
+    reference::{flags, PlayerLocation},
+    ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
 };
 
 fn ref_id(raw: u32) -> RefId {
@@ -50,7 +52,11 @@ fn fixture() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];
@@ -88,16 +94,19 @@ fn fixture() -> Save {
 #[test]
 fn sav_15_rejects_unobserved_change_form_version_before_world_mutation() {
     let mut order = LoadOrder::new();
-    order.add("Skyrim.esm", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Skyrim.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut world = World::new(order);
     let before = world.state_hash();
     let error = world
         .restore_vanilla_reference_placements(&fixture())
         .unwrap_err();
 
-    assert!(error
-        .to_string()
-        .contains("only validated for save version 12 and form versions 78"),
+    assert!(
+        error
+            .to_string()
+            .contains("only validated for save version 12 and form versions 78"),
         "{error}"
     );
     assert_eq!(world.state_hash(), before);

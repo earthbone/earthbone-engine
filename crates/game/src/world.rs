@@ -626,6 +626,7 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    created_base_records: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     unresolved_records:
         BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
@@ -849,6 +850,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
