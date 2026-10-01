@@ -5,8 +5,7 @@
 //! unnamed, CommonLib calls them Darkness and NightEye, and Mutagen omits them.
 //! Names do not establish execution semantics. See docs/game.md.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::collections::BTreeMap;
 

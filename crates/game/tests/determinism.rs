@@ -15,8 +15,7 @@
 //! Two-process runs spawn this test binary again with `SOE_HASH_DUMP` set,
 //! the child writes its hash log to that file and the parent compares.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -122,12 +121,13 @@ fn the_travel_package_hashes_the_same_twice_in_one_process() {
 /// Run one named test of this binary in a child process with
 /// `SOE_HASH_DUMP` pointing at a fresh file, and return the log it wrote.
 fn child_log(test_name: &str) -> Vec<TickHash> {
+    let test_name = crate::common::child_test_name(module_path!(), test_name);
     let exe = std::env::current_exe().unwrap();
     let path =
         std::env::temp_dir().join(format!("soe-hash-{test_name}-{}.txt", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let status = Command::new(exe)
-        .arg(test_name)
+        .arg(&test_name)
         .arg("--exact")
         .env("SOE_HASH_DUMP", &path)
         .env_remove("SKYRIM_DATA")
