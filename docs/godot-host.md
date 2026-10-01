@@ -159,6 +159,17 @@ unmeasured. Static world collision is not evidence of hazard execution.
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
+### Game native presentation signals, SCR-29
+
+`PlayerNode` drains transient `GameUiRequest` values from the shared `World`
+after each gameplay tick. It emits `race_menu_requested`,
+`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
+mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
+native. A change to `World::hud_cart_mode` emits
+`hud_cart_mode_changed(enabled)`. These signals are the host presentation
+boundary. A connected UI or media presenter supplies the corresponding race
+editor, overlay and video playback.
+
 ## EffectShader playback, MAG-14
 
 `CellStreamerNode` consumes transient EffectShader requests from the shared
@@ -1989,6 +2000,21 @@ move projectiles or resolve impacts, which remain CMB-22 work.
 The synthetic host tests cover one returned request, duplicate release markers
 and cancellation with the ammunition count unchanged. No Godot node or
 per-reference resource is created for this release state.
+
+## Projectile flight, CMB-22
+
+`combat::ProjectileFlight` advances the release request with fixed-step
+gravity, checks each segment through `PhysicsDirectSpaceState3D.intersect_ray`,
+and stops on its first actor or obstruction. Actor bodies resolve through the
+existing World-owned RID map, and the firing actor's bodies are excluded. The
+flight ends at PROJ range if it has no contact. Contact is latched once, so
+later updates cannot report another target or obstruction. Flight state is
+transient and adds no node or per-reference resource.
+
+Synthetic tests exercise configured gravity, repeatable fixed steps, range
+termination and one-time actor and obstruction contacts. The query uses a
+segment ray, so PROJ collision radius and actor impact damage are not applied
+by this increment.
 
 ## Actor contact bodies and pose segments, CMB-28
 

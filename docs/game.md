@@ -210,8 +210,44 @@ the map's third open seam.
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
+
+`conditions.rs` evaluates `GetIsPlayableRace` and the race part of `IsChild`
+from the actor base's winning RACE DATA flags. `HasAssociationType` and
+`HasFamilyRelationship` scan winning RELA records, resolve their actor bases
+and ASTP association, and read the ASTP Family Association flag.
+`HasParentRelationship` respects RELA's authored parent-to-child direction.
+`GetFactionCombatReaction` reads the first FACT's XNAM entry for the second
+FACT, defaulting to neutral when no relation is authored. These record layouts
+come from `TES5Edit/Core/wbDefinitionsTES5.pas`. Association, family, parent
+and child wording comes from the corresponding CK pages. The local CK corpus
+has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
+both return the evaluator's explicit unsupported-function error.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+**Game presentation natives, SCR-29.** `Game.SetHudCartMode` updates the
+transient `World::hud_cart_mode` flag. `ShowRaceMenu`, `TriggerScreenBlood`
+and `PlayBink` enqueue typed `GameUiRequest` values for the host, preserving
+the supplied value, file name and playback flags. An empty Bink file name
+returns `GameUiError::EmptyVideoName` and queues nothing. Because these
+Papyrus calls return void, rejected requests are recorded in
+`World::native_errors`. The existing `AdvanceSkill` native delegates to
+`World::advance_skill`. Invalid use is recorded there as a native diagnostic.
+The signatures and short behavior descriptions come from the local
+`ck-wiki/Game_Script.wikitext`, since individual pages for these five
+functions are absent. Skill effects use the record-backed AVIF and GMST path
+documented in [progression](progression.md).
+
+**Shared reference placement.** The host reads world state out and never
+writes it back. `World::ref_placement` (in `world/refs.rs`) is the read-only
+view a host uses to keep its own rendering and collision resources in step
+with a reference's runtime state: current position, rotation, scale and enable,
+in the small, `Copy` `RefPlacement` struct, not the mutable `RefState` a native
+or VM path uses to change that state. It returns `None` for a reference never
+instantiated, whose record-authored placement is still current. A deleted
+reference remains present with `visible: false` so the host can release its
+resources. The host side of this contract, and the split it takes between
+collision and rendering change detection, is documented in
+[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an
@@ -232,17 +268,6 @@ dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 establishes that aliases are objects owned by their quest. Fill selection for
 location reference types and `ALFI` forced-into copying are not implemented.
 
-**World reference placement.** `World::ref_placement` (in
-`world/refs.rs`) is the read-only view a host uses to keep its own rendering
-and collision resources in step with a reference's runtime state: current
-position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
-struct, not the mutable `RefState` a native or VM path uses to change that
-state. It returns `None` for a reference never instantiated, whose
-record-authored placement is still current. A deleted reference remains
-present with `visible: false` so the host can release its resources. The host
-side of this contract, and the split it takes
-between collision and rendering change detection, is documented in
-[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `World::set_host_ref_pose` accepts finite position and rotation from a live
 rigid body for an enabled, non-deleted, non-actor reference. The host calls it
 after a physics step, and rendering reads the resulting placement in the same
@@ -273,6 +298,16 @@ is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
 faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
+
+**Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
+crime faction at one in-game day per 100 gold of bounty, rounded up and
+capped at seven days. It advances the shared clock, clears that faction's
+violent and nonviolent bounty, clears partial skill-use experience, and adds
+the served days to the player's `days_in_jail`. That counter is stored in the
+`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
+record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
+this path, so prison placement and stolen-item confiscation or belongings
+restoration are not implemented.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -325,16 +360,19 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 367 stateful registrations, including
-`CreateDetectionEvent`, and 178 quiet stubs. A stub returns the value the game
-gives when nothing is going on so vanilla scripts can continue when their
-owning system has no behavior yet.
+`natives::register` has 369 stateful registrations and 178 quiet stubs,
+including
+`CreateDetectionEvent`, `Actor.IsAlarmed` and `Actor.IsBleedingOut`.
+`IsAlarmed` reads the actor's alert flag. `IsBleedingOut` requires an actor to
+be unconscious, alive and at or below its record-derived bleedout threshold.
+A quiet stub returns the idle value the game gives when nothing is going on,
+so vanilla scripts can continue when their owning system has no behavior yet.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent | Is3DLoaded, IsFurnitureInUse, PlayAnimationAndWait, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -363,6 +401,23 @@ owning system has no behavior yet.
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
 Current behavior and compatibility limits:
+
+`Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
+and 0 otherwise. Searching state 2 is not represented by the combat system.
+`Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
+the sleep procedure is active and 0 otherwise. Transitional sleep states are
+not represented, including 2 (wants to sleep) and 4 (wants to wake). These values follow the CK pages
+`GetCombatState_-_Actor` and `GetSleepState_-_Actor` in the local `ck-wiki`
+corpus.
+
+`Actor.HasLOS` returns true when both references are at the same position and
+the target is visible. Other geometry is not checked. `Actor.PathToReference`
+returns true for a visible target already at the actor's position and valid
+speed. Other requests need a latent path completion API. `Actor.IsFlying`
+remains a quiet stub because the actor model has no current flight state.
+Their CK contracts are described by
+`HasLOS_-_Actor`, `PathToReference_-_Actor` and `IsFlying_-_Actor` in the local
+`ck-wiki` corpus.
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest
@@ -411,6 +466,14 @@ Current behavior and compatibility limits:
   Earned levels update the shared actor-value base and stop at 100. Partial
   skill experience is stored per actor in the `PRG-01` section of SOEW version
   37 actor records. This path applies only explicitly recorded skill use.
+- Character experience advances actor levels using
+  `fXPLevelUpBase + level * fXPLevelUpMult`. Each crossed threshold adds one
+  available attribute choice. Choosing Health, Magicka or Stamina spends one
+  choice and adds 10 to that base actor value. Current-level experience and
+  unspent choices are stored in the `PRG-07` actor section. The world preserves
+  its player-level cache in the `PRG-01.player-level` section. Older saves use
+  the restored player actor level, or the existing cache when no player actor
+  is present.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
@@ -827,6 +890,17 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
+An unfinished package with `Must Complete` stays selected ahead of higher
+priority candidates until its procedure tree finishes. Combat can interrupt
+it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
+the PKDT interrupt flags. `Ignore Combat` leaves package movement in control
+instead of acquiring or pursuing a combat target. `No Combat Alert` records
+combat engagement without setting the actor's alerted state. `At Package Start
+Unlock Doors` unlocks locked doors owned by the actor in its current cell when
+that package starts. `On Package Change Unlock Doors` does the same when leaving
+the flagged package. Unlocking uses the shared reference lock state and emits
+the ordinary lock state event.
+
 Built actors retain their distributed package entries and insertion positions
 in SOEW version 37, so package selection uses the same stack after load.
 
@@ -924,7 +998,10 @@ Other simultaneous child procedures remain unsupported until the completion
 policy in AI-87 is established from paired authored records.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
-plus the local UESP PACK page. CommonLib's sequence header supplies a type
+plus the local UESP PACK page. xEdit names the PKDT interrupt override values
+and interrupt bits, including `Observe combat behavior`. The CK
+`EvaluatePackage` page documents explicit package-stack reevaluation.
+CommonLib's sequence header supplies a type
 but no implementation. The nested-repeat behavior follows the mod author's
 [repeat experiment](https://forums.nexusmods.com/topic/11591393-ai-package-wont-repeat/).
 No reusable interpreter exists in those sources, so this interpreter uses the
@@ -1721,6 +1798,17 @@ have independent filters, applied when events are queued. Filter lists inspect
 immediate members only. Empty lists suppress events, and later filter changes
 do not cancel pending calls. Effect expiry and dispel remove its filters before
 later inventory changes are queued.
+
+Successful COBJ recipes whose workbench keyword editor id starts with
+`CraftingSmithing` also award Smithing skill use to the crafting actor. The
+amount is `(3 * value^0.65 + 25) * created_count`, using the created item's
+record value, then passed once through `World::advance_skill` so AVIF `AVSK`
+use multipliers, offsets, the skill curve and saved partial experience apply.
+This follows the UESP Smithing crafting formula and the COBJ output/count
+fields in local xEdit. A rejected transaction and other workbench keywords
+award no Smithing use. Outputs without a supported value field receive no
+award. This transaction path does not dispatch Story Manager events.
+
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
 queue these events too. Silent removal still notifies scripts. AddItem expands
 a FormList into one count change and OnItemAdded event for every supported
@@ -1905,6 +1993,11 @@ FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen
 `Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
+CRF-08 also uses CK `Game_Script.wikitext` for `AdvanceSkill`, CK
+`Quest_Script.wikitext` for the separate `OnStoryCraftItem` event contract,
+and xEdit COBJ output/count fields. The Smithing experience equation follows
+the UESP Skyrim Smithing crafting section.
+
 For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`. The remaining requested CK pages are absent.
@@ -2258,6 +2351,16 @@ confirming the topic drops out again once the remainder can no longer cover
 another Small favor).
 
 ## Active magic applications
+
+### Grab Actor, MAG-66
+
+Direct casts accept MGEF archetype 45 and retain the selected actor, caster and
+source in the active effect. `World::grab_actor_effect_on` exposes the live
+control relationship. Dispel, expiry and the existing death cleanup remove
+that relationship with the active effect. The CK Magic Effect page describes
+the archetype as picking up and throwing the selected NPC. This game-side
+relationship does not move the actor or apply a throw. The Godot host has no
+actor hold or throw controller yet.
 
 ### Calm archetype, MAG-29
 
@@ -3464,7 +3567,10 @@ See [physical melee execution](combat.md) for supported rules and sources.
 Ranged release reads the selected bow or crossbow and equipped compatible AMMO
 form from actor equipment. A valid release consumes one round, queues the
 ordinary item removal notification, and returns a transient PROJ flight
-request to the host. See [ranged release](combat.md#ranged-release-cmb-08).
+request to the host. `FlightMotion` advances that request in fixed time steps
+using its record gravity, speed and range. Flight state is transient and does
+not enter the save. See [ranged release](combat.md#ranged-release-cmb-08) and
+[projectile flight](combat.md#projectile-flight-cmb-22).
 The combined full gate passes 1,163 Rust tests and 11 Python tests, with no
 warnings or skipped optional tools. Installed-data validation passes 12 melee
 and 11 death-lifecycle tests. It decodes 3,262 winning weapons and 3,675 armors,
