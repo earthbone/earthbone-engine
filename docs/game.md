@@ -125,7 +125,7 @@ registered sinks. Form identities retain both the load-order file index and
 object id. Level increase reads `player_level` and the current player identity
 from the live world, and rejects levels outside the event's `u16` field before
 dispatch. These events add no saved state. Disarm, dragon soul awards and
-location discovery are event entry points for their gameplay callers; this
+location discovery are event entry points for their gameplay callers. This
 crate does not currently implement those gameplay systems. Binary hook
 requests return the requested hook name as an unsupported result without
 changing runtime state. The corresponding source-level API and C++ contract
