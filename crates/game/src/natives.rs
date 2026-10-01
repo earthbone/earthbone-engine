@@ -3946,12 +3946,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         }
         n += 1;
     }
-    let ints: &[(&str, &str, i32)] = &[
-        ("Actor", "GetSitState", 0),
-        ("Location", "GetRefTypeAliveCount", 0),
-        ("Location", "GetRefTypeDeadCount", 0),
-        ("Actor", "GetFlyingState", 0),
-    ];
+    let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
     for (class, name, value) in ints {
         let global = *class == "Game";
         let v = *value;
@@ -3968,8 +3963,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
-        ("ObjectReference", "KnockAreaEffect"),
-        ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
