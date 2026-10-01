@@ -73,7 +73,10 @@ fn has_numeric_len_tail(source: &str) -> bool {
             continue;
         };
         let after_minus = after_minus.trim_start();
-        let literal = after_minus.strip_prefix('(').unwrap_or(after_minus).trim_start();
+        let literal = after_minus
+            .strip_prefix('(')
+            .unwrap_or(after_minus)
+            .trim_start();
         if literal.chars().take_while(char::is_ascii_digit).count() >= 2 {
             return true;
         }
@@ -97,9 +100,15 @@ fn check_source(path: &Path) {
 
 #[test]
 fn source_audit_catches_parenthesized_literal_tail_offsets() {
-    assert!(has_numeric_len_tail(&["let cut = bytes.", "len() - (", "42);"].concat()));
-    assert!(has_numeric_len_tail(&["let cut = bytes.", "len()\n - ", "42;"].concat()));
-    assert!(!has_numeric_len_tail(&["let cut = bytes.", "len() - ", "tail;"].concat()));
+    assert!(has_numeric_len_tail(
+        &["let cut = bytes.", "len() - (", "42);"].concat()
+    ));
+    assert!(has_numeric_len_tail(
+        &["let cut = bytes.", "len()\n - ", "42;"].concat()
+    ));
+    assert!(!has_numeric_len_tail(
+        &["let cut = bytes.", "len() - ", "tail;"].concat()
+    ));
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     check_source(&root.join("tests"));
     check_source(&root.join("src/world/save_tests.rs"));
