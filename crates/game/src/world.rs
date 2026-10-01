@@ -507,6 +507,34 @@ pub struct AnimationWaiter {
     pub latent: LatentId,
 }
 
+/// A named event to send to one placed reference's animation graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationRequest {
+    pub target: GlobalFormId,
+    pub animation: String,
+}
+
+/// Result waiting for the game loop to resolve in the Papyrus VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationCompletion {
+    pub latent: LatentId,
+    pub succeeded: bool,
+}
+
+/// One ordered notification from a host animation visual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnimationHostNotice {
+    Event { source: GlobalFormId, name: String },
+    Unloaded { target: GlobalFormId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnimationWait {
+    pub target: GlobalFormId,
+    pub event: String,
+    pub latent: LatentId,
+}
+
 /// A line-of-sight registration. `single` is a one-shot gain or lost
 /// registration, `gain` says which of the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -701,6 +729,13 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     /// One-shot impulses waiting for the host's ragdoll bodies.
     pub actor_impulses: Vec<ActorImpulse>,
+    /// Requests awaiting delivery to a host animation graph.
+    pub animation_requests: Vec<AnimationRequest>,
+    pub(crate) animation_waits: Vec<AnimationWait>,
+    /// Ordered events and unloads reported by host animation visuals.
+    pub animation_host_notices: Vec<AnimationHostNotice>,
+    /// Completed latent calls awaiting the game loop.
+    pub animation_completions: Vec<AnimationCompletion>,
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
     pub camera_controls: CameraControls,
@@ -894,6 +929,10 @@ impl World {
             screenshot_requests: Vec::new(),
             animation_events: Vec::new(),
             actor_impulses: Vec::new(),
+            animation_requests: Vec::new(),
+            animation_waits: Vec::new(),
+            animation_host_notices: Vec::new(),
+            animation_completions: Vec::new(),
             player_controls: true,
             camera_controls: CameraControls::default(),
             ini: HashMap::new(),

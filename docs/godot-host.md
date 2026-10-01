@@ -1083,18 +1083,22 @@ screen. This connects the two.
 
 ### Runtime animation requests, HST-10
 
-An appearance-bound `SkinnedActorNode` keeps its actor `GlobalFormId` and a
-cursor into the shared world's animation event log. On each `advance`, it
-passes new events for that actor to its HKX interpreter before updating the
-graph. Events for other forms and events already present when the actor was
-bound are skipped. The cursor advances across the whole log, so one request is
-submitted at most once to that host actor. The interpreter's emitted graph
-events continue through the node's `animation_event` signal after its pose is
-uploaded, once per event returned by `take_events()`. That interpreter method
-also returns submitted input events, so the signal does not report that a
-requested animation finished. `World::animation_event` currently records both
-script requests and listener notifications. The host does not instantiate a
-graph for non actor references, which `ObjectReference.PlayAnimation` requires.
+An appearance-bound `SkinnedActorNode` keeps its target `GlobalFormId` and a
+cursor into the shared world's animation request log. On each `advance`, it
+passes new requests for that target to its HKX interpreter before updating the
+graph. Requests for other forms and requests already present when the visual
+was bound are skipped. The cursor advances across the whole log, so one
+request reaches the matching visual at most once. Graph events are queued back
+to the shared world after their pose is uploaded. `Game` delivers them to
+`OnAnimationEvent` listeners and resolves matching `PlayAnimationAndWait`
+latent calls once. Removing the visual fails any waits for its target.
+
+The CK `PlayAnimationAndWait` contract comes from
+`engine-refs/ck-wiki/PlayAnimationAndWait_-_ObjectReference.wikitext`: send
+the named animation to the target graph, return true on the requested event,
+and false if the graph unloads first. This bridge only drives visuals
+explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
+animation graphs are not instantiated by this bridge.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local

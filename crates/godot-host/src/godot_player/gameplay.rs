@@ -122,6 +122,7 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            game.deliver_animation_reports();
             self.image_space.sync(&game.world());
             let (hud_cart_mode, requests) = {
                 let mut world = game.world_mut();
