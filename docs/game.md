@@ -4174,11 +4174,16 @@ the lock and inventory unchanged. A successful turn unlocks through `set_locked`
 A miss removes one pick through the notified inventory transaction. The host
 then runs ordinary activation after success. The sweet spot is derived from
 the reference FormID. XLOC level narrows the angle window and Lockpicking skill
-increases it, with a two-degree minimum. CK lock pages and xEdit's XLOC layout
-define lock-level ranges, not the menu's angular rule, so the angle behavior
-is runtime policy. The `ui_08` tests cover opening after a successful turn,
-pick consumption after a failed turn and the key-only lock restriction. No
-saved state was added.
+increases it, with a two-degree minimum. CK `GetLockLevel` defines 0 to 1 as
+Novice, 2 to 25 as Apprentice, 26 to 50 as Adept, 51 to 75 as Expert, 76 to
+254 as Master, and 255 as Requires Key. xEdit's `wbDefinitionsTES5.pas`
+defines XLOC as a level byte, three unused bytes, a KEYM link, a flags byte,
+three unused bytes and eight trailing unused bytes. The parser accepts the
+documented truncated forms of that structure. These sources define lock-level
+ranges and key-only locks, not the menu's angular rule, so the angle behavior
+is runtime policy. The `ui_08` tests cover successful unlock and subsequent
+activation, failed-turn pick consumption, key-only refusal, malformed XLOC,
+and invalid-angle preservation. No saved state was added.
 
 Vanilla minigame feel and timing, key-use messages, crime handling, reciprocal
 door lock synchronization and `Lock`'s abAsOwner public/private-cell effect
