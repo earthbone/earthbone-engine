@@ -216,6 +216,40 @@ fn mod_07_each_patch_kind_retains_fixture_provenance() {
 }
 
 #[test]
+fn mod_07_devious_devices_kid_rule_resolves_with_mod_provenance() {
+    // Source: DeviousDevicesNG at 6b89b4160fffe62e38c9d3d777e66fb3a06b8419,
+    // Devious Devices_KID.ini. The repository licenses this file under Apache-2.0.
+    let ini = Ini::parse(
+        "Devious Devices_KID.ini",
+        "Keyword = 0x0012DB~Schlongs of Skyrim - Core.esm|Armor|zadNG_SoSRevealing",
+    );
+    let file = KidFile::from_ini(&ini);
+    assert_eq!(file.rules.len(), 1, "the shipped rule must parse");
+
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
+    plugin.push_top(Record::new(KYWD, 0x12db).zsub(tag::EDID, "SoSRevealing"));
+    let mut load_order = LoadOrder::new();
+    load_order
+        .add(
+            "Schlongs of Skyrim - Core.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
+        .unwrap();
+
+    let patches = resolve_kid(&file, &load_order);
+    assert_eq!(patches.len(), 1, "the shipped keyword must resolve");
+    let keyword = FormRef::parse("0x0012DB~Schlongs of Skyrim - Core.esm")
+        .resolve(&load_order)
+        .unwrap();
+    assert_eq!(patches[0].change, Change::AddKeyword { keyword });
+    assert_eq!(patches[0].source.to_str(), Some("Devious Devices_KID.ini"));
+    assert_eq!(patches[0].line, 1);
+}
+
+#[test]
 fn resolution_preserves_deterministic_chance_instead_of_erasing_it() {
     let file = DistrFile::from_ini(&Ini::parse(
         "t_DISTR.ini",

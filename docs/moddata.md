@@ -145,21 +145,29 @@ headers, and a standard ini crate models none of that.
 ## Measured
 
 The installed game Data directory has no `_DISTR`, `_KID` or `_SWAP` files, so
-the gated real-file tests have nothing to read. Every fixture in the test suite
-is authored from the syntax examples in the sources above and is marked as
-authored rather than real. The MOD-07
+the gated real-file tests have nothing to read. Most fixtures in the test suite
+are authored from the syntax examples in the sources above. The MOD-07
 provenance regression checks that SPID, KID and BOS patches retain their input
-file and line. No shipped mod has been run through the parser or game application
-yet.
+file and line.
+
+MOD-07 also carries one real KID rule from DeviousDevicesNG as an inline test
+fixture. Its source is `Devious Devices_KID.ini` at revision
+`6b89b4160fffe62e38c9d3d777e66fb3a06b8419`, licensed Apache-2.0. The test
+parses the exact rule, resolves its keyword against a synthetic load order,
+and checks the source path and line. The rule refers to a form supplied by
+Schlongs of Skyrim, so the test models that keyword record rather than needing
+the external mod installed. No real SPID, BOS or OAR mod fixture is available
+yet, and this test does not run the rule through `soe-game`.
 
 | Test suite | Count | What it covers |
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
-| `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
+| `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
 
 ## Not done
 
-- No real mod has been parsed, see above.
+- MOD-07 covers one real KID rule. Real SPID, BOS and OAR mod fixtures and
+  game-side application of a real mod remain untested.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written.
@@ -264,8 +272,8 @@ level and traits, with the record fields available to this engine.
 
 The gated scan over the installed game reports zero of everything, because the
 install is vanilla and ships no mod using any of these formats. It starts
-reporting the moment one is installed, which remains the crate's one honest gap:
-every fixture is still authored.
+reporting the moment one is installed. The gated scan reports formats in the
+installed game, but the current vanilla installation has no such mod files.
 
 | Test suite | Count | What it covers |
 |---|---|---|
