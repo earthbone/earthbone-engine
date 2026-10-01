@@ -105,7 +105,10 @@ fn prg_14_two_native_events_before_pump_start_the_quest_once_with_first_context(
     fire(&mut game, 31, 44);
     game.vm.run(64);
 
-    assert!(game.world().quest(id(QUEST)).is_none_or(|quest| !quest.running));
+    assert!(game
+        .world()
+        .quest(id(QUEST))
+        .is_none_or(|quest| !quest.running));
     game.pump();
 
     let world = game.world();
@@ -121,8 +124,14 @@ fn prg_14_two_native_events_before_pump_start_the_quest_once_with_first_context(
         .as_ref()
         .unwrap();
     assert_eq!(event.parameters.len(), 6);
-    assert_eq!(event.parameters[4], soe_game::quest::state::StoryParameter::Integer(17));
-    assert_eq!(event.parameters[5], soe_game::quest::state::StoryParameter::Integer((-9_i32) as u32));
+    assert_eq!(
+        event.parameters[4],
+        soe_game::quest::state::StoryParameter::Integer(17)
+    );
+    assert_eq!(
+        event.parameters[5],
+        soe_game::quest::state::StoryParameter::Integer((-9_i32) as u32)
+    );
 }
 
 #[test]
@@ -153,6 +162,12 @@ fn prg_14_native_reset_history_and_context_survive_reload() {
         .event
         .as_ref()
         .unwrap();
-    assert_eq!(event.parameters[4], soe_game::quest::state::StoryParameter::Integer(31));
-    assert_eq!(event.parameters[5], soe_game::quest::state::StoryParameter::Integer(44));
+    assert_eq!(
+        event.parameters[4],
+        soe_game::quest::state::StoryParameter::Integer(31)
+    );
+    assert_eq!(
+        event.parameters[5],
+        soe_game::quest::state::StoryParameter::Integer(44)
+    );
 }
