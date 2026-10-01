@@ -52,7 +52,7 @@ impl World {
 
     /// Whether `target` is currently Alert or in Combat toward `observer`.
     /// This reads the observer-specific result from the shared detection
-    /// state; it does not create an observation or advance detection.
+    /// state. It does not create an observation or advance detection.
     ///
     /// # Errors
     /// Returns [`Error::Actor`] when either form is not a live actor.

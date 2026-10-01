@@ -299,6 +299,10 @@ fn game() -> Game {
         game.load_script(&script).unwrap();
     }
     game.bind();
+    game.load_cell(soe_esm::GlobalFormId {
+        file: 0,
+        object: INSIDE,
+    });
     game
 }
 

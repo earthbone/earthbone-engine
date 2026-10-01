@@ -33,7 +33,7 @@ fn scr_09_detection_query_is_observer_specific_and_missing_actor_is_an_error() {
         .unwrap());
     assert!(game
         .world()
-        .is_actor_detected_by(id(0x902), id(0x901))
+        .is_actor_detected_by(id(0x903), id(0x901))
         .is_err());
 }
 

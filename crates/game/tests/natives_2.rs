@@ -576,6 +576,10 @@ fn game() -> Game {
     for s in scripts() {
         game.load_script(&s).unwrap();
     }
+    game.load_cell(GlobalFormId {
+        file: 0,
+        object: INN_CELL,
+    });
     game
 }
 
