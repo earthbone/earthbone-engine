@@ -47,9 +47,10 @@ fn a_pre_nam3_model_does_not_fill_an_absent_behavior_graph() {
 
 #[test]
 fn installed_human_beast_and_creature_race_rigs_map_all_skin_bones() {
-    let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from("/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data")
-    });
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
     let mut vfs = Vfs::new();
     for name in [
         "Skyrim - Meshes0.bsa",
