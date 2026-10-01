@@ -5075,14 +5075,17 @@ table and record-backed base queries. Their runtime state uses the existing
 SOEW reference encoding. See [save.md](save.md#reference-placements) for
 sources, validation and the limits of this intermediate reconstruction pass.
 
-For reference headers with the generic form-flags bit, the pass applies the
-`Mask Invert Flags` word to authored `INITIALLY_DISABLED` and `PERSISTENT`
-record bits with XOR. It accepts only ESS header version 12, form version 78
-and change-form version 78 when that mask is present. The second 16-bit word
-is retained in the report and does not affect these two runtime properties.
-The effective persistence value feeds cell-unload retention and
-encounter-zone reset decisions. SOEW version 37 stores it with each reference.
-Older SOEW states derive persistence from the current winning record.
+For reference headers with the generic form-flags bit, the pass retains both
+words in its report and leaves enable and persistence derived from the winning
+record. It accepts only ESS header version 12, form version 78 and change-form
+version 78 when that mask is present. The test
+`sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks all
+four authored combinations, several values in both mask words, the persistence
+query and engine save/load. It describes this loader's current
+behavior, not an independently verified Skyrim save operation. The effective
+persistence value feeds cell-unload retention and encounter-zone reset
+decisions. SOEW version 37 stores it with each reference. Older SOEW states
+derive persistence from the current winning record.
 
 ## Inventory instances and ESS application, work in progress
 
