@@ -142,9 +142,16 @@ owner, location, layer, encounter zone, emittance, teleport door, enable
 parent, lock key, linked reference, navmesh door, location ref type and idle
 links are remapped. Texture set and grass links, navmesh base object lists,
 magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
-quest links, INFO topic, response and response-sound links, WEAP and ARMO
-enchantments, and HAZD image-space and DATA
-links are remapped at their documented offsets. Scalar values remain intact.
+quest links, INFO topic, response and response-sound links, and ARMO
+enchantments are remapped. WEAP enchantment, impact, material, scope,
+first-person model, sound, critical effect, and template links are remapped,
+including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
+links in `DSTD` are remapped for their applicable records.
+The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
+the 24-byte layout. Destruction stage explosion and debris links are at offsets
+8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
+remapped at their documented offsets. Scalar values remain intact. These
+fields and nested layouts follow local xEdit `Core/wbDefinitionsTES5.pas`.
 The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
 `REFR.wikitext`. VMAD object
 properties and arrays in object formats 1 and 2 are remapped while trailing
