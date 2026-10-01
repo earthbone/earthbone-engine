@@ -11,8 +11,7 @@
 //! SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-game --test real_files -- --nocapture
 //! ```
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::path::PathBuf;
 use std::time::Instant;

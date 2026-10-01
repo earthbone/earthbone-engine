@@ -96,11 +96,11 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     let state = world.reference(reference).unwrap();
     assert!(!state.destroyed && state.enabled);
     drop(world);
-    assert!(matches!(
-        game.world().pending.last(),
-        Some(Pending::Event { name, args, .. })
+    assert!(!game.world().pending.iter().any(|pending| matches!(
+        pending,
+        Pending::Event { name, args, .. }
             if name == "OnDestructionStageChanged" && args == &[soe_papyrus::Value::Int(-1)]
-    ));
+    )));
 }
 
 #[test]

@@ -31,19 +31,27 @@ fn call_global(game: &mut Game, name: &str, args: &[Value]) -> Value {
         .vm
         .call_global("Prf10BudgetProbe", "Run", args)
         .unwrap();
-    game.run_until_idle(8);
-    game.vm.thread_result(thread).unwrap_or(Value::None)
+    assert!(game.run_until_idle(8));
+    game.vm.thread_result(thread).unwrap()
 }
 
 #[test]
-fn prf_10_budget_categories_expose_engine_limits_and_ck_fallbacks() {
+fn prf_10_budget_queries_expose_limits_and_diagnose_missing_memory_tracking() {
     let mut game = Game::new(LoadOrder::new());
 
-    assert_eq!(call_global(&mut game, "GetBudgetCount", &[]), Value::Int(2));
+    assert_eq!(call_global(&mut game, "GetBudgetCount", &[]), Value::None);
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
     assert_eq!(
         call_global(&mut game, "GetBudgetName", &[Value::Int(0)]),
-        Value::string("Papyrus instructions per slice")
+        Value::None
     );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetName: memory tracking is unavailable"));
     assert_eq!(
         call_global(&mut game, "GetCurrentBudget", &[Value::Int(0)]),
         Value::Int(PAPYRUS_INSTRUCTIONS_PER_SLICE as i32)
@@ -54,7 +62,7 @@ fn prf_10_budget_categories_expose_engine_limits_and_ck_fallbacks() {
     );
     assert_eq!(
         call_global(&mut game, "GetBudgetName", &[Value::Int(1)]),
-        Value::string("Exterior cell loads per update")
+        Value::None
     );
     assert_eq!(
         call_global(&mut game, "GetCurrentBudget", &[Value::Int(1)]),
@@ -68,7 +76,7 @@ fn prf_10_budget_categories_expose_engine_limits_and_ck_fallbacks() {
     for index in [-1, 2, i32::MAX] {
         assert_eq!(
             call_global(&mut game, "GetBudgetName", &[Value::Int(index)]),
-            Value::string("")
+            Value::None
         );
         assert_eq!(
             call_global(&mut game, "GetCurrentBudget", &[Value::Int(index)]),
