@@ -110,6 +110,7 @@ pub struct PlayerNode {
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
+    aimed_projectile_contacts: crate::combat::AimedProjectileContacts,
     /// One server body per loaded actor, rebuilt from the shared World on
     /// each physics tick. No scene node is allocated per reference.
     actor_bodies: crate::godot_physics::ActorBodies,
@@ -196,6 +197,7 @@ impl INode3D for PlayerNode {
             pending_debug_latents: Vec::new(),
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
+            aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
             last_melee_target: None,
             last_melee_obstruction: None,

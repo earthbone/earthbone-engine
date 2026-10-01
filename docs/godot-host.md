@@ -294,9 +294,14 @@ game World. It keys active visuals by `(EFSH, target reference)`, so a second
 Play refreshes the existing RenderingServer instance. Stop frees it, finite
 durations free it after elapsed host time, and leaving the tree frees every
 remaining instance. Each active effect owns one sphere mesh instance and one
-material, with no scene node. The current material is a generic blue emissive
-fill. EFSH texture inputs, authored colors, blend modes, fade curves and
-attachment to skinned surfaces are not read yet.
+material, with no scene node. The membrane uses the EFSH fill texture through
+the shared data-source DDS cache, the first authored fill color, a mapped
+source/destination blend mode, and the fill alpha fade and persistent ratio.
+Particle emission, palette and edge texture effects, skin-only filtering, and
+attachment to skinned surfaces are not implemented. The local reference
+corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
+corpus has no EffectShader page. The synthetic tests verify request data and
+host fade/blend selection. Live rendered output has not been verified.
 
 ## Invisibility rendering, MAG-34
 
@@ -2328,19 +2333,45 @@ The contact query now reads two owner maps: bodies registered through
 attacker in either map is excluded. `intersect_ray` returns the nearest hit
 along the segment, so the first actor or unmapped obstruction wins.
 
-`aimed_spell_projectile_contact(spell_file, spell_object, contact_body)` maps
-the contacted actor body RID through that same owner table and applies the
-aimed spell through `World::cast_spell_on_projectile_contact`. Unknown bodies
-and rejected casts return false. The caller discards the projectile after a
-successful contact. This callback allocates no projectile node and stores no
-projectile or save state.
+`cast_touch_spell(spell_file, spell_object)` casts a touch spell at the first
+eligible actor intersected by the camera's forward physics ray. The ray length
+comes from the winning SPEL's SPIT range converted to Godot metres. The player's
+own bodies are excluded, and the nearest static obstruction or unmapped body
+blocks actors behind it. The returned actor must still be enabled, undeleted
+and alive in the shared World. `World::cast_spell` performs its authored reach
+check before applying effects. Invalid spells, unavailable physics space,
+misses and rejected targets return false.
 
-`cast_location_spell(spell_file, spell_object, x, y, z)` sends the selected
-Skyrim world position to `World::cast_spell_at_location`. The player's static
-physics world raycasts from the player feet to the point. Missing physics data
-or any geometry hit rejects the cast before the world applies effects. The
-world checks the authored SPIT range and centers each effect's area at the
-selected point.
+`aimed_spell_projectile_contact(spell_file, spell_object,
+projectile_instance_id, contact_body)` maps the contacted actor body RID
+through that same owner table and applies the aimed spell through
+`World::cast_spell_on_projectile_contact`. The first contact consumes the
+projectile's instance ID before applying effects, so duplicate Godot contact
+signals cannot repeat the hit. Unknown bodies and rejected casts return
+false. The projectile owner calls `aimed_spell_projectile_finished` when it
+frees the projectile, which releases the one-shot guard. This callback does
+not create or advance projectile flight.
+
+xEdit's `wbDefinitionsTES5.pas` defines SPIT delivery value 2 as Aimed. The
+CK `OnHit_-_ObjectReference.wikitext` describes spell projectiles as contact
+hits and notes that each associated magic effect can produce its own hit
+event. The world contact API applies the spell effect list once for the
+reported actor contact. `mag_02_projectile_contact.rs` checks that repeated
+contact signal delivery for one projectile dispatches only once and that
+freeing it releases the guard. Flight creation and movement are not covered.
+
+`selected_location_position()` returns the first static geometry hit along the
+camera look ray in Godot metres. `cast_location_spell_at_look(spell_file,
+spell_object)` sends that same hit point to the shared cast path. The explicit
+`cast_location_spell(spell_file, spell_object, x, y, z)` entry point accepts a
+Skyrim world position. Both check the segment from the player's eye to the
+point, allowing a hit at the endpoint and rejecting an earlier obstruction.
+Missing physics data rejects the cast. The world checks the authored SPIT
+range and centers each effect's area at the selected point.
+
+`godot/mag_17_location_selection_test.gd` loads the installed Bannered Mare,
+checks that the live camera ray selects loaded geometry, and casts the vanilla
+Fire Rune at that selected surface through the host callback.
 
 Pose-derived segments come from two new entry points.
 `melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
