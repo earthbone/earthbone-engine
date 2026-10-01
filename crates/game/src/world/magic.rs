@@ -156,6 +156,7 @@ struct PreparedEffect {
     dispel: Vec<EffectId>,
 }
 
+pub(super) struct PreparedWeaponEnchantment(Vec<PreparedEffect>);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CastDelivery {
     Direct,
@@ -748,7 +749,13 @@ impl World {
         let effects = match self.tag_of(item).map(|tag| *tag.as_bytes()) {
             Some(tag) if tag == *b"SPEL" => self.spell(item)?.effects,
             Some(tag) if tag == *b"ALCH" => self.ingestible(item)?.effects,
-            Some(tag) if tag == *b"ENCH" => self.enchantment_effects(item)?,
+            Some(tag) if tag == *b"ENCH" => {
+                let record = self
+                    .record(item)
+                    .filter(|record| !record.is_deleted() && record.tag == super::T(b"ENCH"))
+                    .ok_or(MagicError::Missing(item))?;
+                weapon_enchantment_effects(record).or_else(|_| self.enchantment_effects(item))?
+            }
             _ => return Err(MagicError::Missing(item)),
         };
         effects
@@ -811,6 +818,104 @@ impl World {
         let prepared =
             self.ingestible_prepared_effects(poison, &definition.effects, Some(attacker), target)?;
         self.apply_prepared_effects(prepared, alloc)
+    }
+
+    pub(super) fn prepare_weapon_enchantment(
+        &mut self,
+        enchantment: GlobalFormId,
+        attacker: GlobalFormId,
+        target: GlobalFormId,
+    ) -> Result<PreparedWeaponEnchantment, MagicError> {
+        let record = self
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == super::T(b"ENCH"))
+            .ok_or(MagicError::Missing(enchantment))?;
+        let data = record
+            .find(super::T(b"ENIT"))
+            .filter(|data| matches!(data.len(), 32 | 36))
+            .ok_or_else(|| {
+                MagicError::Record(soe_esm::Error::Invalid("malformed ENCH ENIT".into()))
+            })?;
+        let cast_type = u32::from_le_bytes(data[8..12].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH cast type".into()))
+        })?);
+        let delivery = u32::from_le_bytes(data[16..20].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH delivery".into()))
+        })?);
+        let enchant_type = u32::from_le_bytes(data[20..24].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH type".into()))
+        })?);
+        let base_enchantment = u32::from_le_bytes(data[24..28].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH base link".into()))
+        })?);
+        if cast_type != 1 || delivery != 1 || enchant_type != 6 {
+            return Err(MagicError::Unsupported("weapon enchantment casting"));
+        }
+        if base_enchantment != 0 {
+            return Err(MagicError::Unsupported("base weapon enchantment"));
+        }
+        let effects = weapon_enchantment_effects(record)?;
+        let prepared =
+            self.ingestible_prepared_effects(enchantment, &effects, Some(attacker), target)?;
+        Ok(PreparedWeaponEnchantment(
+            self.prepare_effect_actions(prepared)?,
+        ))
+    }
+
+    pub(super) fn apply_weapon_enchantment(
+        &mut self,
+        prepared: PreparedWeaponEnchantment,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        self.apply_prepared_plan(prepared.0, alloc)
+    }
+
+    /// Check an enchantment against the target's health after the physical hit.
+    /// The first preparation sees the pre-hit values, so it cannot detect a
+    /// combined hit and effect that overflows an actor-value component.
+    pub(super) fn validate_weapon_enchantment_after_hit(
+        &mut self,
+        prepared: &PreparedWeaponEnchantment,
+        target_values: &crate::actor_values::Values,
+    ) -> Result<(), MagicError> {
+        let mut values = target_values.clone();
+        for action in &prepared.0 {
+            for id in &action.dispel {
+                if let Some(effect) = self.active_effects.get(id).filter(|effect| effect.recover) {
+                    change_values(&mut values, effect, -1.0)?;
+                }
+            }
+            if action.effect.recover || action.effect.duration == Some(0.0) {
+                let before = values.get("health").current();
+                change_values(&mut values, &action.effect, 1.0)?;
+                let touches_health = action
+                    .effect
+                    .changes
+                    .iter()
+                    .any(|(name, _)| name == "health");
+                let actor = self
+                    .actor_ref(action.effect.target)
+                    .ok_or(MagicError::Target)?;
+                let player_exception = actor.protected
+                    && !actor.essential
+                    && self.player.is_some()
+                    && action.effect.caster == self.player;
+                let eligible = touches_health
+                    && (actor.protected || actor.essential)
+                    && !player_exception
+                    && values.get("health").current() < before;
+                let (clamped, entering) = self.clamp_health_at_bleedout(
+                    action.effect.target,
+                    eligible,
+                    values.get("health").current(),
+                );
+                if entering {
+                    super::bleedout::commit_bleedout_health(&mut values, clamped)
+                        .map_err(|_| MagicError::Number)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Shared ALCH effect-entry validation and `PreparedEffect` construction
@@ -2001,6 +2106,14 @@ impl World {
         self.apply_prepared_actions(prepared, alloc, disarms)
     }
 
+    fn apply_prepared_plan(
+        &mut self,
+        prepared: Vec<PreparedEffect>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        self.apply_prepared_actions(prepared, alloc, Vec::new())
+    }
+
     fn apply_prepared_actions(
         &mut self,
         prepared: Vec<PreparedEffect>,
@@ -2689,4 +2802,67 @@ fn change_values(
         result.map_err(|_| MagicError::Number)?;
     }
     Ok(())
+}
+
+fn weapon_enchantment_effects(record: &Record) -> Result<Vec<Effect>, MagicError> {
+    let mut effects = Vec::new();
+    let mut pending: Option<u32> = None;
+    for subrecord in &record.subrecords {
+        match subrecord.tag.as_bytes() {
+            b"EFID" => {
+                if pending.is_some() || subrecord.data.len() != 4 {
+                    return Err(MagicError::Unsupported(
+                        "malformed weapon enchantment effects",
+                    ));
+                }
+                pending = Some(u32::from_le_bytes(
+                    subrecord.data.as_slice().try_into().map_err(|_| {
+                        MagicError::Unsupported("malformed weapon enchantment effects")
+                    })?,
+                ));
+            }
+            b"EFIT" => {
+                let base_effect = pending.take().ok_or(MagicError::Unsupported(
+                    "malformed weapon enchantment effects",
+                ))?;
+                if subrecord.data.len() != 12 {
+                    return Err(MagicError::Unsupported(
+                        "malformed weapon enchantment effects",
+                    ));
+                }
+                let bytes = subrecord.data.as_slice();
+                let magnitude = f32::from_le_bytes(bytes[..4].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                let area = u32::from_le_bytes(bytes[4..8].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                let duration = u32::from_le_bytes(bytes[8..12].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                if !magnitude.is_finite() || magnitude < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                effects.push(Effect {
+                    base_effect,
+                    data: soe_esm::records::gameplay::EffectData {
+                        magnitude,
+                        area,
+                        duration,
+                    },
+                    conditions: Vec::new(),
+                });
+            }
+            b"CTDA" | b"CIS1" | b"CIS2" => {
+                return Err(MagicError::Unsupported("weapon enchantment conditions"));
+            }
+            _ => {}
+        }
+    }
+    if pending.is_some() || effects.is_empty() {
+        return Err(MagicError::Unsupported(
+            "malformed weapon enchantment effects",
+        ));
+    }
+    Ok(effects)
 }

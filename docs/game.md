@@ -10,8 +10,8 @@ fields. MUSC selection flags, priority and fade, region priority and `RDSA`
 sound descriptors are not evaluated yet.
 
 The combat integration includes race-based unarmed damage, difficulty selection,
-template-backed hits,
-armor slot replacement and explicit weapon hands. SOEW version 20 retains
+template-backed hits, weapon enchantment effects and per-instance charge,
+armor slot replacement and explicit weapon hands. SOEW version 21 retains
 both difficulty and hands, with separate readers for the version 16 and 17
 branch layouts. The authored contact bridge reaches the shared Game through
 animation events. Live host collision synchronization and attack input are
@@ -329,12 +329,16 @@ carried in SOEW version 31. Every check, witness is an actor, perpetrator
 is an actor with a crime faction, that faction tracks crime, runs before
 anything is mutated, so a bad call changes nothing. `CRGR`, the crime
 group that would let one faction's bounty spread to its allies, is not
-parsed. A faction outside the perpetrator's own never gets charged, which
-is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
+parsed. This API charges only the perpetrator's faction. A `FACT` with no
 `CRVA` subrecord prices every crime at zero rather than failing, since a
 faction can legally exist without one. No Papyrus native calls this
-function yet, `SendAssaultAlarm` and similar witness-driven natives are
-later work that can build on it.
+function yet. A surviving target hit by the player is the witness for a melee
+assault. The combat path uses the victim's crime faction and its `CRVA`
+assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
+and lethal player hits do not add an assault bounty. The victim's witnessed
+perpetrator set and the faction's violent bounty are updated through the
+existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
+remain later work.
 
 **Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
 crime faction at one in-game day per 100 gold of bounty, rounded up and
@@ -4495,10 +4499,34 @@ Synthetic inventory tests cover selected quality updates retaining enchantment,
 poison, charge and opaque fields, exact transfer, adjacent stacks, save/load,
 plain quantity splits, stale indices, identical restoration, malformed patches,
 ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
-Learned enchantments, poison use and host menus belong to their separate
-backlog items. Tempering uses this exact-selection API and does not change
+Poison use and host menus belong to their separate backlog items. Tempering
+uses this exact-selection API and does not change
 Papyrus RemoveItem selection policy. These tests do not compare selection
 policy against the original runtime or load installed save files.
+
+## Disenchanting (CRF-03)
+
+`Game::disenchant` consumes one selected weapon or armor instance and adds each
+unknown MGEF linked by its ENCH record to the world's learned effect set.
+Instance ExtraEnchantment data takes precedence over the base item's EITM link.
+Staff enchantments, malformed or effectless ENCH records, already-known
+effects, and items with the `MagicDisallowEnchanting` keyword are rejected.
+Eligibility is checked before the selected inventory clone and learned-effect
+set are committed. A successful operation emits the normal OnItemRemoved event.
+
+SOEW version 34 saves the learned MGEF identities, and the determinism hash
+includes them. Earlier world saves load with an empty learned-effect set.
+The xEdit `wbDefinitionsTES5.pas` ENCH definition supplies the ENIT field
+layout, enchantment kind and EFID/EFIT pairs. The local UESP ENCH page documents
+both 36-byte ENIT data and 32-byte form-version-37 data without the trailing
+worn-restriction form ID. The parser accepts those two lengths. The CK wiki corpus has no
+disenchanting page. Original-runtime edge cases such as partial learning from
+multi-effect enchantments remain unverified. The local UESP KYWD reference
+identifies `MagicDisallowEnchanting` as an engine-recognized keyword.
+
+`crf_03_disenchant` covers learned effects, selected-stack consumption,
+rejection atomicity, excluded enchantments and save/load continuation. Tests
+use synthetic records and do not claim an installed-data survey.
 
 ## Alias-backed dialogue eligibility (DLG-13)
 
@@ -5038,6 +5066,22 @@ and rejected on equip, and `EquipSpell`/menu equip agreeing on
 `GetEquippedSpell`. The existing `world.rs` and `hash.rs` suites were left
 unchanged since neither exercised the two new fields before this change.
 
+## Race animation models, ANM-55
+
+`race::AnimationModels` reads male and female skeletal `ANAM` strings and
+behavior project `MODL` paths in the `RACE` subrecord order defined by
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The `MNAM` and `FNAM` markers select the
+sex slot. `World::actor_animation_rig` selects the paths for the actor's
+current race and sex after the same trait and live-race resolution used by
+appearance selection. Missing sex-specific paths remain absent for the host
+to report.
+
+CommonLibSSE-NG's `TESRace.h` names the matching runtime members
+`skeletonModels[sex]` and `behaviorGraphs[sex]`. The focused synthetic test
+checks the marker order and confirms one sex does not borrow the other sex's
+paths. The host follows the selected project into its `hkbProjectData` and
+`hkbCharacterData` records to find the HKX rig and behavior graph named there.
+
 MAG-22 adds `Game::begin_hand_cast` and `Game::end_hand_cast` for input routed
 to an actor's equipped left or right spell. The first begin validates and
 executes a costed fire-and-forget cast through `World::cast_charged_spell`, or
@@ -5177,6 +5221,23 @@ the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
 the per-level session counter, and the CK `Game.ShowTrainingMenu` page
 establishes the trainer actor passed to the menu. The trainer purchase path is
 available on `World`. The CK menu itself is not connected here.
+
+## Open Animation Replacer selection, ANM-09
+
+`Game::apply_mod_data` retains OAR submods in descending priority order.
+`Game::select_oar_animation` checks each submod's conditions against the actor
+base and current race, then returns an HKX file with the requested clip filename
+from the first passing submod. `IsFemale`, `IsActorBase` and `IsRace` are
+evaluated. Unknown,
+unresolved and plugin-registered conditions fail closed. JSON condition arrays
+are ANDed. Legacy OR groups accept any passing member, while the groups are
+ANDed. Legacy actor-base and race conditions resolve their quoted plugin and
+hex form ID pairs through the load order. A condition that requires an
+unavailable SKSE plugin cannot select a clip. This selects a path for a host
+animation system, it does not replace a live Havok clip yet.
+
+`anm_09_` tests use authored records and synthetic OAR directories to check
+conditioned selection, priority order and unsupported-condition rejection.
 
 ## Saved static-object changes, SAV-42
 

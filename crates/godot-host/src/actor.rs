@@ -10,12 +10,15 @@
 //!
 //! Nothing in this module touches Godot, so the whole load runs in a plain
 //! test. [`crate::godot_actor`] turns the result into `RenderingServer` calls.
+//! Race project links use the `soe-hkx` readers, whose layouts follow the local
+//! serde-hkx `hkbProjectStringData` and `hkbCharacterStringData` class tables.
 
 use soe_bsa::Vfs;
 use soe_hkx::behavior::BehaviorGraph;
+use soe_hkx::character::{CharacterData, ProjectData};
 use soe_hkx::interp::{Clip, ClipLibrary};
 use soe_hkx::ragdoll::Ragdoll;
-use soe_hkx::skeleton::{AnimationContainer, Skeleton};
+use soe_hkx::skeleton::{AnimationContainer, Bone as HkxBone, Skeleton};
 use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
 use soe_nif::types::Transform as NifTransform;
@@ -69,6 +72,13 @@ pub enum ActorError {
     Partitions { path: String, reason: String },
     #[error("{path} holds no skeleton")]
     NoSkeleton { path: String },
+    #[error("reading race animation project {path}: {reason}")]
+    Project { path: String, reason: String },
+    #[error("race {race} has no {asset} animation model for this actor")]
+    MissingRaceModel {
+        race: soe_esm::GlobalFormId,
+        asset: &'static str,
+    },
     #[error("{path} holds no skinned shape, so there is nothing to animate")]
     NotSkinned { path: String },
     #[error("building a surface for {path}: {source}")]
@@ -108,6 +118,17 @@ pub struct ActorAssets {
     pub graph: BehaviorGraph,
     pub clips: ClipLibrary,
     pub surfaces: Vec<ActorSurface>,
+    /// Archive-relative race skeleton path selected for this actor.
+    pub skeleton_path: String,
+    /// Model path named by the race record, usually a NIF skeleton.
+    pub skeleton_model_path: String,
+    /// Archive-relative race behavior graph path selected for this actor.
+    pub behavior_path: String,
+    /// Archive-relative project file selected by the race behavior model.
+    pub project_path: Option<String>,
+    /// Race and sex used when the live actor selected this rig.
+    pub actor_race: Option<soe_esm::GlobalFormId>,
+    pub actor_female: Option<bool>,
     /// Clip names the graph asked for that the archives do not hold.
     pub missing_clips: Vec<String>,
     /// Referenced behavior files that linking could not find.
@@ -172,12 +193,6 @@ fn packfile(bytes: &[u8], path: &str) -> Result<Packfile, ActorError> {
     })
 }
 
-/// A Havok path as the files write it, `Animations\MT_Idle.HKX`, turned into
-/// an archive path under the character root.
-fn character_path(name: &str) -> String {
-    format!("{CHARACTER_ROOT}{}", name.replace('\\', "/"))
-}
-
 impl ActorAssets {
     /// Load the vanilla human character: its skeleton, the locomotion graph
     /// with its references linked, every clip that graph names which the
@@ -195,7 +210,7 @@ impl ActorAssets {
         Self::load_with_behavior(vfs, mesh_path, LOCOMOTION_BEHAVIOR)
     }
 
-    /// Load the same character rig and mesh with a selected behavior graph.
+    /// Load the human character with an explicitly selected behavior graph.
     ///
     /// # Errors
     /// A required rig, graph, animation or mesh cannot be read or decoded.
@@ -206,27 +221,187 @@ impl ActorAssets {
     ) -> Result<ActorAssets, ActorError> {
         let (skeleton, ragdoll) = Self::load_skeleton(vfs)?;
         let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
-        let (clips, missing_clips) = Self::load_clips(vfs, &graph);
+        let (clips, missing_clips) = Self::load_clips(vfs, &graph, CHARACTER_ROOT);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
+        let skeleton_path = HUMAN_SKELETON.to_string();
+        let skeleton_model_path = HUMAN_SKELETON.to_string();
+        let behavior_path = behavior.to_string();
         Ok(ActorAssets {
             skeleton,
             ragdoll,
             graph,
             clips,
             surfaces,
+            skeleton_path,
+            skeleton_model_path,
+            behavior_path,
+            project_path: None,
+            actor_race: None,
+            actor_female: None,
             missing_clips,
             unresolved_references,
         })
     }
 
+    /// Load the rig, behavior and visible armor selected by an actor's records.
+    pub fn load_for_actor(
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+        vfs: &Vfs,
+    ) -> Result<ActorAssets, ActorError> {
+        let rig = world
+            .actor_animation_rig(actor)?
+            .ok_or(ActorError::MissingRaceModel {
+                race: actor,
+                asset: "race",
+            })?;
+        let race = world
+            .record(rig.race)
+            .ok_or(ActorError::MissingRaceModel {
+                race: rig.race,
+                asset: "record",
+            })?
+            .clone();
+        let mut assets =
+            Self::load_for_race(vfs, &race, rig.female, &world.actor_appearance(actor)?)?;
+        assets.actor_race = Some(rig.race);
+        Ok(assets)
+    }
+
+    /// Load a sex-specific rig and appearance from a winning RACE record.
+    pub fn load_for_race(
+        vfs: &Vfs,
+        race: &soe_esm::Record,
+        female: bool,
+        appearance: &soe_game::appearance::ActorAppearance,
+    ) -> Result<ActorAssets, ActorError> {
+        let race_id = soe_esm::GlobalFormId {
+            file: 0,
+            object: race.form_id,
+        };
+        let selected = soe_game::race::AnimationModels::from_record(race)?.select(female);
+        let skeleton_model_path = selected
+            .skeleton
+            .as_deref()
+            .and_then(nonempty)
+            .map(asset_path)
+            .ok_or(ActorError::MissingRaceModel {
+                race: race_id,
+                asset: "skeleton",
+            })?;
+        let behavior_path = selected
+            .behavior
+            .as_deref()
+            .and_then(nonempty)
+            .map(asset_path)
+            .ok_or(ActorError::MissingRaceModel {
+                race: race_id,
+                asset: "behavior",
+            })?;
+        let project_path = behavior_path;
+        let bytes = read(vfs, &project_path)?;
+        let project_packfile = packfile(&bytes, &project_path)?;
+        let project =
+            ProjectData::from_packfile(&project_packfile).map_err(|error| ActorError::Project {
+                path: project_path.clone(),
+                reason: error.to_string(),
+            })?;
+        let root = actor_root(&project_path);
+        let character_name =
+            project
+                .character_filenames
+                .first()
+                .ok_or_else(|| ActorError::Project {
+                    path: project_path.clone(),
+                    reason: "project names no character data".into(),
+                })?;
+        let character_path = join_project_path(&root, &project.character_path, character_name);
+        let bytes = read(vfs, &character_path)?;
+        let character_packfile = packfile(&bytes, &character_path)?;
+        let character = CharacterData::from_packfile(&character_packfile).map_err(|error| {
+            ActorError::Project {
+                path: character_path.clone(),
+                reason: error.to_string(),
+            }
+        })?;
+        let skeleton_name = nonempty(&character.rig_name).ok_or_else(|| ActorError::Project {
+            path: character_path.clone(),
+            reason: "character data names no skeleton rig".into(),
+        })?;
+        let behavior_name =
+            nonempty(&character.behavior_filename).ok_or_else(|| ActorError::Project {
+                path: character_path.clone(),
+                reason: "character data names no behavior graph".into(),
+            })?;
+        let skeleton_path = join_project_path(&root, &project.character_path, skeleton_name);
+        let behavior_path = join_project_path(&root, &project.behavior_path, behavior_name);
+        let (skeleton, ragdoll) = Self::load_skeleton_at(vfs, &skeleton_path)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, &behavior_path)?;
+        let (clips, missing_clips) = Self::load_clips(vfs, &graph, &root);
+        crate::combat::contact_annotation_triggers(&mut graph, &clips);
+        let surfaces = Self::appearance_surfaces(vfs, appearance, &skeleton)?;
+        let mut assets = ActorAssets {
+            skeleton,
+            ragdoll,
+            graph,
+            clips,
+            surfaces,
+            skeleton_path,
+            skeleton_model_path,
+            behavior_path,
+            project_path: Some(project_path),
+            actor_race: Some(race_id),
+            actor_female: Some(female),
+            missing_clips,
+            unresolved_references,
+        };
+        Self::extend_race_bones(vfs, &mut assets)?;
+        let bones: std::collections::BTreeSet<_> = assets
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter().cloned())
+            .collect();
+        if !bones.is_empty() {
+            return Err(ActorError::RigMismatch {
+                bones: bones.into_iter().collect(),
+            });
+        }
+        Ok(assets)
+    }
+
+    fn extend_race_bones(vfs: &Vfs, assets: &mut ActorAssets) -> Result<(), ActorError> {
+        let missing: std::collections::BTreeSet<_> = assets
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter().cloned())
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let bytes = read(vfs, &assets.skeleton_model_path)?;
+        let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
+            path: assets.skeleton_model_path.clone(),
+            source,
+        })?;
+        extend_skeleton(&mut assets.skeleton, &file, &missing)
+            .map_err(|bones| ActorError::RigMismatch { bones })?;
+        for surface in &mut assets.surfaces {
+            surface.map = BoneMap::build(&surface.skin.bones, &assets.skeleton);
+        }
+        Ok(())
+    }
+
     fn load_skeleton(vfs: &Vfs) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
-        let path = format!("{CHARACTER_ROOT}{HUMAN_SKELETON}");
-        let bytes = read(vfs, &path)?;
-        let pf = packfile(&bytes, &path)?;
+        Self::load_skeleton_at(vfs, &format!("{CHARACTER_ROOT}{HUMAN_SKELETON}"))
+    }
+
+    fn load_skeleton_at(vfs: &Vfs, path: &str) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
+        let bytes = read(vfs, path)?;
+        let pf = packfile(&bytes, path)?;
         let container =
             AnimationContainer::from_packfile(&pf).map_err(|source| ActorError::Havok {
-                path: path.clone(),
+                path: path.to_string(),
                 source,
             })?;
         let ragdoll = match Ragdoll::from_packfile(&pf) {
@@ -234,32 +409,34 @@ impl ActorAssets {
             Err(soe_hkx::Error::NullPointer("hkaRagdollInstance")) => None,
             Err(source) => {
                 return Err(ActorError::Havok {
-                    path: path.clone(),
+                    path: path.to_string(),
                     source,
                 })
             }
         };
-        let skeleton = container
-            .skeletons
-            .into_iter()
-            .next()
-            .ok_or(ActorError::NoSkeleton { path })?;
+        let skeleton =
+            container
+                .skeletons
+                .into_iter()
+                .next()
+                .ok_or_else(|| ActorError::NoSkeleton {
+                    path: path.to_string(),
+                })?;
         Ok((skeleton, ragdoll))
     }
 
-    fn load_graph(vfs: &Vfs, behavior: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
-        let path = format!("{CHARACTER_ROOT}{behavior}");
-        let bytes = read(vfs, &path)?;
-        let pf = packfile(&bytes, &path)?;
+    fn load_graph(vfs: &Vfs, path: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
+        let bytes = read(vfs, path)?;
+        let pf = packfile(&bytes, path)?;
         let mut graph = BehaviorGraph::from_packfile(&pf).map_err(|source| ActorError::Havok {
-            path: path.clone(),
+            path: path.to_string(),
             source,
         })?;
         // A referenced behavior may itself reference another, so the walk
         // repeats. Eight rounds is what the gated hkx test uses and the
         // vanilla graph settles in two. See docs/hkx.md.
         graph.link_all(8, |name| {
-            let sub_path = character_path(name);
+            let sub_path = behavior_reference_path(path, name);
             let bytes = vfs.read(&sub_path).ok()?;
             let pf = Packfile::parse(&bytes).ok()?;
             BehaviorGraph::from_packfile(&pf).ok()
@@ -272,14 +449,14 @@ impl ActorAssets {
         Ok((graph, unresolved))
     }
 
-    fn load_clips(vfs: &Vfs, graph: &BehaviorGraph) -> (ClipLibrary, Vec<String>) {
+    fn load_clips(vfs: &Vfs, graph: &BehaviorGraph, root: &str) -> (ClipLibrary, Vec<String>) {
         let mut clips = ClipLibrary::new();
         let mut missing = Vec::new();
         for name in graph.clip_animation_names() {
             if clips.get(&name).is_some() {
                 continue;
             }
-            let path = character_path(&name);
+            let path = rooted_asset_path(root, &name);
             let Ok(bytes) = vfs.read(&path) else {
                 missing.push(name);
                 continue;
@@ -425,6 +602,205 @@ impl ActorAssets {
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
     }
+}
+
+#[derive(Clone)]
+struct NifRigNode {
+    parent: Option<String>,
+    transform: NifTransform,
+}
+
+fn extend_skeleton(
+    skeleton: &mut Skeleton,
+    file: &soe_nif::NifFile,
+    required: &std::collections::BTreeSet<String>,
+) -> Result<(), Vec<String>> {
+    let mut nodes = std::collections::BTreeMap::new();
+    let mut visited = std::collections::BTreeSet::new();
+    for root in &file.roots {
+        collect_rig_nodes(file, *root, None, &mut visited, &mut nodes);
+    }
+    let mut missing = Vec::new();
+    for name in required {
+        if ensure_rig_node(skeleton, &nodes, name).is_err() {
+            missing.push(name.clone());
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+fn collect_rig_nodes(
+    file: &soe_nif::NifFile,
+    reference: soe_nif::BlockRef,
+    parent: Option<String>,
+    visited: &mut std::collections::BTreeSet<usize>,
+    nodes: &mut std::collections::BTreeMap<String, NifRigNode>,
+) {
+    use soe_nif::blocks::Block;
+    let Some(index) = reference.get() else {
+        return;
+    };
+    if !visited.insert(index) {
+        return;
+    }
+    let Some(Block::Node(node)) = file.blocks.get(index) else {
+        return;
+    };
+    let name = node.av.name().to_string();
+    if !name.is_empty() {
+        nodes.entry(name.clone()).or_insert_with(|| NifRigNode {
+            parent: parent.clone(),
+            transform: node.av.transform,
+        });
+    }
+    let parent = (!name.is_empty()).then_some(name).or(parent);
+    for child in &node.children {
+        collect_rig_nodes(file, *child, parent.clone(), visited, nodes);
+    }
+}
+
+fn ensure_rig_node(
+    skeleton: &mut Skeleton,
+    nodes: &std::collections::BTreeMap<String, NifRigNode>,
+    name: &str,
+) -> Result<usize, ()> {
+    if let Some(index) = skeleton
+        .bones
+        .iter()
+        .position(|bone| bone.name.eq_ignore_ascii_case(name))
+    {
+        return Ok(index);
+    }
+    let node = nodes
+        .iter()
+        .find_map(|(node_name, node)| node_name.eq_ignore_ascii_case(name).then_some(node))
+        .ok_or(())?;
+    let parent = if let Some(parent) = &node.parent {
+        Some(i16::try_from(ensure_rig_node(skeleton, nodes, parent)?).map_err(|_| ())?)
+    } else {
+        None
+    };
+    let index = skeleton.bones.len();
+    skeleton.bones.push(HkxBone {
+        name: name.to_string(),
+        lock_translation: false,
+    });
+    skeleton.parent_indices.push(parent.unwrap_or(-1));
+    skeleton
+        .reference_pose
+        .push(nif_transform_to_hkx(&node.transform));
+    Ok(index)
+}
+
+fn nif_transform_to_hkx(transform: &NifTransform) -> soe_hkx::QsTransform {
+    let m = transform.rotation.rows;
+    let trace = m[0][0] + m[1][1] + m[2][2];
+    let (x, y, z, w) = if trace > 0.0 {
+        let s = (trace + 1.0).sqrt() * 2.0;
+        (
+            (m[2][1] - m[1][2]) / s,
+            (m[0][2] - m[2][0]) / s,
+            (m[1][0] - m[0][1]) / s,
+            0.25 * s,
+        )
+    } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
+        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
+        (
+            0.25 * s,
+            (m[0][1] + m[1][0]) / s,
+            (m[0][2] + m[2][0]) / s,
+            (m[2][1] - m[1][2]) / s,
+        )
+    } else if m[1][1] > m[2][2] {
+        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
+        (
+            (m[0][1] + m[1][0]) / s,
+            0.25 * s,
+            (m[1][2] + m[2][1]) / s,
+            (m[0][2] - m[2][0]) / s,
+        )
+    } else {
+        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
+        (
+            (m[0][2] + m[2][0]) / s,
+            (m[1][2] + m[2][1]) / s,
+            0.25 * s,
+            (m[1][0] - m[0][1]) / s,
+        )
+    };
+    soe_hkx::QsTransform {
+        translation: [
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            0.0,
+        ],
+        rotation: [x, y, z, w],
+        scale: [transform.scale, transform.scale, transform.scale, 0.0],
+    }
+}
+
+fn actor_root(behavior_path: &str) -> String {
+    if let Some(at) = behavior_path.rfind("/behaviors/") {
+        behavior_path[..=at].to_string()
+    } else {
+        behavior_path.rfind('/').map_or_else(
+            || CHARACTER_ROOT.to_string(),
+            |at| behavior_path[..=at].to_string(),
+        )
+    }
+}
+
+fn asset_path(name: &str) -> String {
+    let path = name.replace('\\', "/");
+    let path = path.trim_start_matches('/');
+    if path.to_ascii_lowercase().starts_with("meshes/") {
+        path.to_string()
+    } else if path.to_ascii_lowercase().starts_with("actors/") {
+        format!("meshes/{path}")
+    } else {
+        format!("{CHARACTER_ROOT}{path}")
+    }
+}
+
+fn nonempty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn rooted_asset_path(root: &str, name: &str) -> String {
+    let normalized = name.replace('\\', "/");
+    if normalized.to_ascii_lowercase().starts_with("meshes/") {
+        normalized
+    } else if normalized.to_ascii_lowercase().starts_with("actors/") {
+        format!("meshes/{normalized}")
+    } else {
+        format!("{root}{normalized}")
+    }
+}
+
+fn join_project_path(root: &str, prefix: &str, name: &str) -> String {
+    let prefix = prefix.replace('\\', "/");
+    let name = name.replace('\\', "/");
+    if name.to_ascii_lowercase().starts_with("meshes/")
+        || name.to_ascii_lowercase().starts_with("actors/")
+    {
+        return rooted_asset_path(root, &name);
+    }
+    let relative = if prefix.is_empty() {
+        name
+    } else {
+        format!("{}/{name}", prefix.trim_matches('/'))
+    };
+    rooted_asset_path(root, &relative)
+}
+
+fn behavior_reference_path(behavior_path: &str, name: &str) -> String {
+    rooted_asset_path(&actor_root(behavior_path), name)
 }
 
 /// Omit triangles belonging to body slots covered by another addon. Part IDs
@@ -661,7 +1037,7 @@ mod tests {
     #[test]
     fn a_havok_path_becomes_an_archive_path_under_the_character_root() {
         assert_eq!(
-            character_path(r"Animations\MT_Idle.HKX"),
+            rooted_asset_path(CHARACTER_ROOT, r"Animations\MT_Idle.HKX"),
             "meshes/actors/character/Animations/MT_Idle.HKX"
         );
     }
@@ -669,7 +1045,7 @@ mod tests {
     #[test]
     fn a_path_with_no_backslashes_is_left_alone_apart_from_the_root() {
         assert_eq!(
-            character_path("behaviors/mt_behavior.hkx"),
+            rooted_asset_path(CHARACTER_ROOT, "behaviors/mt_behavior.hkx"),
             "meshes/actors/character/behaviors/mt_behavior.hkx"
         );
     }

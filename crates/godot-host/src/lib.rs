@@ -21,6 +21,7 @@ pub mod batch;
 pub mod camera;
 pub mod collision;
 pub mod combat;
+pub mod crafting_menu;
 pub mod data_source;
 pub mod detection;
 pub mod dialogue_menu;
@@ -42,6 +43,7 @@ pub mod skinned;
 pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
+pub mod terrain_lod_generate;
 pub mod ui;
 pub mod units;
 

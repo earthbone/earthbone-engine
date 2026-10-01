@@ -223,6 +223,9 @@ pub struct HitResult {
     /// Always false for a bash or an unarmed contact. See docs/combat.md
     /// CMB-25.
     pub poisoned: bool,
+    /// The attacker was sneaking and the target had not entered Combat
+    /// awareness of that attacker. Reports OnHit's `abSneakAttack` value.
+    pub sneak_attacked: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

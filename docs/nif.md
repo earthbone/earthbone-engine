@@ -1,8 +1,8 @@
 # soe-nif: Skyrim SE mesh reader
 
 Crate `crates/nif`, library name `soe_nif`. Reads Gamebryo 20.2.0.7 files as
-Bethesda writes them and hands a renderer a flat list of meshes. No
-dependencies.
+Bethesda writes them and hands a renderer a flat list of meshes. The `gltf`
+dependency handles authoring glTF buffers and accessors for static mesh import.
 
 ## What it reads
 
@@ -88,6 +88,32 @@ draws that full list for each selected BTO block.
 Conventions are the file's: right-handed, Z up, game units, DirectX UV
 origin. Converting to a host's axes is the host's job and is documented at
 the top of `mesh.rs`.
+
+## Static glTF import and Skyrim SE export
+
+`static_mesh::import_gltf` reads the default scene, or the first scene when no
+default is declared. It imports unskinned, non-morph triangle primitives with
+only `POSITION`, `NORMAL` and `TEXCOORD_0` attributes, bakes node transforms
+into positions and normals, and makes area weighted normals when the source
+has none. External buffer and image URIs become file paths. Diffuse, normal,
+emissive and metallic-roughness textures map to Skyrim slots 0, 1, 2 and 7.
+Embedded buffer URIs are rejected. Embedded image data is rejected when a
+material references it because it has no external path to preserve.
+
+`static_mesh::export_nif` writes Skyrim SE stream 100 files with a root
+`NiNode`, one `BSTriShape` per mesh, `BSLightingShaderProperty` and
+`BSShaderTextureSet` links. It preserves vertex positions, normals, UV0,
+triangle indices and material texture paths. It rejects skinning, malformed
+attributes, non-finite values, empty geometry, and geometry that exceeds the
+16-bit vertex or index limits. It does not export collision or animation.
+
+The writer follows the static-shape and shader block layouts in
+`nifly/include/Geometry.hpp`, `nifly/include/Shaders.hpp` and the local
+independent test writer in `tests/common/mod.rs`. PyNifly was not cloned into
+the local reference corpus. Its upstream import/export options and project
+overview describe a wider Blender workflow with game-specific settings,
+skinning and collision, so this writer implements only the editor row's static
+geometry and texture links.
 
 ## Skinning
 
@@ -248,6 +274,11 @@ ships packed in the two mesh archives, so that test prints its skip message here
 The archived mesh test is the one that exercises real content on a plain install.
 
 ## Residency estimate
+
+`static_mesh::export_nif` writes shader type 18 for a mesh whose material
+kind is `LodLandscapeNoise`, and type 9 for `LodLandscape`. Other supported
+static meshes retain type 0. This lets `godot-host` write terrain LOD BTR
+geometry that the existing NIF reader can parse.
 
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,

@@ -20,6 +20,8 @@ use soe_papyrus::VmError;
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
+    Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
+    Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },

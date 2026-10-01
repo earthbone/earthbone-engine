@@ -877,6 +877,7 @@ impl World {
         }
         form_set(&mut h, &self.words_taught);
         form_set(&mut h, &self.words_unlocked);
+        form_set(&mut h, &self.learned_enchantment_effects);
         h.len(self.achievements.len());
         for a in &self.achievements {
             h.i32(*a);
@@ -1307,6 +1308,9 @@ mod tests {
         });
         moves("words_unlocked", flags, |w| {
             w.words_unlocked.insert(id(9));
+        });
+        moves("learned_enchantment_effects", flags, |w| {
+            w.learned_enchantment_effects.insert(id(9));
         });
         moves("achievements", flags, |w| w.achievements.push(3));
         moves("last_ridden_horse", flags, |w| {

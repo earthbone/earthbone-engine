@@ -12,6 +12,7 @@ use godot::classes::{
 use godot::prelude::*;
 
 use super::PlayerNode;
+use crate::crafting_menu;
 use crate::dialogue_menu;
 use crate::inventory_menu::{self, Category};
 use crate::quest_journal::{self, Entry as QuestEntry};
@@ -165,6 +166,64 @@ impl PlayerNode {
         self.game.as_mut()
     }
 
+    fn crafting_content(&mut self, bench: GlobalFormId) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let actor = game.player();
+        let entries = crafting_menu::entries(game, actor, bench);
+        let recipe_rows: Vec<_> = entries
+            .into_iter()
+            .map(|entry| {
+                let output = game
+                    .world()
+                    .name_of(entry.output)
+                    .unwrap_or_else(|| format!("{}", entry.output));
+                (entry, output)
+            })
+            .collect();
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        let mut first_available: Option<Gd<Button>> = None;
+        if recipe_rows.is_empty() {
+            let mut empty = Label::new_alloc();
+            empty.set_text("No recipes available");
+            rows.add_child(&empty);
+        }
+        for (entry, output) in recipe_rows {
+            let mut button = Button::new_alloc();
+            button.set_text(&format!("{} → {} x{}", entry.name, output, entry.count));
+            button.set_disabled(!entry.available);
+            let callback = base.callable("confirm_crafting_recipe").bindv(&varray![
+                i64::from(bench.file),
+                i64::from(bench.object),
+                i64::from(entry.recipe.file),
+                i64::from(entry.recipe.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+            if entry.available && first_available.is_none() {
+                first_available = Some(button.clone());
+            }
+        }
+        if let Some(mut button) = first_available {
+            button.grab_focus();
+        }
+        true
+    }
+
     fn inventory_content(&mut self, category: Category) -> bool {
         if self.menu.title() != Some("Inventory") {
             return false;
@@ -311,30 +370,6 @@ impl PlayerNode {
         }
         true
     }
-
-    fn dialogue_response_content(&mut self, text: &str) -> bool {
-        if self.menu.title() != Some("Dialogue") {
-            return false;
-        }
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
-            return false;
-        };
-        let base = self.base().clone();
-        let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut response = Label::new_alloc();
-        response.set_text(text);
-        content.add_child(&response);
-        let mut next = Button::new_alloc();
-        next.set_text("Continue");
-        next.connect("pressed", &base.callable("advance_dialogue_menu"));
-        content.add_child(&next);
-        next.grab_focus();
-        true
-    }
 }
 
 #[godot_api(secondary)]
@@ -371,6 +406,7 @@ impl PlayerNode {
             return false;
         }
         self.container_menu = None;
+        self.crafting_bench = None;
         let previous_focus = self
             .base()
             .get_viewport()
@@ -413,6 +449,7 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        self.crafting_bench = None;
         self.lockpick_target = None;
         self.lockpick_status = None;
         if let Some(game) = self.game.as_mut() {
@@ -499,6 +536,93 @@ impl PlayerNode {
         }
         self.inventory_category = Category::All;
         self.inventory_content(self.inventory_category)
+    }
+
+    /// Open the recipe list for an activated creation bench.
+    #[func]
+    pub fn open_crafting_menu(&mut self, file: i64, object: i64) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let bench = GlobalFormId { file, object };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if !crafting_menu::is_creation_bench(game, bench) {
+            return false;
+        }
+        let title = game
+            .world()
+            .name_of(bench)
+            .unwrap_or_else(|| "Crafting".into());
+        if !self.open_menu(GString::from(&title)) {
+            return false;
+        }
+        self.crafting_bench = Some(bench);
+        self.crafting_content(bench)
+    }
+
+    /// Confirm a recipe from the currently open bench menu through `Game::craft`.
+    #[func]
+    pub fn confirm_crafting_recipe(
+        &mut self,
+        bench_file: i64,
+        bench_object: i64,
+        recipe_file: i64,
+        recipe_object: i64,
+    ) -> bool {
+        let (Ok(bench_file), Ok(bench_object), Ok(recipe_file), Ok(recipe_object)) = (
+            u16::try_from(bench_file),
+            u32::try_from(bench_object),
+            u16::try_from(recipe_file),
+            u32::try_from(recipe_object),
+        ) else {
+            return false;
+        };
+        let bench = GlobalFormId {
+            file: bench_file,
+            object: bench_object,
+        };
+        let recipe = GlobalFormId {
+            file: recipe_file,
+            object: recipe_object,
+        };
+        if !self.menu.is_open() || self.crafting_bench != Some(bench) {
+            return false;
+        }
+        let crafted = self.game.as_mut().is_some_and(|game| {
+            let actor = game.player();
+            crafting_menu::confirm(game, actor, bench, recipe).is_ok()
+        });
+        if crafted {
+            self.crafting_content(bench)
+        } else {
+            false
+        }
+    }
+
+    fn dialogue_response_content(&mut self, text: &str) -> bool {
+        if self.menu.title() != Some("Dialogue") {
+            return false;
+        }
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut response = Label::new_alloc();
+        response.set_text(text);
+        content.add_child(&response);
+        let mut next = Button::new_alloc();
+        next.set_text("Continue");
+        next.connect("pressed", &base.callable("advance_dialogue_menu"));
+        content.add_child(&next);
+        next.grab_focus();
+        true
     }
 
     /// Open active quests and displayed objectives from the shared Game.
@@ -588,7 +712,7 @@ impl PlayerNode {
         }
     }
 
-    /// Select an offered topic through Game::choose_dialogue and show its response.
+    /// Select an offered topic through Game and show its response.
     #[func]
     pub fn select_dialogue_topic(&mut self, file: i64, object: i64) -> bool {
         if self.menu.title() != Some("Dialogue") {
@@ -608,7 +732,7 @@ impl PlayerNode {
         self.dialogue_response_content(line.text.as_deref().unwrap_or(""))
     }
 
-    /// Acknowledge a response through Game::advance_dialogue and show the next response or choices.
+    /// Advance a response and show the next response or topic choices.
     #[func]
     pub fn advance_dialogue_menu(&mut self) -> bool {
         if self.menu.title() != Some("Dialogue") {

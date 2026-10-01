@@ -116,7 +116,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-/// Version 34 retains last-visit game days for resettable encounter zones.
+/// Version 34 retains last-visit game days and learned magic effects.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references and the
 /// active phase and completed action slots for each scene.
@@ -511,15 +511,6 @@ impl World {
         self.write_encounter_levels(&mut body);
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
-        body.len(self.scene_runs.len());
-        for (id, run) in &self.scene_runs {
-            write_form_id(&mut body, *id);
-            body.u32(run.phase);
-            body.len(run.completed_actions.len());
-            for slot in &run.completed_actions {
-                body.u32(*slot);
-            }
-        }
         self.write_detection(&mut body);
         save_sections::write_sections_with_pool(&mut body, self, WORLD_SECTIONS, &mut pool);
         let mut out = Writer::new();
@@ -1080,7 +1071,12 @@ impl World {
         } else {
             BTreeMap::new()
         };
-        let scene_runs = if version >= 36 {
+        let learned_enchantment_effects = if (34..37).contains(&version) {
+            read_form_set(&mut r)?
+        } else {
+            BTreeSet::new()
+        };
+        let scene_runs = if (36..37).contains(&version) {
             let count = r.len()?;
             let mut runs = BTreeMap::new();
             for _ in 0..count {
@@ -1124,6 +1120,8 @@ impl World {
                 return Err(VmError::State("scene runtime state is incomplete".into()));
             }
             runs
+        } else if version >= 37 {
+            BTreeMap::new()
         } else {
             scenes
                 .iter()
@@ -1137,6 +1135,11 @@ impl World {
         };
         // Read world sections against candidate state while keeping the live
         // world unchanged if any section rejects its payload.
+        self.scenes = scenes.clone();
+        self.learned_enchantment_effects = learned_enchantment_effects.clone();
+        if version >= 37 {
+            self.scene_runs.clear();
+        }
         let previous_pending = std::mem::replace(&mut self.pending, pending);
         let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
         let previous_quests = std::mem::replace(&mut self.quests, quests);
@@ -1307,6 +1310,9 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        if version < 37 {
+            self.learned_enchantment_effects = learned_enchantment_effects;
+        }
         self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
@@ -1325,7 +1331,9 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
-        self.scene_runs = scene_runs;
+        if version < 37 {
+            self.scene_runs = scene_runs;
+        }
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
@@ -1362,6 +1370,85 @@ impl World {
         self.ini = ini;
         Ok(())
     }
+}
+
+pub(super) fn write_learned_enchantment_effects(
+    world: &World,
+    writer: &mut Writer,
+    _pool: &mut ArrayPool,
+) {
+    write_form_set(writer, &world.learned_enchantment_effects);
+}
+
+pub(super) fn read_learned_enchantment_effects(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.learned_enchantment_effects = read_form_set(reader)?;
+    Ok(())
+}
+
+pub(super) fn write_scene_runs(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(world.scene_runs.len());
+    for (id, run) in &world.scene_runs {
+        write_form_id(writer, *id);
+        writer.u32(run.phase);
+        writer.len(run.completed_actions.len());
+        for slot in &run.completed_actions {
+            writer.u32(*slot);
+        }
+    }
+}
+
+pub(super) fn read_scene_runs(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    let mut runs = BTreeMap::new();
+    for _ in 0..count {
+        let id = read_form_id(reader)?;
+        let phase = reader.u32()?;
+        let action_count = reader.len()?;
+        let mut completed_actions = BTreeSet::new();
+        for _ in 0..action_count {
+            if !completed_actions.insert(reader.u32()?) {
+                return Err(VmError::State("duplicate completed scene action".into()));
+            }
+        }
+        let scene_record = world
+            .record(id)
+            .ok_or_else(|| VmError::State("scene runtime state names a missing form".into()))?;
+        let scene = soe_esm::records::gameplay::Scene::from_record(scene_record)
+            .map_err(|error| VmError::State(format!("invalid scene runtime record: {error}")))?;
+        if !world.scenes.contains(&id)
+            || phase as usize >= scene.phases.len()
+            || completed_actions.iter().any(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_none_or(|action| action.end_phase != Some(phase))
+            })
+            || runs
+                .insert(
+                    id,
+                    super::SceneRunState {
+                        phase,
+                        completed_actions,
+                    },
+                )
+                .is_some()
+        {
+            return Err(VmError::State("invalid scene runtime state".into()));
+        }
+    }
+    if runs.len() != world.scenes.len() || world.scenes.iter().any(|id| !runs.contains_key(id)) {
+        return Err(VmError::State("scene runtime state is incomplete".into()));
+    }
+    world.scene_runs = runs;
+    Ok(())
 }
 
 pub(crate) fn write_form_id(w: &mut Writer, id: GlobalFormId) {

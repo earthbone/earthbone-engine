@@ -614,6 +614,9 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let mut world_sections = Writer::new();
     save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     bytes.truncate(bytes.len() - world_sections.out.len());
+    // Remove the current detection pool count after dropping the trailing
+    // version 37 section table, so this fixture has the version 29 layout.
+    bytes.truncate(bytes.len() - 4);
     bytes
 }
 
@@ -622,6 +625,10 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut source = rich_world(255);
         let mut legacy = without_exclusive_branches(&mut source);
+        let mut version_15 = legacy.clone();
+        let tail = legacy_tail::truncate_to_version(&mut version_15, 15, |candidate| {
+            World::new(legacy_order()).load_state(candidate).is_ok()
+        });
         if version == 17 {
             let mut before_difficulty = legacy.clone();
             legacy_tail::truncate_to_version(&mut before_difficulty, 15, |candidate| {
@@ -646,6 +653,14 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         }
         if version == 15 || version == 17 {
             expected.difficulty = Difficulty::Adept;
+        }
+        match version {
+            15 => legacy.truncate(tail),
+            16 => legacy.truncate(tail + 1),
+            17 => {
+                legacy.remove(tail);
+            }
+            _ => {}
         }
         legacy[4..6].copy_from_slice(&version.to_le_bytes());
         let mut loaded = World::new(legacy_order());
@@ -765,11 +780,11 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let before = world.save_state();
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
+        (18, "created namespace in a legacy world state".to_string()),
         (
             unknown_version,
             format!("world state version {unknown_version}"),
         ),
-        (18, "created namespace in a legacy world state".to_string()),
     ] {
         let mut bytes = before.clone();
         bytes[4..6].copy_from_slice(&version.to_le_bytes());

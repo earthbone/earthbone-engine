@@ -2391,6 +2391,7 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
+Dialogue and MCM presenters remain unimplemented and can use this shell with
 Crafting and MCM are not implemented here. Their menus can use this shell and
 their existing gameplay APIs.
 
@@ -2445,6 +2446,20 @@ equipped.
 
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
+
+Creation bench activation opens a native Control recipe list, including an
+empty state when the bench has no eligible COBJ recipes. Rows show the recipe
+name, output and output count. Rows blocked by missing ingredients are
+disabled. The first available recipe receives keyboard/gamepad focus when the
+list opens. Confirming an available row calls
+`Game::craft`, which rechecks eligibility and commits ingredient and output
+inventory events. The host identifies creation benches from their FURN WBDT
+mode. This presenter uses the existing transaction path and adds no crafting
+state to the host.
+
+Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
+native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
+crafting menu's recipe list and selected-recipe confirmation flow.
 
 The native J shortcut opens the quest journal through the same menu shell.
 It reads loaded active quest state from the shared Game, omits QUST type 0,
@@ -2686,9 +2701,16 @@ pose for an authored idle cue.
 
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
-the current human rig does not contain. Live binding reports this mismatch and
-keeps the previous geometry. Breton, High Elf and Nord addons match that rig.
-ANM-55 tracks record-selected animation rigs without narrowing skin selection.
+the human rig does not contain. Breton, High Elf and Nord addons match that rig.
+ANM-55 reads the sex-specific skeletal `ANAM` NIF and behavior project `MODL`
+from the actor's current race. It follows the project data to the character's
+HKX skeleton and graph. When the NIF skeleton has bones absent from that HKX
+skeleton, the host adds those named nodes with their NIF parent and local
+transform. `SkinnedActorNode.bind_actor_appearance` loads that rig with the
+actor's full selected skin. When the live race or sex changes, the node loads
+the new rig and appearance before replacing the previous view. Every selected
+skin shape must map all its bone names onto the race rig or the replacement is
+rejected. Paths use the data source VFS and its file overlay.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -2701,6 +2723,9 @@ Full installed-data startup received SIGTERM before loading finished, exit 143,
 so that larger startup is not claimed as verified. Rust checks execute the node's
 same `AppearanceCache::prepare` path, including live record mutation, failed-view
 caching and explicit rig mismatch results.
+
+`anm_55_actor_race_rigs` loads installed Nord, Argonian and Draugr skeleton and
+behavior paths and requires every selected skin bone to map onto the chosen rig.
 
 The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
 surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its
@@ -2860,6 +2885,19 @@ memory and is not serialized to a BTO file. Skyrim tree billboard generation
 and atlas baking are not part of this path.
 
 ## Distant-terrain LOD residency, RND-03
+
+`DataSource::generate_terrain_lod_block` reads winning CELL and LAND records
+for a selected worldspace block. Where PNAM requests parent land, its LAND
+fills positions without a child LAND. It samples authored heights onto a 33
+by 33 tile grid for levels 4, 8, 16 and 32, edge extends missing height
+samples, and writes triangles only over cells with LAND. The returned BTR
+bytes use the `soe-nif` writer and can be passed to
+`DataSource::load_lod_block_bytes` for preview through the same mesh and
+surface builder as archived BTR files. A block without LAND returns `None`.
+
+The generator writes a land shape with LOD landscape shader flags. It does
+not generate diffuse or normal textures, a water shape, or the vanilla
+`BSMultiBoundNode` chunk root.
 
 `crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
 for full resolution LAND terrain (`exterior.rs::terrain_surface`) beyond the

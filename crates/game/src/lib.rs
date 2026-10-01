@@ -152,6 +152,8 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    /// Parsed OAR submods, ordered by descending priority.
+    oar_submods: Vec<soe_moddata::oar::SubMod>,
     mcm_registered: Vec<GlobalFormId>,
     mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
@@ -221,6 +223,7 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
@@ -595,7 +598,66 @@ impl Game {
     /// [`Game::start`]: both distributors run once at load, before any script,
     /// which is what the plugins do. See [`crate::moddata`].
     pub fn apply_mod_data(&mut self, roots: &[std::path::PathBuf]) -> moddata::ModDataReport {
-        crate::moddata::apply(&mut self.world.borrow_mut(), roots)
+        let report = crate::moddata::apply(&mut self.world.borrow_mut(), roots);
+        self.oar_submods = roots
+            .iter()
+            .filter_map(|root| soe_moddata::oar::AnimationMod::scan(root).ok())
+            .flat_map(|animation_mod| animation_mod.sub_mods)
+            .collect();
+        self.oar_submods.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then(a.directory.cmp(&b.directory))
+        });
+        report
+    }
+
+    /// Selects the highest-priority OAR replacement for an actor and clip name.
+    ///
+    /// Conditions use the actor base and race from the loaded records. The
+    /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
+    /// Every condition in a submod must pass. A matching replacement is an
+    /// HKX file with the same filename as `original_animation` under that
+    /// submod directory.
+    ///
+    /// # Errors
+    ///
+    /// This query reports unavailable actors, conditions and clips as `None`.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[must_use]
+    pub fn select_oar_animation(
+        &self,
+        actor: GlobalFormId,
+        original_animation: &str,
+    ) -> Option<std::path::PathBuf> {
+        let file_name = Path::new(original_animation).file_name()?;
+        let mut world = self.world.borrow_mut();
+        let base = world.reference(actor)?.base?;
+        let base_state = world.actor_base(base)?;
+        let female = base_state.female;
+        let base_race = base_state.race;
+        let race = world
+            .actor(actor)
+            .and_then(|state| state.race)
+            .or(base_race);
+        let order = world.order();
+
+        for sub_mod in &self.oar_submods {
+            if !sub_mod.condition_groups.iter().all(|group| {
+                group
+                    .iter()
+                    .any(|condition| oar_condition_matches(condition, female, base, race, order))
+            }) {
+                continue;
+            }
+            if let Some(path) = find_oar_clip(&sub_mod.directory, file_name) {
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// The same, from a resolved profile, which already knows its data roots
@@ -1176,4 +1238,94 @@ impl Game {
             .map(|e| e.message.clone())
             .collect()
     }
+}
+
+fn oar_condition_matches(
+    condition: &soe_moddata::oar::Condition,
+    female: bool,
+    base: GlobalFormId,
+    race: Option<GlobalFormId>,
+    order: &LoadOrder,
+) -> bool {
+    // OAR requires the named SKSE plugin before it evaluates this condition.
+    // The runtime has no SKSE plugin loader for that dependency.
+    if condition
+        .required_plugin
+        .as_deref()
+        .is_some_and(|name| !name.is_empty())
+    {
+        return false;
+    }
+    let result = match condition.name.as_str() {
+        "IsFemale" => Some(female),
+        "IsActorBase" => oar_condition_form(condition, order).map(|form| form == base),
+        "IsRace" => oar_condition_form(condition, order).map(|form| Some(form) == race),
+        _ => None,
+    };
+    result.is_some_and(|value| value != condition.negated)
+}
+
+fn oar_condition_form(
+    condition: &soe_moddata::oar::Condition,
+    order: &LoadOrder,
+) -> Option<GlobalFormId> {
+    let (plugin, raw_id) = if let Some(form) = condition
+        .parameters
+        .get("form")
+        .and_then(|value| value.as_object())
+    {
+        let plugin = form.get("pluginName")?.as_str()?;
+        let raw_id = form.get("formID")?;
+        let raw_id = raw_id
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| raw_id.as_u64().map(|id| format!("0x{id:X}")))?;
+        (plugin.to_string(), raw_id)
+    } else {
+        let raw = condition.parameters.get("raw")?.as_str()?;
+        let (_, argument) = raw.split_once('(')?;
+        let argument = argument.strip_suffix(')')?;
+        let (plugin, raw_id) = argument.split_once('|')?;
+        (
+            plugin.trim().trim_matches('"').to_string(),
+            raw_id.trim().to_string(),
+        )
+    };
+    if plugin.is_empty() {
+        return None;
+    }
+    let raw_id = if raw_id.starts_with("0x") || raw_id.starts_with("0X") {
+        raw_id
+    } else {
+        format!("0x{raw_id}")
+    };
+    let form_ref = soe_moddata::FormRef::parse(&format!("{raw_id}~{plugin}"));
+    form_ref.resolve(order)
+}
+
+fn find_oar_clip(directory: &Path, file_name: &std::ffi::OsStr) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            if let Some(found) = find_oar_clip(&path, file_name) {
+                return Some(found);
+            }
+        } else if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("hkx"))
+            && path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .eq_ignore_ascii_case(&file_name.to_string_lossy())
+            })
+        {
+            return Some(path);
+        }
+    }
+    None
 }
