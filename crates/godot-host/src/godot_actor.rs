@@ -164,7 +164,12 @@ impl INode3D for SkinnedActorNode {
     }
 
     fn exit_tree(&mut self) {
-        if self.vm.is_some() {
+        if let Some(binding) = &self.appearance {
+            binding
+                .world
+                .borrow_mut()
+                .queue_animation_unload(binding.actor);
+        } else if self.vm.is_some() {
             self.signals().animation_graph_unloaded().emit();
         }
         if let Some(mut ragdoll) = self.ragdoll.take() {
@@ -425,7 +430,14 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
+        let report_target = self
+            .appearance
+            .as_ref()
+            .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
+            if let Some((world, target)) = &report_target {
+                world.borrow_mut().queue_animation_report(*target, event);
+            }
             self.signals().animation_event().emit(&GString::from(event));
         });
     }
@@ -776,7 +788,7 @@ impl SkinnedActorNode {
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
             let world = world.borrow();
-            AnimationEventCursor::at_end(&world.animation_events)
+            AnimationEventCursor::at_end(&world.animation_requests)
         };
         self.appearance = Some(AppearanceBinding {
             world,
@@ -865,7 +877,7 @@ impl SkinnedActorNode {
         let world = binding.world.borrow();
         binding
             .animation_cursor
-            .take_for(&world.animation_events, binding.actor)
+            .take_for(&world.animation_requests, binding.actor)
     }
 
     fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {

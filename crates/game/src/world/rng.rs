@@ -23,7 +23,23 @@ impl World {
     }
 
     pub fn random_float(&mut self, min: f32, max: f32) -> f32 {
-        let unit = (self.random_u64() >> 11) as f64 / (1u64 << 53) as f64;
-        min + (max - min) * unit as f32
+        let (lo, hi) = (min.min(max), min.max(max));
+        let unit = inclusive_unit_float(self.random_u64() >> 11);
+        lo + (hi - lo) * unit
+    }
+}
+
+fn inclusive_unit_float(sample: u64) -> f32 {
+    (sample as f64 / ((1u64 << 53) - 1) as f64) as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inclusive_unit_float;
+
+    #[test]
+    fn scr_72_random_float_can_reach_both_inclusive_endpoints() {
+        assert_eq!(inclusive_unit_float(0), 0.0);
+        assert_eq!(inclusive_unit_float((1u64 << 53) - 1), 1.0);
     }
 }

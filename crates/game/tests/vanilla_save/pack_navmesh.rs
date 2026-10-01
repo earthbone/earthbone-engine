@@ -91,7 +91,7 @@ fn sav_48_pack_navmesh_restore_is_atomic_and_survives_engine_save_load() {
     assert_eq!(loaded.name_of(navm_id).as_deref(), Some("Original navmesh"));
 
     let (mut atomic, mut malformed) = world_and_save();
-    malformed.change_forms[1].change_flags |= 1 << 3;
+    malformed.change_forms[1].data.pop();
     assert!(atomic.restore_vanilla_pack_navmesh(&malformed).is_err());
     assert!(atomic.restored_pack_extra(pack_id).is_none());
     assert!(atomic.restored_navmesh_extra(navm_id).is_none());

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Routes newly recorded game animation events to the host actor with the
-//! matching form identity.
+//! Routes game animation requests to the host visual with the matching form
+//! identity.
 
 use soe_esm::GlobalFormId;
 
-/// Position in the world's append-only animation event log.
+/// Position in the world's append-only animation request log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnimationEventCursor(usize);
 
@@ -16,22 +16,22 @@ impl AnimationEventCursor {
     }
 
     /// Start after events already present when a host actor is bound.
-    pub const fn at_end(events: &[(GlobalFormId, String)]) -> Self {
-        Self(events.len())
+    pub const fn at_end(requests: &[soe_game::world::AnimationRequest]) -> Self {
+        Self(requests.len())
     }
 
-    /// Return new requests for `actor` and advance past every observed event.
+    /// Return new requests for `target` and advance past every observed one.
     pub fn take_for(
         &mut self,
-        events: &[(GlobalFormId, String)],
-        actor: GlobalFormId,
+        requests: &[soe_game::world::AnimationRequest],
+        target: GlobalFormId,
     ) -> Vec<String> {
-        let start = self.0.min(events.len());
-        self.0 = events.len();
-        events[start..]
+        let start = self.0.min(requests.len());
+        self.0 = requests.len();
+        requests[start..]
             .iter()
-            .filter(|(source, _)| *source == actor)
-            .map(|(_, name)| name.clone())
+            .filter(|request| request.target == target)
+            .map(|request| request.animation.clone())
             .collect()
     }
 }

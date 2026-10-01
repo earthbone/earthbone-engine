@@ -392,8 +392,9 @@ mod failures {
     }
 
     fn paused_writer(format: Format, directory: &TestDir, step: Step, after: bool) -> Child {
+        let test = crate::common::child_test_name(module_path!(), "child_writer");
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failures::child_writer", "--nocapture"])
+            .args(["--exact", &test, "--nocapture"])
             .env("SOE_ATOMIC_CHILD_PATH", directory.destination())
             .env("SOE_ATOMIC_CHILD_FORMAT", format!("{format:?}"))
             .env("SOE_ATOMIC_CHILD_STEP", format!("{step:?}"))

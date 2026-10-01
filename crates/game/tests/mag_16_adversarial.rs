@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#[path = "common/mag_adversarial.rs"]
-mod support;
+use crate::common::mag_adversarial as support;
 use support::*;
 
 #[test]

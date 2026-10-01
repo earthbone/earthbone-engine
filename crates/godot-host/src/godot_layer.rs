@@ -639,7 +639,9 @@ impl CellStreamerNode {
                 return;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
-            let key = (placement.visible, iso);
+            let visible =
+                placement.visible && !crate::godot_physics::is_opened_door(world, reference);
+            let key = (visible, iso);
             if self.ref_cache.insert(reference, key) != Some(key) {
                 changed.insert(reference);
             }
@@ -674,11 +676,9 @@ impl CellStreamerNode {
                         if !changed.contains(reference) {
                             continue;
                         }
-                        let scale = if placement.visible {
-                            placement.scale
-                        } else {
-                            0.0
-                        };
+                        let visible = placement.visible
+                            && !crate::godot_physics::is_opened_door(world, *reference);
+                        let scale = if visible { placement.scale } else { 0.0 };
                         let transform =
                             placement_to_godot(target.rotation.rows, placement.position, scale);
                         multi.set_instance_transform(index as i32, transform3d_from(transform));
@@ -697,7 +697,9 @@ impl CellStreamerNode {
                 if changed.contains(&member.reference) {
                     touched = true;
                 }
-                targets.push((index, placement.visible, target_iso));
+                let visible = placement.visible
+                    && !crate::godot_physics::is_opened_door(world, member.reference);
+                targets.push((index, visible, target_iso));
             }
             if !touched {
                 continue;

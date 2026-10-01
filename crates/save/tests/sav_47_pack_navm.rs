@@ -4,13 +4,18 @@
 //! PACK and NAVM change fields from xEdit's save definitions, checked against
 //! the UESP type table, FallrimTools type indices and external saves.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use soe_save::quest::FormFlags;
 use soe_save::{ChangeForm, RefId, Save};
 
 const IDENTITY: [u8; 3] = [0x40, 0x01, 0x23];
 const FORM_FLAGS: [u8; 6] = [0x81, 0x92, 0xA3, 0xB4, 0xC5, 0xD6];
+const CORPUS: &str =
+    "/run/host/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves";
 
 fn form(kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
@@ -72,8 +77,32 @@ fn sav_47_form_flag_values_are_typed_and_retained() {
 }
 
 #[test]
-fn sav_47_truncation_unknown_flags_and_trailing_bytes_are_rejected() {
-    for (kind, allowed, all_flags) in [(32u8, 0xC000_0001u32, 0xC000_0001u32), (33, 0b111, 0b111)] {
+fn sav_47_source_declared_unnamed_flag_bits_are_retained() {
+    for (kind, unnamed_mask) in [(32u8, 0x3FFF_FFFE), (33, 0xFFFF_FFF8)] {
+        for bit in 0..32 {
+            let flag = 1u32 << bit;
+            if unnamed_mask & flag == 0 {
+                continue;
+            }
+            let change = form(kind, flag, fixture(flag));
+            let (decoded_flags, data) = if kind == 32 {
+                let decoded = change.pack_change().unwrap().unwrap();
+                assert_eq!(decoded.unnamed_flags, flag);
+                (decoded.change_flags(), decoded.data_bytes())
+            } else {
+                let decoded = change.navmesh_change().unwrap().unwrap();
+                assert_eq!(decoded.unnamed_flags, flag);
+                (decoded.change_flags(), decoded.data_bytes())
+            };
+            assert_eq!(decoded_flags, flag, "kind {kind}, bit {bit}");
+            assert_eq!(data, fixture(flag), "kind {kind}, bit {bit}");
+        }
+    }
+}
+
+#[test]
+fn sav_47_truncated_form_flags_and_trailing_bytes_are_rejected() {
+    for (kind, all_flags) in [(32u8, 0xC000_0001u32), (33, 0b111)] {
         let data = fixture(all_flags);
         for cut in 0..data.len() {
             let truncated = form(kind, all_flags, data[..cut].to_vec());
@@ -93,18 +122,6 @@ fn sav_47_truncation_unknown_flags_and_trailing_bytes_are_rejected() {
             change.navmesh_change().map(|_| ())
         };
         assert!(result.is_err(), "kind {kind} trailing byte");
-
-        for bit in 0..32 {
-            if allowed & (1 << bit) == 0 {
-                let change = form(kind, 1 << bit, vec![]);
-                let result = if kind == 32 {
-                    change.pack_change().map(|_| ())
-                } else {
-                    change.navmesh_change().map(|_| ())
-                };
-                assert!(result.is_err(), "kind {kind}, unknown bit {bit}");
-            }
-        }
     }
 }
 
@@ -151,12 +168,14 @@ fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
 
 #[test]
 fn sav_47_external_corpus_accounts_for_every_pack_and_navm_change() {
-    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
-        eprintln!("SOE_TEST_SAVES unset, skipping PACK/NAVM corpus");
+    let root =
+        std::env::var_os("SOE_TEST_SAVES").map_or_else(|| PathBuf::from(CORPUS), PathBuf::from);
+    if !root.is_dir() {
+        eprintln!("save corpus is unavailable at {}, skipping", root.display());
         return;
-    };
+    }
     let mut paths = Vec::new();
-    collect(Path::new(&root), &mut paths);
+    collect(&root, &mut paths);
     paths.sort();
     assert!(paths.len() >= 50, "expected at least 50 external saves");
 
