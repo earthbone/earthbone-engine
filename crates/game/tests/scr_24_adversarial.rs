@@ -56,7 +56,7 @@ fn scr_24_zero_negative_and_repeated_stop_have_distinct_pair_semantics() {
     assert_eq!(game.world().effect_shader_playbacks()[0].remaining, None);
     call(&mut game, "Play", &[target.clone(), Value::Float(0.0)]);
     assert!(game.world().effect_shader_playbacks().is_empty());
-    call(&mut game, "Stop", &[target.clone()]);
+    call(&mut game, "Stop", std::slice::from_ref(&target));
     call(&mut game, "Stop", &[target]);
     assert!(game.world().effect_shader_playbacks().is_empty());
     let requests = game.world_mut().take_effect_shader_requests();

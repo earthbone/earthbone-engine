@@ -444,9 +444,13 @@ impl SimpleWorld {
             }
         }
 
-        // Walking off a riser should follow the floor down rather than launch.
+        // CONTEXT: Follow a riser down without reversing the requested walk
+        // to reach a lower surface beyond a rounded obstacle.
         if was_ground && !ground && vel.z <= 0.0 {
-            if let Some(snapped) = self.snap_down(pos, &s, height) {
+            if let Some(snapped) = self
+                .snap_down(pos, &s, height)
+                .filter(|snapped| (*snapped - start).dot(wanted) >= 0.0)
+            {
                 pos = snapped;
                 vel.z = 0.0;
                 ground = true;

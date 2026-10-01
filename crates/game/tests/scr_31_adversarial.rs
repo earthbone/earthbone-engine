@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{GlobalFormId, LoadOrder};
+use soe_esm::LoadOrder;
 use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
-fn id(object: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object }
-}
 fn call(game: &mut Game, name: &str) -> Value {
     let script = format!("Scr31Adv{name}{}", game.vm.time().to_bits());
     let bytes = ScriptBuilder::new(&script, "")

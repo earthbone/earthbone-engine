@@ -9,13 +9,13 @@ use soe_papyrus::{Opcode::*, Value};
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
-fn placed(tag: &[u8; 4], object: u32, base: u32, xyz: [f32; 3]) -> Record {
+fn placed(tag: [u8; 4], object: u32, base: u32, xyz: [f32; 3]) -> Record {
     let mut data = Vec::new();
     for v in xyz {
         data.extend_from_slice(&v.to_le_bytes());
     }
     data.extend_from_slice(&[0; 12]);
-    Record::new(Tag::new(tag), object)
+    Record::new(Tag::new(&tag), object)
         .sub(Tag::new(b"NAME"), base.to_le_bytes())
         .sub(Tag::new(b"DATA"), data)
 }
@@ -23,8 +23,8 @@ fn fixture() -> Game {
     let mut p = Plugin::new(FileHeader::default());
     p.push_top(Record::new(Tag::new(b"STAT"), 0x800));
     p.push_top(Record::new(Tag::new(b"NPC_"), 0x801).sub(Tag::new(b"ACBS"), [0; 24]));
-    p.push_top(placed(b"REFR", 0x810, 0x800, [1.0, 0.0, 0.0]));
-    p.push_top(placed(b"ACHR", 0x811, 0x801, [1.0, 0.0, 0.0]));
+    p.push_top(placed(*b"REFR", 0x810, 0x800, [1.0, 0.0, 0.0]));
+    p.push_top(placed(*b"ACHR", 0x811, 0x801, [1.0, 0.0, 0.0]));
     let mut o = LoadOrder::new();
     o.add("Search.esm", p).unwrap();
     Game::new(o)
