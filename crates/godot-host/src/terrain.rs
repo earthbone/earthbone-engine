@@ -175,7 +175,7 @@ impl RegionHeightmap {
     /// Little-endian `f32` bytes, the layout `Image.create_from_data` wants
     /// for `FORMAT_RF`.
     pub fn rf_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.heights_m.len() * 4);
+        let mut bytes = Vec::with_capacity(self.heights_m.len() * std::mem::size_of::<f32>());
         for height in &self.heights_m {
             bytes.extend_from_slice(&height.to_le_bytes());
         }

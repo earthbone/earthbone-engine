@@ -59,6 +59,8 @@ mod events;
 pub use events::EffectShaderRequest;
 mod forms;
 mod furniture;
+mod game_ui;
+pub use game_ui::GameUiError;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -248,6 +250,10 @@ pub struct ActorState {
     pub essential: bool,
     pub protected: bool,
     pub level: u32,
+    /// Character experience banked toward the next level.
+    pub character_experience: f32,
+    /// Unspent attribute choices earned from character level-ups.
+    pub level_up_choices: u32,
     pub race: Option<GlobalFormId>,
     pub unconscious: bool,
     /// Explicit `ForceAddRagdollToWorld`/`ForceRemoveRagdollFromWorld` override.
@@ -348,6 +354,8 @@ pub struct ActorState {
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
     /// Partial use experience for each actor skill, keyed by lowercase name.
     pub skill_experience: BTreeMap<String, f32>,
+    /// Cumulative in-game days served in prison.
+    pub days_in_jail: u32,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -598,6 +606,8 @@ pub struct World {
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Recoverable errors raised by void Papyrus Game natives.
+    pub native_errors: Vec<(String, String)>,
     /// Host-facing requests raised by UI natives. These are transient commands.
     pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
@@ -628,6 +638,10 @@ pub struct World {
     pub fast_travel: bool,
     pub player_ai_driven: bool,
     pub in_chargen: bool,
+    /// `Game.SetHudCartMode` state for the host HUD presenter.
+    pub hud_cart_mode: bool,
+    /// Transient presentation requests raised by global Game natives.
+    pub game_ui_requests: Vec<GameUiRequest>,
     pub beast_form: bool,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
@@ -671,6 +685,33 @@ pub struct ActorImpulse {
     pub actor: GlobalFormId,
     /// Skyrim-space vector in game units per second.
     pub vector: [f32; 3],
+}
+
+/// A transient presentation action requested by a Papyrus Game native.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameUiRequest {
+    /// Open the character race and sex editor.
+    ShowRaceMenu,
+    /// Trigger a screen blood overlay with the authored intensity value.
+    TriggerScreenBlood(i32),
+    /// Ask the host to play a Bink file with the authored playback options.
+    PlayBink {
+        file_name: String,
+        options: BinkOptions,
+    },
+}
+
+/// Playback options supplied to `Game.PlayBink`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BinkOptions {
+    /// Whether user input can interrupt playback.
+    pub interruptible: bool,
+    /// Whether video audio is muted.
+    pub mute_audio: bool,
+    /// Whether game music is muted.
+    pub mute_music: bool,
+    /// Whether the host displays letterboxing.
+    pub letterbox: bool,
 }
 
 impl World {
@@ -732,6 +773,7 @@ impl World {
             story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            native_errors: Vec::new(),
             menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
@@ -753,6 +795,8 @@ impl World {
             fast_travel: true,
             player_ai_driven: false,
             in_chargen: false,
+            hud_cart_mode: false,
+            game_ui_requests: Vec::new(),
             beast_form: false,
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
