@@ -23,10 +23,8 @@ fn sav_43_compressed_form_flags_decode_to_exact_source_bytes() {
             vec![0, 0, 0, 0, 0, 0],
             vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
         ] {
-            let mut encoder = flate2::write::ZlibEncoder::new(
-                Vec::new(),
-                flate2::Compression::default(),
-            );
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
             encoder.write_all(&payload).unwrap();
             let packed = encoder.finish().unwrap();
             let form = change(kind, 1 | 2 | 4 | 0x8000_0000, packed, payload.len() as u32);
@@ -35,7 +33,13 @@ fn sav_43_compressed_form_flags_decode_to_exact_source_bytes() {
             } else {
                 form.idle_marker_change().unwrap().unwrap()
             };
-            assert_eq!(value.form_flags, Some((u32::from_le_bytes(payload[..4].try_into().unwrap()), u16::from_le_bytes(payload[4..].try_into().unwrap()))));
+            assert_eq!(
+                value.form_flags,
+                Some((
+                    u32::from_le_bytes(payload[..4].try_into().unwrap()),
+                    u16::from_le_bytes(payload[4..].try_into().unwrap())
+                ))
+            );
             assert!(value.value_changed);
             assert!(value.full_name_changed);
             assert_eq!(value.change_flags, form.change_flags);

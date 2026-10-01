@@ -65,8 +65,22 @@ fn named_flag_combinations_use_only_the_authored_form_flag_payload() {
 #[test]
 fn uninterpreted_change_bits_survive_with_all_named_markers() {
     let cases = [
-        (32_u8, 0xFFFF_FFFF, FormFlags { flags: 0xB4A3_9281, unknown: 0xD6C5 }),
-        (33, 0xFFFF_FFFF, FormFlags { flags: 0xB4A3_9281, unknown: 0xD6C5 }),
+        (
+            32_u8,
+            0xFFFF_FFFF,
+            FormFlags {
+                flags: 0xB4A3_9281,
+                unknown: 0xD6C5,
+            },
+        ),
+        (
+            33,
+            0xFFFF_FFFF,
+            FormFlags {
+                flags: 0xB4A3_9281,
+                unknown: 0xD6C5,
+            },
+        ),
     ];
     for (kind, bits, expected_form_flags) in cases {
         let original = change(kind, bits, FORM_FLAG_BYTES.to_vec());
@@ -153,13 +167,17 @@ fn collect_saves(path: &Path, output: &mut Vec<std::path::PathBuf>) {
 
 #[test]
 fn external_corpus_accounts_for_every_pack_and_navm_payload() {
-    let root: PathBuf =
-        std::env::var_os("SOE_TEST_SAVES").map_or_else(|| PathBuf::from(SAVE_CORPUS), PathBuf::from);
+    let root: PathBuf = std::env::var_os("SOE_TEST_SAVES")
+        .map_or_else(|| PathBuf::from(SAVE_CORPUS), PathBuf::from);
     assert!(root.is_dir(), "save corpus missing: {}", root.display());
     let mut paths = Vec::new();
     collect_saves(&root, &mut paths);
     paths.sort();
-    assert!(paths.len() >= 50, "expected at least 50 saves, got {}", paths.len());
+    assert!(
+        paths.len() >= 50,
+        "expected at least 50 saves, got {}",
+        paths.len()
+    );
     let save_count = paths.len();
 
     let mut counts = BTreeMap::from([("PACK", 0_usize), ("NAVM", 0_usize)]);

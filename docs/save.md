@@ -992,9 +992,9 @@ record types.
 `ChangeForm::pack_change` reads the optional six-byte form flags and records
 the waiting and never-run bits as typed zero-byte markers. `navmesh_change`
 reads the same form-flags section and records the base-object value and
-full-name markers. Both readers reject unknown bits, incomplete form flags,
-and payload suffixes. Their encoders reproduce the change flag word and
-payload exactly.
+full-name markers. Both readers retain xEdit's unnamed change-flag bits,
+reject incomplete form flags and payload suffixes, and reproduce the change
+flag word and payload exactly.
 
 The field order and bit names follow xEdit's
 `Core/wbDefinitionsTES5Saves.pas`. That file defines PACK as form flags,

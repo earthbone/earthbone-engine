@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::{io::Write, path::{Path, PathBuf}};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use soe_save::{ChangeForm, RefId, Save};
 
@@ -9,7 +12,8 @@ use soe_save::{ChangeForm, RefId, Save};
 fn sav_43_compressed_payload_length_is_checked_on_repeated_decode() {
     for kind in [19, 27] {
         let raw = [0x81, 0x92, 0xA3, 0xB4, 0xC5, 0xD6];
-        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(&raw).unwrap();
         let compressed = encoder.finish().unwrap();
         let mut change = ChangeForm {
@@ -48,7 +52,10 @@ fn saves(path: &Path, output: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         if path.is_dir() {
             saves(&path, output);
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+        {
             output.push(path);
         }
     }
@@ -57,7 +64,11 @@ fn saves(path: &Path, output: &mut Vec<PathBuf>) {
 #[test]
 fn sav_43_external_corpus_accounts_for_every_matching_payload() {
     let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
-        || PathBuf::from("/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves"),
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves",
+            )
+        },
         PathBuf::from,
     );
     let mut paths = Vec::new();
