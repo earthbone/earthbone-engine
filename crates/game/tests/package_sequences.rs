@@ -3,8 +3,7 @@
 
 //! Authored PACK branch fixtures, using xEdit PRCB and FNAM layouts.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;

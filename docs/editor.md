@@ -323,17 +323,21 @@ order, with each source plugin and record and a winner flag. The final version i
 including when the selected form has only one version. This is the record-chain data for the
 conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
-and inspector controls that can display those results. This row implements the Rust search
-operation only, not the Godot dock or inspector controls.
+and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
+and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
+the resolved identity, record signature, editor ID and winning plugin. It does not own or
+edit a copy of the record.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
 an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
 updates door and cover triangle indices after deletion. Triangle and vertex indices are
-checked against NVNM limits, malformed or degenerate edits are rejected before changing the
-plugin, and save writes the packed geometry back through the plugin writer. Editing a
-winning navmesh owned by another plugin is not supported yet because its parent, door and
-edge-link FormIDs need relocation when an override is created.
+checked against NVNM limits, including the full range of signed 16-bit triangle indices.
+External edge-link indices are retained when triangle indices change. Malformed or
+degenerate edits are rejected before changing the plugin, and save writes the packed
+geometry back through the plugin writer. Editing a winning navmesh owned by another plugin
+is not supported yet because its parent, door and edge-link FormIDs need relocation when
+an override is created.
 
 `EditorDocument::brush_land_heights` applies a single circular dab to a LAND record already
 present in the active plugin. The dab takes its center and radius in cell-local world units
@@ -414,3 +418,26 @@ alias fields, undo, and rejection of an orphan condition string.
 
 The override-chain API follows Mutagen's winning-override rule and Wrye Bash's description
 of whole-record override resolution. It does not compare individual fields or run patchers.
+
+`EditorDocument::brush_land_texture` takes a resolved texture FormID and applies a circular
+alpha-weight dab to that texture in one quadrant of a LAND record already present in the
+active plugin. The texture ID is converted to the active plugin's local FormID for output.
+The center and radius
+use cell-local world units, and its strength adds or removes alpha weight with smooth radial
+falloff. A missing alpha layer uses the first free quadrant index. The operation preserves
+other texture identities and weights, records the whole dab as one undo step, and updates
+the load order. Saving and parsing the active plugin preserves the edited LAND data. Its
+record layout follows local xEdit's LAND layer definition, and its brush operation model
+follows local Terrain3D's `Terrain3DEditor` operation interface. This is a Rust document
+operation, not a Godot brush UI, and it does not create an override for LAND owned by
+another plugin.
+
+`EditorDocument::brush_land_vertex_colors` blends a selected RGB color into the VCLR vertices of
+a LAND record already present in the active plugin. The circular brush uses cell-local world
+units, a smooth radial falloff and a strength from zero to one. One stroke is one undo entry.
+Saving writes VCLR and the LAND vertex-color flag into the active plugin, and the saved plugin
+can be parsed again. When a LAND has no VCLR, the brush starts with white vertex colors. The
+record operation follows the position-based boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`. UESP's local LAND format page documents
+VCLR as the vertex-color grid. This remains a Rust document operation without Terrain3D brush UI,
+and it edits only LAND records already in the active plugin.

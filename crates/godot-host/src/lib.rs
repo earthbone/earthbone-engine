@@ -26,6 +26,7 @@ pub mod data_source;
 pub mod detection;
 pub mod dialogue_menu;
 pub mod door_fade;
+pub mod effect_shader;
 pub mod facegen;
 pub mod facial;
 pub mod hud;
@@ -57,6 +58,8 @@ pub mod godot_animated_static;
 pub mod godot_audio;
 #[cfg(feature = "godot")]
 pub mod godot_combat;
+#[cfg(feature = "godot")]
+pub mod godot_forms;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]

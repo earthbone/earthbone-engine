@@ -7,8 +7,7 @@
 //! test at the end reads every `PACK` of the installed `Skyrim.esm` and
 //! evaluates the Prisoner's stack.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{
@@ -1229,7 +1228,11 @@ fn mod_06_distributed_package_is_selected_and_survives_save_load() {
     let mut order = LoadOrder::new();
     order.add("Packages.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    let root = std::env::temp_dir().join(format!("soe-mod-06-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "soe-mod-06-{}-{}",
+        module_path!(),
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(

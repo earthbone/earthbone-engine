@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! UI-05 lifecycle checks against a hand-built SKI_ConfigBase model.
+//! UI-05 lifecycle checks and SkyUI source contract checks.
 
 use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
 use soe_game::quest::{self, flags as quest_flags};
@@ -12,6 +12,21 @@ use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
 
 const QUEST: u32 = 0x800;
+
+fn source_body(source: &str, signature: &str, end: &str) -> Option<String> {
+    let source = source.to_ascii_lowercase();
+    let start = source.find(&signature.to_ascii_lowercase())?;
+    let body_start = source[start..].find('\n')? + start + 1;
+    let body_end = source[body_start..].find(&end.to_ascii_lowercase())? + body_start;
+    Some(
+        source[body_start..body_end]
+            .lines()
+            .map(|line| line.split(';').next().unwrap_or_default().trim())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
 
 fn fixture() -> Game {
     fixture_with_quests(1)
@@ -213,4 +228,40 @@ fn ui_05_closes_config_once() {
 fn ui_05_registry_stops_at_skyui_limit() {
     let mut game = fixture_with_quests(129);
     assert_eq!(game.mcm_configs().len(), 128);
+}
+
+#[test]
+fn ui_05_original_skyui_source_defines_lifecycle_order() {
+    let Some(path) = std::env::var_os("SOE_SKYUI_CONFIG_BASE") else {
+        eprintln!("skipping original SkyUI source check: SOE_SKYUI_CONFIG_BASE is unset");
+        return;
+    };
+    let source = std::fs::read_to_string(path).unwrap();
+
+    let init = source_body(&source, "event OnInit()", "endevent").unwrap();
+    assert!(init.contains("ongamereload()"));
+
+    let reload = source_body(&source, "event OnGameReload()", "endevent").unwrap();
+    assert!(reload.contains("onconfiginit()"));
+    assert!(reload
+        .contains("registerformodevent(\"skicp_configmanagerready\", \"onconfigmanagerready\")"));
+
+    let ready = source_body(&source, "event OnConfigManagerReady(", "endevent").unwrap();
+    let register = ready.find("newmanager.registermod(self, modname)").unwrap();
+    let callback = ready.find("onconfigregister()").unwrap();
+    assert!(register < callback);
+
+    let open = source_body(&source, "function OpenConfig()", "endfunction").unwrap();
+    let reset = open.find("setpage(\"\", -1)").unwrap();
+    let opened = open.find("onconfigopen()").unwrap();
+    let pages = open.find(".setpagenames\", pages)").unwrap();
+    assert!(reset < opened && opened < pages);
+
+    let set_page = source_body(
+        &source,
+        "function SetPage(string a_page, int a_index)",
+        "endfunction",
+    )
+    .unwrap();
+    assert!(set_page.contains("onpagereset(a_page)"));
 }
