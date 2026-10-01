@@ -726,6 +726,10 @@ pub struct World {
     pub debug_god_mode: bool,
     pub debug_ai_enabled: bool,
     pub debug_collisions_enabled: bool,
+    /// The state requested by `Debug.SetFootIK` for host actor presentation.
+    pub debug_foot_ik: bool,
+    /// References requested by `Debug.ShowRefPosition` for development markers.
+    pub(crate) debug_ref_positions: BTreeSet<GlobalFormId>,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -925,6 +929,8 @@ impl World {
             debug_god_mode: false,
             debug_ai_enabled: true,
             debug_collisions_enabled: true,
+            debug_foot_ik: true,
+            debug_ref_positions: BTreeSet::new(),
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),

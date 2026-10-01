@@ -26,6 +26,73 @@ pub struct RefPlacement {
 }
 
 impl World {
+    /// Set whether host actor presentation should apply foot inverse kinematics.
+    pub fn set_debug_foot_ik(&mut self, enabled: bool) {
+        self.debug_foot_ik = enabled;
+    }
+
+    /// Return the foot inverse kinematics setting requested by Papyrus.
+    #[must_use]
+    pub fn debug_foot_ik(&self) -> bool {
+        self.debug_foot_ik
+    }
+
+    /// Request a development position marker for a loaded reference.
+    pub fn show_debug_ref_position(&mut self, id: GlobalFormId) -> bool {
+        if self.reference(id).is_none() {
+            return false;
+        }
+        self.debug_ref_positions.insert(id);
+        true
+    }
+
+    /// Return development references whose positions were requested for display.
+    #[must_use]
+    pub fn debug_ref_positions(&self) -> Vec<GlobalFormId> {
+        self.debug_ref_positions.iter().copied().collect()
+    }
+
+    /// Move the player to a placed reference and update the active cell.
+    pub fn debug_player_move_to_reference(&mut self, target: GlobalFormId) -> bool {
+        let player = self.player();
+        let Some((position, rotation, cell)) = self
+            .reference(target)
+            .map(|reference| (reference.position, reference.rotation, reference.cell))
+        else {
+            return false;
+        };
+        let Some(player_state) = self.reference(player) else {
+            return false;
+        };
+        player_state.position = position;
+        player_state.rotation = rotation;
+        player_state.cell = cell;
+        if self.loaded_cell != cell {
+            self.change_cell(cell);
+        }
+        true
+    }
+
+    /// Move the player to the origin of a cell selected by editor id.
+    pub fn debug_player_move_to_cell(&mut self, editor_id: &str) -> bool {
+        let Some(cell) = self.cell_by_editor_id(editor_id) else {
+            return false;
+        };
+        if self.tag_of(cell).is_none_or(|tag| tag != T(b"CELL")) {
+            return false;
+        }
+        let player = self.player();
+        let Some(reference) = self.reference(player) else {
+            return false;
+        };
+        reference.position = [0.0; 3];
+        reference.cell = Some(cell);
+        if self.loaded_cell != Some(cell) {
+            self.change_cell(Some(cell));
+        }
+        true
+    }
+
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let mut st = self.load_ref_record(id)?;
         if let Some(base) = st.base {

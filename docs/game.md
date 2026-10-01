@@ -554,7 +554,7 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 379 stateful registrations and 172 quiet stubs,
+`natives::register` has 383 stateful registrations and 168 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
 `Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
 `IsBleedingOut` requires an actor to be unconscious, alive and at or below its
@@ -574,7 +574,7 @@ owning system has no behavior yet.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
-| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify | SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell |
+| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell | |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
@@ -613,6 +613,22 @@ leaving unrelated equipment in place. `StartVampireFeed` queues the documented
 It does not check that target's sleep state. `StartCannibal` remains a quiet
 stub because actor action state is not modeled. `ClearExtraArrows` needs
 attached-arrow state in the host renderer.
+
+The SCR-23 Debug natives update runtime debug state or the shared player
+reference. `SetFootIK` stores the requested setting, defaulting to enabled.
+`ShowRefPosition` records a resolved reference for development display.
+`PlayerMoveToAndWait` resolves a destination reference by editor id, moves the
+player to its position, rotation and cell, and returns `1.0` on success or
+`0.0` when the destination is missing. This float result is the runtime's
+success indication. The CK page defines a float return but does not describe
+its value. `MoveToCell` resolves a cell by editor id and moves the player to
+its origin. Failed destination lookups leave the player in place and write a
+Papyrus log entry. The existing Godot player pose sync reflects changed
+placement and cell state. The Godot host has no foot IK rig or reference
+tripod renderer yet, so the two display requests currently record their
+state without changing visuals. `PlayerMoveToAndWait` also moves synchronously
+and does not suspend the Papyrus stack while the host attaches the destination
+cell.
 
 Current behavior and compatibility limits:
 
