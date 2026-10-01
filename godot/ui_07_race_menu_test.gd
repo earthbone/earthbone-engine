@@ -64,8 +64,9 @@ func _run() -> void:
 	_check(_button(rows, "Female") != null or _button(rows, "Female *") != null,
 		"female sex choice was not rendered")
 	_check(_button(rows, "Confirm") != null, "confirmation button was not rendered")
+	var selected_name := ""
 	if alternate_race != null:
-		var selected_name := alternate_race.text
+		selected_name = alternate_race.text
 		alternate_race.pressed.emit()
 		await process_frame
 		rows = content.get_child(0)
@@ -95,9 +96,24 @@ func _run() -> void:
 		confirm_button.pressed.emit()
 	await process_frame
 	_check(not player.call("is_menu_open"), "confirmation did not close the race menu")
+	_check(player.call("show_race_menu"), "confirmed player could not reopen the race menu")
+	rows = content.get_child(0)
+	var committed_race := false
+	var committed_sex := false
+	for child in rows.get_children():
+		if child is Button:
+			var button := child as Button
+			if not selected_name.is_empty() and button.text == selected_name + " *":
+				committed_race = true
+			if button.text == selected_sex:
+				committed_sex = true
+	_check(committed_race, "confirmation did not commit the selected race record")
+	_check(committed_sex, "confirmation did not commit the selected sex")
+	player.call("close_menu")
+	_check(not player.call("is_menu_open"), "readback menu did not close")
 	for i in range(2):
 		player.call("advance", 1.0 / 60.0)
-	_check(not player.call("is_menu_open"), "confirmed menu reopened on a gameplay tick")
+	_check(not player.call("is_menu_open"), "closed race menu reopened on a gameplay tick")
 
 	player.free()
 	streamer.free()

@@ -48,15 +48,24 @@ fn ui_06_status_meters_update_after_shared_actor_values_change() {
     let player = game.player();
     let initial = Snapshot::read(&mut game, player, 0.0);
     assert_eq!(initial.health.fraction, 1.0);
+    assert_eq!(initial.magicka.fraction, 1.0);
+    assert_eq!(initial.stamina.fraction, 1.0);
 
-    game.world_mut()
-        .damage_actor_value(player, "health", 25.0)
-        .unwrap();
+    {
+        let mut world = game.world_mut();
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        world.damage_actor_value(player, "magicka", 40.0).unwrap();
+        world.damage_actor_value(player, "stamina", 60.0).unwrap();
+    }
     let updated = Snapshot::read(&mut game, player, 0.0);
 
     assert_eq!(updated.health.current, 75.0);
     assert_eq!(updated.health.maximum, 100.0);
     assert_eq!(updated.health.fraction, 0.75);
+    assert_eq!(updated.magicka.current, 60.0);
+    assert_eq!(updated.magicka.fraction, 0.6);
+    assert_eq!(updated.stamina.current, 40.0);
+    assert_eq!(updated.stamina.fraction, 0.4);
 }
 
 #[test]

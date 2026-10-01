@@ -37,8 +37,10 @@
 //! and the tests pin the choice rather than claim it is vanilla.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::ObjectId;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::{ObjectId, VmError};
 
+use super::save::{read_form_id, write_form_id, FormReader};
 use super::{Handle, Pending, World, DYNAMIC_FILE};
 
 /// What one cell change moved.
@@ -56,6 +58,81 @@ pub struct CellTransition {
 }
 
 impl World {
+    /// Whether the cell currently has streamed host resources.
+    #[must_use]
+    pub fn cell_is_attached(&self, cell: GlobalFormId) -> bool {
+        self.attached_cells.contains(&cell)
+    }
+
+    /// Mark a cell's temporary references to be restored from their records
+    /// the next time the cell is loaded.
+    ///
+    /// # Errors
+    /// Returns an error when `cell` is not a live CELL form.
+    pub fn reset_cell(&mut self, cell: GlobalFormId) -> soe_esm::Result<()> {
+        if !self
+            .order
+            .winner(cell)
+            .is_some_and(|record| record.tag == super::T(b"CELL") && !record.is_deleted())
+        {
+            return Err(soe_esm::Error::Invalid("invalid cell reset target".into()));
+        }
+        self.pending_cell_resets.insert(cell);
+        Ok(())
+    }
+
+    fn reset_cell_on_load(&mut self, cell: GlobalFormId) {
+        if !self.pending_cell_resets.remove(&cell) {
+            return;
+        }
+        let player = self.player;
+        for id in self.cell_temporary_ids(cell) {
+            if Some(id) == player || id.file == DYNAMIC_FILE {
+                continue;
+            }
+            let persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
+            });
+            if persistent {
+                continue;
+            }
+            self.refs.remove(&id);
+            self.actors.remove(&id);
+            self.actor_templates.remove(&id);
+            let _ = self.reference(id);
+        }
+    }
+
+    pub(crate) fn write_pending_cell_resets(&self, out: &mut Writer, _pool: &mut ArrayPool) {
+        out.len(self.pending_cell_resets.len());
+        for cell in &self.pending_cell_resets {
+            write_form_id(out, *cell);
+        }
+    }
+
+    pub(crate) fn read_pending_cell_resets(
+        world: &mut World,
+        input: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
+        let mut cells = std::collections::BTreeSet::new();
+        for _ in 0..input.len()? {
+            let cell = read_form_id(input)?;
+            if !world
+                .order
+                .winner(cell)
+                .is_some_and(|record| record.tag == super::T(b"CELL") && !record.is_deleted())
+                || !cells.insert(cell)
+            {
+                return Err(VmError::State(
+                    "invalid or duplicate pending cell reset".into(),
+                ));
+            }
+        }
+        world.pending_cell_resets = cells;
+        Ok(())
+    }
+
     /// Apply a host residency delta without detaching retained neighboring cells.
     /// Entered cells have just acquired host resources, even if their records
     /// were prefetched. The caller supplies each resource transition once.
@@ -101,6 +178,7 @@ impl World {
             ..CellTransition::default()
         };
         for cell in leaving {
+            self.attached_cells.remove(&cell);
             if self.cell_is_resident(cell) {
                 let targets = self.scripted_in_cell(cell);
                 self.queue_ref_event(&targets, "OnCellDetach", false);
@@ -114,6 +192,8 @@ impl World {
             let cold = !self.cell_is_resident(cell);
             out.loaded += self.prefetch_cell(cell);
             self.mark_cell_3d_loaded(cell);
+            self.reset_cell_on_load(cell);
+            self.attached_cells.insert(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -159,6 +239,8 @@ impl World {
             let cold = !self.cell_is_resident(cell);
             loaded += self.prefetch_cell(cell);
             self.mark_cell_3d_loaded(cell);
+            self.reset_cell_on_load(cell);
+            self.attached_cells.insert(cell);
             let targets = self.scripted_in_cell(cell);
             self.queue_ref_event(&targets, "OnCellAttach", false);
             self.queue_ref_event(&targets, "OnLoad", true);
@@ -195,6 +277,7 @@ impl World {
         }
         let (mut dropped, mut kept) = (0, 0);
         for cell in unique {
+            self.attached_cells.remove(&cell);
             if self.cell_is_resident(cell) {
                 let targets = self.scripted_in_cell(cell);
                 self.queue_ref_event(&targets, "OnCellDetach", false);
@@ -223,6 +306,8 @@ impl World {
             return 0;
         }
         let built = self.prefetch_cell(cell);
+        self.reset_cell_on_load(cell);
+        self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
         built
     }
@@ -294,6 +379,7 @@ impl World {
     /// the count kept because dropping would have lost something.
     pub fn unload_cell(&mut self, cell: GlobalFormId) -> (usize, usize) {
         let player = self.player();
+        self.attached_cells.remove(&cell);
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
         for id in self.cell_reference_ids(cell) {
@@ -404,9 +490,11 @@ impl World {
             self.queue_ref_event(&leaving, "OnCellDetach", false);
             self.queue_ref_event(&leaving, "OnUnload", true);
             self.pending_unload = Some(old);
+            self.attached_cells.remove(&old);
         }
         if let Some(new) = to {
             out.loaded = self.load_cell(new);
+            self.attached_cells.insert(new);
             let arriving = self.scripted_in_cell(new);
             // `OnCellAttach` before `OnCellLoad` is the one ordering the wiki
             // states outright, and attach reaches disabled references while

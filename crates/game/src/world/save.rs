@@ -1171,6 +1171,7 @@ impl World {
             self.scene_runs.clear();
         }
         let previous_pending = std::mem::replace(&mut self.pending, pending);
+        let previous_refs = std::mem::replace(&mut self.refs, refs);
         let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
@@ -1181,12 +1182,14 @@ impl World {
             learned_enchantment_effects.clone(),
         );
         let previous_cloaks = std::mem::take(&mut self.cloak_effects);
+        let previous_effect_shaders = std::mem::take(&mut self.effect_shaders);
         let fallback_player_level = player
             .and_then(|id| actors.get(&id).map(|actor| actor.level))
             .unwrap_or(self.player_level)
             .max(1);
         let previous_player_level =
             std::mem::replace(&mut self.player_level, fallback_player_level);
+        let previous_created_bases = std::mem::take(&mut self.created_base_records);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let previous_follower_services = std::mem::take(&mut self.follower_services);
         let section_result = if version >= 37 {
@@ -1203,12 +1206,14 @@ impl World {
         self.scenes = previous_scenes;
         self.player_level = previous_player_level;
         pending = std::mem::replace(&mut self.pending, previous_pending);
+        refs = std::mem::replace(&mut self.refs, previous_refs);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let follower_services =
             std::mem::replace(&mut self.follower_services, previous_follower_services);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         let vampire_lord_forms = std::mem::take(&mut self.vampire_lord_forms);
+        let created_base_records = std::mem::take(&mut self.created_base_records);
         quests = std::mem::replace(&mut self.quests, previous_quests);
         record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
         self.vampire_lord_forms = previous_vampire_forms;
@@ -1217,10 +1222,12 @@ impl World {
             previous_learned_effects,
         );
         let cloak_effects = std::mem::take(&mut self.cloak_effects);
+        let effect_shaders = std::mem::replace(&mut self.effect_shaders, previous_effect_shaders);
         self.unresolved_records = previous_unresolved;
         self.brewed_potions = previous_brewed;
         self.cloak_effects = previous_cloaks;
         scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
+        self.created_base_records = previous_created_bases;
         section_result?;
         validation_result?;
         if follower_services
@@ -1284,12 +1291,21 @@ impl World {
                                 reference.base != base || reference.is_actor || reference.deleted
                             })
                     }
+                    40 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"HAZD")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base
+                                    || reference.owner != owner
+                                    || reference.is_actor
+                                    || reference.deleted
+                            })
+                    }
                     _ => true,
                 };
                 if invalid {
                     return Err(VmError::State("invalid summoned actor state".into()));
                 }
-            } else if matches!(definition.data.archetype, 12 | 18) && version >= 33 {
+            } else if matches!(definition.data.archetype, 12 | 18 | 40) && version >= 33 {
                 return Err(VmError::State("spawn effect without reference".into()));
             }
             if effect.restore_owner.is_some() {
@@ -1363,6 +1379,7 @@ impl World {
         self.brewed_potions = brewed_potions;
         self.vampire_lord_forms = vampire_lord_forms;
         self.unresolved_records = unresolved_records;
+        self.created_base_records = created_base_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
@@ -1420,6 +1437,9 @@ impl World {
         self.player = player;
         self.player_level = player_level;
         self.loaded_cell = loaded_cell;
+        self.streamed_cells.clear();
+        self.loaded_3d_references.clear();
+        self.attached_cells.clear();
         self.rng = rng;
         self.clock = GameClock {
             real_seconds,
@@ -1433,6 +1453,7 @@ impl World {
         self.animation_events = animation_events;
         self.player_controls = player_controls;
         self.ini = ini;
+        self.restore_effect_shaders(effect_shaders);
         Ok(())
     }
 }
@@ -1783,6 +1804,8 @@ fn read_ref_state_with_table(
         destroyed,
         destruction_health: None,
         destruction_stage: -1,
+        no_favor_allowed: false,
+        destruction_cleared: false,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,

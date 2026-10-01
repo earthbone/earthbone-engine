@@ -5,11 +5,9 @@
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -102,6 +100,10 @@ fn effect(flags: u32, archetype: u32, av: u32, constant: bool) -> Record {
     effect_with_associated_item(flags, archetype, av, constant, 0)
 }
 
+fn scroll_effect() -> Record {
+    effect(2, 0, 24, false)
+}
+
 fn effect_with_associated_item(
     flags: u32,
     archetype: u32,
@@ -177,6 +179,12 @@ fn location_effect() -> Record {
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+fn scroll_spell(form: u32, magnitude: f32, duration: u32) -> Record {
+    let mut scroll = spell(form, 0, false, magnitude, duration);
+    put(&mut scroll.subrecords[0].data, 16, 3);
+    scroll
 }
 
 fn spell_for_effect(form: u32, effect_form: u32, magnitude: f32, duration: u32) -> Record {
@@ -478,6 +486,39 @@ fn mag_30_navmesh() -> Geometry {
             cells: vec![vec![0, 1]],
         },
     }
+}
+
+#[test]
+fn scr_71_spell_is_hostile_reports_hostile_effect_flags() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_without_hostile_effects() {
+    let mut game = fixture(0, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_for_missing_spell_records() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(0x777)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
 }
 
 #[test]
@@ -2050,6 +2091,73 @@ fn native(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
+fn scr_45_scroll_cast_uses_source_target_and_applies_the_scroll_effect() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+    let target = Value::Object(g.object_of_form(id(ACTOR)));
+
+    assert_eq!(
+        native(&mut g, scroll, "Cast", &[source, target.clone()]),
+        Value::None
+    );
+    assert_eq!(
+        g.world().spell_casts,
+        vec![(id(SPELL), id(SOURCE), Some(id(ACTOR)))]
+    );
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 120.0);
+    let world = g.world();
+    let active = world.active_effects().next().unwrap();
+    assert_eq!(active.spell, id(SPELL));
+    assert_eq!(active.source, id(SOURCE));
+    assert_eq!(active.caster, Some(id(SOURCE)));
+    assert_eq!(active.target, id(ACTOR));
+    drop(world);
+    assert!(g.vm.log.messages().is_empty());
+}
+
+#[test]
+fn scr_45_scroll_cast_logs_missing_target_and_rejects_non_scroll_records() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll_object = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+
+    native(&mut g, scroll_object, "Cast", &[source, Value::None]);
+    assert!(
+        g.vm.log
+            .contains("Scroll.Cast: spell requires an actor target"),
+        "{:?}",
+        g.vm.log.messages()
+    );
+    assert_eq!(g.world().active_effects().count(), 0);
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+
+    let ordinary = spell(SPELL + 1, 1, false, 20.0, 10);
+    let mut ordinary_game = self::game(plugin(effect(2, 0, 24, false), vec![ordinary]));
+    let shared = ordinary_game.shared_world();
+    let error = shared
+        .borrow_mut()
+        .cast_scroll_from_record(
+            id(SPELL + 1),
+            id(SOURCE),
+            Some(id(ACTOR)),
+            &mut |name, class| ordinary_game.vm.create_object_of(name, class),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        MagicError::Unsupported("not a scroll cast")
+    ));
+    assert_eq!(ordinary_game.world().active_effects().count(), 0);
+    assert_eq!(
+        ordinary_game.world_mut().actor_value(id(ACTOR), "health"),
+        100.0
+    );
+}
+
+#[test]
 fn recover_instances_reverse_only_their_own_delta() {
     let mut game = fixture(2, 0, 20.0, 10);
     let first = cast(&mut game, SPELL, OTHER).unwrap()[0];
@@ -2349,15 +2457,13 @@ fn mag_68_unnamed_archetypes_reject_without_changes() {
 }
 
 #[test]
-fn mag_61_spawn_hazard_requires_owned_lifecycle_without_changes() {
+fn mag_61_spawn_hazard_rejects_missing_base_without_changes() {
     let mut game = fixture(0, 40, 20.0, 5);
     let before = game.save_state().unwrap();
 
     assert!(matches!(
         cast(&mut game, SPELL, OTHER),
-        Err(MagicError::Unsupported(
-            "spawn hazard requires hazard ownership and expiry"
-        ))
+        Err(MagicError::Unsupported("spawn hazard base"))
     ));
     assert_eq!(game.save_state().unwrap(), before);
     assert_eq!(game.world().active_effects().count(), 0);
@@ -2838,12 +2944,15 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
                     examples.push(game.world().editor_id(*spell).unwrap_or_default());
                 }
                 for id in ids {
-                    let effect = game
+                    let Some(effect) = game
                         .world()
                         .active_effects()
                         .find(|effect| effect.id == id)
-                        .unwrap()
-                        .effect;
+                        .map(|effect| effect.effect)
+                    else {
+                        // CONTEXT: Later spell entries can dispel earlier applications.
+                        continue;
+                    };
                     if game.world().magic_effect(effect).unwrap().data.flags & 1 != 0 {
                         hostile_applications += 1;
                     }

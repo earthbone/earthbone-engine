@@ -142,9 +142,16 @@ owner, location, layer, encounter zone, emittance, teleport door, enable
 parent, lock key, linked reference, navmesh door, location ref type and idle
 links are remapped. Texture set and grass links, navmesh base object lists,
 magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
-quest links, INFO topic, response and response-sound links, WEAP and ARMO
-enchantments, and HAZD image-space and DATA
-links are remapped at their documented offsets. Scalar values remain intact.
+quest links, INFO topic, response and response-sound links, and ARMO
+enchantments are remapped. WEAP enchantment, impact, material, scope,
+first-person model, sound, critical effect, and template links are remapped,
+including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
+links in `DSTD` are remapped for their applicable records.
+The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
+the 24-byte layout. Destruction stage explosion and debris links are at offsets
+8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
+remapped at their documented offsets. Scalar values remain intact. These
+fields and nested layouts follow local xEdit `Core/wbDefinitionsTES5.pas`.
 The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
 `REFR.wikitext`. VMAD object
 properties and arrays in object formats 1 and 2 are remapped while trailing
@@ -203,6 +210,23 @@ brush operation follows the position-based operation boundary in local Terrain3D
 `project/addons/terrain_3d/src/operation_builder.gd`. The radial smooth falloff and
 VNML generation are implemented here for the 33 by 33 LAND grid.
 
+`records::land::apply_texture_brush` applies a smooth circular alpha-weight dab to one
+LAND quadrant on its 17 by 17 grid. It retains each `ATXT` texture FormID and layer
+index, changes only the selected layer's `VTXT` weights, and assigns the first free
+quadrant layer index when the texture does not yet have an alpha layer. Weights stay
+between zero and one, and the LAND layer flag is set. The field layout follows local
+xEdit's `Core/wbDefinitionsTES5.pas` LAND definition and shared
+`Core/wbDefinitionsCommon.pas` `wbLandLayers` and `wbVTXTPosition`, with quadrant origins
+from UESP's local `uesp-modfileformat/LAND.wikitext`. The circular brush operation follows
+Terrain3D's editor brush operation interface in
+`project/addons/terrain_3d/src/operation_builder.gd`.
+
+`records::land::apply_vertex_color_brush` blends an RGB target into VCLR on the same 33 by 33
+grid. The circular dab uses cell-local world units, smooth radial falloff and strength from zero
+to one. A LAND without VCLR starts at white. The operation sets the vertex-color flag while
+preserving other LAND fields, and rejects malformed or repeated VCLR and DATA subrecords before
+writing. VCLR's 3267-byte RGB grid is described in local `uesp-modfileformat/LAND.wikitext`.
+
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and
 height range, wave period, flags), and `fits_slope` filters a candidate placement's
@@ -234,6 +258,11 @@ hit requires matching identity fields, a valid digest and complete decoding of
 the payload. Invalid, truncated or stale entries are ignored. A successful
 source parse replaces the current entry through a temporary file and rename.
 Cache directory and cache write failures do not prevent source parsing.
+Concurrent writers use process-specific temporary files and replace the entry
+only after the complete encoded payload has been written. The
+`tests/fmt_30_parallel_cache.rs` test starts six writer processes together
+against one source and checks that the resulting entry decodes and matches a
+fresh parse.
 `tests/fmt_29_cache.rs` covers fixture equality, canonical-path reuse, changed
 file identity and modification time, cache format version, corrupt and
 truncated entries, and all five installed masters.

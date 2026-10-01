@@ -22,7 +22,20 @@ fn game() -> Game {
         ..Default::default()
     });
     plugin.push_top(Record::new(T(b"ACTI"), BASE).zsub(T(b"EDID"), "Mag14Base"));
-    plugin.push_top(Record::new(T(b"EFSH"), SHADER).zsub(T(b"EDID"), "Mag14Shader"));
+    let mut shader_data = vec![0; 0x1a0];
+    shader_data[4..8].copy_from_slice(&5_u32.to_le_bytes());
+    shader_data[16..20].copy_from_slice(&[20, 80, 160, 200]);
+    shader_data[20..24].copy_from_slice(&0.25_f32.to_le_bytes());
+    shader_data[24..28].copy_from_slice(&1.5_f32.to_le_bytes());
+    shader_data[28..32].copy_from_slice(&0.75_f32.to_le_bytes());
+    shader_data[32..36].copy_from_slice(&0.4_f32.to_le_bytes());
+    shader_data[92..96].copy_from_slice(&6_u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(T(b"EFSH"), SHADER)
+            .zsub(T(b"EDID"), "Mag14Shader")
+            .zsub(T(b"ICON"), "textures\\effects\\mag14.dds")
+            .sub(T(b"DATA"), shader_data),
+    );
     plugin.push_top(
         Record::new(T(b"REFR"), TARGET)
             .zsub(T(b"EDID"), "Mag14Target")
@@ -95,4 +108,19 @@ fn mag_14_play_and_stop_queue_one_targeted_shader_lifetime() {
     assert_eq!(stopped[0].target.object, TARGET);
     assert!(!stopped[0].playing);
     assert!(game.world_mut().take_effect_shader_requests().is_empty());
+}
+
+#[test]
+fn mag_14_play_carries_authored_fill_and_fade_settings_to_host() {
+    let mut game = game();
+    call_shader(&mut game, "Play", Some(4.0));
+    let requests = game.world_mut().take_effect_shader_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].appearance.fill_texture.as_deref(),
+        Some("textures\\effects\\mag14.dds")
+    );
+    assert_eq!(requests[0].appearance.color, [20, 80, 160, 200]);
+    assert_eq!(requests[0].appearance.blend, (5, 6));
+    assert_eq!(requests[0].appearance.fade, [0.25, 1.5, 0.75, 0.4]);
 }

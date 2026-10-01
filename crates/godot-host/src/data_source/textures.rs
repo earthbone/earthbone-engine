@@ -217,7 +217,7 @@ impl TextureCache {
         }
     }
 
-    fn get_or_decode(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
+    pub(super) fn get_or_decode(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
         self.get_or_load(path, |canonical| self.read(vfs, canonical))
     }
 
