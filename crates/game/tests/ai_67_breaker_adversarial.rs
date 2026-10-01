@@ -35,7 +35,11 @@ fn condition(function: u16, expected: f32) -> Condition {
     }
 }
 
-fn evaluate(game: &Game, subject: GlobalFormId, condition: &Condition) -> Result<bool, conditions::Error> {
+fn evaluate(
+    game: &Game,
+    subject: GlobalFormId,
+    condition: &Condition,
+) -> Result<bool, conditions::Error> {
     conditions::evaluate_one(
         &mut game.world_mut(),
         &game.vm,

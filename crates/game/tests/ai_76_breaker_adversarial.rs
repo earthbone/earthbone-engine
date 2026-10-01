@@ -86,6 +86,9 @@ fn ai_76_player_knows_rejects_forms_outside_xedit_knowable_types() {
         .spells
         .insert(id(0xA03));
     for form in [0xA03, 0xA04] {
-        assert_eq!(evaluate(&game, form), Err(conditions::Error::StateContract(493)));
+        assert_eq!(
+            evaluate(&game, form),
+            Err(conditions::Error::StateContract(493))
+        );
     }
 }

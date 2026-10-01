@@ -223,6 +223,9 @@ fn read_stagger_metadata(
     }
     state.stagger_magnitude = magnitude;
     state.stagger_direction = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
 fn write_being_ridden(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.bool(state.being_ridden);
 }
@@ -306,16 +309,20 @@ fn read_werewolf_transform(
     super::magic::read_werewolf_transform(state, reader)
 }
 
-fn write_trespassing(
-fn write_known_magic_effects(
-    state: &ActorState,
-    writer: &mut soe_papyrus::vm::state::Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
+fn write_trespassing(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.bool(state.trespassing);
 }
 
 fn read_trespassing(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    state.trespassing = reader.bool()?;
+    Ok(())
+}
+
+fn write_known_magic_effects(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.len(state.known_forms.len());
     for form in &state.known_forms {
         super::save::write_form_id(writer, *form);
@@ -324,13 +331,12 @@ fn read_trespassing(
 
 fn read_known_magic_effects(
     state: &mut ActorState,
-    reader: &mut super::save::FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), soe_papyrus::VmError> {
-    state.trespassing = reader.bool()?;
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
     let count = reader.len()?;
     if count > reader.remaining() / 6 {
-        return Err(soe_papyrus::VmError::State(
+        return Err(VmError::State(
             "AI-76 known form count exceeds remaining bytes".into(),
         ));
     }
