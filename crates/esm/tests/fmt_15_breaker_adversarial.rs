@@ -10,7 +10,9 @@ fn fmt_15_weapon_equipment_type_is_remapped() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(b"WEAP", 0x800).sub(b"ETYP", 0x801u32.to_le_bytes()));
 
-    plugin.remap_form_ids(&HashMap::from([(0x801, 0x901)])).unwrap();
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
 
     assert_eq!(
         plugin.records[0].find(Tag::new(b"ETYP")),
@@ -22,7 +24,9 @@ fn fmt_15_weapon_equipment_type_is_remapped() {
 fn fmt_15_weapon_pickup_sound_is_remapped() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(b"WEAP", 0x800).sub(b"YNAM", 0x801u32.to_le_bytes()));
-    plugin.remap_form_ids(&HashMap::from([(0x801, 0x901)])).unwrap();
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
 
     assert_eq!(
         plugin.records[0].find(Tag::new(b"YNAM")),
@@ -34,7 +38,9 @@ fn fmt_15_weapon_pickup_sound_is_remapped() {
 fn fmt_15_weapon_putdown_sound_is_remapped() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(b"WEAP", 0x800).sub(b"ZNAM", 0x801u32.to_le_bytes()));
-    plugin.remap_form_ids(&HashMap::from([(0x801, 0x901)])).unwrap();
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
 
     assert_eq!(
         plugin.records[0].find(Tag::new(b"ZNAM")),
@@ -58,8 +64,14 @@ fn fmt_15_repeating_same_mapping_does_not_change_remapped_links() {
 
     assert_eq!(plugin, once);
     assert_eq!(plugin.records[0].form_id, 0x900);
-    assert_eq!(plugin.records[0].find(Tag::new(b"EITM")), Some(0x901u32.to_le_bytes().as_slice()));
-    assert_eq!(plugin.records[0].find(Tag::new(b"WNAM")), Some(0x902u32.to_le_bytes().as_slice()));
+    assert_eq!(
+        plugin.records[0].find(Tag::new(b"EITM")),
+        Some(0x901u32.to_le_bytes().as_slice())
+    );
+    assert_eq!(
+        plugin.records[0].find(Tag::new(b"WNAM")),
+        Some(0x902u32.to_le_bytes().as_slice())
+    );
 }
 
 #[test]
