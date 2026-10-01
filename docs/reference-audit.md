@@ -12,7 +12,7 @@ LOD and TRI morph data.
 
 | Contract and exact source | Implementation and regression | Remaining boundary |
 |---|---|---|
-| `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`; `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
+| `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`, `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
 | `skse64/scripts/vanilla/Utility.psc` and `ck-wiki/Utility_Script.wikitext` distinguish wait seconds, menu seconds and game hours | `papyrus/src/vm.rs`, `vm/state.rs`, `vm/hash.rs`, `game/src/lib.rs`. Tests `utility_wait_domains_survive_save_and_timescale_changes`, `version_one_clock_loads_with_legacy_defaults`, `game_tick_supplies_timescale_and_menu_pause_to_waits` | Menu UI must call `tick_menu_mode`. Version 1 saves cannot recover which wait function produced a legacy sleep. |
 | `ck-wiki/DispelSpell_-_Actor.wikitext` and `DispelAllSpells_-_Actor.wikitext` require active-effect removal | `game/src/natives.rs` no longer destroys known or equipped spells. Test `dispelling_never_removes_known_or_equipped_spells` replaces the incorrect test oracle. Both calls are counted as stubs. | Active-effect ownership, expiry, removal and protected categories remain unimplemented. Cast recording is not magic execution. |
 | SPID `SPID/src/LookupConfigs.h::ChanceComponentParser` accepts trailing `!`. `Defs.h::Chance` preserves deterministic mode. `LookupFilters.cpp` seeds per actor. | `moddata/src/spid.rs` preserves the percent and marker, rejects malformed values. `game/src/moddata.rs` rolls ordinary chance per matching base and reports unsupported deterministic fractional rules. Parser and runtime regressions cover `0!`, `50!`, `100!`. | Exact SPID per-actor lifecycle and seed, and KID's separate seed in `src/Data/BaseFilters.cpp`, remain work. |
@@ -33,26 +33,26 @@ extended declarations in `skse64/scripts/modified/LeveledItem.psc` and
 
 | Class and binding | Contract compared | Registry result |
 |---|---|---|
-| LeveledItem.AddForm | CK list entry; SKSE accepts `Form, level, count` | Registered with level and count |
-| LeveledItem.Revert | SKSE removes script-added forms | Registered; restores authored entries and chance-none |
+| LeveledItem.AddForm | CK list entry. SKSE accepts `Form, level, count` | Registered with level and count |
+| LeveledItem.Revert | SKSE removes script-added forms | Registered. Restores authored entries and chance-none |
 | LeveledItem.GetNumForms | SKSE returns entry count | Registered |
 | LeveledItem.GetNthForm | SKSE returns the indexed form or None | Registered |
 | LeveledItem.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
-| LeveledItem.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
 | LeveledItem.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
-| LeveledItem.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
 | LeveledItem.GetChanceNone | SKSE returns the list chance-none value | Registered |
 | LeveledItem.SetChanceNone | SKSE sets the list chance-none byte | Registered, stores the supplied value's low byte |
-| LeveledItem.GetChanceGlobal | SKSE returns the list's chance-global form | Missing; record-backed support belongs to PRG-05, the leveled-item selection owner |
-| LeveledItem.SetChanceGlobal | SKSE stores the list's chance-global form | Missing; same PRG-05 ownership, since it needs record override and saved-state handling |
-| LeveledActor.AddForm | SKSE accepts `Form, level` | Registered; count defaults to one |
-| LeveledActor.Revert | SKSE removes script-added forms | Registered; restores authored entries |
+| LeveledItem.GetChanceGlobal | SKSE returns the list's chance-global form | Missing. Record-backed support belongs to PRG-05, the leveled-item selection owner |
+| LeveledItem.SetChanceGlobal | SKSE stores the list's chance-global form | Missing. Same PRG-05 ownership, since it needs record override and saved-state handling |
+| LeveledActor.AddForm | SKSE accepts `Form, level` | Registered. Count defaults to one |
+| LeveledActor.Revert | SKSE removes script-added forms | Registered. Restores authored entries |
 | LeveledActor.GetNumForms | SKSE returns entry count | Registered |
 | LeveledActor.GetNthForm | SKSE returns the indexed form or None | Registered |
 | LeveledActor.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
-| LeveledActor.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledActor.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
 | LeveledActor.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
-| LeveledActor.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledActor.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
 
 The `scr_64_leveled_actor_and_item_bindings_match_skse_contracts` test drives
 the registered list methods on both classes, including 16-bit saturation and
@@ -204,43 +204,43 @@ modified LeveledSpell script supplies the extra getters and setter.
 
 | Binding | Contract comparison |
 |---|---|
-| `LeveledItem.AddForm` | Vanilla SKSE takes a form, level and count; the native appends one entry with those values. |
-| `LeveledItem.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
-| `LeveledItem.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
-| `LeveledItem.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
-| `LeveledItem.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
-| `LeveledItem.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
-| `LeveledItem.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index; the native does the same. |
-| `LeveledItem.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
-| `LeveledItem.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
-| `LeveledActor.AddForm` | Vanilla SKSE takes an actor base, level and count; the native appends one entry with those values. |
-| `LeveledActor.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
-| `LeveledActor.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
-| `LeveledActor.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
-| `LeveledActor.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
-| `LeveledActor.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
-| `LeveledActor.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index; the native does the same. |
-| `LeveledActor.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
-| `LeveledActor.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
-| `LeveledSpell.AddForm` | Vanilla SKSE takes a form and level only; the native appends one spell entry with count one. |
-| `LeveledSpell.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
-| `LeveledSpell.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
-| `LeveledSpell.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
-| `LeveledSpell.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
-| `LeveledSpell.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
-| `LeveledSpell.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
-| `LeveledSpell.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
-| `Location.GetKeywordData` | Shipped `Location.psc` returns a keyword's float data; the native returns zero when no value is stored. |
-| `Location.SetKeywordData` | Shipped `Location.psc` stores a keyword float; the native updates the location's value. |
-| `Location.IsCleared` | Shipped `Location.psc` returns the cleared flag; the native returns it. |
-| `Location.SetCleared` | Shipped `Location.psc` sets the flag and defaults the argument to true; the native does the same. |
-| `Location.IsChild` | Shipped `Location.psc` checks whether the argument is a descendant of self; the native does so. |
-| `Location.HasCommonParent` | Shipped `Location.psc` checks shared ancestors and optionally filters by keyword; the native does so. |
-| `Location.IsSameLocation` | Shipped wrapper checks identity, filtered shared ancestors and a keyworded parent/child in either direction; the native now does so. |
-| `Location.IsLoaded` | Shipped `Location.psc` asks whether the location is loaded; this remains a false quiet stub, assigned to SCR-35. |
-| `Location.HasRefType` | Shipped `Location.psc` asks whether the location has the reference type; this remains a false quiet stub, assigned to SCR-35. |
-| `Location.GetRefTypeAliveCount` | Shipped `Location.psc` returns the alive count for a reference type; this remains a zero quiet stub, assigned to SCR-35. |
-| `Location.GetRefTypeDeadCount` | Shipped `Location.psc` returns the dead count for a reference type; this remains a zero quiet stub, assigned to SCR-35. |
+| `LeveledItem.AddForm` | Vanilla SKSE takes a form, level and count. The native appends one entry with those values. |
+| `LeveledItem.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledItem.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledItem.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledItem.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledItem.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledItem.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index. The native does the same. |
+| `LeveledItem.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledItem.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `LeveledActor.AddForm` | Vanilla SKSE takes an actor base, level and count. The native appends one entry with those values. |
+| `LeveledActor.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledActor.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledActor.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledActor.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledActor.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledActor.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index. The native does the same. |
+| `LeveledActor.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledActor.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `LeveledSpell.AddForm` | Vanilla SKSE takes a form and level only. The native appends one spell entry with count one. |
+| `LeveledSpell.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledSpell.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledSpell.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledSpell.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledSpell.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledSpell.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledSpell.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `Location.GetKeywordData` | Shipped `Location.psc` returns a keyword's float data. The native returns zero when no value is stored. |
+| `Location.SetKeywordData` | Shipped `Location.psc` stores a keyword float. The native updates the location's value. |
+| `Location.IsCleared` | Shipped `Location.psc` returns the cleared flag. The native returns it. |
+| `Location.SetCleared` | Shipped `Location.psc` sets the flag and defaults the argument to true. The native does the same. |
+| `Location.IsChild` | Shipped `Location.psc` checks whether the argument is a descendant of self. The native does so. |
+| `Location.HasCommonParent` | Shipped `Location.psc` checks shared ancestors and optionally filters by keyword. The native does so. |
+| `Location.IsSameLocation` | Shipped wrapper checks identity, filtered shared ancestors and a keyworded parent/child in either direction. The native now does so. |
+| `Location.IsLoaded` | Shipped `Location.psc` asks whether the location is loaded. This remains a false quiet stub, assigned to SCR-35. |
+| `Location.HasRefType` | Shipped `Location.psc` asks whether the location has the reference type. This remains a false quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeAliveCount` | Shipped `Location.psc` returns the alive count for a reference type. This remains a zero quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeDeadCount` | Shipped `Location.psc` returns the dead count for a reference type. This remains a zero quiet stub, assigned to SCR-35. |
 
 `LeveledSpell.GetNthCount` is not part of either shipped LeveledSpell script,
 so it is not registered. This corrected an accidental binding shared from

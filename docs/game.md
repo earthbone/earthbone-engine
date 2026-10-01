@@ -773,7 +773,7 @@ Their CK contracts are described by
 - The CK `Message.Show` contract formats its nine optional numeric arguments
   and returns after a message-box button is selected. The current game layer
   queues the `DNAM` record text according to the `MESG` message-box flag in
-  `message_boxes` or `notifications`; it does not format numeric placeholders
+  `message_boxes` or `notifications`. It does not format numeric placeholders
   or wait for a selected button. It returns button 0 for queued message boxes
   and -1 for notifications, following the CK contract for non-message-boxes.
   `Message.ShowAsHelpMessage` currently queues
@@ -820,6 +820,9 @@ Their CK contracts are described by
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 
 ## FormList and Game native audit, SCR-60
+
+The FormList ordering and Game control/chargen contract corrections are
+assigned to SCR-60.
 
 The registry inventory test
 `scr_60_registry_inventory_matches_formlist_and_game_contracts` checks each
@@ -5193,7 +5196,7 @@ The class page provides the Keyword contract, while individual ImageSpaceModifie
 function pages are absent from the local CK dump except for `PopTo`. For the
 other ImageSpaceModifier signatures and descriptions, the shipped vanilla PSC
 is the local contract source. `docs/reference-audit.md` identifies PRG-14 as
-the Story Manager execution work; `SAV-20` covers persistence of a pending
+the Story Manager execution work. `SAV-20` covers persistence of a pending
 event context after such dispatch exists.
 
 ## Image-space rendering prerequisite audit, MAG-71
