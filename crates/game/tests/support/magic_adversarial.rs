@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Shared archetype fixtures from the game integration-test record builders.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(dead_code)]
 
