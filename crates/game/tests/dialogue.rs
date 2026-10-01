@@ -1303,17 +1303,14 @@ fn failed_end_dispatch_preserves_a_saveable_response_cursor() {
 
 #[test]
 fn old_world_save_starts_without_dialogue_state() {
-    let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
+    let fixture = || game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
+    let mut game = fixture();
     let mut old = game.world().save_state();
-    // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
-    // The extra 6 bytes beyond the old 75 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. No actor or reference exists yet at this
-    // point, so neither carries its own section table to strip.
-    legacy::normalize_world_sections(&mut old);
-    old.truncate(old.len() - 81);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&old, |candidate| {
+        fixture().world_mut().load_state(candidate).is_ok()
+    });
+    old.truncate(old.len() - tail);
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();
     game.world_mut().load_state(&old).unwrap();
