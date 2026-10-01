@@ -46,6 +46,8 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
         write: World::write_pending_cell_resets,
         read: World::read_pending_cell_resets,
     },
+    Section { name: "SCR-24", write: |world, writer, _pool| world.write_effect_shader_section(writer), read: |world, reader, _table| world.read_effect_shader_section(reader) },
+    Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -59,6 +61,32 @@ fn read_pending_script_calls(
 
 fn write_training_sessions(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::training::write_training_sessions(world, writer);
+}
+
+fn write_scr_60_game_flags(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    for enabled in world.player_control_flags {
+        writer.bool(enabled);
+    }
+    writer.i32(world.player_control_pov_type);
+    writer.bool(world.chargen_disable_saving);
+    writer.bool(world.chargen_disable_waiting);
+    writer.bool(world.chargen_show_controls_disabled_message);
+}
+
+fn read_scr_60_game_flags(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    for enabled in &mut world.player_control_flags {
+        *enabled = reader.bool()?;
+    }
+    world.player_control_pov_type = reader.i32()?;
+    world.chargen_disable_saving = reader.bool()?;
+    world.chargen_disable_waiting = reader.bool()?;
+    world.chargen_show_controls_disabled_message = reader.bool()?;
+    world.player_controls = world.player_control_flags.iter().all(|enabled| *enabled);
+    Ok(())
 }
 
 fn read_training_sessions(

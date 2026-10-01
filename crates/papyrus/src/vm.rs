@@ -373,6 +373,22 @@ impl NativeRegistry {
     pub fn has_global(&self, class: &str, name: &str) -> bool {
         self.globals.contains_key(&Self::key(class, name))
     }
+
+    /// Registered method bindings, with class and function names normalized
+    /// to lowercase.
+    pub fn method_bindings(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.methods
+            .keys()
+            .map(|(class, name)| (class.as_str(), name.as_str()))
+    }
+
+    /// Registered global bindings, with class and function names normalized
+    /// to lowercase.
+    pub fn global_bindings(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.globals
+            .keys()
+            .map(|(class, name)| (class.as_str(), name.as_str()))
+    }
 }
 
 /// A loaded script with its functions shared behind `Rc` so frames can hold

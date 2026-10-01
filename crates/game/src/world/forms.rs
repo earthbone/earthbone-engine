@@ -206,6 +206,17 @@ impl World {
         Ok(Some(filter))
     }
 
+    /// Add one script-supplied entry to a FormList using the saved-addition
+    /// ordering and duplicate rules.
+    pub fn add_form_list_entry(&mut self, list: GlobalFormId, item: Option<GlobalFormId>) {
+        let Some(item) = item else {
+            return;
+        };
+        if let Some(items) = self.form_list(list) {
+            add_saved_form_list_entries(items, [item]);
+        }
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;
@@ -437,6 +448,22 @@ impl World {
         self.factions.get_mut(&id)
     }
 
+    /// Whether `other` appears in the shared crime faction list linked by
+    /// this faction's `CRGR` subrecord.
+    pub fn faction_in_crime_group(&mut self, faction: GlobalFormId, other: GlobalFormId) -> bool {
+        let Some(group) = self
+            .record(faction)
+            .filter(|record| record.tag == T(b"FACT"))
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(le_u32)
+            .and_then(|raw| self.resolve_from(faction, raw))
+        else {
+            return false;
+        };
+        self.form_list(group)
+            .is_some_and(|members| members.contains(&other))
+    }
+
     /// `FACT.CRVA`, the bounty table `record_witnessed_crime` prices a
     /// crime against. Read straight from the winning record on every call:
     /// unlike `crime_gold_violent`, it never changes at runtime, so caching
@@ -529,5 +556,45 @@ impl World {
             Some(b's') => Value::string(&zstring(data)),
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+    const fn id(file: u16, object: u32) -> GlobalFormId {
+        GlobalFormId { file, object }
+    }
+
+    #[test]
+    fn scr_60_formlist_additions_follow_creation_order_and_skip_duplicates() {
+        let list_id = id(0, 0x800);
+        let authored = id(0, 0x801);
+        let regular = id(0, 0x802);
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(
+            Record::new(Tag::new(b"FLST"), list_id.object)
+                .sub(Tag::new(b"LNAM"), authored.object.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag::new(b"MISC"), authored.object));
+        plugin.push_top(Record::new(Tag::new(b"MISC"), regular.object));
+        let mut order = LoadOrder::new();
+        order.add("Scr60.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let created = id(super::super::DYNAMIC_FILE, 0x100);
+
+        world.add_form_list_entry(list_id, None);
+        world.add_form_list_entry(list_id, Some(authored));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(regular));
+        world.add_form_list_entry(list_id, Some(created));
+        world.add_form_list_entry(list_id, Some(created));
+
+        assert_eq!(
+            world.form_list(list_id).unwrap(),
+            &[created, authored, regular]
+        );
     }
 }

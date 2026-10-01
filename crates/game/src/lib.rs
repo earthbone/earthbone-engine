@@ -78,7 +78,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 pub use clock::GameClock;
 pub use natives::Registered;
 pub use world::StoryError;
-pub use world::{Handle, Pending, RefPlacement, World};
+pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
 
@@ -1092,6 +1092,10 @@ impl Game {
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
             });
+            w.tick_effect_shaders(real_seconds);
+            if let Err(error) = w.tick_visual_effects(real_seconds) {
+                vm.log.push(vm.time(), error.to_string());
+            }
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());

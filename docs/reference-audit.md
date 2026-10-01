@@ -12,6 +12,7 @@ LOD and TRI morph data.
 
 | Contract and exact source | Implementation and regression | Remaining boundary |
 |---|---|---|
+| `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`, `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
 | `skse64/scripts/vanilla/Utility.psc` and `ck-wiki/Utility_Script.wikitext` distinguish wait seconds, menu seconds and game hours | `papyrus/src/vm.rs`, `vm/state.rs`, `vm/hash.rs`, `game/src/lib.rs`. Tests `utility_wait_domains_survive_save_and_timescale_changes`, `version_one_clock_loads_with_legacy_defaults`, `game_tick_supplies_timescale_and_menu_pause_to_waits` | Menu UI must call `tick_menu_mode`. Version 1 saves cannot recover which wait function produced a legacy sleep. |
 | `ck-wiki/DispelSpell_-_Actor.wikitext` and `DispelAllSpells_-_Actor.wikitext` require active-effect removal | `game/src/natives.rs` no longer destroys known or equipped spells. Test `dispelling_never_removes_known_or_equipped_spells` replaces the incorrect test oracle. Both calls are counted as stubs. | Active-effect ownership, expiry, removal and protected categories remain unimplemented. Cast recording is not magic execution. |
 | SPID `SPID/src/LookupConfigs.h::ChanceComponentParser` accepts trailing `!`. `Defs.h::Chance` preserves deterministic mode. `LookupFilters.cpp` seeds per actor. | `moddata/src/spid.rs` preserves the percent and marker, rejects malformed values. `game/src/moddata.rs` rolls ordinary chance per matching base and reports unsupported deterministic fractional rules. Parser and runtime regressions cover `0!`, `50!`, `100!`. | Exact SPID per-actor lifecycle and seed, and KID's separate seed in `src/Data/BaseFilters.cpp`, remain work. |
@@ -19,12 +20,277 @@ LOD and TRI morph data.
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
 
+## Leveled-list native contracts
+
+The registry in `game/src/natives.rs::leveled` registers methods, not Papyrus
+globals, for these classes. CK's `LeveledItem` record page describes list
+fields but does not define Papyrus methods. No matching method pages exist in
+the local `ck-wiki` dump. The Papyrus method contracts therefore compare the
+CK record behavior with SKSE's shipped declarations in
+`skse64/scripts/vanilla/LeveledItem.psc` and `LeveledActor.psc`, and its
+extended declarations in `skse64/scripts/modified/LeveledItem.psc` and
+`LeveledActor.psc`.
+
+| Class and binding | Contract compared | Registry result |
+|---|---|---|
+| LeveledItem.AddForm | CK list entry. SKSE accepts `Form, level, count` | Registered with level and count |
+| LeveledItem.Revert | SKSE removes script-added forms | Registered. Restores authored entries and chance-none |
+| LeveledItem.GetNumForms | SKSE returns entry count | Registered |
+| LeveledItem.GetNthForm | SKSE returns the indexed form or None | Registered |
+| LeveledItem.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
+| LeveledItem.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
+| LeveledItem.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.GetChanceNone | SKSE returns the list chance-none value | Registered |
+| LeveledItem.SetChanceNone | SKSE sets the list chance-none byte | Registered, stores the supplied value's low byte |
+| LeveledItem.GetChanceGlobal | SKSE returns the list's chance-global form | Missing. Record-backed support belongs to PRG-05, the leveled-item selection owner |
+| LeveledItem.SetChanceGlobal | SKSE stores the list's chance-global form | Missing. Same PRG-05 ownership, since it needs record override and saved-state handling |
+| LeveledActor.AddForm | SKSE accepts `Form, level` | Registered. Count defaults to one |
+| LeveledActor.Revert | SKSE removes script-added forms | Registered. Restores authored entries |
+| LeveledActor.GetNumForms | SKSE returns entry count | Registered |
+| LeveledActor.GetNthForm | SKSE returns the indexed form or None | Registered |
+| LeveledActor.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
+| LeveledActor.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
+| LeveledActor.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
+| LeveledActor.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added. Caps to the stored 16-bit range and ignores invalid indices |
+
+The `scr_64_leveled_actor_and_item_bindings_match_skse_contracts` test drives
+the registered list methods on both classes, including 16-bit saturation and
+invalid-index no-ops. Chance-global access remains unsupported and is assigned
+to PRG-05 because resolving that field affects leveled-item selection as well
+as the Papyrus API.
+
+## SCR-66 LocationAlias and Message contracts
+
+The native registry tests derive the inventory by filtering contract
+candidates against registered method and global names, then assert the exact
+sets. The CK wiki corpus contains `Alias` and
+`GetOwningQuest` pages, but does not contain the named `LocationAlias` or
+`Message` function pages. The CK-derived signatures and descriptions were
+cross-checked with the Skyrim Papyrus Index, which links back to those CK
+function pages.
+
+| Registry binding | CK contract comparison | Result and owner for remaining work |
+|---|---|---|
+| `LocationAlias.GetLocation` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/locationalias/function/getlocation/)) | Returns the Location held by this alias, or None when empty. | Reads the alias's current form through the shared quest alias state. Covered by `scr_66_location_alias_holds_a_location`. |
+| `LocationAlias.ForceLocationTo` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/locationalias/function/forcelocationto/)) | Takes a Location and assigns it to this alias. | Resolves the form argument and writes shared quest alias state. Covered by `scr_66_location_alias_holds_a_location`. |
+| `Message.Show` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/show/)) | Takes nine optional float substitutions. Returns the selected button for a message box, and -1 when it is not a message box or display fails. | The registry binding queues record text and immediately returns 0. Numeric formatting and blocking selection belong to `UI-01`, the host menu lifecycle. |
+| `Message.ShowAsHelpMessage` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/showashelpmessage/)) | Takes an input event, duration, interval and maximum display count. The event suppresses later displays until reset or triggered. | The binding only queues a notification. Help prompt rendering and display lifetime belong to `UI-06`, the HUD. |
+| `Message.ResetHelpMessage` global ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/resethelpmessage/)) | Takes an input event and clears the event's prior help-message status. | It remains a quiet stub under the explicit native work in `SCR-36`. The incorrect `Message.ResetHelpMessage` method registration was removed. |
+
+The inventory test also checks that `GetID` remains registered on `Alias`,
+where `LocationAlias` inherits it, and that the invalid instance form of
+`Message.ResetHelpMessage` is absent. The CK comparison covers every direct
+registry binding for both classes and the Message global.
+
+## SCR-57 Debug and EffectShader contracts
+
+The inventory below follows registrations in `game/src/natives.rs`, including
+quiet stubs. `Debug_Script.wikitext` provides the class-level Papyrus
+signatures and summaries. The CK corpus has an individual page only for
+`CenterOnCell`, which specifies its `None` return and warns that it can freeze
+the application. Individual CK pages for the other registered names are not
+present locally. `skse64/scripts/vanilla/EffectShader.psc` supplies the two
+EffectShader signatures and the optional duration default because there is no
+EffectShader CK page in the corpus.
+
+| Registry binding | CK or PSC contract | Current behavior and resolution |
+|---|---|---|
+| `Debug.Trace` global | String, Int severity, no result. Write to Papyrus log and debug text page. | Logs the stringified first argument. SCR-07 covers form-id conversion. Severity and debug text page output have no owning open backlog row. |
+| `Debug.TraceUser` global | String log name, String text, Int severity, Bool result. Write to named user log and debug text page. | Writes to Papyrus log and returns `None`. User log behavior and Bool result belong with SCR-20's user-log system. |
+| `Debug.TraceConditional` global | String, Bool condition, no result. Log only when true. | Logs only when true. Matches the documented condition and result. |
+| `Debug.TraceStack` global | String, Int severity, no result. Write message and full call stack. | Logs the stringified message without a call stack. Native calls do not expose stack frames yet, and no open backlog row owns this gap. |
+| `Debug.Notification` global | String, no result. Display an in-game notification. | Adds the text to `World::notifications`. The host display path is separate. Matches the runtime queue contract. |
+| `Debug.MessageBox` global | String, no result. Display an OK message box. | Adds the text to `World::message_boxes`. The host display path is separate. Matches the runtime queue contract. |
+| `Debug.SendAnimationEvent` global | ObjectReference, String, no result. Send the event to the reference. | Queues the event when its target resolves and returns `None`, matching the Papyrus result shape. |
+| `Debug.OpenUserLog` global | String, Bool result. Open a user log and fail if already open. | Returns `true` without creating a log. SCR-20 owns user-log behavior. |
+| `Debug.QuitGame` global | No arguments or result. Quit the game. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCell` global | String cell name, no result. Teleport the player. The individual CK page warns it can freeze. | Quiet stub. SCR-20 owns the debug host action. |
+| `Debug.CenterOnCellAndWait` global | String cell name, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-20 owns the debug host action. |
+| `Debug.CloseUserLog` global | String log name, no result. Close the named log. | Quiet stub. SCR-20 owns user-log behavior. |
+| `Debug.DumpAliasData` global | Quest, no result. Dump alias fill information. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.DebugChannelNotify` global | No local CK contract found. | Quiet stub. SCR-21 owns this registry-only debug binding until a local contract is established. |
+| `Debug.SetGodMode` global | Bool, no result. Set god mode. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleAI` global | No arguments or result. Toggle AI. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.ToggleCollisions` global | No arguments or result. Toggle collision. | Quiet stub. SCR-21 owns the debug host action. |
+| `Debug.StartScriptProfiling` global | String script name, no result. Start script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopScriptProfiling` global | String script name, no result. Stop script profiling. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StartStackProfiling` global | No arguments or result. Start profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.StopStackProfiling` global | No arguments or result. Stop profiling the calling stack. | Quiet stub. SCR-22 owns profiling behavior. |
+| `Debug.TakeScreenshot` global | No arguments or result. Take a screenshot. | Quiet stub. SCR-22 owns the debug host action. |
+| `Debug.SetFootIK` global | Bool, no result. Enable or disable foot IK. | Quiet stub. SCR-23 owns the host animation control. |
+| `Debug.ShowRefPosition` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `Debug.PlayerMoveToAndWait` global | String destination reference, Float result. Teleport and wait until arrival. | Returns `0.0` with the declared Float shape, without teleporting. SCR-23 owns the debug host action. |
+| `Debug.MoveToCell` global | No local CK contract found. | Quiet stub. SCR-23 owns this registry-only debug binding until a local contract is established. |
+| `EffectShader.Play` method | PSC: ObjectReference and optional Float duration defaulting to -1 seconds. Negative duration means infinite. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
+| `EffectShader.Stop` method | PSC: ObjectReference. Stop the shader on that target. | Quiet stub. SCR-24 owns Papyrus behavior. MAG-14 owns host shader lifetime and rendering. |
+
+`scr_57_registry_contains_every_audited_binding` checks the 26 Debug globals
+and two EffectShader methods against the actual native registry. The audit
+does not claim that queued notifications or message boxes are drawn by a host,
+that debug-only host controls execute, or that effect shaders render.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares
 HavokLib ancestry, so it is not an independent codec oracle. HKX2's missing
 license must be resolved before code reuse. Do not execute bundled tools
 merely because the repository includes them.
+
+## ActorBase and Alias native audit, SCR-55
+
+The inventory below is checked against the registrations made by
+`natives::register` in `scr_55_actorbase_alias_inventory_matches_registry`.
+`ActorBase` and `Alias` have no registered global bindings. The CK class pages
+also say both classes have no global functions.
+
+| Registry binding | CK contract comparison | Disposition |
+|---|---|---|
+| `ActorBase.GetSkin` | Returns the actor base skin armor. | Reads the record-backed skin. |
+| `ActorBase.SetSkin` | Sets the actor base skin armor. | Writes the record-backed skin override. |
+| `ActorBase.GetRace` | Returns the actor base race. | Reads its race form. |
+| `ActorBase.GetClass` | Returns the actor base class. | Reads its class form. |
+| `ActorBase.GetSex` | Returns the actor base sex as an integer. | Reads the female flag as 1 or 0. |
+| `ActorBase.GetDeadCount` | Returns the number of dead actors using this base. | Reads the current dead count field. |
+| `ActorBase.IsEssential` | Reports whether the base is essential. | Reads the base flag. |
+| `ActorBase.IsProtected` | Reports whether the base is protected. | Reads the base flag. |
+| `ActorBase.IsInvulnerable` | Reports whether the base is invulnerable. | Reads the base flag. |
+| `ActorBase.IsUnique` | Reports whether the base is unique. | Reads the base flag. |
+| `ActorBase.SetEssential` | Sets the essential flag. A base cannot be both essential and protected. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetProtected` | Sets the protected flag. A base cannot be both protected and essential. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetInvulnerable` | Sets the invulnerable flag. | Updates the base flag. |
+| `ActorBase.SetOutfit` | Sets the default or sleep outfit according to its boolean argument. | Updates the corresponding base outfit field. |
+| `ActorBase.GetGiftFilter` | Returns the actor base gift-filter FormList. | Quiet stub. Implement record-backed value access under SCR-18. |
+| `Alias.GetOwningQuest` | Returns the quest owning the alias. | Returns the quest in the alias handle. |
+| `Alias.GetID` | SKSE addition. Returns the alias ID. | Returns the alias handle ID. |
+| `Alias.GetName` | SKSE addition. Returns the alias's unique name, not its display name. | Reads the alias definition name. |
+| `Alias.GetReference` | Returns the ObjectReference held by the alias. | Returns the current alias target. |
+| `Alias.GetRef` | Shorthand for `GetReference`. | Returns the same current alias target. |
+| `Alias.GetActorReference` | Returns the held reference as an Actor. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic. Package reevaluation remains unimplemented there. |
+| `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
+| `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method. Alias runtime objects have no resolved form ID. |
+| `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
+| `Form.GetName` inherited by `Alias` | Returns the form name. Alias declares its own SKSE `GetName`, which shadows this binding. | Alias-specific binding returns the alias definition name. |
+| `Form.GetType` inherited by `ActorBase` | Returns the form type code. | Reads the resolved record type. |
+| `Form.GetType` inherited by `Alias` | Returns the form type code. | Alias runtime objects have no resolved form type. |
+| `Form.HasKeyword` inherited by `ActorBase` | Reports whether the form has the specified keyword. | Queries the form-backed keyword list. |
+| `Form.HasKeyword` inherited by `Alias` | Reports whether the form has the specified keyword. | Alias runtime objects do not resolve to forms, so the native returns false. |
+| `Form.GetKeywords` inherited by `ActorBase` | Returns the form's keyword array. | Builds an array from the form-backed keywords. |
+| `Form.GetKeywords` inherited by `Alias` | Returns the form's keyword array. | Alias runtime objects do not resolve to forms, so the native returns an empty array. |
+| `Form.RegisterForSingleUpdate` inherited by `ActorBase` | Registers one update after the given seconds. | The VM object receives one real-time update. |
+| `Form.RegisterForSingleUpdate` inherited by `Alias` | Registers one update after the given seconds. | The alias VM object receives one real-time update. |
+| `Form.RegisterForUpdate` inherited by `ActorBase` | Registers or changes repeating update seconds. | The VM object receives repeating real-time updates. |
+| `Form.RegisterForUpdate` inherited by `Alias` | Registers or changes repeating update seconds. | The alias VM object receives repeating real-time updates. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `ActorBase` | Registers one update after the given game hours. | The VM object receives one game-time update. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `Alias` | Registers one update after the given game hours. | The alias VM object receives one game-time update. |
+| `Form.RegisterForUpdateGameTime` inherited by `ActorBase` | Registers or changes repeating update game hours. | The VM object receives repeating game-time updates. |
+| `Form.RegisterForUpdateGameTime` inherited by `Alias` | Registers or changes repeating update game hours. | The alias VM object receives repeating game-time updates. |
+| `Form.UnregisterForUpdate` inherited by `ActorBase` | Cancels repeating and single real-time updates. | Removes real-time update registration. |
+| `Form.UnregisterForUpdate` inherited by `Alias` | Cancels repeating and single real-time updates. | Removes the alias's real-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `ActorBase` | Cancels game-time updates. | Removes game-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `Alias` | Cancels game-time updates. | Removes the alias's game-time update registration. |
+| `Form.RegisterForSleep` inherited by `ActorBase` | Registers for player sleep start and stop events. | Adds the VM object to the sleep listener set. |
+| `Form.RegisterForSleep` inherited by `Alias` | Registers for player sleep start and stop events. | Adds the alias VM object to the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `ActorBase` | Unregisters from player sleep events. | Removes the VM object from the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `Alias` | Unregisters from player sleep events. | Removes the alias VM object from the sleep listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `ActorBase` | Registers for tracked-stat updates. | Adds the VM object to the tracked-stat listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `Alias` | Registers for tracked-stat updates. | Adds the alias VM object to the tracked-stat listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `ActorBase` | Unregisters from tracked-stat updates. | Removes the VM object from the listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `Alias` | Unregisters from tracked-stat updates. | Removes the alias VM object from the listener set. |
+| `Form.RegisterForAnimationEvent` inherited by `ActorBase` | Registers for a named animation event on a sender. | Adds a listener for the sender and event name. |
+| `Form.RegisterForAnimationEvent` inherited by `Alias` | Registers for a named animation event on a sender. | Adds the alias VM object as listener. |
+| `Form.UnregisterForAnimationEvent` inherited by `ActorBase` | Removes a named animation event registration. | Removes matching listener entries. |
+| `Form.UnregisterForAnimationEvent` inherited by `Alias` | Removes a named animation event registration. | Removes matching alias listener entries. |
+| `Form.RegisterForLOS` inherited by `ActorBase` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent viewer-target listener. |
+| `Form.RegisterForLOS` inherited by `Alias` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent alias listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `ActorBase` | Registers for one line-of-sight gain event. | Adds a single-gain listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `Alias` | Registers for one line-of-sight gain event. | Adds a single-gain alias listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `ActorBase` | Registers for one line-of-sight lost event. | Adds a single-lost listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `Alias` | Registers for one line-of-sight lost event. | Adds a single-lost alias listener. |
+| `Form.UnregisterForLOS` inherited by `ActorBase` | Unregisters matching line-of-sight events. | Removes matching viewer-target listener entries. |
+| `Form.UnregisterForLOS` inherited by `Alias` | Unregisters matching line-of-sight events. | Removes matching alias listener entries. |
+
+Contract sources are `ck-wiki/ActorBase_Script.wikitext`,
+`ck-wiki/Alias_Script.wikitext`, `ck-wiki/ReferenceAlias_Script.wikitext`,
+`ck-wiki/GetClass_-_ActorBase.wikitext`,
+`ck-wiki/GetOwningQuest_-_Alias.wikitext`, and
+`ck-wiki/Clear_-_ReferenceAlias.wikitext`. The class pages define the remaining
+methods listed there. Alias reference getter and setter variants are compared
+against the ReferenceAlias class page, which includes their return types and
+shorthand relationships. The current check is synthetic because these methods
+do not require installed game records.
+
+## Cell and Clear native contracts, SCR-56
+
+The registry-derived inventory is tested by
+`scr_56_registry_inventory_matches_ck_contracts`. It includes every registered
+method whose class is `Cell` and every method or global whose name is exactly
+`Clear`. There are no matching global bindings. Contract statements below
+come from `engine-refs/ck-wiki` and the shipped
+`skse64/scripts/vanilla` declarations.
+
+| Binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Cell.GetActorOwner` | `GetActorOwner_-_Cell.wikitext` returns the cell's actor base owner and states that inherited ownership is separate. | Returns only an `NPC_` owner from the cell's `XOWN` state. |
+| `Cell.GetFactionOwner` | `Cell_Script.wikitext` says it returns the owning faction. | Returns only a `FACT` owner from the cell's `XOWN` state. |
+| `Cell.IsInterior` | `Cell_Script.wikitext` asks whether the cell is an interior. | Uses absence of a worldspace in the record placement. |
+| `Cell.IsAttached` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a boolean attached-state query. | Quiet true stub does not track attachment. SCR-19 owns the live attachment query. |
+| `Cell.Reset` | `Cell_Script.wikitext` says it flags the cell for reset on next load. | Quiet no-op stub. SCR-19 owns cell reset behavior. |
+| `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`. `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
+| `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
+| `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
+| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
+
+The Cell method comparison has eight bindings. The exact-name `Clear` comparison
+has one method binding and no global binding. The setter type discrepancy is
+corrected by checking resolved record tags before changing `XOWN`.
+
+## Faction and ForceRefIfEmpty native contracts, SCR-58
+
+The registry inventory is checked against `natives::register` by
+`scr_58_faction_registry_matches_the_contract_inventory` and
+`scr_58_force_ref_if_empty_is_scoped_to_reference_alias`. CK contracts below
+come from `ck-wiki/Faction_Script.wikitext` and
+`ck-wiki/ReferenceAlias_Script.wikitext`. The function pages add no different
+semantics beyond their declared signatures and summaries.
+
+| Registry binding | CK contract comparison | Runtime result or owning row |
+|---|---|---|
+| `Faction.SetAlly` | Takes a faction and optional boolean, making the other faction an ally when true. | Updates the relation entry for that faction. |
+| `Faction.SetEnemy` | Takes a faction and optional boolean, making the other faction an enemy when true. | Updates the relation entry for that faction. |
+| `Faction.GetReaction` | Takes a faction and returns the relation code. | Reads the stored reaction, defaulting to neutral. |
+| `Faction.SetReaction` | Takes a faction and integer relation code. | Stores the relation code. |
+| `Faction.GetCrimeGold` | Returns total crime gold owed to this faction. | Sums violent and nonviolent bounty. |
+| `Faction.GetCrimeGoldViolent` | Returns violent crime gold owed. | Reads the violent bounty field. |
+| `Faction.GetCrimeGoldNonViolent` | Returns nonviolent crime gold owed. | Reads the nonviolent bounty field. |
+| `Faction.SetCrimeGold` | Sets total crime gold owed. | Updates the total bounty value. |
+| `Faction.SetCrimeGoldViolent` | Sets violent crime gold owed. | Updates the violent bounty field. |
+| `Faction.ModCrimeGold` | Modifies crime gold by an amount and optional violent flag. | Applies the amount to the selected bounty. |
+| `Faction.GetInfamy` | Returns total infamy for the player in this faction. | Sums violent and nonviolent infamy. |
+| `Faction.GetInfamyViolent` | Returns violent infamy. | Reads the violent infamy field. |
+| `Faction.GetInfamyNonViolent` | Returns nonviolent infamy. | Reads the nonviolent infamy field. |
+| `Faction.CanPayCrimeGold` | Reports whether the player can pay this faction's crime gold. | Checks player gold against the recorded bounty. |
+| `Faction.PlayerPayCrimeGold` | Pays crime gold, with optional stolen-item removal and jail transfer. | Updates bounty and queues the supported payment effects. |
+| `Faction.IsPlayerExpelled` | Reports whether the player is expelled from this faction. | Reads the faction state. |
+| `Faction.SetPlayerExpelled` | Sets whether the player is expelled. | Updates the faction state. |
+| `Faction.SetPlayerEnemy` | Sets whether the player is an enemy of this faction. | Updates the faction state. |
+| `Faction.IsFactionInCrimeGroup` | Takes another faction and reports whether it belongs to this faction's crime group. | Resolves `CRGR` to its linked `FLST` and checks membership. |
+| `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
+| `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
+| `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
+| `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias. An empty alias accepts the form. SCR-59 owns reference-type validation. |
+
+The inventory tests cover 22 `Faction` methods, including the three quiet
+stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no
+global bindings for these names. No per-reference package reevaluation is
+claimed for alias assignment.
+`scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted
+record tags, cross-type rejection, reference rejection and `None`. The
+remaining gaps are already assigned to their feature rows above.
 
 ## Sources to use for current gaps and future systems
 
@@ -129,6 +395,58 @@ lifecycle test or full distributor lifecycle comparison was run. The safe
 stub and unsupported-rule behavior above are limitations, not completed
 magic or distributor implementations. No changes were made to the MIT shim,
 the user's game files, save corpus or other active worktrees.
+
+## SCR-65 binding contract inventory
+
+The integration test builds candidates from the script contract inventory,
+queries the native registry for each method and checks that no candidate is
+registered as a global. Every binding below is a method. Vanilla SKSE scripts
+are the available declaration source for LeveledSpell and Location. The
+modified LeveledSpell script supplies the extra getters and setter.
+
+| Binding | Contract comparison |
+|---|---|
+| `LeveledItem.AddForm` | Vanilla SKSE takes a form, level and count. The native appends one entry with those values. |
+| `LeveledItem.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledItem.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledItem.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledItem.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledItem.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledItem.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index. The native does the same. |
+| `LeveledItem.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledItem.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `LeveledActor.AddForm` | Vanilla SKSE takes an actor base, level and count. The native appends one entry with those values. |
+| `LeveledActor.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledActor.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledActor.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledActor.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledActor.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledActor.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index. The native does the same. |
+| `LeveledActor.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledActor.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `LeveledSpell.AddForm` | Vanilla SKSE takes a form and level only. The native appends one spell entry with count one. |
+| `LeveledSpell.Revert` | Vanilla SKSE removes script-added forms. The native truncates to the base entry count and resets chance none. |
+| `LeveledSpell.GetNumForms` | Modified SKSE returns the entry count. The native returns the list length. |
+| `LeveledSpell.GetNthForm` | Modified SKSE returns the entry at the requested index or None. The native does the same. |
+| `LeveledSpell.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index. The native does the same. |
+| `LeveledSpell.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535. The native does the same. |
+| `LeveledSpell.GetChanceNone` | Modified SKSE returns the list chance-none byte. The native returns that field. |
+| `LeveledSpell.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field. The native stores its low byte. |
+| `Location.GetKeywordData` | Shipped `Location.psc` returns a keyword's float data. The native returns zero when no value is stored. |
+| `Location.SetKeywordData` | Shipped `Location.psc` stores a keyword float. The native updates the location's value. |
+| `Location.IsCleared` | Shipped `Location.psc` returns the cleared flag. The native returns it. |
+| `Location.SetCleared` | Shipped `Location.psc` sets the flag and defaults the argument to true. The native does the same. |
+| `Location.IsChild` | Shipped `Location.psc` checks whether the argument is a descendant of self. The native does so. |
+| `Location.HasCommonParent` | Shipped `Location.psc` checks shared ancestors and optionally filters by keyword. The native does so. |
+| `Location.IsSameLocation` | Shipped wrapper checks identity, filtered shared ancestors and a keyworded parent/child in either direction. The native now does so. |
+| `Location.IsLoaded` | Shipped `Location.psc` asks whether the location is loaded. This remains a false quiet stub, assigned to SCR-35. |
+| `Location.HasRefType` | Shipped `Location.psc` asks whether the location has the reference type. This remains a false quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeAliveCount` | Shipped `Location.psc` returns the alive count for a reference type. This remains a zero quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeDeadCount` | Shipped `Location.psc` returns the dead count for a reference type. This remains a zero quiet stub, assigned to SCR-35. |
+
+`LeveledSpell.GetNthCount` is not part of either shipped LeveledSpell script,
+so it is not registered. This corrected an accidental binding shared from
+LeveledItem and LeveledActor.
 
 ## Inventory disposition
 
