@@ -394,30 +394,7 @@ impl World {
                 {
                     return Err(bad("invalid saved dialogue record override"));
                 }
-            } else if !matches!(
-                &record.tag.0,
-                b"NPC_"
-                    | b"RACE"
-                    | b"FLST"
-                    | b"LVLN"
-                    | b"LVLI"
-                    | b"LVSP"
-                    | b"CLAS"
-                    | b"FACT"
-                    | b"RELA"
-                    | b"LIGH"
-                    | b"STAT"
-                    | b"MSTT"
-                    | b"CONT"
-                    | b"MISC"
-                    | b"FURN"
-                    | b"APPA"
-                    | b"IDLM"
-                    | b"WOOP"
-                    | b"MGEF"
-                    | b"PACK"
-                    | b"NAVM"
-            ) {
+            } else if matches!(&record.tag.0, b"INFO" | b"SMQN" | b"SCEN") {
                 return Err(bad("missing saved dialogue record state"));
             }
             let localized = !plain_full
@@ -593,7 +570,7 @@ impl World {
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
                     || list.is_some()
-                    || !links.is_empty()
+                    || (record.tag == T(b"CLAS") && !links.is_empty())
                     || unchanged(original) != unchanged(&record)
                     || !data_valid
                 {
