@@ -565,7 +565,7 @@ an SKSE member.
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
-| Message | Show, ShowAsHelpMessage | ResetHelpMessage |
+| Message | Show, ShowAsHelpMessage | ResetHelpMessage (global) |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
@@ -770,8 +770,17 @@ Their CK contracts are described by
   matching graph event fires, then returns true. Graph unload or disabling the
   reference completes the wait with false. Waiting latent IDs and completed
   results are stored in the world `ANM-58` save section.
-- `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. A scene starts at
+- The CK `Message.Show` contract formats its nine optional numeric arguments
+  and returns after a message-box button is selected. The current game layer
+  queues the `DNAM` record text according to the `MESG` message-box flag in
+  `message_boxes` or `notifications`; it does not format numeric placeholders
+  or wait for a selected button, and currently returns button 0.
+  `Message.ShowAsHelpMessage` currently queues
+  a notification and does not track event, interval, duration or occurrence
+  state. `Message.ResetHelpMessage` is registered as a global stub. The CK
+  contract comparison and owning backlog rows are in
+  [reference-audit.md](reference-audit.md#scr-66-locationalias-and-message-contracts).
+  A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers
