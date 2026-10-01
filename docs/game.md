@@ -342,16 +342,29 @@ The signatures and short behavior descriptions come from the local
 functions are absent. Skill effects use the record-backed AVIF and GMST path
 documented in [progression](progression.md).
 
-**Shared reference placement.** The host reads world state out and never
-writes it back. `World::ref_placement` (in `world/refs.rs`) is the read-only
-view a host uses to keep its own rendering and collision resources in step
-with a reference's runtime state: current position, rotation, scale and enable,
-in the small, `Copy` `RefPlacement` struct, not the mutable `RefState` a native
-or VM path uses to change that state. It returns `None` for a reference never
-instantiated, whose record-authored placement is still current. A deleted
-reference remains present with `visible: false` so the host can release its
-resources. The host side of this contract, and the split it takes between
-collision and rendering change detection, is documented in
+**Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
+current time-driven sun position in Skyrim units, using a 100,000-unit orbit
+with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
+is relative to the player's current placement. `Game.IsPlayerSungazing`
+compares the host camera direction with the sun direction and returns true
+within one degree. `Game.ShakeCamera` queues a transient request for the host.
+Its source defaults to the player, strength defaults to 0.5 and clamps to 0
+through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
+fallback. Invalid source types, non-finite values and negative durations do
+not queue an effect. These camera requests are transient and are not saved.
+The CK pages define the returned coordinates and gaze meaning, while the
+shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
+not specify the sun orbit formula or gaze angular tolerance, so those are
+
+**Shared reference placement.** `World::ref_placement` (in `world/refs.rs`) is
+the read-only view a host uses to keep rendering and collision resources in
+step with a reference's runtime position, rotation, scale and enable state. It
+returns `None` for a reference never instantiated, whose record-authored
+placement is still current. A deleted reference remains present with
+`visible: false` so the host can release its resources. Host physics may write
+finite poses through `World::set_host_ref_pose`. Other host presentation reads
+placement without mutating it. The host contract and its split between
+collision and rendering change detection are documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
@@ -412,6 +425,12 @@ requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. The
 clear request drops those retained file buffers. These requests add no saved
 state.
+
+`Game.ShowTrainingMenu(actor)` queues a training-menu request containing the
+actor form when the argument resolves to an actor reference. Invalid or missing
+arguments return quietly without a request. Valid trainers also queue the
+UI-16 presenter request. The host opens that menu once and consumes the typed
+request without presenting it again.
 
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
@@ -491,6 +510,15 @@ parameters. The CK corpus has no pages for the CTDA condition functions, so
 their detailed behavior is inferred from the matching Papyrus faction and
 actor contracts and the runtime crime state. Invalid actor and form context
 returns a condition error.
+
+**Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
+`ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
+cleared by `Actor.ClearArrested`. It also resets the player's cumulative
+served-day counter. `Game.ServeTime` applies the remaining jail time. The
+engine does not yet select a high-process witness for werewolf crime, trigger
+a sun-gaze modifier, or send controller rumble to Godot.
+`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
+`ShakeController` remain stubs until those owning systems exist.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -590,6 +618,10 @@ extra, and preserves damaged values below 1.0, following
 an unsupported-function diagnostic because the local sources identify its
 parameter type but provide no usable evaluation contract.
 
+`Faction.ModReaction` adds its amount to that faction's reaction toward the
+given faction, defaulting an absent reaction to neutral and saturating at the
+`i32` bounds. The shipped `Faction.psc` supplies its argument contract.
+
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,
 `LeveledSpell` and `Location` against the local scripts. The vanilla SKSE
@@ -632,13 +664,13 @@ for the projected C++ payload contract and unsupported binary hook boundary.
 
 ## Conformance table
 
-`natives::register` has 373 stateful registrations and 178 quiet stubs,
-including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
-`Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
-`IsBleedingOut` requires an actor to be unconscious, alive and at or below its
-record-derived bleedout threshold. A quiet stub returns the idle value the game
-gives when nothing is going on, so vanilla scripts can continue when their
-owning system has no behavior yet.
+`natives::register` includes the implementations and quiet stubs listed below.
+The registration test checks the hand-kept stateful count and rejects duplicate
+names. `IsAlarmed` reads the actor's alert flag. `IsBleedingOut` requires an
+actor to be unconscious, alive and at or below its record-derived bleedout
+threshold. A quiet stub returns the idle value the game gives when nothing is
+going on, so vanilla scripts can continue when their owning system has no
+behavior yet.
 
 The SCR-61 registry audit found four `GetID` and `GetName` method bindings.
 `Form.GetName` returns the form's name-column text, `Quest.GetID` returns its
@@ -664,8 +696,8 @@ an SKSE member.
 | ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
-| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight), GetBudgetCount, GetBudgetName, GetCurrentBudget, OverBudget | IsInMenuMode and the frame rate and memory functions (seven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -933,6 +965,16 @@ Their CK contracts are described by
   `SetUnconscious` clear each other. `Kill(akKiller)` records the killer for
   `GetKiller`, `StartCombat(target)` the target for `GetCombatTarget`.
 - `GetCurrentLocation` is the reference's `XLCN`, else its cell's.
+- `FindClosestActor`, `FindRandomActor`, `FindClosestReferenceOfType` and
+  `FindRandomReferenceOfType` search enabled, non-deleted placed records within
+  the supplied three-dimensional radius. Reference searches require the exact
+  base form. Already instantiated references use runtime position and enable
+  state. Closest ties resolve by FormID, and random selection uses the world's
+  deterministic random stream. `GetFormEx2` resolves its signed Papyrus
+  integer as an unsigned runtime FormID, matching `GetFormEx`. The local CK
+  page documents the four search signatures and radius behavior. The local
+  SKSE `Game.psc` documents `GetFormEx` high-ID handling. No local source
+  documents `GetFormEx2`, so it follows the same lookup behavior.
   `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
   Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
   `GetFactionOwner` answer by the owner's record type.
@@ -1113,6 +1155,11 @@ surface, not CK contracts. The quiet stub fixes belong to these existing native 
   `IsStarting` and `IsStopping` report the task direction, and `IsRunning` stays
   false until the task completes. SOEW version 37 retains those tasks in the
   `SAV-10` world section.
+- `Game.FadeOutGame` validates finite, non-negative delay and duration values,
+  then queues the flags and timings for the host overlay. `RequestSave` and
+  `RequestAutoSave` queue distinct host save requests. `ForceFirstPerson` and
+  `ForceThirdPerson` queue explicit player camera modes. The host drains these
+  transient requests after a gameplay tick. They are not saved with `SOEW`.
 
 ## Tests
 
@@ -5391,6 +5438,31 @@ accepted item consumed exactly one item, including pre-existing inventory.
 Run `installed_ingestible_survey_reports_supported_applications` with
 `SKYRIM_DATA` to repeat the survey. These counts describe this branch before
 integration with the other magic milestones.
+
+## Effect shader playback, SCR-24
+
+`EffectShader.Play` and `EffectShader.Stop` update a world-owned set keyed by
+the EFSH form and target reference. Play requires an EFSH form, a REFR or ACHR
+target and a finite duration. The shipped
+`skse64/scripts/vanilla/EffectShader.psc` sets the default duration to -1
+seconds and defines negative values as infinite. A zero duration leaves no
+active playback. Repeating Play replaces that shader and target pair without
+changing other pairs. Stop removes only its requested pair. Timed playbacks
+expire against unpaused world time and survive SOEW save/load in the `SCR-24`
+world section. Invalid arguments log a native error and leave active playback
+unchanged.
+
+Successful Play and Stop calls also queue MAG-14's transient renderer requests.
+Loading shader state queues stops for the old playbacks and starts for the
+restored pairs using their saved remaining durations. A failed section load
+preserves the live playback set and its pending renderer requests.
+
+The supplied CK wiki corpus has no named EffectShader function page. The
+shipped PSC supplies the signatures and duration rule. xEdit
+`Core/wbDefinitionsTES5.pas` identifies EFSH as Effect Shader. The host
+synchronizes playback identities and remaining durations for presentation
+and retains MAG-14's temporary emissive spheres. It does not yet apply the
+authored EFSH textures, colors or particle settings to rendered references.
 
 ## Image-space modifier lifetimes, MAG-25
 
