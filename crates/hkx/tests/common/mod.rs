@@ -36,6 +36,25 @@ pub fn graph_with_masks(
     walk_animation: &str,
     masks: [Option<&[f32]>; 2],
 ) -> Vec<u8> {
+    graph_with_masks_and_pointer_binding(root, idle_animation, walk_animation, masks, false)
+}
+
+pub fn graph_with_bound_mask(
+    root: &Root,
+    idle_animation: &str,
+    walk_animation: &str,
+    masks: [Option<&[f32]>; 2],
+) -> Vec<u8> {
+    graph_with_masks_and_pointer_binding(root, idle_animation, walk_animation, masks, true)
+}
+
+fn graph_with_masks_and_pointer_binding(
+    root: &Root,
+    idle_animation: &str,
+    walk_animation: &str,
+    masks: [Option<&[f32]>; 2],
+    bind_bone_mask: bool,
+) -> Vec<u8> {
     let mut b = PackfileBuilder::new();
     let container = b.object("hkRootLevelContainer", 16);
     let graph = b.object("hkbBehaviorGraph", 304);
@@ -53,13 +72,26 @@ pub fn graph_with_masks(
     b.ptr(data, 120, strings);
     b.ptr(data, 112, values);
     b.array_strings(strings, 16, &["idleStart", "walkStart", "deactivated"]);
-    b.array_strings(strings, 48, &["Speed", "iState", "Enabled"]);
-    let infos = b.array_structs(data, 32, 6, 3);
-    b.set_i8(infos, 4, 4);
-    b.set_i8(infos + 6, 4, 3);
-    b.set_i8(infos + 12, 4, 1);
-    b.array_u32(data, 64, &[0, 0, 0]);
-    b.array_i32(values, 16, &[1.0f32.to_bits() as i32, 0, 1]);
+    let variable_names = if bind_bone_mask {
+        &["BoneMask", "Speed", "iState", "Enabled"][..]
+    } else {
+        &["Speed", "iState", "Enabled"][..]
+    };
+    b.array_strings(strings, 48, variable_names);
+    let infos = b.array_structs(data, 32, 6, variable_names.len());
+    if bind_bone_mask {
+        b.set_i8(infos, 4, 5);
+        b.set_i8(infos + 6, 4, 4);
+        b.set_i8(infos + 12, 4, 3);
+        b.set_i8(infos + 18, 4, 1);
+        b.array_i32(values, 16, &[0, 1.0f32.to_bits() as i32, 0, 1]);
+    } else {
+        b.set_i8(infos, 4, 4);
+        b.set_i8(infos + 6, 4, 3);
+        b.set_i8(infos + 12, 4, 1);
+        b.array_i32(values, 16, &[1.0f32.to_bits() as i32, 0, 1]);
+    }
+    b.array_u32(data, 64, &vec![0; variable_names.len()]);
 
     let idle = b.object("hkbClipGenerator", 272);
     b.string(idle, 56, "IdleClip");
@@ -85,7 +117,7 @@ pub fn graph_with_masks(
     b.ptr(walk, 16, bindings);
     let bind = b.array_structs(bindings, 16, 40, 1);
     b.string(bind, 0, "playbackSpeed");
-    b.set_i32(bind, 28, 0);
+    b.set_i32(bind, 28, i32::from(bind_bone_mask));
     b.set_i32(bindings, 32, -1);
 
     match root {
@@ -158,12 +190,26 @@ pub fn graph_with_masks(
                 b.set_f32(c0, 64, 1.0);
                 b.set_f32(c1, 64, 3.0);
             }
-            for (child, mask) in [c0, c1].into_iter().zip(masks) {
+            let mut first_mask = None;
+            for (index, (child, mask)) in [c0, c1].into_iter().zip(masks).enumerate() {
                 if let Some(weights) = mask {
                     let mask = b.object("hkbBoneWeightArray", 64);
                     b.array_f32(mask, 48, weights);
                     b.ptr(child, 56, mask);
+                    if index == 0 {
+                        first_mask = Some(mask);
+                    }
                 }
+            }
+            if bind_bone_mask {
+                let mask = first_mask.expect("bound mask fixture requires a first mask");
+                b.array_ptrs(values, 48, &[mask, 0, 0, 0]);
+                let bs = b.object("hkbVariableBindingSet", 40);
+                b.ptr(c0, 16, bs);
+                let bind = b.array_structs(bs, 16, 40, 1);
+                b.string(bind, 0, "boneWeights");
+                b.set_i32(bind, 28, 0);
+                b.set_i32(bs, 32, -1);
             }
             b.array_ptrs(blender, 96, &[c0, c1]);
         }
