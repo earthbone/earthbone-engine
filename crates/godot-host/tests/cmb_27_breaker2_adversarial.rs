@@ -8,7 +8,10 @@ use std::path::Path;
 use soe_bsa::Vfs;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
-use soe_godot_host::{actor::{ActorAssets, MASTER_BEHAVIOR}, combat::MeleeContact};
+use soe_godot_host::{
+    actor::{ActorAssets, MASTER_BEHAVIOR},
+    combat::MeleeContact,
+};
 use soe_hkx::interp::Interpreter;
 
 fn id(object: u32) -> GlobalFormId {
@@ -47,19 +50,25 @@ fn fixture() -> Game {
     dnam[76..80].copy_from_slice(&(-1_i32).to_le_bytes());
     dnam[88..92].copy_from_slice(&(-1_i32).to_le_bytes());
     dnam[96..100].copy_from_slice(&1_f32.to_le_bytes());
-    plugin.push_top(Record::new(Tag(*b"WEAP"), 0xa07)
-        .sub(Tag(*b"DATA"), data)
-        .sub(Tag(*b"DNAM"), dnam)
-        .sub(Tag(*b"ETYP"), 0xb02_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag(*b"WEAP"), 0xa07)
+            .sub(Tag(*b"DATA"), data)
+            .sub(Tag(*b"DNAM"), dnam)
+            .sub(Tag(*b"ETYP"), 0xb02_u32.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
     order.add("Reaction.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let player = game.player();
     for actor in [player, id(0x900)] {
-        game.world_mut().set_actor_value(actor, "health", 100.0).unwrap();
+        game.world_mut()
+            .set_actor_value(actor, "health", 100.0)
+            .unwrap();
     }
     game.world_mut().add_item(player, id(0xa07), 1);
-    game.world_mut().equip_hand_weapon(player, Hand::Right, id(0xa07)).unwrap();
+    game.world_mut()
+        .equip_hand_weapon(player, Hand::Right, id(0xa07))
+        .unwrap();
     game
 }
 
@@ -70,49 +79,103 @@ fn staggered_hit_is_applied_once_and_deadline_survives_save_load() {
     let mut game = fixture();
     let mut contact = MeleeContact::default();
     contact.begin(&game, attacker, Hand::Right).unwrap();
-    let hit = contact.event(&mut game, "HitFrame", |_| Ok(Some(target))).unwrap().unwrap();
+    let hit = contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(target)))
+        .unwrap()
+        .unwrap();
     assert_eq!(hit.health_damage, 10.0);
     assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
     let deadline = game.world_mut().actor(target).unwrap().stagger_end_time;
     assert!(deadline.is_some());
     let magnitude = game.world_mut().actor(target).unwrap().stagger_magnitude;
-    assert!(magnitude > 1.0, "the hit's computed magnitude must remain available to the renderer");
-    assert!(contact.event(&mut game, "HitFrame", |_| panic!("duplicate frame queried")).unwrap().is_none());
+    assert!(
+        magnitude > 1.0,
+        "the hit's computed magnitude must remain available to the renderer"
+    );
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| {
+            Err(soe_game::combat::Error::Unsupported(
+                "duplicate frame queried",
+            ))
+        })
+        .unwrap()
+        .is_none());
 
     let saved = game.save_state().unwrap();
     game.load_state(&saved).unwrap();
     assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
-    assert_eq!(game.world_mut().actor(target).unwrap().stagger_end_time, deadline);
-    assert_eq!(game.world_mut().actor(target).unwrap().stagger_magnitude, magnitude);
+    assert_eq!(
+        game.world_mut().actor(target).unwrap().stagger_end_time,
+        deadline
+    );
+    assert_eq!(
+        game.world_mut().actor(target).unwrap().stagger_magnitude,
+        magnitude
+    );
 }
 
 #[test]
 fn moving_locomotion_returns_after_authored_stagger_stop() {
-    let Ok(data_dir) = std::env::var("SKYRIM_DATA") else { return };
+    let mut game = fixture();
+    let attacker = id(0x14);
+    let target = id(0x900);
+    let mut contact = MeleeContact::default();
+    contact.begin(&game, attacker, Hand::Right).unwrap();
+    contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(target)))
+        .unwrap();
+    let magnitude = game.world_mut().actor(target).unwrap().stagger_magnitude as f32;
+    assert!(magnitude > 1.0);
+
+    let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
+        return;
+    };
     let mut vfs = Vfs::new();
-    for archive in ["Skyrim - Meshes0.bsa", "Skyrim - Meshes1.bsa", "Skyrim - Animations.bsa"] {
-        vfs.add_archive_path(&Path::new(&data_dir).join(archive)).unwrap();
+    for archive in [
+        "Skyrim - Meshes0.bsa",
+        "Skyrim - Meshes1.bsa",
+        "Skyrim - Animations.bsa",
+    ] {
+        vfs.add_archive_path(&Path::new(&data_dir).join(archive))
+            .unwrap();
     }
     let assets = ActorAssets::load_with_behavior(
         &vfs,
         "meshes/actors/character/character assets/malebody_1.nif",
         MASTER_BEHAVIOR,
-    ).unwrap();
-    let mut vm = Interpreter::new(&assets.graph, &assets.clips, assets.skeleton.reference_pose.clone());
+    )
+    .unwrap();
+    let mut vm = Interpreter::new(
+        &assets.graph,
+        &assets.clips,
+        assets.skeleton.reference_pose.clone(),
+    );
     vm.variables.set_by_name("iRightHandType", 1.0);
     vm.variables.set_by_name("Speed", 1.0);
     assert!(vm.send_event_named("moveStart"));
-    for _ in 0..30 { vm.update(1.0 / 60.0); }
+    for _ in 0..30 {
+        vm.update(1.0 / 60.0);
+    }
     let locomotion = vm.active_states();
     assert!(!locomotion.is_empty());
-    vm.variables.set_by_name("staggerMagnitude", 1.0);
-    assert!(vm.send_event_named("staggerStart"));
+    assert!(soe_godot_host::godot_actor::send_stagger_start(
+        &mut vm, magnitude
+    ));
     let played_reaction = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
-        vm.active_clips().iter().any(|(node, _)| assets.graph.node(*node).name.to_ascii_lowercase().contains("stagger"))
+        vm.active_clips().iter().any(|(node, _)| {
+            assets
+                .graph
+                .node(*node)
+                .name
+                .to_ascii_lowercase()
+                .contains("stagger")
+        })
     });
     assert!(played_reaction);
     assert!(vm.send_event_named("staggerStop"));
-    for _ in 0..180 { vm.update(1.0 / 60.0); }
+    for _ in 0..180 {
+        vm.update(1.0 / 60.0);
+    }
     assert_eq!(vm.active_states(), locomotion);
 }

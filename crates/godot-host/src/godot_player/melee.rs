@@ -275,7 +275,8 @@ impl PlayerNode {
         self.last_melee_target = None;
         self.last_melee_obstruction = None;
         let Some(game) = &mut self.game else { return };
-        if let Err(error) = self.melee_contact.begin_from_attack_press(game, pressed) {
+        if let Err(error) = Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed)
+        {
             godot_error!("PlayerNode: {error}");
         }
     }

@@ -8,7 +8,10 @@ use std::path::Path;
 use soe_bsa::Vfs;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
-use soe_godot_host::{actor::{ActorAssets, MASTER_BEHAVIOR}, combat::MeleeContact};
+use soe_godot_host::{
+    actor::{ActorAssets, MASTER_BEHAVIOR},
+    combat::MeleeContact,
+};
 use soe_hkx::interp::Interpreter;
 
 fn id(object: u32) -> GlobalFormId {
@@ -18,9 +21,7 @@ fn id(object: u32) -> GlobalFormId {
 fn game_with_stagger_weapon() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     for slot in [0xb00_u32, 0xb01] {
         plugin.push_top(Record::new(Tag(*b"EQUP"), slot).sub(Tag(*b"DATA"), 0_u32.to_le_bytes()));
     }
@@ -57,7 +58,9 @@ fn game_with_stagger_weapon() -> Game {
     let mut game = Game::new(order);
     assert_eq!(game.player(), id(0x14));
     for actor in [id(0x14), id(0x900)] {
-        game.world_mut().set_actor_value(actor, "health", 100.0).unwrap();
+        game.world_mut()
+            .set_actor_value(actor, "health", 100.0)
+            .unwrap();
     }
     game.world_mut().add_item(id(0x14), id(0xa07), 1);
     game.world_mut()
@@ -80,9 +83,18 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     assert_eq!(hit.health_damage, 10.0);
     assert!(hit.staggered);
     assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
-    assert!(game.world_mut().actor(target).unwrap().stagger_end_time.is_some());
+    assert!(game
+        .world_mut()
+        .actor(target)
+        .unwrap()
+        .stagger_end_time
+        .is_some());
     assert!(contact
-        .event(&mut game, "HitFrame", |_| panic!("duplicate frame queried"))
+        .event(&mut game, "HitFrame", |_| {
+            Err(soe_game::combat::Error::Unsupported(
+                "duplicate frame queried",
+            ))
+        })
         .unwrap()
         .is_none());
 
@@ -122,7 +134,12 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     let played_reaction = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
         vm.active_clips().iter().any(|(node, _)| {
-            assets.graph.node(*node).name.to_ascii_lowercase().contains("stagger")
+            assets
+                .graph
+                .node(*node)
+                .name
+                .to_ascii_lowercase()
+                .contains("stagger")
         })
     });
     assert!(played_reaction, "authored stagger clip should play");

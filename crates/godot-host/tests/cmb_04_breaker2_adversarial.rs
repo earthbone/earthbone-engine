@@ -41,18 +41,26 @@ fn game_with_weapon() -> Game {
     dnam[8..12].copy_from_slice(&1_f32.to_le_bytes());
     dnam[76..80].copy_from_slice(&(-1_i32).to_le_bytes());
     dnam[88..92].copy_from_slice(&(-1_i32).to_le_bytes());
-    plugin.push_top(Record::new(Tag(*b"WEAP"), 0xa00)
-        .sub(Tag(*b"DATA"), data)
-        .sub(Tag(*b"DNAM"), dnam)
-        .sub(Tag(*b"ETYP"), 0xb02_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag(*b"WEAP"), 0xa00)
+            .sub(Tag(*b"DATA"), data)
+            .sub(Tag(*b"DNAM"), dnam)
+            .sub(Tag(*b"ETYP"), 0xb02_u32.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
     order.add("Press.esm", plugin).unwrap();
     let mut game = Game::new(order);
     let player = game.player();
-    game.world_mut().set_actor_value(player, "health", 100.0).unwrap();
-    game.world_mut().set_actor_value(id(0x900), "health", 100.0).unwrap();
+    game.world_mut()
+        .set_actor_value(player, "health", 100.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(0x900), "health", 100.0)
+        .unwrap();
     game.world_mut().add_item(player, id(0xa00), 1);
-    game.world_mut().equip_hand_weapon(player, Hand::Right, id(0xa00)).unwrap();
+    game.world_mut()
+        .equip_hand_weapon(player, Hand::Right, id(0xa00))
+        .unwrap();
     game
 }
 
@@ -76,7 +84,9 @@ fn missing_right_weapon_rejects_press_without_leaving_a_stale_swing() {
     assert_eq!(contact.armed(), None);
 
     game.world_mut().add_item(player, id(0xa00), 1);
-    game.world_mut().equip_hand_weapon(player, Hand::Right, id(0xa00)).unwrap();
+    game.world_mut()
+        .equip_hand_weapon(player, Hand::Right, id(0xa00))
+        .unwrap();
     assert!(contact.begin_from_attack_press(&mut game, true).unwrap());
     assert_eq!(contact.armed(), Some((player, Hand::Right)));
 }

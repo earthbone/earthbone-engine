@@ -4,7 +4,10 @@
 //! Adversarial checks for the CMB-04 right attack press latch.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::{Error, Hand}, Game};
+use soe_game::{
+    combat::{Error, Hand},
+    Game,
+};
 use soe_godot_host::combat::MeleeContact;
 
 fn id(object: u32) -> GlobalFormId {
@@ -65,8 +68,12 @@ fn fixture() -> Game {
             let count = if weapon == id(0xa01) { 2 } else { 1 };
             world.add_item(player, weapon, count);
         }
-        world.equip_hand_weapon(player, Hand::Right, id(0xa00)).unwrap();
-        world.equip_hand_weapon(player, Hand::Left, id(0xa01)).unwrap();
+        world
+            .equip_hand_weapon(player, Hand::Right, id(0xa00))
+            .unwrap();
+        world
+            .equip_hand_weapon(player, Hand::Left, id(0xa01))
+            .unwrap();
     }
     game
 }
@@ -88,7 +95,9 @@ fn repeated_press_cannot_replace_the_weapon_captured_by_the_armed_swing() {
     let mut contact = MeleeContact::default();
     assert!(contact.begin_from_attack_press(&mut game, true).unwrap());
 
-    game.world_mut().equip_hand_weapon(id(0x14), Hand::Right, id(0xa01)).unwrap();
+    game.world_mut()
+        .equip_hand_weapon(id(0x14), Hand::Right, id(0xa01))
+        .unwrap();
     assert!(matches!(
         contact.begin_from_attack_press(&mut game, true),
         Err(Error::Unsupported("swing already awaiting contact"))
@@ -117,7 +126,9 @@ fn failed_press_without_right_hand_weapon_does_not_arm_or_use_left_hand() {
     ));
     assert_eq!(contact.armed(), None);
     assert!(!contact.begin_from_attack_press(&mut game, false).unwrap());
-    game.world_mut().equip_hand_weapon(id(0x14), Hand::Right, id(0xa00)).unwrap();
+    game.world_mut()
+        .equip_hand_weapon(id(0x14), Hand::Right, id(0xa00))
+        .unwrap();
     assert!(contact.begin_from_attack_press(&mut game, true).unwrap());
 }
 
@@ -127,7 +138,10 @@ fn a_miss_consumes_one_contact_and_the_next_press_can_hit_once() {
     let mut contact = MeleeContact::default();
 
     assert!(contact.begin_from_attack_press(&mut game, true).unwrap());
-    assert!(contact.event(&mut game, "HitFrame", |_| Ok(None)).unwrap().is_none());
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| Ok(None))
+        .unwrap()
+        .is_none());
     assert_eq!(contact.armed(), None);
     assert!(contact.begin_from_attack_press(&mut game, true).unwrap());
     assert!(contact
@@ -136,7 +150,9 @@ fn a_miss_consumes_one_contact_and_the_next_press_can_hit_once() {
         .is_some());
     assert_eq!(game.world_mut().actor_value(id(0x900), "health"), 90.0);
     assert!(contact
-        .event(&mut game, "HitFrame", |_| panic!("duplicate hit"))
+        .event(&mut game, "HitFrame", |_| {
+            Err(Error::Unsupported("duplicate hit queried"))
+        })
         .unwrap()
         .is_none());
 }

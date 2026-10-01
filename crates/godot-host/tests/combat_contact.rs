@@ -454,10 +454,22 @@ fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
     assert_eq!(Action::RightAttack.event_name(), "Right Attack/Block");
 
     let mut contact = MeleeContact::default();
-    assert!(contact
-        .begin_from_attack_press(&mut game, input.right_attack_pressed)
-        .unwrap());
-    assert!(!contact.begin_from_attack_press(&mut game, false).unwrap());
+    assert!(
+        soe_godot_host::godot_player::PlayerNode::arm_melee_swing_from_input(
+            &mut game,
+            &mut contact,
+            input.right_attack_pressed,
+        )
+        .unwrap()
+    );
+    assert!(
+        !soe_godot_host::godot_player::PlayerNode::arm_melee_swing_from_input(
+            &mut game,
+            &mut contact,
+            false,
+        )
+        .unwrap()
+    );
     assert_eq!(contact.armed(), Some((id(0x14), Hand::Right)));
     assert!(contact
         .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))

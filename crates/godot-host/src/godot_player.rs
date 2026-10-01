@@ -395,6 +395,16 @@ impl INode3D for PlayerNode {
 
 #[godot_api]
 impl PlayerNode {
+    /// Arm the player's right-hand swing from the gathered attack press.
+    /// The live node and host tests use this same route into the shared Game.
+    pub fn arm_melee_swing_from_input(
+        game: &mut soe_game::Game,
+        contact: &mut crate::combat::MeleeContact,
+        pressed: bool,
+    ) -> Result<bool, soe_game::combat::Error> {
+        contact.begin_from_attack_press(game, pressed)
+    }
+
     /// Emitted after opening through gdext's reentrant base guard.
     #[signal]
     fn menu_opened(title: GString);
