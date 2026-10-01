@@ -849,10 +849,36 @@ mod scr_29_adversarial;
 mod scr_29_game_native_contracts;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_42_adversarial.rs"]
+mod scr_42_adversarial;
+#[path = "scr_42_object_reference.rs"]
+mod scr_42_object_reference;
 #[path = "scr_43_adversarial.rs"]
 mod scr_43_adversarial;
 #[path = "scr_43_quest_transition_natives.rs"]
 mod scr_43_quest_transition_natives;
+#[path = "scr_44_adversarial.rs"]
+mod scr_44_adversarial;
+#[path = "scr_44_scene_action_complete.rs"]
+mod scr_44_scene_action_complete;
+#[path = "scr_45_adversarial.rs"]
+mod scr_45_adversarial;
+#[path = "scr_46_adversarial.rs"]
+mod scr_46_adversarial;
+#[path = "scr_46_shader_particle_geometry.rs"]
+mod scr_46_shader_particle_geometry;
+#[path = "scr_47_adversarial.rs"]
+mod scr_47_adversarial;
+#[path = "scr_48_adversarial.rs"]
+mod scr_48_adversarial;
+#[path = "scr_49_adversarial.rs"]
+mod scr_49_adversarial;
+#[path = "scr_49_utility_frame_rate.rs"]
+mod scr_49_utility_frame_rate;
+#[path = "scr_50_adversarial.rs"]
+mod scr_50_adversarial;
+#[path = "scr_50_utility_runtime_queries.rs"]
+mod scr_50_utility_runtime_queries;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 #[path = "shm_12_live_world.rs"]
