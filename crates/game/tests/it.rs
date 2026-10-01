@@ -795,6 +795,14 @@ mod sav_06_adversarial;
 mod sav_09_adversarial;
 #[path = "sav_10_adversarial.rs"]
 mod sav_10_adversarial;
+#[path = "sav_15_adversarial.rs"]
+mod sav_15_adversarial;
+#[path = "sav_15_breaker_adversarial.rs"]
+mod sav_15_breaker_adversarial;
+#[path = "sav_17_adversarial.rs"]
+mod sav_17_adversarial;
+#[path = "sav_17_breaker_adversarial.rs"]
+mod sav_17_breaker_adversarial;
 #[path = "sav_18_breaker_adversarial.rs"]
 mod sav_18_breaker_adversarial;
 #[path = "sav_18_wait_deadlines.rs"]
@@ -809,12 +817,18 @@ mod sav_42_adversarial;
 mod sav_44_adversarial;
 #[path = "sav_46_adversarial.rs"]
 mod sav_46_adversarial;
+#[path = "sav_46_breaker_adversarial.rs"]
+mod sav_46_breaker_adversarial;
 #[path = "sav_48_adversarial.rs"]
 mod sav_48_adversarial;
 #[path = "sav_50_adversarial.rs"]
 mod sav_50_adversarial;
 #[path = "sav_52_adversarial.rs"]
 mod sav_52_adversarial;
+#[path = "sav_56_adversarial.rs"]
+mod sav_56_adversarial;
+#[path = "sav_56_breaker_adversarial.rs"]
+mod sav_56_breaker_adversarial;
 #[path = "sav_56_provenance.rs"]
 mod sav_56_provenance;
 #[path = "sav_57_preflight.rs"]
