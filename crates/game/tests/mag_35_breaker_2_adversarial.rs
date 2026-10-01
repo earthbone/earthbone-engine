@@ -72,7 +72,13 @@ fn mag_35_rejects_a_non_light_winning_override_without_partial_application() {
         Some(id(TARGET)),
         &mut |_, _| soe_papyrus::ObjectId(1),
     );
-    assert!(matches!(result, Err(MagicError::Unsupported("light record"))));
+    assert!(matches!(
+        result,
+        Err(MagicError::Unsupported("light record"))
+    ));
     assert_eq!(game.world().active_effects().count(), 0);
-    assert_eq!(game.world().reference_ref(id(TARGET)).unwrap().base, Some(id(0x500)));
+    assert_eq!(
+        game.world().reference_ref(id(TARGET)).unwrap().base,
+        Some(id(0x500))
+    );
 }
