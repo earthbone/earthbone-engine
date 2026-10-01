@@ -1157,6 +1157,16 @@ mod tool_01_breaker_adversarial;
 mod tool_01_validation_runner;
 #[path = "transitions.rs"]
 mod transitions;
+#[path = "tst_01_adversarial.rs"]
+mod tst_01_adversarial;
+#[path = "tst_01_rng_streams.rs"]
+mod tst_01_rng_streams;
+#[path = "tst_06_adversarial.rs"]
+mod tst_06_adversarial;
+#[path = "tst_11_adversarial.rs"]
+mod tst_11_adversarial;
+#[path = "tst_11_papyrus_log.rs"]
+mod tst_11_papyrus_log;
 #[path = "tst_12_additional_adversarial.rs"]
 mod tst_12_additional_adversarial;
 #[path = "tst_12_adversarial.rs"]
