@@ -3,8 +3,7 @@
 
 //! Independent WEAP/ARMO bytes, physical hit outcomes and CK event contracts.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{

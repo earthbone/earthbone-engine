@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use soe_hkx::behavior::{BehaviorGraph, NodeKind};
+use soe_hkx::behavior::BehaviorGraph;
 use soe_hkx::character::CharacterData;
 use soe_hkx::Packfile;
 
@@ -40,11 +40,6 @@ fn canonical_graph(pf: &Packfile) -> (BehaviorGraph, Vec<Option<String>>) {
     }
     for node in &mut graph.nodes {
         node.offset = 0;
-        if let NodeKind::BoneSwitch { children, .. } = &mut node.kind {
-            for offset in children {
-                normalize(offset);
-            }
-        }
     }
     (graph, classes)
 }
