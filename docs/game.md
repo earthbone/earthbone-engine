@@ -5099,6 +5099,16 @@ uses its existing AI movement rate and navmesh driver for those details.
 `tests/mag_45_turn_undead.rs` covers eligible and ineligible targets, duration,
 the teammate exception, and installed record lookup when `SKYRIM_DATA` is set.
 
+## Runtime NAVM door links, AI-09
+
+The AI graph keeps NAVM door links as door-reference-to-triangle associations.
+It binds a link when the placed reference position lies inside the associated
+triangle in XY and within 64 units of its surface height. A closed bound door
+blocks that triangle in path searches. An open door restores it. A change to a
+bound door's open state clears cached actor waypoints so movement plans again
+against the current graph. Door triangles that do not contain the placed
+reference position remain unbound.
+
 ## Scroll casting, MAG-18
 
 `World::cast_scroll` accepts a transient one-item `Selection` from the holder's
