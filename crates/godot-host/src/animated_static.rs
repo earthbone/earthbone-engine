@@ -91,6 +91,27 @@ pub fn find_node(file: &NifFile, name: &str) -> Option<BlockRef> {
     None
 }
 
+/// Find the first node carrying a controller this module can evaluate.
+pub fn find_animated_node(file: &NifFile) -> Option<BlockRef> {
+    fn visit(file: &NifFile, reference: BlockRef, depth: u32) -> Option<BlockRef> {
+        if depth > 256 {
+            return None;
+        }
+        let index = reference.get()?;
+        let Block::Node(node) = file.blocks.get(index)? else {
+            return None;
+        };
+        if node.av.net.controller.get().is_some() && resolve_controller(file, reference).is_ok() {
+            return Some(reference);
+        }
+        node.children
+            .iter()
+            .find_map(|&child| visit(file, child, depth + 1))
+    }
+
+    file.roots.iter().find_map(|&root| visit(file, root, 0))
+}
+
 /// Resolve `node`'s controller chain: `ObjectNet.controller` must directly be
 /// a `NiTransformController` (or `NiKeyframeController`) whose interpolator
 /// is an `NiTransformInterpolator`. The interpolator's `data` ref is
@@ -233,6 +254,15 @@ mod tests {
         let file = file_with_controller(BlockRef::NONE);
         assert_eq!(find_node(&file, "Target"), Some(BlockRef(1)));
         assert_eq!(find_node(&file, "Nope"), None);
+    }
+
+    #[test]
+    fn hst_01_auto_selects_the_door_controller_node() {
+        let file = file_with_controller(BlockRef::NONE);
+        let node = find_animated_node(&file);
+        assert_eq!(node, Some(BlockRef(1)));
+        let controller = resolve_controller(&file, node.expect("controller node"));
+        assert!(controller.is_ok());
     }
 
     #[test]

@@ -7,8 +7,8 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
-use godot::obj::WithBaseField;
-use godot::prelude::{GString, Variant};
+use crate::units::placement_to_godot;
+use godot::prelude::*;
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -400,7 +400,105 @@ impl PlayerNode {
         } else if show_crafting {
             self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
+        if activated {
+            self.open_swing_door(target);
+        }
         activated
+    }
+
+    fn open_swing_door(&mut self, target: GlobalFormId) {
+        let (Some(source), Some(game)) = (&self.data_source, &self.game) else {
+            return;
+        };
+        let Some((base, position, rotation, scale, opened)) = ({
+            let world = game.world();
+            world.reference_ref(target).map(|reference| {
+                (
+                    reference.base,
+                    reference.position,
+                    reference.rotation,
+                    reference.scale,
+                    reference.opened,
+                )
+            })
+        }) else {
+            return;
+        };
+        if !opened {
+            if let Some(mut node) = self.swing_doors.remove(&target) {
+                node.queue_free();
+            }
+            return;
+        }
+        if let Some(node) = self.swing_doors.get_mut(&target) {
+            node.bind_mut().open();
+            return;
+        }
+        let Some(base) = base else {
+            return;
+        };
+        let Some(base_record) = source.order().winner(base) else {
+            return;
+        };
+        if base_record.tag != soe_esm::Tag::new(b"DOOR") {
+            return;
+        }
+        let Some(reference_record) = source.order().winner(target) else {
+            return;
+        };
+        if reference_record.find(soe_esm::Tag::new(b"XTEL")).is_some() {
+            return;
+        }
+        let Some(model) = crate::data_source::model_for(base_record) else {
+            return;
+        };
+        let Ok(bytes) = source.vfs().read(&model) else {
+            return;
+        };
+        let packed: PackedByteArray = bytes.iter().copied().collect();
+        let mut node = crate::godot_animated_static::AnimatedStaticNode::new_alloc();
+        node.set_name(&format!("SwingDoor_{target}"));
+        node.bind_mut().enable_collision();
+        self.base_mut().add_child(&node);
+        if !node.bind_mut().load_nif_bytes(packed) {
+            node.queue_free();
+            return;
+        }
+        let transform = placement_to_godot(
+            soe_physics::Iso::placement(position, rotation, scale)
+                .rotation
+                .rows,
+            position,
+            scale,
+        );
+        node.set_transform(Transform3D::new(
+            Basis::from_cols(
+                Vector3::new(
+                    transform.basis[0][0],
+                    transform.basis[1][0],
+                    transform.basis[2][0],
+                ),
+                Vector3::new(
+                    transform.basis[0][1],
+                    transform.basis[1][1],
+                    transform.basis[2][1],
+                ),
+                Vector3::new(
+                    transform.basis[0][2],
+                    transform.basis[1][2],
+                    transform.basis[2][2],
+                ),
+            ),
+            Vector3::new(transform.origin.x, transform.origin.y, transform.origin.z),
+        ));
+        node.bind_mut().open();
+        self.swing_doors.insert(target, node);
+    }
+
+    pub(super) fn clear_swing_doors(&mut self) {
+        for (_, mut node) in self.swing_doors.drain() {
+            node.queue_free();
+        }
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
@@ -425,6 +523,7 @@ impl PlayerNode {
                 .and_then(|source| source.exterior_world(cell))
                 .is_some();
         if self.loaded_cell != Some(cell) || needs_exterior {
+            self.clear_swing_doors();
             // Contacts belong to the cell that is leaving, not to an exterior
             // ring that is only being attached.
             if self.loaded_cell != Some(cell) {
