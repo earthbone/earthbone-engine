@@ -925,8 +925,14 @@ mod scr_37_music_type;
 mod scr_38_adversarial;
 #[path = "scr_38_object_reference.rs"]
 mod scr_38_object_reference;
+#[path = "scr_39_breaker_2_adversarial.rs"]
+mod scr_39_breaker_2_adversarial;
+#[path = "scr_39_breaker_adversarial.rs"]
+mod scr_39_breaker_adversarial;
 #[path = "scr_39_current_scene.rs"]
 mod scr_39_current_scene;
+#[path = "scr_39_object_reference_batch_2.rs"]
+mod scr_39_object_reference_batch_2;
 #[path = "scr_40_adversarial.rs"]
 mod scr_40_adversarial;
 #[path = "scr_40_object_reference.rs"]
