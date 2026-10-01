@@ -1447,6 +1447,8 @@ fn locations_know_their_parents() {
 #[test]
 fn scr_35_location_is_loaded_tracks_active_cell() {
     let mut g = game();
+    let other_cell = g.form("OtherCell").unwrap();
+    g.world_mut().load_cell(other_cell);
     let inn = obj(&mut g, "InnLoc");
     let town = obj(&mut g, "TownLoc");
     let hold = obj(&mut g, "HoldLoc");
@@ -2412,6 +2414,7 @@ fn scr_19_cell_is_attached_tracks_cell_residency() {
     let mut g = game();
     let cell = obj(&mut g, "InnCell");
     let id = g.form("InnCell").unwrap();
+    g.world_mut().unload_cell(id);
     assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
     g.world_mut().prefetch_cell(id);
     assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));

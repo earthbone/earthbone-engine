@@ -4819,16 +4819,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
-        ("Cell", "IsAttached", true),
-        ("Location", "IsLoaded", false),
-        ("Location", "HasRefType", false),
-        ("Scene", "IsActionComplete", false),
-        ("Keyword", "SendStoryEventAndWait", false),
-        ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Ragdoll execution is not implemented.
-        ("ObjectReference", "IsFurnitureMarkerInUse", false),
-        ("Utility", "IsInMenuMode", false),
-        ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
