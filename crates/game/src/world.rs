@@ -31,6 +31,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use soe_commonlib_shim::events::{ActorKill, CriticalHit, EventFormId, EventSource};
 use soe_esm::records::{Text, Transform};
 use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
@@ -47,6 +48,8 @@ mod base_object_restore;
 mod bleedout;
 mod calendar;
 mod combat;
+pub mod commonlib;
+mod commonlib_events;
 mod contact;
 mod crime;
 mod death;
@@ -110,6 +113,7 @@ mod rng;
 pub(crate) mod save;
 mod save_section_registry;
 mod save_sections;
+mod shim;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
@@ -623,9 +627,14 @@ pub enum HostRequest {
 }
 
 pub struct World {
+    /// Runtime plugin listeners. These are host state, not game save data.
+    pub(crate) actor_kill_events: EventSource<ActorKill>,
+    pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
+    /// Source-level CommonLib event channels backed by this live world.
+    pub(crate) commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder,
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
@@ -641,6 +650,8 @@ pub struct World {
     actors: HashMap<GlobalFormId, ActorState>,
     pub(crate) follower_services: BTreeMap<GlobalFormId, crate::services::FollowerServiceState>,
     quests: HashMap<GlobalFormId, QuestState>,
+    quest_start_stop_events:
+        soe_commonlib_shim::events::EventSource<soe_commonlib_shim::events::QuestStartStopEvent>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
     leveled_lists: HashMap<GlobalFormId, LeveledList>,
@@ -854,6 +865,8 @@ impl World {
             }
         }
         World {
+            actor_kill_events: EventSource::default(),
+            critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
@@ -866,6 +879,7 @@ impl World {
             actors: HashMap::new(),
             follower_services: BTreeMap::new(),
             quests: HashMap::new(),
+            quest_start_stop_events: soe_commonlib_shim::events::EventSource::default(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
             leveled_lists: HashMap::new(),
@@ -940,6 +954,7 @@ impl World {
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
+            commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             cloak_effects: BTreeMap::new(),
@@ -960,6 +975,20 @@ impl World {
 
     pub fn order(&self) -> &LoadOrder {
         &self.order
+    }
+
+    /// The CommonLib-compatible channel raised after a non-silent actor kill.
+    pub fn actor_kill_events(&mut self) -> &mut EventSource<ActorKill> {
+        &mut self.actor_kill_events
+    }
+
+    /// The CommonLib-compatible channel for validated critical-hit reports.
+    pub fn critical_hit_events(&mut self) -> &mut EventSource<CriticalHit> {
+        &mut self.critical_hit_events
+    }
+
+    pub(crate) fn event_form_id(id: GlobalFormId) -> EventFormId {
+        EventFormId((u64::from(id.file) << 32) | u64::from(id.object))
     }
 
     /// Queue a host screenshot request for the supplied path.
