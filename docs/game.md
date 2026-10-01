@@ -53,6 +53,7 @@ It exposes enchantment identity and charge, hotkey slot, and leveled-creature
 base links to the MIT API. The serialized stack does not retain the runtime
 enchantment removal flag, so that field is returned as unknown. Malformed
 layouts and unsupported mutation hooks do not produce editable extra data.
+
 - `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
   stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
   mutation, and Scaleform item-list selection and refresh return typed unsupported results.

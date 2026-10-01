@@ -34,9 +34,9 @@ static_assert(std::same_as<decltype(&RE::Actor::actor_value), std::optional<floa
 static_assert(std::same_as<decltype(&RE::Actor::set_actor_value), std::optional<RE::ActorApiError> (RE::Actor::*)(RE::ActorValue, float)>);
 static_assert(std::same_as<decltype(&RE::ActorEquipManager::equip_object), std::optional<RE::ActorApiError> (RE::ActorEquipManager::*)(RE::ActorHandle, RE::FormId)>);
 static_assert(std::same_as<decltype(&RE::ActorEquipManager::unequip_object), std::optional<RE::ActorApiError> (RE::ActorEquipManager::*)(RE::ActorHandle, RE::FormId)>);
-static_assert(std::same_as<decltype(&RE::ActorEquipManager::reject_hook), std::optional<RE::HookError> (RE::ActorEquipManager::*)(RE::HookError) const>);
-static_assert(RE::HookError::AddressPatch != RE::HookError::CallDetour);
-static_assert(RE::HookError::VtableOverride != RE::HookError::Trampoline);
+static_assert(std::same_as<decltype(&RE::ActorEquipManager::reject_hook), std::optional<RE::ActorHookError> (RE::ActorEquipManager::*)(RE::ActorHookError) const>);
+static_assert(RE::ActorHookError::AddressPatch != RE::ActorHookError::CallDetour);
+static_assert(RE::ActorHookError::VtableOverride != RE::ActorHookError::Trampoline);
 
 int main() {
     RE::ActorPtr empty{};

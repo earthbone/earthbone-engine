@@ -13,5 +13,7 @@ fn absent_calendar_race_and_alias_values_have_optional_results() {
     assert!(header.contains(
         "struct Result { bool success; std::optional<FormId> form; std::string error; }"
     ));
-    assert!(header.contains("ActivateReferenceChildren"));
+    assert!(header.contains("#include \"RE/WorldTypes.h\""));
+    let types = fs::read_to_string(root.join("include/RE/WorldTypes.h")).unwrap();
+    assert!(types.contains("ActivateReferenceChildren"));
 }
