@@ -1140,10 +1140,10 @@ fn the_effect_systems_take_their_calls_quietly() {
 
 /// GetOwningQuest on a quest-owned fragment script. A scene names its parent
 /// quest in PNAM and a package its owner quest in QNAM, which is what the
-/// 1,815 DLC call sites are asking for. A topic info takes its quest from
-/// the DIAL above it and answers None until the dialogue view lands.
+/// 1,815 DLC call sites are asking for. A topic info follows its dialogue
+/// group to the DIAL that owns it.
 #[test]
-fn fragment_scripts_find_their_owning_quest() {
+fn scr_62_scene_and_package_find_their_owning_quest() {
     let mut g = game();
     let scene = obj(&mut g, "FeedScene");
     let package = obj(&mut g, "HuntPackage");

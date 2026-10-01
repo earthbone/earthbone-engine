@@ -47,6 +47,7 @@ const GUARD_BASE: u32 = 0x90C;
 const GUARD_REF_TYPE: u32 = 0xA31;
 const OUTFIT: u32 = 0x90D;
 const THIEVES: u32 = 0x90E;
+const SHARED_CRIME_GROUP: u32 = 0x9A0;
 const RAGS: u32 = 0x90F;
 const LOOT_LIST: u32 = 0x910;
 const GOLD: u32 = 0x911;
@@ -167,12 +168,18 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"FACT"), GUARDS)
             .zsub(EDID, "GuardsFaction")
             .sub(T(b"XNAM"), xnam(THIEVES, 2))
-            .sub(T(b"DATA"), le(0x40)),
+            .sub(T(b"DATA"), le(0x40))
+            .sub(T(b"CRGR"), le(SHARED_CRIME_GROUP)),
     );
     p.push_top(
         Record::new(T(b"FACT"), THIEVES)
             .zsub(EDID, "ThievesFaction")
             .sub(T(b"DATA"), le(0)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), SHARED_CRIME_GROUP)
+            .zsub(EDID, "SharedCrimeGroup")
+            .sub(T(b"LNAM"), le(THIEVES)),
     );
     p.push_top(Record::new(T(b"OTFT"), OUTFIT).zsub(EDID, "GuardOutfit"));
     p.push_top(Record::new(T(b"OTFT"), RAGS).zsub(EDID, "Rags"));
@@ -956,16 +963,226 @@ fn leveled_actor_and_spell_lists_share_the_shape() {
     let flames = obj(&mut g, "Flames");
     call(&mut g, &spells, "AddForm", &[flames, Value::Int(30)]);
     assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(2));
-    assert_eq!(
-        call(&mut g, &spells, "GetNthCount", &[Value::Int(1)]),
-        Value::Int(1)
-    );
+    assert!(!g.vm.natives.has_method("LeveledSpell", "GetNthCount"));
     call(&mut g, &spells, "Revert", &[]);
     assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(1));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn scr_64_leveled_actor_and_item_bindings_match_skse_contracts() {
+    let mut g = game();
+    let items = obj(&mut g, "LootList");
+    let actors = obj(&mut g, "EnemyList");
+
+    let actor_base = obj(&mut g, "GuardBase");
+    call(&mut g, &actors, "AddForm", &[actor_base, Value::Int(24)]);
+    assert_eq!(call(&mut g, &actors, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(
+        call(&mut g, &actors, "GetNthCount", &[Value::Int(1)]),
+        Value::Int(1)
+    );
+    for list in [&items, &actors] {
+        assert_eq!(call(&mut g, list, "GetNumForms", &[]), Value::Int(2));
+    }
+    call(&mut g, &items, "SetChanceNone", &[Value::Int(42)]);
+    assert_eq!(call(&mut g, &items, "GetChanceNone", &[]), Value::Int(42));
+
+    for list in [&items, &actors] {
+        assert_ne!(
+            call(&mut g, list, "GetNthForm", &[Value::Int(0)]),
+            Value::None
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthLevel",
+            &[Value::Int(0), Value::Int(70_000)],
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthCount",
+            &[Value::Int(0), Value::Int(70_000)],
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthLevel", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthCount", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthLevel",
+            &[Value::Int(99), Value::Int(12)],
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthCount",
+            &[Value::Int(99), Value::Int(12)],
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthLevel", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthCount", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+    }
+    assert_eq!(call(&mut g, &actors, "GetChanceNone", &[]), Value::Int(0));
+    assert_eq!(call(&mut g, &items, "GetChanceGlobal", &[]), Value::None);
+    let chance_global = obj(&mut g, "Counter");
+    assert_eq!(
+        call(&mut g, &items, "SetChanceGlobal", &[chance_global]),
+        Value::None
+    );
+    let binding_errors = errors(&g);
+    assert!(
+        binding_errors
+            .iter()
+            .any(|trace| trace.contains("no function")),
+        "{binding_errors:?}"
+    );
+}
+
+/// The method inventory follows the shipped Location script and SKSE's
+/// vanilla and modified LeveledSpell scripts.
+#[test]
+fn scr_65_registry_inventory_matches_location_and_leveled_spell_contracts() {
+    let g = game();
+    let mut expected = Vec::new();
+    for class in ["LeveledItem", "LeveledActor"] {
+        for name in [
+            "AddForm",
+            "Revert",
+            "GetNumForms",
+            "GetNthForm",
+            "GetNthLevel",
+            "SetNthLevel",
+            "GetNthCount",
+            "GetChanceNone",
+            "SetChanceNone",
+        ] {
+            expected.push((class, name));
+        }
+    }
+    for name in [
+        "AddForm",
+        "Revert",
+        "GetNumForms",
+        "GetNthForm",
+        "GetNthLevel",
+        "SetNthLevel",
+        "GetChanceNone",
+        "SetChanceNone",
+    ] {
+        expected.push(("LeveledSpell", name));
+    }
+    for name in [
+        "GetKeywordData",
+        "SetKeywordData",
+        "IsCleared",
+        "SetCleared",
+        "IsChild",
+        "HasCommonParent",
+        "IsSameLocation",
+        "IsLoaded",
+        "HasRefType",
+        "GetRefTypeAliveCount",
+        "GetRefTypeDeadCount",
+    ] {
+        expected.push(("Location", name));
+    }
+
+    let inventory: Vec<_> = expected
+        .iter()
+        .copied()
+        .filter(|(class, name)| g.vm.natives.has_method(class, name))
+        .collect();
+    assert_eq!(inventory, expected);
+    assert!(expected
+        .iter()
+        .all(|(class, name)| !g.vm.natives.has_global(class, name)));
+    assert!(!g.vm.natives.has_method("LeveledSpell", "GetNthCount"));
+}
+
+/// SKSE exposes SetNthLevel on LeveledSpell, clamps large levels to u16,
+/// and leaves the list unchanged for an out-of-range entry index.
+#[test]
+fn scr_65_leveled_spell_setters_match_skse_contract() {
+    let mut g = game();
+    let spells = obj(&mut g, "SpellList");
+    call(
+        &mut g,
+        &spells,
+        "SetNthLevel",
+        &[Value::Int(0), Value::Int(70_000)],
+    );
+    assert_eq!(
+        call(&mut g, &spells, "GetNthLevel", &[Value::Int(0)]),
+        Value::Int(i32::from(u16::MAX))
+    );
+    call(
+        &mut g,
+        &spells,
+        "SetNthLevel",
+        &[Value::Int(4), Value::Int(12)],
+    );
+    assert_eq!(
+        call(&mut g, &spells, "GetNthLevel", &[Value::Int(0)]),
+        Value::Int(i32::from(u16::MAX))
+    );
+    call(&mut g, &spells, "SetChanceNone", &[Value::Int(101)]);
+    assert_eq!(call(&mut g, &spells, "GetChanceNone", &[]), Value::Int(101));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 // ----- locations -----
+
+/// Location.IsSameLocation accepts identity, a matching shared ancestor,
+/// and either direction of a keyworded parent/child relationship.
+#[test]
+fn scr_65_same_location_matches_keyworded_parent_child_contract() {
+    let mut g = game();
+    let hold = obj(&mut g, "HoldLoc");
+    let town = obj(&mut g, "TownLoc");
+    let inn = obj(&mut g, "InnLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+    let keyword = obj(&mut g, "LocTypeHold");
+
+    assert_eq!(
+        call(
+            &mut g,
+            &hold,
+            "IsSameLocation",
+            &[town.clone(), keyword.clone()]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &town,
+            "IsSameLocation",
+            &[hold.clone(), keyword.clone()]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[other, keyword]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[hold, Value::None]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
 
 /// SetKeywordData stores a float per keyword on the location and
 /// GetKeywordData reads it back, zero when never set.
@@ -1198,7 +1415,7 @@ fn references_report_their_location() {
 /// GetLocation on a location alias, ForceLocationTo fills it, Clear
 /// (declared on Alias) empties it.
 #[test]
-fn a_location_alias_holds_a_location() {
+fn scr_66_location_alias_holds_a_location() {
     let mut g = game();
     g.start();
     let quest = g.form("LocQuest").unwrap();
@@ -1241,6 +1458,69 @@ fn alias_getters_preserve_reference_and_actor_return_types() {
             );
         }
     }
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// This checks the 21 registered Form methods against CK Form_Script. SKSE's
+/// GetType and GetName appear in its Form declaration. GetKeywords is an
+/// engine extension.
+#[test]
+fn scr_59_form_registry_matches_the_contract_inventory() {
+    let g = game();
+    let bindings = [
+        "GetFormID",
+        "GetName",
+        "GetType",
+        "HasKeyword",
+        "GetKeywords",
+        "RegisterForSingleUpdate",
+        "RegisterForUpdate",
+        "RegisterForSingleUpdateGameTime",
+        "RegisterForUpdateGameTime",
+        "UnregisterForUpdate",
+        "UnregisterForUpdateGameTime",
+        "RegisterForSleep",
+        "UnregisterForSleep",
+        "RegisterForTrackedStatsEvent",
+        "UnregisterForTrackedStatsEvent",
+        "RegisterForAnimationEvent",
+        "UnregisterForAnimationEvent",
+        "RegisterForLOS",
+        "RegisterForSingleLOSGain",
+        "RegisterForSingleLOSLost",
+        "UnregisterForLOS",
+    ];
+    for binding in bindings {
+        assert!(
+            g.vm.natives.has_method("Form", binding),
+            "Form.{binding} is missing from the native registry"
+        );
+    }
+}
+
+/// CK declares ForceRefTo(ObjectReference). Other form types leave the alias
+/// unchanged, while a reference replaces its current target.
+#[test]
+fn scr_59_force_ref_to_accepts_only_object_references() {
+    let mut g = game();
+    g.start();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    let original = g.world_mut().alias_ref(quest, 1);
+
+    let location = obj(&mut g, "InnLoc");
+    call(&mut g, &alias, "ForceRefTo", &[location]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), original);
+
+    let reference = obj(&mut g, "MarkerRef");
+    let expected = g.world().form("MarkerRef").unwrap();
+    call(&mut g, &alias, "ForceRefTo", &[reference]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), Some(expected));
+
+    let actor = obj(&mut g, "GuardRef");
+    let expected_actor = g.world().form("GuardRef").unwrap();
+    call(&mut g, &alias, "ForceRefTo", &[actor]);
+    assert_eq!(g.world_mut().alias_ref(quest, 1), Some(expected_actor));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -1300,13 +1580,54 @@ fn faction_relations_write_both_directions() {
         call(&mut g, &guards, "GetReaction", &[thieves]),
         Value::Int(1)
     );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Faction.IsFactionInCrimeGroup checks its argument against FACT.CRGR's
+/// FLST members, independent of the faction's Track Crime flag.
+#[test]
+fn scr_58_faction_crime_group_uses_the_other_faction_argument() {
+    let mut g = game();
+    let guards_id = g.form("GuardsFaction").unwrap();
+    let thieves_id = g.form("ThievesFaction").unwrap();
+    let group_id = soe_esm::GlobalFormId {
+        file: guards_id.file,
+        object: SHARED_CRIME_GROUP,
+    };
     assert_eq!(
-        call(&mut g, &guards, "IsFactionInCrimeGroup", &[]),
+        g.world()
+            .record(guards_id)
+            .and_then(|record| record.find(T(b"CRGR")))
+            .and_then(|bytes| (bytes.len() >= 4)
+                .then(|| u32::from_le_bytes(bytes[..4].try_into().unwrap()))),
+        Some(SHARED_CRIME_GROUP)
+    );
+    assert_eq!(
+        g.world().resolve_from(guards_id, SHARED_CRIME_GROUP),
+        Some(group_id)
+    );
+    assert_eq!(
+        g.world_mut().form_list(group_id).unwrap().as_slice(),
+        &[thieves_id]
+    );
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    let marker = obj(&mut g, "MarkerRef");
+
+    assert_eq!(
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[thieves.clone()]),
         Value::Bool(true)
     );
-    let thieves = obj(&mut g, "ThievesFaction");
     assert_eq!(
-        call(&mut g, &thieves, "IsFactionInCrimeGroup", &[]),
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[guards.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[marker]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "IsFactionInCrimeGroup", &[guards]),
         Value::Bool(false)
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
@@ -1700,6 +2021,34 @@ fn inventory_event_filters_stack() {
     call(&mut g, &alias, "AddInventoryEventFilter", &[gold]);
     let object = alias.as_object().unwrap();
     assert_eq!(g.world().inventory_filters[&object].len(), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK lists Alias.GetOwningQuest and the five GlobalVariable members. The
+/// shipped GlobalVariable script defines the integer methods through casts.
+#[test]
+fn scr_62_alias_owner_and_global_variable_methods_follow_script_contracts() {
+    let mut g = game();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    assert_eq!(
+        call(&mut g, &alias, "GetOwningQuest", &[]),
+        obj(&mut g, "LocQuest")
+    );
+
+    let global = obj(&mut g, "Counter");
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(0.0));
+    assert_eq!(call(&mut g, &global, "GetValueInt", &[]), Value::Int(0));
+    call(&mut g, &global, "SetValue", &[Value::Float(7.75)]);
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(7.75));
+    assert_eq!(call(&mut g, &global, "GetValueInt", &[]), Value::Int(7));
+    call(&mut g, &global, "SetValueInt", &[Value::Int(4)]);
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(4.0));
+    assert_eq!(
+        call(&mut g, &global, "Mod", &[Value::Float(1.5)]),
+        Value::Float(5.5)
+    );
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(5.5));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -2374,16 +2723,15 @@ fn objective_globals_count_to_a_target() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// Message.Show puts a message-box flagged message in the box queue and
-/// any other in the notification queue, returning the button index (0),
-/// ShowAsHelpMessage is a notification.
+/// Message.Show reports button 0 for a queued message box and -1 for a
+/// notification, while ShowAsHelpMessage queues a notification.
 #[test]
-fn messages_show_by_their_flag() {
+fn scr_66_messages_show_by_their_flag() {
     let mut g = game();
     let boxed = obj(&mut g, "BoxMessage");
     let note = obj(&mut g, "NoteMessage");
     assert_eq!(call(&mut g, &boxed, "Show", &[]), Value::Int(0));
-    assert_eq!(call(&mut g, &note, "Show", &[]), Value::Int(0));
+    assert_eq!(call(&mut g, &note, "Show", &[]), Value::Int(-1));
     call(
         &mut g,
         &note,
@@ -2537,10 +2885,13 @@ fn game_state_natives_round_trip() {
         &mut g,
         "Game",
         "SetInChargen",
-        &[Value::Bool(true), Value::Bool(true), Value::Bool(false)],
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(true)],
     );
     call_global(&mut g, "Game", "SetBeastForm", &[Value::Bool(true)]);
-    assert!(g.world().player_ai_driven && g.world().in_chargen && g.world().beast_form);
+    assert!(g.world().player_ai_driven && !g.world().in_chargen && g.world().beast_form);
+    assert!(g.world().chargen_disable_saving);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(g.world().chargen_show_controls_disabled_message);
     let word = obj(&mut g, "WordFus");
     assert_eq!(
         call_global(&mut g, "Game", "IsWordUnlocked", &[word.clone()]),
@@ -2614,6 +2965,82 @@ fn game_state_natives_round_trip() {
         Value::string("x")
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK defines independent player-control flags and separate chargen flags.
+/// The values survive the engine save through the SCR-60 world section.
+#[test]
+fn game_control_and_chargen_flags_follow_ck_and_save() {
+    let mut g = game();
+    call_global(
+        &mut g,
+        "Game",
+        "DisablePlayerControls",
+        &[
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Int(1),
+        ],
+    );
+    assert_eq!(
+        g.world().player_control_flags,
+        [false, true, false, true, true, true, true, true]
+    );
+    assert!(!g.world().player_controls);
+    assert_eq!(g.world().player_control_pov_type, 1);
+
+    call_global(
+        &mut g,
+        "Game",
+        "EnablePlayerControls",
+        &[
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Int(0),
+        ],
+    );
+    assert_eq!(
+        g.world().player_control_flags,
+        [true, true, true, true, true, true, true, true]
+    );
+    assert!(g.world().player_controls);
+    assert_eq!(g.world().player_control_pov_type, 0);
+
+    call_global(
+        &mut g,
+        "Game",
+        "SetInChargen",
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(true)],
+    );
+    assert!(!g.world().in_chargen);
+    assert!(g.world().chargen_disable_saving);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(g.world().chargen_show_controls_disabled_message);
+
+    let saved = g.world().save_state();
+    g.world_mut().player_control_flags = [false; 8];
+    g.world_mut().player_control_pov_type = 1;
+    g.world_mut().chargen_disable_saving = false;
+    g.world_mut().chargen_disable_waiting = false;
+    g.world_mut().chargen_show_controls_disabled_message = false;
+    g.world_mut().load_state(&saved).unwrap();
+    assert_eq!(g.world().player_control_flags, [true; 8]);
+    assert_eq!(g.world().player_control_pov_type, 0);
+    assert!(g.world().chargen_disable_saving);
+    assert!(g.world().chargen_disable_waiting);
+    assert!(g.world().chargen_show_controls_disabled_message);
 }
 
 /// Everything above survives a save and load: the leveled list addition,
