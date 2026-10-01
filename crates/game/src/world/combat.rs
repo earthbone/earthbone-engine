@@ -12,7 +12,7 @@ use soe_papyrus::Value;
 use super::{Alloc, Pending, World};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
-    Difficulty, Error, HitResult, MeleeHit,
+    Difficulty, Error, Hand, HitResult, MeleeHit,
 };
 
 const UNARMED_ATTACK: u32 = 0x1F4;
@@ -1049,6 +1049,20 @@ impl World {
 
     fn combat_weapon(&self, id: GlobalFormId) -> Result<Weapon, Error> {
         Ok(self.combat_weapon_source(id)?.1)
+    }
+
+    pub(crate) fn has_bound_weapon_equipped(
+        &mut self,
+        actor: GlobalFormId,
+        hand: Hand,
+    ) -> Result<bool, Error> {
+        if self.actor(actor).is_none() {
+            return Err(Error::Actor(actor));
+        }
+        let Some(item) = self.hand_weapon(actor, hand) else {
+            return Ok(false);
+        };
+        Ok(self.combat_weapon(item)?.flags2 & (1 << 13) != 0)
     }
 
     pub(super) fn combat_weapon_source(

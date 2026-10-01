@@ -109,6 +109,13 @@ fn evaluate(game: &Game, c: &Condition) -> Result<bool, conditions::Error> {
             target: None,
             quest: Some(id(QUEST)),
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )

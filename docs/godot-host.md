@@ -105,6 +105,14 @@ transforms and reports their largest difference from the cached World pose.
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
 
+`CellBodies::grab_movable_reference` changes one resident movable body to
+kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
+from a finite Skyrim-space position. `release_movable_reference` returns the
+body to rigid simulation at that pose. Each `CellBodies` collection permits
+one grabbed reference at a time. The game grab state and these host operations
+are separate APIs, and PlayerNode does not yet wire a targeting or held-input
+loop between them.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.
@@ -151,6 +159,17 @@ unmeasured. Static world collision is not evidence of hazard execution.
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
+### Game native presentation signals, SCR-29
+
+`PlayerNode` drains transient `GameUiRequest` values from the shared `World`
+after each gameplay tick. It emits `race_menu_requested`,
+`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
+mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
+native. A change to `World::hud_cart_mode` emits
+`hud_cart_mode_changed(enabled)`. These signals are the host presentation
+boundary. A connected UI or media presenter supplies the corresponding race
+editor, overlay and video playback.
+
 ## EffectShader playback, MAG-14
 
 `CellStreamerNode` consumes transient EffectShader requests from the shared
@@ -175,6 +194,13 @@ of a unit. Skyrim is Z up with Y north, Godot is Y up with north at -Z. The map
 draws clockwise faces as front faces. Whether Skyrim's shapes come out counter-clockwise
 after the map is not settled until a real NIF renders, so `MeshOptions::flip_winding` is a
 switch, default on, and the generated normals follow it.
+
+## Determinism
+
+`data_source::workers::ordered_map` returns builder results in input order for
+both sequential and threaded runs. The TST-02 test hashes those results into
+the game's per-tick `host.builders` partition, so worker output participates
+in the same divergence report as world and VM state.
 
 ## Streaming
 
@@ -1857,6 +1883,12 @@ asset from the response and current speaker. An explicit TRDT sound override
 does not use the generated voice path. Otherwise the path uses the response
 INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
 INFO's local FormID, its response number and the speaker's VTYP editor ID.
+For shared response data, DIAL and QUST come from the response INFO's owning
+topic.
+When their combined length exceeds 25 characters, the quest ID is capped at
+10 characters if it is longer than 10, and the topic ID is capped at 15.
+For a shorter quest ID, the topic ID may use the remaining characters up to
+the combined limit. This follows Mutagen's `GetQuestAndTopicStrings` rule.
 NPC speakers take VTCK from their Traits template source. Talking activators
 take VNAM. The current speaker reference position is converted from Skyrim
 units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
@@ -1869,6 +1901,9 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
+Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
+`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
+assets. The dialogue tests use a mock output and do not verify Godot playback.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 samples the native mouth targets against that player's playback position,
@@ -1965,6 +2000,21 @@ move projectiles or resolve impacts, which remain CMB-22 work.
 The synthetic host tests cover one returned request, duplicate release markers
 and cancellation with the ammunition count unchanged. No Godot node or
 per-reference resource is created for this release state.
+
+## Projectile flight, CMB-22
+
+`combat::ProjectileFlight` advances the release request with fixed-step
+gravity, checks each segment through `PhysicsDirectSpaceState3D.intersect_ray`,
+and stops on its first actor or obstruction. Actor bodies resolve through the
+existing World-owned RID map, and the firing actor's bodies are excluded. The
+flight ends at PROJ range if it has no contact. Contact is latched once, so
+later updates cannot report another target or obstruction. Flight state is
+transient and adds no node or per-reference resource.
+
+Synthetic tests exercise configured gravity, repeatable fixed steps, range
+termination and one-time actor and obstruction contacts. The query uses a
+segment ray, so PROJ collision radius and actor impact damage are not applied
+by this increment.
 
 ## Actor contact bodies and pose segments, CMB-28
 
