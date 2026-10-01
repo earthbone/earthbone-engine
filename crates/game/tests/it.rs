@@ -1161,6 +1161,7 @@ mod transitions;
 mod tst_01_adversarial;
 #[path = "tst_01_rng_streams.rs"]
 mod tst_01_rng_streams;
+#[cfg(feature = "save-fault-tests")]
 #[path = "tst_06_adversarial.rs"]
 mod tst_06_adversarial;
 #[path = "tst_11_adversarial.rs"]
