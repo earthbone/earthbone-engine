@@ -704,6 +704,9 @@ Their CK contracts are described by
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
   plugins included. `GetFormFromFile` takes the low 24 bits and a file name.
+- `FormList.AddForm` ignores `None`, suppresses duplicate members and places
+  temporary forms before authored entries. Regular forms added by scripts
+  follow the authored entries. The four query methods read this ordered list.
 - A leveled list is its `LVLO` entries in record order plus what `AddForm`
   appended. `Revert` truncates back to the record's entries and chance.
   Actor templates roll LVLN during initialization. The PRG-05 follow-up rolls
@@ -775,6 +778,108 @@ Their CK contracts are described by
   it does not automatically schedule scene actions or evaluate scene
   conditions.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
+
+## FormList and Game native audit, SCR-60
+
+The registry inventory test
+`scr_60_registry_inventory_matches_formlist_and_game_contracts` checks each
+registered binding in the audited classes, including quiet Game stubs. The CK
+class inventories are `FormList_Script.wikitext` and `Game_Script.wikitext`.
+FormList methods were compared with their named function pages where available.
+The Game class page provides the signatures and short contracts used below.
+
+| Binding | CK contract comparison |
+|---|---|
+| `FormList.GetSize` | Returns the number of entries. |
+| `FormList.GetAt` | Returns the zero-based entry, or None outside the list. |
+| `FormList.HasForm` | Tests membership. None returns false. |
+| `FormList.Find` | Returns the matching index, or -1 when absent. |
+| `FormList.AddForm` | Ignores None, forbids duplicates, places temporary forms first and appends regular additions after authored entries. `scr_60_formlist_additions_follow_creation_order_and_skip_duplicates` checks ordering and duplicates. |
+| `Game.GetPlayer` | Returns the player actor. |
+| `Game.GetForm` | Resolves a runtime FormID under the active load order. |
+| `Game.GetFormEx` | Compatibility alias for `GetForm`. CK's Game class page has no separate entry. |
+| `Game.GetFormFromFile` | Resolves the low 24-bit object id in the named plugin. |
+| `Game.EnablePlayerControls` | CK takes eight control flags and a POV mode. The model currently enables all controls. |
+| `Game.DisablePlayerControls` | CK takes eight control flags and a POV mode. The model currently disables all controls. |
+| `Game.GetGameSettingFloat` | Returns a float game setting. |
+| `Game.GetGameSettingInt` | Returns an integer game setting. |
+| `Game.GetGameSettingString` | Returns a string game setting. |
+| `Game.SetGameSettingFloat` | Stores a float setting. |
+| `Game.SetGameSettingInt` | Stores an integer setting. |
+| `Game.SetGameSettingBool` | Stores a boolean setting. |
+| `Game.SetGameSettingString` | Stores a string setting. |
+| `Game.GetRealHoursPassed` | Returns elapsed real time in hours. |
+| `Game.IncrementStat` | Adds the requested amount, defaulting to one. |
+| `Game.QueryStat` | Returns the named statistic, defaulting to zero. |
+| `Game.IsFastTravelEnabled` | Returns the fast travel setting. |
+| `Game.EnableFastTravel` | Sets fast travel, defaulting to enabled when omitted. |
+| `Game.SetPlayerAIDriven` | Sets the player's AI-driven flag. |
+| `Game.SetInChargen` | CK takes three flags. The model stores only the first as one chargen boolean. |
+| `Game.SetBeastForm` | Sets the player's beast-form flag. |
+| `Game.TeachWord` | Marks the word as taught. |
+| `Game.UnlockWord` | Marks the word as taught and unlocked. |
+| `Game.IsWordUnlocked` | Returns whether the word is unlocked. |
+| `Game.AddAchievement` | Records the requested achievement id. |
+| `Game.GetPlayersLastRiddenHorse` | Returns the remembered horse, or None. |
+| `Game.AddPerkPoints` | Adds points and clamps the total to 255. |
+| `Game.GetDialogueTarget` | Returns the current player conversation's speaker, or None. This engine extension is not in the CK Game class page. |
+| `Game.IsPlayerSungazing` | Quiet false stub for the CK observation query. |
+| `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
+| `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
+| `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
+| `Game.ShakeCamera` | Quiet stub. CK takes a source reference and strength. |
+| `Game.SendWereWolfTransformation` | Quiet stub for the CK crime-reporting operation. |
+| `Game.ServeTime` | Quiet stub for the CK jail-time operation. |
+| `Game.ClearPrison` | Quiet stub for clearing player prison state. |
+| `Game.SetSunGazeImageSpaceModifier` | Quiet stub for setting the sun-gaze image modifier. |
+| `Game.ShakeController` | Quiet stub. CK takes two strengths and a duration. |
+| `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
+| `Game.RequestSave` | Quiet stub for a normal save request. |
+| `Game.RequestAutoSave` | Quiet stub for an autosave request. |
+| `Game.ForceFirstPerson` | Quiet stub for forcing first-person camera mode. |
+| `Game.ForceThirdPerson` | Quiet stub for forcing third-person camera mode. |
+| `Game.SetHudCartMode` | Quiet stub for setting cart HUD mode. |
+| `Game.ShowRaceMenu` | Quiet stub for opening the race menu. |
+| `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
+| `Game.PlayBink` | Quiet stub. CK takes a filename and four playback flags. |
+| `Game.AdvanceSkill` | Quiet stub. CK takes a skill name and usage magnitude. |
+| `Game.PrecacheCharGen` | Quiet stub for preloading character-generation assets. |
+| `Game.PrecacheCharGenClear` | Quiet stub for clearing the character-generation cache. |
+| `Game.ShowTrainingMenu` | Quiet stub. CK takes the trainer actor. |
+| `Game.ShowFirstPersonGeometry` | Quiet stub. CK takes a visibility flag. |
+| `Game.SetCameraTarget` | Quiet stub. CK takes the target actor. |
+| `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
+| `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
+| `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |
+| `Game.GetCurrentCrosshairRef` | Quiet stub. The CK Game class page has no entry. |
+| `Game.GetPlayerGrabbedRef` | Quiet stub for the currently grabbed reference. |
+| `Game.FindClosestActor` | Quiet stub. CK takes a position and radius. |
+| `Game.FindRandomActor` | Quiet stub. CK takes a position and radius. |
+| `Game.FindClosestReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
+| `Game.FindRandomReferenceOfType` | Quiet stub. CK takes a base form, position and radius. |
+| `Game.GetFormEx2` | Quiet stub. The CK Game class page has no entry. |
+
+The control and chargen parameter mismatches remain assigned to SCR-60 because
+the current backlog has no separate player-control state row. The natives
+share a saved boolean, and per-flag behavior needs coordinated input consumers
+and saved state. The `GetFormEx` alias and three Game bindings absent from the
+CK class page are also recorded here as engine or extension surface, not CK
+contracts. The quiet stub fixes belong to these existing native rows:
+
+- SCR-26: `IsPlayerSungazing`, `GetSunPositionX`, `GetSunPositionY`,
+  `GetSunPositionZ`, `ShakeCamera`.
+- SCR-27: `SendWereWolfTransformation`, `ServeTime`, `ClearPrison`,
+  `SetSunGazeImageSpaceModifier`, `ShakeController`.
+- SCR-28: `FadeOutGame`, `RequestSave`, `RequestAutoSave`, `ForceFirstPerson`,
+  `ForceThirdPerson`.
+- SCR-29: `SetHudCartMode`, `ShowRaceMenu`, `TriggerScreenBlood`, `PlayBink`,
+  `AdvanceSkill`.
+- SCR-30: `PrecacheCharGen`, `PrecacheCharGenClear`, `ShowTrainingMenu`,
+  `ShowFirstPersonGeometry`, `SetCameraTarget`.
+- SCR-31: `QuitToMainMenu`, `SetSittingRotation`, `StartTitleSequence`,
+  `GetCurrentCrosshairRef`, `GetPlayerGrabbedRef`.
+- SCR-32: `FindClosestActor`, `FindRandomActor`,
+  `FindClosestReferenceOfType`, `FindRandomReferenceOfType`, `GetFormEx2`.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
