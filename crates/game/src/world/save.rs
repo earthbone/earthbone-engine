@@ -1126,6 +1126,7 @@ impl World {
         };
         let unresolved_records;
         let brewed_potions;
+        let player_level;
         if version >= 37 {
             let previous_scenes = std::mem::replace(&mut self.scenes, scenes.clone());
             let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs.clone());
@@ -1135,6 +1136,12 @@ impl World {
             let previous_quests = std::mem::replace(&mut self.quests, quests);
             let previous_unresolved = std::mem::take(&mut self.unresolved_records);
             let previous_brewed = std::mem::take(&mut self.brewed_potions);
+            let fallback_player_level = player
+                .and_then(|id| actors.get(&id).map(|actor| actor.level))
+                .unwrap_or(self.player_level)
+                .max(1);
+            let previous_player_level =
+                std::mem::replace(&mut self.player_level, fallback_player_level);
             let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
             let section_result = save_sections::read_sections_with_table(
                 &mut r,
@@ -1143,6 +1150,8 @@ impl World {
                 WORLD_SECTIONS,
                 &table,
             );
+            player_level = self.player_level;
+            self.player_level = previous_player_level;
             active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
             unresolved_records = std::mem::take(&mut self.unresolved_records);
             brewed_potions = std::mem::take(&mut self.brewed_potions);
@@ -1157,6 +1166,10 @@ impl World {
         } else {
             unresolved_records = BTreeMap::default();
             brewed_potions = BTreeMap::default();
+            player_level = player
+                .and_then(|id| actors.get(&id).map(|actor| actor.level))
+                .unwrap_or(self.player_level)
+                .max(1);
         }
         r.expect_end()?;
         for (id, effect) in &active_effects {
@@ -1338,6 +1351,7 @@ impl World {
         self.next_dynamic = next_dynamic;
         self.difficulty = difficulty;
         self.player = player;
+        self.player_level = player_level;
         self.loaded_cell = loaded_cell;
         self.rng = rng;
         self.clock = GameClock {
@@ -1667,7 +1681,7 @@ fn write_actor_state_with_pool(w: &mut Writer, a: &ActorState, pool: &mut ArrayP
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
-    crate::ai::write_world_record_state(w, &a.ai);
+    crate::ai::write_legacy_record_state(w, &a.ai);
     write_form_set(w, &a.perks);
     for flag in [
         a.alerted,
@@ -1727,6 +1741,23 @@ fn write_actor_state_with_pool(w: &mut Writer, a: &ActorState, pool: &mut ArrayP
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
     save_sections::write_sections_with_pool(w, a, ACTOR_SECTIONS, pool);
+}
+
+pub(crate) fn write_driver_state_section(
+    actor: &ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    crate::ai::write_record_state(writer, &actor.ai);
+}
+
+pub(crate) fn read_driver_state_section(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    actor.ai = crate::ai::read_state_mapped(reader, true, true, true, 43)?;
+    Ok(())
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1802,7 +1833,14 @@ fn read_actor_state_with_table(
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state_mapped_version(r, version)?;
+    let ai_version = if version >= 37 { 33 } else { version };
+    a.ai = crate::ai::read_state_mapped(
+        r,
+        ai_version >= 37,
+        ai_version >= 38,
+        ai_version >= 39,
+        ai_version,
+    )?;
     if version < 23 && a.ai.procedure == crate::ai::Procedure::Patrol {
         return Err(VmError::State(
             "Patrol procedure requires world version 23".into(),
@@ -1811,6 +1849,36 @@ fn read_actor_state_with_table(
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 34 && a.ai.procedure == crate::ai::Procedure::Hover {
+        return Err(VmError::State(
+            "Hover procedure requires world version 34".into(),
+        ));
+    }
+    if version < 35 && a.ai.procedure == crate::ai::Procedure::Follow {
+        return Err(VmError::State(
+            "Follow procedure requires world version 35".into(),
+        ));
+    }
+    if version < 36 && matches!(a.ai.procedure, crate::ai::Procedure::UseIdleMarker { .. }) {
+        return Err(VmError::State(
+            "UseIdleMarker procedure requires world version 36".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::ForceGreet {
+        return Err(VmError::State(
+            "ForceGreet procedure requires world version 37".into(),
+        ));
+    }
+    if version < 39 && matches!(a.ai.procedure, crate::ai::Procedure::Orbit { .. }) {
+        return Err(VmError::State(
+            "Orbit procedure requires world version 39".into(),
+        ));
+    }
+    if version < 41 && a.ai.procedure == crate::ai::Procedure::Activate {
+        return Err(VmError::State(
+            "Activate procedure requires world version 41".into(),
         ));
     }
     if version < 37 && a.ai.procedure == crate::ai::Procedure::Shout {
