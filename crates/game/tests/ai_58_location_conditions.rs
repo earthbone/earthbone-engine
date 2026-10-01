@@ -112,6 +112,11 @@ fn evaluate(game: &Game, c: &Condition) -> Result<bool, conditions::Error> {
             tempering_enchanted: None,
             skill_use: None,
             light_level: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )
@@ -146,6 +151,11 @@ fn ai_58_same_current_location_as_reference_alias_checks_keyword() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(
@@ -247,6 +257,11 @@ fn ai_58_keyword_data_for_current_location_reads_location_state() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(
@@ -270,6 +285,11 @@ fn ai_58_unlocked_door_condition_reads_live_lock_state() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(
@@ -289,6 +309,11 @@ fn ai_58_unlocked_door_condition_reads_live_lock_state() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(
@@ -307,6 +332,11 @@ fn ai_58_unlocked_door_condition_reads_live_lock_state() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(

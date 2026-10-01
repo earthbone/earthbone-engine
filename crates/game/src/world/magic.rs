@@ -23,7 +23,7 @@ use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
 
-use super::{Alloc, Handle, Pending, World};
+use super::{Alloc, Handle, Pending, World, T};
 
 mod state;
 pub(super) use state::read_magic;
@@ -57,6 +57,21 @@ const IGNORE_RESISTANCE: u32 = 1 << 20;
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EffectId(pub u64);
+
+/// A spell waiting for its release input or held for concentration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellCast {
+    pub spell: GlobalFormId,
+    pub target: Option<GlobalFormId>,
+    pub kind: SpellCastKind,
+}
+
+/// The cast types that have an interruptible live phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellCastKind {
+    FireAndForget,
+    Concentration,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PriorOwner {
@@ -150,6 +165,70 @@ enum CastDelivery {
 }
 
 impl World {
+    /// Begin a fire-and-forget charge or a held concentration cast.
+    /// Starting a cast does not apply effects or spend magicka.
+    ///
+    /// # Errors
+    /// Returns an error for a missing spell or a cast type without an
+    /// interruptible live phase.
+    pub fn begin_spell_cast(
+        &mut self,
+        caster: GlobalFormId,
+        spell: GlobalFormId,
+        target: Option<GlobalFormId>,
+    ) -> Result<(), MagicError> {
+        let definition = self.spell(spell)?;
+        let kind = match definition.data.cast_type {
+            1 => SpellCastKind::FireAndForget,
+            2 => SpellCastKind::Concentration,
+            _ => return Err(MagicError::Unsupported("non-interruptible cast type")),
+        };
+        self.spell_casts_in_progress.insert(
+            caster,
+            SpellCast {
+                spell,
+                target,
+                kind,
+            },
+        );
+        Ok(())
+    }
+
+    /// Release a charged fire-and-forget cast through normal spell effects.
+    /// The cast remains pending if effect preparation fails.
+    ///
+    /// # Errors
+    /// Returns an error when there is no pending cast, when the cast is not
+    /// fire-and-forget, or when the existing spell execution path rejects it.
+    pub fn release_spell_cast(
+        &mut self,
+        caster: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let cast = self
+            .spell_casts_in_progress
+            .get(&caster)
+            .copied()
+            .ok_or(MagicError::Unsupported("no pending spell cast"))?;
+        if cast.kind != SpellCastKind::FireAndForget {
+            return Err(MagicError::Unsupported("concentration release"));
+        }
+        let effects = self.cast_spell(cast.spell, caster, Some(caster), cast.target, alloc)?;
+        self.spell_casts_in_progress.remove(&caster);
+        Ok(effects)
+    }
+
+    /// Stop a reference's pending charge or concentration cast.
+    /// Released casts have no pending session and their effects remain live.
+    pub fn interrupt_spell_cast(&mut self, caster: GlobalFormId) -> bool {
+        self.spell_casts_in_progress.remove(&caster).is_some()
+    }
+
+    /// Read the pending cast phase for a reference.
+    pub fn pending_spell_cast(&self, caster: GlobalFormId) -> Option<SpellCast> {
+        self.spell_casts_in_progress.get(&caster).copied()
+    }
+
     pub(crate) fn create_brewed_potion(
         &mut self,
         effects: Vec<(GlobalFormId, f32, u32, u32)>,
@@ -161,6 +240,84 @@ impl World {
         };
         self.brewed_potions.insert(id, effects);
         id
+    }
+
+    /// Seconds remaining before an actor may use a shout again.
+    #[must_use]
+    pub fn voice_recovery_time(&mut self, actor: GlobalFormId) -> f32 {
+        let now = self.clock.real_seconds;
+        self.actor(actor)
+            .and_then(|state| state.voice_recovery_until)
+            .map_or(0.0, |until| (until - now).max(0.0) as f32)
+    }
+
+    /// Set an actor's shout recovery in real seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` for an absent actor, non-finite duration, or negative duration.
+    pub fn set_voice_recovery_time(&mut self, actor: GlobalFormId, seconds: f32) -> bool {
+        if !seconds.is_finite() || seconds < 0.0 || self.actor(actor).is_none() {
+            return false;
+        }
+        let deadline = (self.clock.real_seconds + f64::from(seconds)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (seconds > 0.0).then_some(deadline);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Cast the highest authored word spell of the actor's equipped shout and
+    /// start the recovery authored by that word.
+    ///
+    /// # Errors
+    ///
+    /// Returns a magic error before setting recovery if the shout, spell,
+    /// target, or authored recovery data is unusable.
+    pub fn cast_shout(
+        &mut self,
+        actor: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: crate::world::Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let shout = self
+            .actor(actor)
+            .and_then(|state| state.equipped_shout)
+            .ok_or(MagicError::Target)?;
+        if self.voice_recovery_time(actor) > 0.0 {
+            return Err(MagicError::Unsupported("voice recovery"));
+        }
+        let record = self.record(shout).ok_or(MagicError::Missing(shout))?;
+        if record.tag != Tag::new(b"SHOU") {
+            return Err(MagicError::Missing(shout));
+        }
+        let words: Vec<_> = record.all(Tag::new(b"SNAM")).collect();
+        if words.len() != 3 || words.iter().any(|word| word.len() != 12) {
+            return Err(MagicError::Unsupported("malformed shout words"));
+        }
+        let selected = words
+            .iter()
+            .rev()
+            .find_map(|word| {
+                let raw = u32::from_le_bytes(word[4..8].try_into().ok()?);
+                (raw != 0).then_some((raw, f32::from_le_bytes(word[8..12].try_into().ok()?)))
+            })
+            .ok_or(MagicError::Unsupported("shout has no spell"))?;
+        let (raw_spell, recovery) = selected;
+        if !recovery.is_finite() || recovery < 0.0 {
+            return Err(MagicError::Number);
+        }
+        let spell = self
+            .resolve_from(shout, raw_spell)
+            .ok_or(MagicError::Missing(shout))?;
+        self.cast_spell(spell, actor, Some(actor), target, alloc)?;
+        let deadline = (self.clock.real_seconds + f64::from(recovery)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (recovery > 0.0).then_some(deadline);
+        }
+        Ok(())
     }
 
     /// The source of an active Turn Undead effect that currently makes this
@@ -200,6 +357,21 @@ impl World {
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
+    }
+
+    /// The active Grab Actor application controlling an actor, if any.
+    ///
+    /// The returned application identifies both the selected actor and its
+    /// caster. Host movement and throw behavior are separate from this world
+    /// relationship.
+    #[must_use]
+    pub fn grab_actor_effect_on(&self, target: GlobalFormId) -> Option<&ActiveEffect> {
+        self.active_effects.values().find(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 45)
+        })
     }
 
     /// Whether a live Demoralize application is making this actor flee.
@@ -446,6 +618,11 @@ impl World {
                 target: Some(actor),
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
                 skill_use: None,
                 light_level: None,
             };
@@ -505,10 +682,13 @@ impl World {
 
     /// Read the current winning MGEF definition.
     pub fn magic_effect(&self, id: GlobalFormId) -> Result<MagicEffect, MagicError> {
-        let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
+        let record = self.record(id).ok_or(MagicError::Missing(id))?;
+        if record.is_deleted() {
+            return Err(MagicError::Missing(id));
+        }
         Ok(MagicEffect::from_record(
-            self.order.record(rref),
-            self.order.file(rref.file).plugin.header.is_localized(),
+            record,
+            self.record_text_localized(id, T(b"FULL")),
         )?)
     }
 
@@ -1483,6 +1663,11 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: Some(spell),
+                dual_cast: Some(false),
                 skill_use: None,
                 light_level: None,
             };
@@ -1514,15 +1699,16 @@ impl World {
                     | 3
                     | 4
                     | 5
-                    | 6
                     | 9
-                    | 10
-                    | INVISIBILITY
-                    | LIGHT
+                    | 11
+                    | 12
                     | LOCK
                     | OPEN
                     | 17
                     | 18
+                    | 45
+                    | 6
+                    | 10
                     | 20
                     | 38
                     | DEMORALIZE
@@ -2355,6 +2541,11 @@ impl World {
             target: effect.caster,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
             skill_use: None,
             light_level: None,
         };

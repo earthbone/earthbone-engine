@@ -7,6 +7,8 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
+use godot::prelude::{GString, Variant};
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -65,7 +67,11 @@ impl PlayerNode {
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         if let Some(game) = &mut self.game {
             let player = game.player();
-            {
+            let prior = game
+                .world()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            let cell = {
                 let mut world = game.world_mut();
                 // The previous frame has already installed the new host resources.
                 world.settle_unload();
@@ -92,7 +98,12 @@ impl PlayerNode {
                 if should_stand {
                     world.stand_from_furniture(player);
                 }
-            }
+                world
+                    .reference_ref(player)
+                    .and_then(|reference| reference.cell)
+            };
+            let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
+            game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
@@ -110,6 +121,38 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
+            let (hud_cart_mode, requests) = {
+                let mut world = game.world_mut();
+                (world.hud_cart_mode, world.take_game_ui_requests())
+            };
+            if hud_cart_mode != self.presented_hud_cart_mode {
+                self.presented_hud_cart_mode = hud_cart_mode;
+                self.base_mut()
+                    .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
+            }
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
         }
         let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
             std::mem::take(&mut game.world_mut().menu_requests)
@@ -351,6 +394,7 @@ impl PlayerNode {
             self.character = Some(id);
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
+            self.sync_cell_ambience(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());

@@ -27,6 +27,26 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved fields decoded from base-object, WOOP and MGEF change forms.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BaseObjectRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub change_flags: u32,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub unnamed_flags: u32,
+}
+
+/// Saved fields decoded from a CONT, MISC or FURN change form.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StaticObjectRecordExtra {
+    pub change_flags: u32,
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub opaque_suffix: Vec<u8>,
+}
+
 /// Saved runtime fields whose owning record has no plugin-subrecord equivalent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DialogueRecordExtra {
@@ -85,6 +105,8 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub base_object: Option<BaseObjectRecordExtra>,
+    pub static_object: Option<StaticObjectRecordExtra>,
     pub saved_form_flags: Option<(u32, u16)>,
     pub dialogue: Option<DialogueRecordExtra>,
     pub pack: Option<PackRecordExtra>,
@@ -113,6 +135,8 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            base_object: None,
+            static_object: None,
             saved_form_flags: None,
             dialogue: None,
             pack: None,
@@ -200,6 +224,19 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved change fields for a restored CONT, MISC or FURN record.
+    pub fn restored_static_object_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&StaticObjectRecordExtra> {
+        self.record_overrides.get(&id)?.static_object.as_ref()
+    }
+
+    /// Return saved base-object metadata for an overridden record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object.as_ref()
     }
 
     /// Saved INFO said-once state, when a save supplied an explicit marker.

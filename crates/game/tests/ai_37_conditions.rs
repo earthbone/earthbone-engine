@@ -82,6 +82,11 @@ fn evaluate(
             tempering_enchanted: None,
             skill_use,
             light_level,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )
@@ -199,6 +204,9 @@ fn ai_37_skill_event_reaches_perk_entrypoint_conditions() {
         tabs: vec![actor],
         target: None,
         quest: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
         skill_use: Some(event),
     };
     assert_eq!(dispatcher.dispatch(&mut game, actor, 35, &context), Ok(1));

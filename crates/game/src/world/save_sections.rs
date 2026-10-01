@@ -175,6 +175,15 @@ mod tests {
         FormReader::new(r, FormNamespace::Current)
     }
 
+    fn section_error(bytes: &[u8], level: &str, sections: &[Section<Fixture>]) -> String {
+        let mut restored = Fixture::default();
+        let mut r = Reader::new(bytes);
+        let mut fr = form_reader(&mut r);
+        read_sections(&mut fr, level, &mut restored, sections)
+            .unwrap_err()
+            .to_string()
+    }
+
     #[test]
     fn a_round_trip_restores_every_registered_section() {
         let value = Fixture { a: 7, b: 9 };
@@ -214,16 +223,14 @@ mod tests {
         let mut w = Writer::new();
         write_sections(&mut w, &value, &both_sections());
 
-        let mut restored = Fixture::default();
-        let mut r = Reader::new(&w.out);
-        let mut fr = form_reader(&mut r);
         let only_a = vec![Section {
             name: "a",
             write: write_a,
             read: read_a,
         }];
-        let err = read_sections(&mut fr, "reference", &mut restored, &only_a).unwrap_err();
-        assert!(err.to_string().contains("unknown section b at reference"));
+        assert!(
+            section_error(&w.out, "reference", &only_a).contains("unknown section b at reference")
+        );
     }
 
     #[test]
@@ -245,9 +252,6 @@ mod tests {
         let mut w = Writer::new();
         write_sections(&mut w, &value, &both_sections());
 
-        let mut restored = Fixture::default();
-        let mut r = Reader::new(&w.out);
-        let mut fr = form_reader(&mut r);
         let partial = vec![
             Section {
                 name: "a",
@@ -260,7 +264,6 @@ mod tests {
                 read: read_b_partial,
             },
         ];
-        let err = read_sections(&mut fr, "fixture", &mut restored, &partial).unwrap_err();
-        assert!(err.to_string().contains("left unread bytes"));
+        assert!(section_error(&w.out, "fixture", &partial).contains("left unread bytes"));
     }
 }

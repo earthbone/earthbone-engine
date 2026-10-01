@@ -142,6 +142,11 @@ fn evaluate(game: &Game, condition: &Condition) -> Result<bool, conditions::Erro
             tempering_enchanted: None,
             skill_use: None,
             light_level: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         condition,
     )
@@ -178,6 +183,11 @@ fn ai_57_blocking_reads_live_actor_block_state() {
         tempering_enchanted: None,
         skill_use: None,
         light_level: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
     };
     assert_eq!(
         conditions::evaluate_one(

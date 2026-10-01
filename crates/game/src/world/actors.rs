@@ -30,17 +30,18 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
         RecordType::Faction => {
             a.factions.entry(d.what).or_insert(0);
         }
+        RecordType::Package => {
+            a.package_overrides
+                .push((d.package_index.unwrap_or(usize::MAX), d.what));
+        }
+        RecordType::Shout => {
+            a.shouts.insert(d.what);
+        }
         // Items reach the reference's inventory in `base_inventory`, not the
-        // actor state. A package would need a third source in the driver's
-        // stack and a save format change, and shouts, skins and bare forms
-        // have no actor state at all yet. Each is held in `mod_data` and
-        // counted, never silently dropped, and `docs/moddata.md` lists them.
-        RecordType::Item
-        | RecordType::Package
-        | RecordType::Shout
-        | RecordType::Skin
-        | RecordType::Keyword
-        | RecordType::Form => {}
+        // actor state. Skins and bare forms have no actor state yet. They
+        // remain held in `mod_data` and counted, and `docs/moddata.md` lists
+        // them.
+        RecordType::Item | RecordType::Skin | RecordType::Keyword | RecordType::Form => {}
     }
 }
 
@@ -320,6 +321,9 @@ impl World {
                     .saturating_sub(self.mod_data.for_base(base).len());
                 self.mod_data.report.distributions_applied += actor_specific;
                 for d in distributions {
+                    if d.record_type == RecordType::Skin {
+                        self.set_actor_base_skin(base, Some(d.what)).ok()?;
+                    }
                     apply_distributed(&mut a, d);
                 }
             }
@@ -333,6 +337,36 @@ impl World {
     /// The actor's state when it has been built, without building it.
     pub fn actor_ref(&self, id: GlobalFormId) -> Option<&ActorState> {
         self.actors.get(&id)
+    }
+
+    /// Whether an instantiated actor is currently marked alarmed.
+    ///
+    /// # Errors
+    /// This query does not fail.
+    ///
+    /// # Panics
+    /// This query does not panic.
+    #[must_use]
+    pub fn actor_is_alarmed(&self, id: GlobalFormId) -> bool {
+        self.actor_ref(id).is_some_and(|actor| actor.alerted)
+    }
+
+    /// Whether an instantiated actor is unconscious at or below its bleedout threshold.
+    /// Missing or invalid bleedout threshold data returns `false`.
+    ///
+    /// # Panics
+    /// This query does not panic.
+    #[must_use]
+    pub fn actor_is_bleeding_out(&mut self, id: GlobalFormId) -> bool {
+        let Some(actor) = self.actor_ref(id) else {
+            return false;
+        };
+        if actor.dead || !actor.unconscious {
+            return false;
+        }
+        let health = actor.values.get("health").current();
+        self.actor_bleedout_threshold(id)
+            .is_ok_and(|threshold| health <= threshold)
     }
 
     pub fn actor_value(&mut self, id: GlobalFormId, name: &str) -> f32 {

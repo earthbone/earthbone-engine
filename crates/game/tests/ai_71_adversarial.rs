@@ -62,6 +62,11 @@ fn evaluate(game: &Game, subject: u32, c: &Condition) -> Result<bool, conditions
             tempering_enchanted: None,
             skill_use: None,
             light_level: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )

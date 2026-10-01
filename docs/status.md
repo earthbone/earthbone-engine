@@ -37,7 +37,7 @@ See [actor values](actor-values.md) for sources, evidence and remaining work.
 
 The integration combines combat attributes, crafting execution, dialogue,
 active magic, host gameplay and both vanilla-save groundwork branches.
-The native registry has 365 stateful entries and 180 stubs. These are
+The native registry has 366 stateful entries and 179 stubs. These are
 incremental implementations, not completion of Skyrim gameplay.
 
 | Area | Integrated behavior | Still open |
