@@ -454,7 +454,11 @@ mod failures {
 
     fn spawn_paused(directory: &Directory, event: Event, occurrence: usize, after: bool) -> Child {
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failures::child_writer", "--nocapture"])
+            .args([
+                "--exact",
+                &crate::common::child_test_name(module_path!(), "child_writer"),
+                "--nocapture",
+            ])
             .env("SOE_GENERATION_CHILD_PATH", &directory.0)
             .env("SOE_GENERATION_CHILD_EVENT", format!("{event:?}"))
             .env("SOE_GENERATION_CHILD_OCCURRENCE", occurrence.to_string())

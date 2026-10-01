@@ -3,8 +3,7 @@
 
 //! Walking Patrol fixtures follow xEdit PKC2, PTDA, XLKR and XPRD layouts.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
