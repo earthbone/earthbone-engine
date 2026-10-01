@@ -84,8 +84,8 @@ moves on. The `controller` item of round 6 is what will use the last of those.
 `export::export_collision_mesh` applies the `_collision` name suffix
 convention to imported geometry. An unmarked mesh is ignored. A marked mesh
 with 4 to 1024 finite positions becomes a static `bhkRigidBodyT` carrying a
-`bhkConvexVerticesShape` with the original point set. Source positions are
-Skyrim game units, and the shape encoder divides them by
+`bhkConvexVerticesShape` with the original point set and zero shell radius.
+Source positions are Skyrim game units, and the shape encoder divides them by
 `UNITS_PER_METER`. `shape::collect` converts them back when reading the block
 graph. The generated block graph is a standalone `NifFile` model with local
 references. A complete NIF byte writer is not part of this API.
