@@ -18,6 +18,7 @@ fn request(gravity: f32) -> FlightRequest {
         speed: 100.0,
         range: 1000.0,
         damage: 1.0,
+        recoverable: true,
     }
 }
 

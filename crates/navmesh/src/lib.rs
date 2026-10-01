@@ -24,7 +24,7 @@ pub mod stitch;
 pub mod vanilla;
 
 pub use generate::{generate, generate_cell, Agent, Navmesh};
-pub use graph::{NavGraph, NodeId, Path, PathCosts};
+pub use graph::{NavGraph, NodeId, ObstacleId, ObstacleShape, Path, PathCosts};
 pub use scene::Scene;
 
 #[derive(Debug, thiserror::Error)]

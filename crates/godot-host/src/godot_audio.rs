@@ -26,13 +26,14 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use godot::classes::{
-    audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer3D, AudioStreamWav, INode3D, Node3D,
+    audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer, AudioStreamPlayer3D,
+    AudioStreamWav, INode3D, Node3D,
 };
 use godot::prelude::*;
 use soe_audio::{LipWeightTrack, Pcm, SoundSource};
 use soe_bsa::Vfs;
 
-use crate::audio::{to_i16_bytes, to_mono, Kind, VoicePool};
+use crate::audio::{to_i16_bytes, to_mono, Kind, MusicFade, VoicePool};
 use crate::data_source::{vfs_from_loadout, DataSource};
 
 /// How many sounds may play at once.
@@ -42,6 +43,13 @@ use crate::data_source::{vfs_from_loadout, DataSource};
 /// rather than theoretical.
 const SLOTS: usize = 16;
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Debug)]
+struct MusicFadeState {
+    from: Option<usize>,
+    to: Option<usize>,
+    fade: MusicFade,
+}
 
 /// Plays sounds resolved out of a load order, positioned in the world.
 #[derive(GodotClass)]
@@ -59,8 +67,13 @@ pub struct SoundBank {
     decoded_count: u64,
     pool: VoicePool,
     players: Vec<Gd<AudioStreamPlayer3D>>,
-    dialogue_mouth: crate::dialogue_menu::DialogueMouth,
-    dialogue_mouth_slot: Option<usize>,
+    music_players: Vec<Gd<AudioStreamPlayer>>,
+    music_paths: [Option<String>; 2],
+    music_current: Option<usize>,
+    music_current_fade_out: f32,
+    music_fade: Option<MusicFadeState>,
+    ambience: Option<Gd<AudioStreamPlayer>>,
+    dialogue_voice: crate::dialogue_menu::DialogueVoice,
     last_error: GString,
 }
 
@@ -92,8 +105,13 @@ impl INode3D for SoundBank {
             decoded_count: 0,
             pool: VoicePool::new(SLOTS),
             players: Vec::new(),
-            dialogue_mouth: crate::dialogue_menu::DialogueMouth::default(),
-            dialogue_mouth_slot: None,
+            music_players: Vec::new(),
+            music_paths: [None, None],
+            music_current: None,
+            music_current_fade_out: 0.0,
+            music_fade: None,
+            ambience: None,
+            dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
             last_error: GString::new(),
         }
     }
@@ -107,6 +125,15 @@ impl INode3D for SoundBank {
             self.base_mut().add_child(&player);
             self.players.push(player);
         }
+        for _ in 0..2 {
+            let mut player = AudioStreamPlayer::new_alloc();
+            player.set_volume_db(-80.0);
+            self.base_mut().add_child(&player);
+            self.music_players.push(player);
+        }
+        let player = AudioStreamPlayer::new_alloc();
+        self.base_mut().add_child(&player);
+        self.ambience = Some(player);
     }
 
     fn process(&mut self, _delta: f64) {
@@ -114,23 +141,49 @@ impl INode3D for SoundBank {
         // wiring the `finished` signal keeps the release in one place and
         // costs one bool per slot per frame.
         for i in 0..self.players.len() {
-            if !self.players[i].is_playing() && self.pool.peek(i).is_some() {
+            let playing = self.players[i].is_playing();
+            if !playing && self.pool.peek(i).is_some() {
                 self.pool.release(i);
-                if self.dialogue_mouth_slot == Some(i) {
-                    self.dialogue_mouth.clear();
-                    self.dialogue_mouth_slot = None;
-                }
             }
-            if self.dialogue_mouth_slot == Some(i) && self.players[i].is_playing() {
-                self.dialogue_mouth
-                    .sample(f64::from(self.players[i].get_playback_position()));
-            }
+            self.dialogue_voice.update(
+                i,
+                playing,
+                f64::from(self.players[i].get_playback_position()),
+            );
         }
+        self.advance_music_fade(_delta as f32);
     }
 }
 
 #[godot_api]
 impl SoundBank {
+    /// Stop the current non-positional ambience stream.
+    pub(crate) fn stop_ambience(&mut self) {
+        if let Some(player) = &mut self.ambience {
+            player.stop();
+        }
+    }
+
+    /// Start a non-positional ambience track resolved from a MUST record.
+    pub(crate) fn play_ambience(&mut self, data_path: &str) -> bool {
+        let stream = match self.stream(data_path) {
+            Ok((stream, _, _)) => stream,
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                return false;
+            }
+        };
+        let Some(player) = &mut self.ambience else {
+            self.last_error = "SoundBank must be inside the scene tree".into();
+            return false;
+        };
+        player.stop();
+        player.set_stream(&stream);
+        player.play();
+        self.last_error = GString::new();
+        true
+    }
+
     /// Indexes the resolved vanilla profile for `data_dir`, including only the
     /// voice archives named by its selected language. Returns false and records
     /// the reason on failure.
@@ -273,11 +326,42 @@ impl SoundBank {
         };
         player.stop();
         self.pool.release(slot);
-        if self.dialogue_mouth_slot == Some(slot) {
-            self.dialogue_mouth.clear();
-            self.dialogue_mouth_slot = None;
-        }
+        self.dialogue_voice.stop(slot);
         true
+    }
+
+    /// Play a decoded music file with the supplied record fade durations.
+    /// A new request cancels the older outgoing slot before starting its own.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    fn play_music_track(
+        &mut self,
+        data_path: GString,
+        fade_in: f64,
+        fade_out: f64,
+        abrupt: bool,
+    ) -> bool {
+        self.begin_music(
+            &data_path.to_string(),
+            fade_in as f32,
+            fade_out as f32,
+            abrupt,
+        )
+    }
+
+    /// Queue a selection produced by `soe_game::music::select` on the shared
+    /// game. Kept as a Rust entry point because Game is owned by PlayerNode.
+    pub(crate) fn play_selected_music(&mut self, track: &soe_game::music::MusicTrack) -> bool {
+        let Some(path) = track.path.as_deref() else {
+            self.stop_music();
+            return true;
+        };
+        self.begin_music(
+            path,
+            track.fade_in,
+            track.fade_out,
+            track.flags.abrupt_transition,
+        )
     }
 
     /// How many slots are playing right now.
@@ -289,12 +373,12 @@ impl SoundBank {
     /// Mouth target weights from the active dialogue voice, in LIP order.
     #[func]
     fn dialogue_mouth_weights(&self) -> PackedFloat32Array {
-        PackedFloat32Array::from(self.dialogue_mouth.weights().to_vec())
+        PackedFloat32Array::from(self.dialogue_voice.weights().to_vec())
     }
 
     /// Why the last call that returned false or -1 failed.
     #[func]
-    fn last_error(&self) -> GString {
+    pub(crate) fn last_error(&self) -> GString {
         self.last_error.clone()
     }
 
@@ -323,15 +407,16 @@ impl SoundBank {
             .or(self.vfs.as_ref())
             .ok_or_else(|| "no audio data source".to_owned())?;
 
-        // The ffmpeg-backed decoder is only present when the feature is on.
-        // Without it a vanilla voice line reports `Unsupported::Wma` and every
-        // other format still plays, which is the crate's own arrangement.
+        // The pure Rust decoder handles vanilla xWMA without an external
+        // process. The optional ffmpeg decoder remains useful for comparison.
         #[cfg(feature = "xwma-ffmpeg")]
         let wma = soe_audio::wma::Ffmpeg::new();
         #[cfg(feature = "xwma-ffmpeg")]
         let source = SoundSource::new(vfs).with_wma_decoder(&wma);
         #[cfg(not(feature = "xwma-ffmpeg"))]
-        let source = SoundSource::new(vfs);
+        let wma = soe_audio::wma::Native;
+        #[cfg(not(feature = "xwma-ffmpeg"))]
+        let source = SoundSource::new(vfs).with_wma_decoder(&wma);
 
         let sound = source
             .read(data_path)
@@ -370,6 +455,121 @@ impl SoundBank {
                 .insert(key, (stream.clone(), bytes, duration, lip.clone()));
         }
         Ok((stream, duration, lip))
+    }
+
+    fn begin_music(&mut self, data_path: &str, fade_in: f32, fade_out: f32, abrupt: bool) -> bool {
+        if self.music_players.len() != 2 {
+            self.last_error = "SoundBank must be inside the scene tree".into();
+            return false;
+        }
+        if !fade_in.is_finite() || !fade_out.is_finite() || fade_in < 0.0 || fade_out < 0.0 {
+            self.last_error = "music fade durations must be finite and nonnegative".into();
+            return false;
+        }
+        let stream = match self.music_stream(data_path) {
+            Ok(stream) => stream,
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                return false;
+            }
+        };
+        if self
+            .music_current
+            .is_some_and(|slot| self.music_paths[slot].as_deref() == Some(data_path))
+        {
+            return true;
+        }
+        let from = self.music_current;
+        let outgoing_fade = self.music_current_fade_out;
+        let to = from.map_or(0, |slot| 1 - slot);
+        // This is the older outgoing player from an interrupted crossfade.
+        // Stop it before reusing the slot so rapid requests never leave stale
+        // music playing behind the latest selection.
+        self.music_players[to].stop();
+        self.music_paths[to] = Some(data_path.to_owned());
+        let from_level = from.map_or(0.0, |slot| {
+            10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)
+        });
+        let target = &mut self.music_players[to];
+        target.set_stream(&stream);
+        target.set_volume_db(-80.0);
+        target.play();
+        self.music_current = Some(to);
+        self.music_current_fade_out = fade_out;
+        self.music_fade = Some(MusicFadeState {
+            from,
+            to: Some(to),
+            fade: MusicFade::new(from_level, fade_in, outgoing_fade, abrupt),
+        });
+        if abrupt {
+            self.advance_music_fade(0.0);
+        }
+        self.last_error = GString::new();
+        true
+    }
+
+    fn stop_music(&mut self) {
+        if self.music_players.len() != 2 {
+            return;
+        }
+        let from = self.music_current;
+        let from_level = from.map_or(0.0, |slot| {
+            10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)
+        });
+        let fade_out = self.music_current_fade_out;
+        self.music_current = None;
+        self.music_current_fade_out = 0.0;
+        self.music_fade = Some(MusicFadeState {
+            from,
+            to: None,
+            fade: MusicFade::new(from_level, 0.0, fade_out, false),
+        });
+    }
+
+    fn advance_music_fade(&mut self, seconds: f32) {
+        let Some(state) = self.music_fade.as_mut() else {
+            return;
+        };
+        let (from_level, to_level, finished) = state.fade.advance(seconds);
+        if let Some(slot) = state.from {
+            self.music_players[slot].set_volume_db(linear_to_db(from_level));
+        }
+        if let Some(slot) = state.to {
+            self.music_players[slot].set_volume_db(linear_to_db(to_level));
+        }
+        if finished {
+            if let Some(slot) = state.from {
+                self.music_players[slot].stop();
+                self.music_paths[slot] = None;
+            }
+            if let Some(slot) = state.to {
+                self.music_players[slot].set_volume_db(0.0);
+            }
+            self.music_fade = None;
+        }
+    }
+
+    fn music_stream(&mut self, data_path: &str) -> Result<Gd<AudioStreamWav>, String> {
+        let vfs = self
+            .source
+            .as_ref()
+            .map(|source| source.vfs())
+            .or(self.vfs.as_ref())
+            .ok_or_else(|| "no audio data source".to_owned())?;
+        #[cfg(feature = "xwma-ffmpeg")]
+        let wma = soe_audio::wma::Ffmpeg::new();
+        #[cfg(feature = "xwma-ffmpeg")]
+        let decoder = SoundSource::new(vfs).with_wma_decoder(&wma);
+        #[cfg(not(feature = "xwma-ffmpeg"))]
+        let decoder = SoundSource::new(vfs);
+        let sound = decoder
+            .read(data_path)
+            .map_err(|error| format!("{data_path}: {error}"))?;
+        if sound.pcm.is_empty() {
+            return Err(format!("{data_path}: decoded to no samples"));
+        }
+        self.decoded_count += 1;
+        Ok(wav_from_stereo(&sound.pcm))
     }
 
     fn play_with(
@@ -427,8 +627,7 @@ impl SoundBank {
         });
         player.play();
         if kind == Kind::Voice {
-            self.dialogue_mouth.start(lip, duration);
-            self.dialogue_mouth_slot = Some(slot);
+            self.dialogue_voice.start(slot, lip, duration);
         }
         self.last_error = GString::new();
         slot as i32
@@ -447,4 +646,21 @@ fn wav_from(pcm: &Pcm) -> Gd<AudioStreamWav> {
     wav.set_mix_rate(mono.sample_rate as i32);
     wav.set_stereo(false);
     wav
+}
+
+fn wav_from_stereo(pcm: &Pcm) -> Gd<AudioStreamWav> {
+    let mut wav = AudioStreamWav::new_gd();
+    wav.set_data(&PackedByteArray::from(to_i16_bytes(pcm).as_slice()));
+    wav.set_format(audio_stream_wav::Format::FORMAT_16_BITS);
+    wav.set_mix_rate(pcm.sample_rate as i32);
+    wav.set_stereo(pcm.channels > 1);
+    wav
+}
+
+fn linear_to_db(gain: f32) -> f32 {
+    if gain <= 0.0001 {
+        -80.0
+    } else {
+        20.0 * gain.log10()
+    }
 }

@@ -87,6 +87,7 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
 fn ai_14_wait_children_share_one_clock_and_finish_after_the_longest_child() {
     let mut game = game(1.0, 2.0);
     game.tick(0.25);
+    assert_eq!(game.world().clock.real_seconds, 0.25);
     let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
     assert!(ai.package.is_some(), "{ai:?}");
     assert_eq!(ai.wait_until, Some(2.25), "{ai:?}");
@@ -106,6 +107,7 @@ fn ai_14_wait_children_share_one_clock_and_finish_after_the_longest_child() {
     let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
     assert_eq!(game.world().clock.real_seconds, 2.25);
     assert!(ai.tree.as_ref().unwrap().finished);
+    assert_eq!(ai.completed.get(&id(PACK)), Some(&0));
 }
 
 #[test]
@@ -121,6 +123,7 @@ fn ai_14_package_cancellation_discards_active_simultaneous_children() {
     let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
     assert!(ai.tree.is_none());
     assert_eq!(ai.wait_until, None);
+    assert!(!ai.completed.contains_key(&id(PACK)));
 }
 
 #[test]

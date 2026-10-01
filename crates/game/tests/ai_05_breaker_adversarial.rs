@@ -100,6 +100,8 @@ fn set_current(game: &mut Game) {
         branch: 0,
         active: true,
         finished: false,
+        stacked: Vec::new(),
+        stacked_completed: Vec::new(),
     });
 }
 

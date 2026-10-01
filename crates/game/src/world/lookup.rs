@@ -9,6 +9,26 @@ use soe_esm::{GlobalFormId, Record, Slot, Tag};
 use super::{class_for_tag, le_u32, text, type_code_for_tag, Handle, World, DYNAMIC_FILE, T};
 
 impl World {
+    /// Set the reference currently under the host crosshair.
+    pub fn set_crosshair_reference(&mut self, reference: Option<GlobalFormId>) {
+        self.crosshair_reference = reference;
+    }
+
+    /// Return the reference currently under the host crosshair.
+    pub fn crosshair_reference(&self) -> Option<GlobalFormId> {
+        self.crosshair_reference
+    }
+
+    /// Set the reference currently held by the host player.
+    pub fn set_grabbed_reference(&mut self, reference: Option<GlobalFormId>) {
+        self.grabbed_reference = reference;
+    }
+
+    /// Return the reference currently held by the host player.
+    pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
+        self.grabbed_reference
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.editor_ids
             .get(&editor_id.to_ascii_lowercase())
@@ -19,6 +39,11 @@ impl World {
         self.record_overrides
             .get(&id)
             .map(|value| &value.record)
+            .or_else(|| {
+                self.created_base_records
+                    .get(&id)
+                    .map(|value| &value.record)
+            })
             .or_else(|| self.order.winner(id))
     }
 
@@ -26,6 +51,7 @@ impl World {
         self.refs.contains_key(&id)
             || self.brewed_potions.contains_key(&id)
             || self.record_overrides.contains_key(&id)
+            || self.created_base_records.contains_key(&id)
             || self.order.contains(id)
     }
 
@@ -149,6 +175,13 @@ impl World {
         }
         if let Some(id) = self
             .record_overrides
+            .get(&owner)
+            .and_then(|value| value.links.get(&raw))
+        {
+            return Some(*id);
+        }
+        if let Some(id) = self
+            .created_base_records
             .get(&owner)
             .and_then(|value| value.links.get(&raw))
         {
@@ -300,6 +333,13 @@ impl World {
                 }
             }
             Handle::Form(id) => match self.tag_of(id).map(|t| *t.as_bytes()) {
+                Some(t) if t == *b"SPEL" => {
+                    if self.spell(id).is_ok_and(|spell| spell.data.cast_type == 3) {
+                        "Scroll"
+                    } else {
+                        "Spell"
+                    }
+                }
                 Some(t) => class_for_tag(&t),
                 None => "Form",
             },

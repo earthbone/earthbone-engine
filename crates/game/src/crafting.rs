@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! COBJ creation transactions from xEdit/UESP layouts and skymp CraftService.
+//! COBJ creation and ENCH disenchant transactions from xEdit and UESP layouts.
 //! Bench WBDT selects creation versus improvement. Inventory events follow CK.
 //! Tempering applies COBJ improvement recipes to exact item instances.
 //! CraftItem event arguments follow CK Quest_Script. Bench WBDT selects
@@ -99,6 +99,29 @@ pub struct TemperOutcome {
     pub quality: f32,
 }
 
+/// The effects learned and exact item consumed by disenchanting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisenchantOutcome {
+    pub item: GlobalFormId,
+    pub enchantment: GlobalFormId,
+    pub learned_effects: Vec<GlobalFormId>,
+}
+
+/// A rejected disenchant leaves learned effects, inventory and events unchanged.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum DisenchantError {
+    #[error("actor {0} is missing, disabled, dead or unconscious")]
+    Actor(GlobalFormId),
+    #[error("item {0} is not a disenchantable weapon or armor")]
+    Item(GlobalFormId),
+    #[error("selected item has no eligible enchantment")]
+    Ineligible,
+    #[error("enchantment {0} is malformed or has unsupported effects")]
+    Enchantment(GlobalFormId),
+    #[error("inventory selection: {0}")]
+    Inventory(#[from] crate::inventory::Error),
+}
+
 struct Prepared {
     outcome: Outcome,
     inventory: crate::inventory::Inventory,
@@ -106,6 +129,111 @@ struct Prepared {
 }
 
 impl Game {
+    /// Learn unknown magic effects from one selected item and consume that item.
+    ///
+    /// # Errors
+    /// Invalid actor, item instance, enchantment record or inventory selection.
+    pub fn disenchant(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        source: crate::inventory::StackSource,
+    ) -> Result<DisenchantOutcome, DisenchantError> {
+        let mut world = self.world.borrow_mut();
+        if world
+            .reference(actor)
+            .is_none_or(|reference| !reference.enabled || reference.deleted)
+            || world
+                .actor(actor)
+                .is_none_or(|state| state.dead || state.unconscious)
+        {
+            return Err(DisenchantError::Actor(actor));
+        }
+        let Some(item_record) = world
+            .record(item)
+            .filter(|record| {
+                !record.is_deleted() && matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP")
+            })
+            .cloned()
+        else {
+            return Err(DisenchantError::Item(item));
+        };
+        if let Some(keyword) = world.form("MagicDisallowEnchanting") {
+            if world.has_keyword(item, keyword) {
+                return Err(DisenchantError::Ineligible);
+            }
+        }
+
+        let selected = world.select_item(actor, item, source, 1)?;
+        let selected_stack = world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory
+            .selected_stack(&selected)?;
+        let instance_enchantment = match selected_stack.and_then(|stack| stack.extra(155)) {
+            None => None,
+            Some(extra) => match extra.fields.as_slice() {
+                [crate::inventory::Field::Form(Some(enchantment)), crate::inventory::Field::Short(_)] => {
+                    Some(*enchantment)
+                }
+                _ => return Err(DisenchantError::Ineligible),
+            },
+        };
+        let enchantment = instance_enchantment.or_else(|| {
+            item_record
+                .find(Tag(*b"EITM"))
+                .filter(|bytes| bytes.len() == 4)
+                .and_then(|bytes| {
+                    world.resolve_from(item, u32::from_le_bytes(bytes.try_into().ok()?))
+                })
+        });
+        let enchantment = enchantment.ok_or(DisenchantError::Ineligible)?;
+        let record = world
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == Tag(*b"ENCH"))
+            .ok_or(DisenchantError::Enchantment(enchantment))?;
+        let (kind, raw_effects) =
+            disenchant_effects(record).ok_or(DisenchantError::Enchantment(enchantment))?;
+        if kind != 6 {
+            return Err(DisenchantError::Ineligible);
+        }
+        let mut effects = Vec::with_capacity(raw_effects.len());
+        for raw in raw_effects {
+            let effect = world
+                .resolve_from(enchantment, raw)
+                .filter(|id| world.tag_of(*id) == Some(Tag(*b"MGEF")))
+                .ok_or(DisenchantError::Enchantment(enchantment))?;
+            if !effects.contains(&effect) && !world.learned_enchantment_effects.contains(&effect) {
+                effects.push(effect);
+            }
+        }
+        if effects.is_empty() {
+            return Err(DisenchantError::Ineligible);
+        }
+
+        let mut inventory = world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory
+            .clone();
+        inventory.take_selected(&selected)?;
+        world
+            .reference(actor)
+            .ok_or(DisenchantError::Actor(actor))?
+            .inventory = inventory;
+        world
+            .learned_enchantment_effects
+            .extend(effects.iter().copied());
+        let vm = &mut self.vm;
+        let alloc = &mut |name: &str, class: &str| vm.create_object_of(name, class);
+        world.inventory_event(actor, item, -1, None, alloc);
+        Ok(DisenchantOutcome {
+            item,
+            enchantment,
+            learned_effects: effects,
+        })
+    }
+
     /// Improve one weapon or armor instance at the matching smithing bench.
     ///
     /// The target item's COBJ ingredient is selected as one exact instance.
@@ -872,4 +1000,31 @@ fn validate_bench(
         return Err(Error::Bench(bench));
     }
     Ok(())
+}
+
+fn disenchant_effects(record: &Record) -> Option<(u32, Vec<u32>)> {
+    let enit = record.find(Tag(*b"ENIT"))?;
+    if !matches!(enit.len(), 32 | 36) {
+        return None;
+    }
+    let kind = u32::from_le_bytes(enit.get(20..24)?.try_into().ok()?);
+    let mut effects = Vec::new();
+    let mut pending = false;
+    for subrecord in &record.subrecords {
+        match subrecord.tag.as_bytes() {
+            b"EFID" if !pending && subrecord.data.len() == 4 => {
+                effects.push(u32::from_le_bytes(
+                    subrecord.data.as_slice().try_into().ok()?,
+                ));
+                pending = true;
+            }
+            b"EFIT" if pending && subrecord.data.len() == 12 => pending = false,
+            b"EFID" | b"EFIT" => return None,
+            _ => {}
+        }
+    }
+    if pending || effects.is_empty() {
+        return None;
+    }
+    Some((kind, effects))
 }

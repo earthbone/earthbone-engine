@@ -93,6 +93,8 @@ pub struct FlightRequest {
     pub range: f32,
     /// AMMO base damage.
     pub damage: f32,
+    /// Whether an arrow of this ammunition can be recovered from an impact.
+    pub recoverable: bool,
 }
 
 /// One straight segment of a gravity-affected projectile's path, in Skyrim units.
@@ -221,6 +223,9 @@ pub struct HitResult {
     /// Always false for a bash or an unarmed contact. See docs/combat.md
     /// CMB-25.
     pub poisoned: bool,
+    /// The attacker was sneaking and the target had not entered Combat
+    /// awareness of that attacker. Reports OnHit's `abSneakAttack` value.
+    pub sneak_attacked: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -245,4 +250,23 @@ pub enum Error {
     Unsupported(&'static str),
     #[error("perk entry point: {0}")]
     Perk(#[from] crate::perks::DispatchError),
+}
+
+/// Validation and execution errors for `Weapon.Fire`.
+#[derive(Debug, thiserror::Error)]
+pub enum FireError {
+    #[error("weapon fire source argument is not a form")]
+    SourceArgument,
+    #[error("weapon fire source is not a reference")]
+    Source,
+    #[error("weapon fire weapon {0} is missing or is not a WEAP")]
+    Weapon(GlobalFormId),
+    #[error("weapon fire ammo {0} is missing or is not an AMMO")]
+    Ammo(GlobalFormId),
+    #[error("weapon fire ammo argument is not a form")]
+    AmmoArgument,
+    #[error(transparent)]
+    Record(#[from] soe_esm::Error),
+    #[error("unsupported weapon fire behavior: {0}")]
+    Unsupported(&'static str),
 }

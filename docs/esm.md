@@ -110,7 +110,7 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, lctn, navm, stat, race, hazd}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, npc, stat, race, hazd}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
@@ -142,15 +142,39 @@ owner, location, layer, encounter zone, emittance, teleport door, enable
 parent, lock key, linked reference, navmesh door, location ref type and idle
 links are remapped. Texture set and grass links, navmesh base object lists,
 magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
-quest links, INFO topic, response and response-sound links, WEAP and ARMO
-enchantments, and HAZD image-space and DATA
-links are remapped at their documented offsets. Scalar values remain intact.
+quest links, INFO topic, response and response-sound links, and ARMO
+enchantments are remapped. WEAP enchantment, impact, material, scope,
+first-person model, sound, critical effect, and template links are remapped,
+including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
+links in `DSTD` are remapped for their applicable records.
+The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
+the 24-byte layout. Destruction stage explosion and debris links are at offsets
+8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
+remapped at their documented offsets. Scalar values remain intact. These
+fields and nested layouts follow local xEdit `Core/wbDefinitionsTES5.pas`.
 The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
 `REFR.wikitext`. VMAD object
 properties and arrays in object formats 1 and 2 are remapped while trailing
 fragment bytes are preserved. An invalid or unsupported VMAD property makes
 the operation fail without changing the plugin. Other raw subrecords remain
 untouched because their fields have not been modeled as FormIDs here.
+
+`records::Transform::drop_to_ground` creates a `GroundDrop` edit from a
+collision height in Skyrim world units. The placed transform keeps its
+horizontal position and rotation and replaces its vertical position with the
+surface height. `GroundDrop::undo` returns the original transform for an
+editor undo action. Non-finite collision heights are rejected.
+
+`records::npc::NpcFace` reads `NPC_` `PNAM` head-part links in file order and the
+19 floats in `NAM9`. `edit_record` replaces those fields while preserving the
+other NPC subrecords, checks each link against the active load order for a
+winning `HDPT`, and rejects malformed links or non-finite morph values. The
+`NPC_` `PNAM` links are relocated with other recognized FormIDs when a plugin's
+master order changes. These fields are defined by local xEdit's `NPC_` record
+definition. TiltedEvolution's `FaceGenSystem.cpp` confirms that runtime face
+assembly resolves NPC head-part records before finding mesh nodes. The PyNifly
+TRI source named by the editor milestone is absent from the local reference
+corpus, and this view does not generate TRI morph meshes or FaceGen textures.
 
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
@@ -176,6 +200,32 @@ heights in world units, using the row-start plus running-sum rule OpenMW uses.
 `Heights::encode` is the inverse, quantised to the byte grid. `navm::Geometry` parses
 the packed `NVNM` block, refuses counts that cannot fit in the remaining bytes before
 allocating, and writes itself back byte for byte.
+
+`records::land::apply_height_brush` applies a smooth circular height dab in cell-local
+world units, rewrites the VHGT gradients and regenerates VNML from the edited surface.
+It preserves other LAND subrecords and sets the LAND height and normal flag. Its record
+edit fails without changing the record when a gradient would exceed its signed-byte range.
+Its record layout and flags follow local xEdit's `Core/wbDefinitionsTES5.pas` LAND definition. The
+brush operation follows the position-based operation boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`. The radial smooth falloff and
+VNML generation are implemented here for the 33 by 33 LAND grid.
+
+`records::land::apply_texture_brush` applies a smooth circular alpha-weight dab to one
+LAND quadrant on its 17 by 17 grid. It retains each `ATXT` texture FormID and layer
+index, changes only the selected layer's `VTXT` weights, and assigns the first free
+quadrant layer index when the texture does not yet have an alpha layer. Weights stay
+between zero and one, and the LAND layer flag is set. The field layout follows local
+xEdit's `Core/wbDefinitionsTES5.pas` LAND definition and shared
+`Core/wbDefinitionsCommon.pas` `wbLandLayers` and `wbVTXTPosition`, with quadrant origins
+from UESP's local `uesp-modfileformat/LAND.wikitext`. The circular brush operation follows
+Terrain3D's editor brush operation interface in
+`project/addons/terrain_3d/src/operation_builder.gd`.
+
+`records::land::apply_vertex_color_brush` blends an RGB target into VCLR on the same 33 by 33
+grid. The circular dab uses cell-local world units, smooth radial falloff and strength from zero
+to one. A LAND without VCLR starts at white. The operation sets the vertex-color flag while
+preserving other LAND fields, and rejects malformed or repeated VCLR and DATA subrecords before
+writing. VCLR's 3267-byte RGB grid is described in local `uesp-modfileformat/LAND.wikitext`.
 
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and
@@ -208,6 +258,11 @@ hit requires matching identity fields, a valid digest and complete decoding of
 the payload. Invalid, truncated or stale entries are ignored. A successful
 source parse replaces the current entry through a temporary file and rename.
 Cache directory and cache write failures do not prevent source parsing.
+Concurrent writers use process-specific temporary files and replace the entry
+only after the complete encoded payload has been written. The
+`tests/fmt_30_parallel_cache.rs` test starts six writer processes together
+against one source and checks that the resulting entry decodes and matches a
+fresh parse.
 `tests/fmt_29_cache.rs` covers fixture equality, canonical-path reuse, changed
 file identity and modification time, cache format version, corrupt and
 truncated entries, and all five installed masters.

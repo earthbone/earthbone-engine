@@ -1,8 +1,8 @@
 # soe-nif: Skyrim SE mesh reader
 
 Crate `crates/nif`, library name `soe_nif`. Reads Gamebryo 20.2.0.7 files as
-Bethesda writes them and hands a renderer a flat list of meshes. No
-dependencies.
+Bethesda writes them and hands a renderer a flat list of meshes. The `gltf`
+dependency handles authoring glTF buffers and accessors for static mesh import.
 
 ## What it reads
 
@@ -12,7 +12,7 @@ dependencies.
 | 100 | Skyrim SE | Everything above plus BSTriShape and the SSE skin partition vertex buffer |
 | 130 | Fallout 4 | BSTriShape geometry with half positions, texture set, lighting shader up to the specular fields, effect shader |
 
-Anything else in a file (particles, controllers, extra data, Havok blocks)
+Anything else in a file (unsupported particle modifiers, extra data, Havok blocks)
 is kept as raw bytes under `Block::Unknown` or `Block::Collision`, found by
 the per-block size table in the header. That table is also the reader's
 self-check: a block that parses to a different length than the header
@@ -52,8 +52,23 @@ draws that full list for each selected BTO block.
   Enum `Block` holds them in file order.
 - `vertex`: the packed `BSVertexData` layout and its 64-bit descriptor.
 - `controller`: `NiTransformController` and its interpolators, see below.
+- `particle`: SSE volume emitter rate and lifetime decoding, plus bounded
+  particle birth and death timing.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
+- `serialize`: writes Skyrim SE files containing `NiNode` blocks and opaque
+  collision blocks, including the header tables, block sizes and root footer.
+  It rejects other typed block kinds and strings outside Windows-1252.
+
+The byte writer is scoped to the collision graph produced by `soe-physics`.
+It is not a general writer for parsed meshes. Its node fields follow the
+`NiNode` and `NiAVObject` layouts in
+`../engine-refs/nifxml/nif.xml`, and its NIF header follows
+`tests/common/mod.rs`, which was written independently from that schema.
+The EDT-17 shape fields were checked against nifly's
+`src/bhk.cpp::bhkConvexVerticesShape::Sync` and TES5Edit's
+`Core/wbDataFormatNif.pas` definitions. PyNifly was named as another source
+for this row but is not present in the local reference corpus.
 
 ## The neutral mesh
 
@@ -87,6 +102,32 @@ Conventions are the file's: right-handed, Z up, game units, DirectX UV
 origin. Converting to a host's axes is the host's job and is documented at
 the top of `mesh.rs`.
 
+## Static glTF import and Skyrim SE export
+
+`static_mesh::import_gltf` reads the default scene, or the first scene when no
+default is declared. It imports unskinned, non-morph triangle primitives with
+only `POSITION`, `NORMAL` and `TEXCOORD_0` attributes, bakes node transforms
+into positions and normals, and makes area weighted normals when the source
+has none. External buffer and image URIs become file paths. Diffuse, normal,
+emissive and metallic-roughness textures map to Skyrim slots 0, 1, 2 and 7.
+Embedded buffer URIs are rejected. Embedded image data is rejected when a
+material references it because it has no external path to preserve.
+
+`static_mesh::export_nif` writes Skyrim SE stream 100 files with a root
+`NiNode`, one `BSTriShape` per mesh, `BSLightingShaderProperty` and
+`BSShaderTextureSet` links. It preserves vertex positions, normals, UV0,
+triangle indices and material texture paths. It rejects skinning, malformed
+attributes, non-finite values, empty geometry, and geometry that exceeds the
+16-bit vertex or index limits. It does not export collision or animation.
+
+The writer follows the static-shape and shader block layouts in
+`nifly/include/Geometry.hpp`, `nifly/include/Shaders.hpp` and the local
+independent test writer in `tests/common/mod.rs`. PyNifly was not cloned into
+the local reference corpus. Its upstream import/export options and project
+overview describe a wider Blender workflow with game-specific settings,
+skinning and collision, so this writer implements only the editor row's static
+geometry and texture links.
+
 ## Skinning
 
 Two layouts exist and both are normalised to the per-vertex form above.
@@ -119,7 +160,7 @@ array behavior follows the vanilla skeleton files covered by
 `tri::parse_head_tri` reads FaceGen `FRTRI003` files. It retains the base
 positions and named morph deltas. Each morph stores three signed 16-bit values
 per vertex, multiplied by its file scale. The reader consumes topology, UVs
-and modifier lists to reach the morph data, while retaining only positions and
+and modifier lists to reach the morph data, while retaining positions and
 morphs. The layout follows `TriHeadFile::Read` in the local
 `BodySlide-and-Outfit-Studio/src/files/TriFile.cpp` reference. A PyNifly source
 was not present in the local corpus. nif.xml's `NiMorphData` describes a
@@ -127,10 +168,15 @@ separate NIF animation format, not this FaceGen TRI file. Race `PHTN` and
 `PHWT` are FaceFX phoneme name and weight records, not geometry morphs, as
 shown by Mutagen's Skyrim `Race.xml` and xEdit's `wbPHWT` definition.
 
-`HeadTri::apply_morph` adds a selected morph to caller supplied base positions.
-It checks that the mesh and TRI vertex counts match, returns an exact copy at
-zero weight, and does not mutate the caller's positions. Callers can evaluate
-each frame from the same base to avoid accumulating deltas.
+`HeadTri::apply_morph` adds one selected morph to caller supplied base
+positions. `apply_morphs` adds several named morphs in file vertex order.
+Both check that the mesh and TRI vertex counts match, preserve exact positions
+at zero weight, and leave the input unchanged. `apply_to_mesh` uses those
+operations on a resolved head-part mesh, checks its base positions against the
+TRI within 0.0001 game units, and clears its stale normals and tangents when
+any morph changes geometry. The NIF topology, UVs, material and transform
+remain attached to the output mesh. Resolving NPC `PNAM` links and mapping its
+`NAM9` values to named TRI morphs remains caller work.
 
 ## Transform controllers (2026-09-24, in progress)
 
@@ -170,6 +216,26 @@ Open items, read against `../engine-refs/openmw`'s `components/nif`:
   can also create a trimesh collider under each child mesh so the collider
   follows its animated transform. Ordinary game door activation does not yet
   instantiate this node or start its controller.
+
+## Material color controller evaluation (RND-13)
+
+`controller::evaluate_material_color` samples a `NiMaterialColorController`
+color key group using the shared time-controller clock and updates exactly one
+of the ambient, diffuse, specular or self-illumination channels in
+`MaterialColors`. The track evaluator leaves the channels unchanged when it
+has no keys, while `NifFile::apply_material_color_controller` uses the
+interpolator's default value when its track is absent or empty.
+`MaterialColorTarget` uses the four values declared by `MaterialColor` in
+`nifxml/nif.xml`. The sampling and cycle mapping use the existing track and
+clock evaluators grounded on OpenMW's `components/nifosg/controller.cpp`.
+The block reader decodes `NiMaterialColorController` and
+`NiPoint3Interpolator`, and `NifFile::apply_material_color_controller`
+resolves their `NiPosData` track and applies a sampled value or interpolator
+default to the selected channel.
+
+The Godot host does not yet call this evaluator or apply the result to a live
+material. Host cell rendering continues to build static materials from mesh
+properties.
 
 ## Tests
 
@@ -236,6 +302,11 @@ The archived mesh test is the one that exercises real content on a plain install
 
 ## Residency estimate
 
+`static_mesh::export_nif` writes shader type 18 for a mesh whose material
+kind is `LodLandscapeNoise`, and type 9 for `LodLandscape`. Other supported
+static meshes retain type 0. This lets `godot-host` write terrain LOD BTR
+geometry that the existing NIF reader can parse.
+
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
 8 for each UV set, or one set when only the legacy `uvs` field is filled, 16
@@ -257,11 +328,36 @@ mesh against a residency budget, not a claim about any one renderer's exact
 buffer layout, an upload can pad, align or drop an unused attribute
 differently.
 
+## Particle emitters (RND-14)
+
+`NifFile::particle_emitters` reads SSE `NiParticleSystem` blocks, named
+`NiPSysSphereEmitter`, `NiPSysBoxEmitter` and `NiPSysCylinderEmitter`
+modifiers, and `NiPSysEmitterCtlr` birth rates through `NiFloatInterpolator`
+or `NiFloatData`. It matches a controller to the system target and modifier
+name. The system's `NiPSysData` maximum caps live particles at 8192. The
+emitter's active flag and controller active flag suppress births. A
+`NiBoolInterpolator` visibility value or `NiBoolData` constant key track
+also switches births.
+
+`particle::Timeline` accumulates births at the sampled rate, assigns a
+deterministic value within the authored lifespan variation, removes each
+particle when that lifespan ends, and exposes live positions in NIF units.
+The named synthetic `RND14SmokeEmitter` fixture in
+`rnd_14_particle_emitter_check.rs` asserts four births per second, half
+second expiry and the system's authored maximum. The parser layout follows
+`nifxml/nif.xml` and nifly's `Particles.cpp`. OpenMW's
+`components/nifosg/particle.cpp` supplied the lifetime variation and quota
+behavior.
+
+The timeline places particles at the system translation. The host exposes
+the timeline through `ParticleEmitterNode` for a named model path.
+
 ## Not yet
 
 - DDS loading (round 2).
 - Collision shapes are opaque bytes, the physics layer decodes them.
 - Fallout 4 lighting shader fields past specular strength, and Fallout 76
   entirely.
-- Controllers, particles, `BSLODTriShape` levels, multiple UV sets beyond the
-  first in the host renderer. The neutral mesh output retains every source set.
+- Additional controllers and particle modifiers, `BSLODTriShape` levels,
+  `BSDynamicTriShape` dynamic positions, and multiple UV sets beyond the first
+  in the host renderer. The block layer keeps all UV sets in the neutral mesh.

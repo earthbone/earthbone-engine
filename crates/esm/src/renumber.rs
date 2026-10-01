@@ -30,6 +30,10 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
                 remap_hazd_data(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"MGEF") && subrecord.tag == Tag::new(b"DATA") {
                 remap_mgef_data(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"WEAP") && subrecord.tag == Tag::new(b"CRDT") {
+                remap_weap_critical_data(&mut subrecord.data, mapping)?;
+            } else if subrecord.tag == Tag::new(b"DSTD") {
+                remap_destruction_stage(record.tag, &mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"INFO") && subrecord.tag == Tag::new(b"TRDT") {
                 remap_info_response(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"REFR") {
@@ -159,6 +163,62 @@ fn remap_mgef_data(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
     Ok(())
 }
 
+fn remap_weap_critical_data(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    let offset = match data.len() {
+        20 => 12,
+        24 => 16,
+        _ => {
+            return Err(Error::SubrecordSize {
+                record: Tag::new(b"WEAP"),
+                tag: Tag::new(b"CRDT"),
+                len: data.len(),
+                expected: "20 or 24".into(),
+            });
+        }
+    };
+    let old = u32::from_le_bytes(data[offset..offset + 4].try_into().map_err(|_| {
+        Error::SubrecordSize {
+            record: Tag::new(b"WEAP"),
+            tag: Tag::new(b"CRDT"),
+            len: data.len(),
+            expected: "20 or 24".into(),
+        }
+    })?);
+    if let Some(new) = mapping.get(&old) {
+        data[offset..offset + 4].copy_from_slice(&new.to_le_bytes());
+    }
+    Ok(())
+}
+
+fn remap_destruction_stage(
+    record: Tag,
+    data: &mut [u8],
+    mapping: &HashMap<u32, u32>,
+) -> Result<()> {
+    if data.len() != 20 {
+        return Err(Error::SubrecordSize {
+            record,
+            tag: Tag::new(b"DSTD"),
+            len: data.len(),
+            expected: "20".into(),
+        });
+    }
+    for offset in [8, 12] {
+        let old = u32::from_le_bytes(data[offset..offset + 4].try_into().map_err(|_| {
+            Error::SubrecordSize {
+                record,
+                tag: Tag::new(b"DSTD"),
+                len: data.len(),
+                expected: "20".into(),
+            }
+        })?);
+        if let Some(new) = mapping.get(&old) {
+            data[offset..offset + 4].copy_from_slice(&new.to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
 fn remap_group(group: &mut Group, mapping: &HashMap<u32, u32>) {
     group.kind = match group.kind {
         GroupKind::WorldChildren(id) => GroupKind::WorldChildren(remap(id, mapping)),
@@ -223,7 +283,25 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"REFR", b"INAM"),
         (b"LTEX", b"TNAM"),
         (b"WEAP", b"EITM"),
+        (b"WEAP", b"BIDS"),
+        (b"WEAP", b"BAMT"),
+        (b"WEAP", b"EFSD"),
+        (b"WEAP", b"INAM"),
+        (b"WEAP", b"WNAM"),
+        (b"WEAP", b"SNAM"),
+        (b"WEAP", b"XNAM"),
+        (b"WEAP", b"NAM7"),
+        (b"WEAP", b"TNAM"),
+        (b"WEAP", b"UNAM"),
+        (b"WEAP", b"NAM9"),
+        (b"WEAP", b"NAM8"),
+        (b"WEAP", b"CNAM"),
+        (b"WEAP", b"ETYP"),
+        (b"WEAP", b"YNAM"),
+        (b"WEAP", b"ZNAM"),
         (b"ARMO", b"EITM"),
+        (b"ARMO", b"RNAM"),
+        (b"ARMO", b"TNAM"),
         (b"NAVM", b"ONAM"),
         (b"SCEN", b"PNAM"),
         (b"DIAL", b"QNAM"),
@@ -245,8 +323,8 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         .any(|(rec, sub)| record.as_bytes() == *rec && field.as_bytes() == *sub)
         || (record == Tag::new(b"LTEX") && field == Tag::new(b"GNAM"))
         || (record == Tag::new(b"CELL") && field == Tag::new(b"XCLR"))
-        || (record == Tag::new(b"MGEF")
-            && (field == Tag::new(b"KWDA") || field == Tag::new(b"ESCE")))
+        || (field == Tag::new(b"KWDA"))
+        || (record == Tag::new(b"MGEF") && field == Tag::new(b"ESCE"))
         || (record == Tag::new(b"INFO") && field == Tag::new(b"TCLT"))
 }
 

@@ -3,8 +3,7 @@
 
 //! CK AddItem reference moves, original identity, events and SOEW persistence.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
@@ -293,6 +292,7 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
     let mut w = world(1);
     let mut alloc = allocator();
     w.reference(id(LOOSE)).unwrap();
+    w.learned_enchantment_effects.insert(id(ITEM));
     let bytes = w.save_state();
     let hash = w.state_hash();
     for cut in [1, 4, 12] {

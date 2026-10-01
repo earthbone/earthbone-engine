@@ -4,6 +4,8 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::quest::state::{StoryEvent, StoryParameter};
 use soe_game::{quest, Game, Pending};
+use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::{CallMethod, CallStatic, Return};
 use soe_papyrus::Value;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -22,7 +24,7 @@ fn id(form: u32) -> GlobalFormId {
     }
 }
 
-fn fixture() -> Game {
+fn fixture_for(code: [u8; 4]) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "StoryCraftItem"));
     plugin.push_top(Record::new(T(b"LCTN"), LOCATION));
@@ -35,7 +37,7 @@ fn fixture() -> Game {
             .sub(T(b"CITC"), 0u32.to_le_bytes())
             .sub(T(b"DNAM"), 0u32.to_le_bytes())
             .sub(T(b"XNAM"), 0u32.to_le_bytes())
-            .sub(T(b"ENAM"), *b"CRFT"),
+            .sub(T(b"ENAM"), code),
     );
     plugin.push_top(
         Record::new(T(b"SMQN"), QUEST_NODE)
@@ -51,6 +53,10 @@ fn fixture() -> Game {
     let mut order = LoadOrder::new();
     order.add("Story.esm", plugin).unwrap();
     Game::new(order)
+}
+
+fn fixture() -> Game {
+    fixture_for(*b"CRFT")
 }
 
 fn send_craft_event(game: &mut Game) -> bool {
@@ -107,5 +113,141 @@ fn prg_14_matching_authored_event_starts_quest_once_with_ordered_arguments() {
             .filter(|pending| matches!(pending, Pending::Event { name, .. } if name == "OnStoryCraftItem"))
             .count(),
         1
+    );
+}
+
+#[test]
+fn prg_14_keyword_send_story_event_starts_script_quest_with_all_arguments() {
+    let mut game = fixture_for(*b"SCPT");
+    let script = ScriptBuilder::new("Prg14SendStory", "Quest")
+        .function(
+            FunctionBuilder::new("Run", "None")
+                .global()
+                .param("keyword", "Keyword")
+                .param("location", "Location")
+                .param("ref1", "ObjectReference")
+                .param("ref2", "ObjectReference")
+                .param("value1", "Int")
+                .param("value2", "Int")
+                .local("result", "Var")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SendStoryEvent"),
+                        ident("keyword"),
+                        ident("result"),
+                        ident("location"),
+                        ident("ref1"),
+                        ident("ref2"),
+                        ident("value1"),
+                        ident("value2"),
+                    ],
+                )
+                .ins(Return, vec![])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnStoryScript", "None")
+                .param("keyword", "Keyword")
+                .param("location", "Location")
+                .param("ref1", "ObjectReference")
+                .param("ref2", "ObjectReference")
+                .param("value1", "Int")
+                .param("value2", "Int")
+                .ins(
+                    CallStatic,
+                    vec![
+                        s("Debug"),
+                        s("Trace"),
+                        ident("::nonevar"),
+                        ident("value1"),
+                        i(0),
+                    ],
+                )
+                .ins(
+                    CallStatic,
+                    vec![
+                        s("Debug"),
+                        s("Trace"),
+                        ident("::nonevar"),
+                        ident("value2"),
+                        i(0),
+                    ],
+                )
+                .ins(Return, vec![])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&script).unwrap();
+    let quest_object = game.object_of_form(id(QUEST));
+    game.vm.attach(quest_object, "Prg14SendStory").unwrap();
+    let values = [
+        Value::Object(game.object_of_form(id(KEYWORD))),
+        Value::Object(game.object_of_form(id(LOCATION))),
+        Value::Object(game.object_of_form(id(BENCH))),
+        Value::Object(game.object_of_form(id(ITEM))),
+        Value::Int(17),
+        Value::Int(-9),
+    ];
+    game.vm
+        .call_global("Prg14SendStory", "Run", &values)
+        .unwrap();
+    assert!(game.run_until_idle(64));
+
+    let world = game.world();
+    let quest = world.quest(id(QUEST)).unwrap();
+    assert!(quest.running);
+    let event = quest
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .as_ref()
+        .unwrap();
+    assert_eq!(event.code, *b"SCPT");
+    assert_eq!(event.parameters.len(), 6);
+    assert_eq!(
+        event.parameters[0],
+        StoryParameter::Reference {
+            kind: 1,
+            reference: Some(id(KEYWORD)),
+        }
+    );
+    assert_eq!(
+        event.parameters[1],
+        StoryParameter::Reference {
+            kind: 2,
+            reference: Some(id(LOCATION)),
+        }
+    );
+    assert_eq!(
+        event.parameters[2],
+        StoryParameter::Reference {
+            kind: 0,
+            reference: Some(id(BENCH)),
+        }
+    );
+    assert_eq!(
+        event.parameters[3],
+        StoryParameter::Reference {
+            kind: 0,
+            reference: Some(id(ITEM)),
+        }
+    );
+    assert_eq!(event.parameters[4], StoryParameter::Integer(17));
+    assert_eq!(
+        event.parameters[5],
+        StoryParameter::Integer((-9_i32) as u32)
+    );
+    drop(world);
+    let traces = game.traces();
+    assert!(
+        traces.iter().any(|trace| trace.contains("17")),
+        "{traces:?}"
+    );
+    assert!(
+        traces.iter().any(|trace| trace.contains("-9")),
+        "{traces:?}"
     );
 }

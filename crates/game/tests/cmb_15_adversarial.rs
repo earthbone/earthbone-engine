@@ -11,7 +11,23 @@ fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn fixture() -> Game {
+fn modifier_perk(perk: u32, entry: u8, actor_value: u32, coefficient: f32) -> Record {
+    let mut data = Vec::with_capacity(8);
+    data.extend_from_slice(&(actor_value as f32).to_le_bytes());
+    data.extend_from_slice(&coefficient.to_le_bytes());
+    Record::new(Tag(*b"PERK"), perk)
+        .sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
+        .sub(Tag(*b"PRKE"), [2, 0, 0])
+        .sub(Tag(*b"DATA"), [entry, 14, 3])
+        .sub(Tag(*b"PRKC"), [0])
+        .sub(Tag(*b"PRKC"), [1])
+        .sub(Tag(*b"PRKC"), [2])
+        .sub(Tag(*b"EPFT"), [2])
+        .sub(Tag(*b"EPFD"), data)
+        .sub(Tag(*b"PRKF"), [])
+}
+
+fn fixture_with_perks(perks: Vec<Record>) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     for actor in [0x900, 0x901] {
@@ -53,6 +69,9 @@ fn fixture() -> Game {
                 .sub(Tag(*b"DATA"), value.to_le_bytes()),
         );
     }
+    for perk in perks {
+        plugin.push_top(perk);
+    }
     let mut order = LoadOrder::new();
     order.add("Combat.esm", plugin).unwrap();
     let game = Game::new(order);
@@ -71,6 +90,10 @@ fn fixture() -> Game {
             .insert(id(0xA00));
     }
     game
+}
+
+fn fixture() -> Game {
+    fixture_with_perks(Vec::new())
 }
 
 fn hit(attacker: u32, target: u32) -> MeleeHit {
@@ -99,15 +122,69 @@ fn cmb_15_repeated_hits_apply_outgoing_damage_multiplier_once_per_hit() {
 }
 
 #[test]
-fn cmb_15_canonical_marksman_modifier_rejects_without_state_changes() {
+fn cmb_15_marksman_modifier_without_perk_entry_does_not_change_damage() {
     let mut game = fixture();
     game.world_mut()
         .set_actor_value(id(0x900), "MarksmanModifier", 10.0)
         .unwrap();
-    let before = game.save_state().unwrap();
+    let result = game.melee_hit(hit(0x900, 0x901)).unwrap();
+    assert_eq!(result.weapon_damage, 10.0);
+    assert_eq!(result.health_damage, 10.0);
+}
+
+#[test]
+fn cmb_15_perk_actor_value_modifiers_scale_outgoing_and_incoming_damage() {
+    let mut outgoing = fixture_with_perks(vec![modifier_perk(0xB10, 35, 96, 0.01)]);
+    outgoing
+        .world_mut()
+        .set_actor_value(id(0x900), "onehandedmodifier", 20.0)
+        .unwrap();
+    outgoing
+        .world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .perks
+        .insert(id(0xB10));
+    let outgoing_result = outgoing.melee_hit(hit(0x900, 0x901)).unwrap();
+    assert_eq!(outgoing_result.weapon_damage, 12.0);
+    assert_eq!(outgoing_result.health_damage, 12.0);
+
+    let mut incoming = fixture_with_perks(vec![modifier_perk(0xB11, 36, 102, -0.01)]);
+    incoming
+        .world_mut()
+        .set_actor_value(id(0x901), "lightarmormodifier", 20.0)
+        .unwrap();
+    incoming
+        .world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .perks
+        .insert(id(0xB11));
+    let incoming_result = incoming.melee_hit(hit(0x900, 0x901)).unwrap();
+    assert_eq!(incoming_result.weapon_damage, 8.0);
+    assert_eq!(incoming_result.health_damage, 8.0);
+}
+
+#[test]
+fn cmb_15_perk_modifier_does_not_bypass_equipment_validation() {
+    let mut game = fixture_with_perks(vec![modifier_perk(0xB10, 35, 96, 0.01)]);
+    game.world_mut()
+        .set_actor_value(id(0x900), "onehandedmodifier", 20.0)
+        .unwrap();
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .perks
+        .insert(id(0xB10));
+    game.world_mut()
+        .reference(id(0x900))
+        .unwrap()
+        .inventory
+        .clear();
+    let health = game.world_mut().actor_value(id(0x901), "health");
     assert!(matches!(
         game.melee_hit(hit(0x900, 0x901)),
-        Err(Error::Unsupported("combat actor-value multipliers"))
+        Err(Error::Equipment)
     ));
-    assert_eq!(game.save_state().unwrap(), before);
+    assert_eq!(game.world_mut().actor_value(id(0x901), "health"), health);
 }

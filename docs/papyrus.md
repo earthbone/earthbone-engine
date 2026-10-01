@@ -143,6 +143,10 @@ recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
 `defer()` to allocate a latent id.
 
+`NativeRegistry::method_bindings` and `global_bindings` return sorted,
+lowercase `(class, name)` pairs for registered bindings. The game crate uses
+these read-only views to audit native contracts.
+
 **Base classes.** `create_object_of(name, class)` gives an object a class
 with no script attached, and `NativeCall::create_object` does the same from
 inside a native. Method lookup falls through the attached scripts to that
@@ -170,6 +174,11 @@ of an identifier or string operand for the name slots without a lookup. The
 first `start` of the installed game reached 63 natives through 1,095 calls
 after the fix and none before it. `NativeRegistry::calls` counts calls per
 `class.function` so a host can see which natives real scripts hit.
+
+`NativeRegistry::method_bindings` and `global_bindings` expose read-only
+iterators over the registered keys, normalized to lowercase. The game crate
+uses the method and global iterators to compare its Cell and `Clear` inventory
+against the local Creation Kit contract corpus.
 
 **Redeclared natives.** `Alias.pex` declares `RegisterForUpdate` and its
 relatives as natives of its own, `ReferenceAlias.pex` declares `GetReference`,
@@ -208,6 +217,19 @@ method on `None`, indexing outside an array, dividing by zero and unknown
 functions all take that path. The stack depth limit is 128 frames and a
 runaway recursion is logged and the thread dropped. Only host API misuse
 returns `VmError`.
+
+**Script profiling.** `Debug.StartScriptProfiling` and
+`Debug.StopScriptProfiling` select a script by name. The matching script's
+function entries are counted and elapsed time around each executed VM
+instruction is summed per function. `Debug.StartStackProfiling` and
+`Debug.StopStackProfiling` apply the same counters to the calling VM thread.
+Stopping writes Chrome trace JSON events with function names, summed
+instruction time in the trace's microsecond duration and exact nanoseconds in
+each event's `duration_ns` argument. The call count is in `calls`. Perfetto and
+`chrome://tracing` read the output. The host may set
+`Vm::set_profile_directory`. Otherwise `SOE_PROFILE_DIR` is used, falling back
+to `logs/Script/Profiling`. Profiling requests are transient and are not part
+of saved VM state.
 
 **Values.** Strings compare without case, numbers compare across int and
 float, arrays are shared references compared by identity, objects compare by
@@ -364,8 +386,11 @@ and clears the live objects and threads. `save_state` returns those bytes
 unchanged while parked, and the scheduler executes no work. Loading definitions
 retries restoration.
 The state becomes live only when all named scripts and frame functions resolve.
-The parked state keeps array identity, frames, latent waiters and pending return
-destinations without substituting null values.
+Each retry parses into temporary tables and installs them together, so an
+incompatible definition cannot leave a partial object or thread set. The parked
+state keeps array identity, frames, latent waiters and pending return
+destinations without substituting null values. Successful restoration clears
+the parked bytes once, so later script loads do not install duplicate threads.
 
 The save crate supplies the vanilla slot-to-name adapter and converts decoded
 active frames into VM frames after object identities and instances are mapped.
@@ -441,8 +466,12 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
   scripts. `Is` checks object classes and attached script inheritance. Struct
   creation uses the declared PEX member defaults, member writes enforce the
   member type and const flag, and invalid field operands log an error without
-  changing the struct. The remaining Fallout 4 array mutators still abort the
-  thread with the line number when executed. Skyrim never emits these opcodes.
+  changing the struct. `Is` requires a Bool destination and identifier type
+  operand. Struct get and set require a nonempty string member operand, and a
+  get destination must have the declared member type. Invalid operands log an
+  error and yield the opcode's default result where it has a destination. The
+  remaining Fallout 4 array mutators still abort the thread with the line
+  number when executed. Skyrim never emits these opcodes.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was

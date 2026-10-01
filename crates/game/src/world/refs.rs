@@ -26,6 +26,143 @@ pub struct RefPlacement {
 }
 
 impl World {
+    /// Set whether host actor presentation should apply foot inverse kinematics.
+    pub fn set_debug_foot_ik(&mut self, enabled: bool) {
+        self.debug_foot_ik = enabled;
+    }
+
+    /// Return the foot inverse kinematics setting requested by Papyrus.
+    #[must_use]
+    pub fn debug_foot_ik(&self) -> bool {
+        self.debug_foot_ik
+    }
+
+    /// Request a development position marker for a loaded reference.
+    pub fn show_debug_ref_position(&mut self, id: GlobalFormId) -> bool {
+        if self.reference(id).is_none() {
+            return false;
+        }
+        self.debug_ref_positions.insert(id);
+        true
+    }
+
+    /// Return development references whose positions were requested for display.
+    #[must_use]
+    pub fn debug_ref_positions(&self) -> Vec<GlobalFormId> {
+        self.debug_ref_positions.iter().copied().collect()
+    }
+
+    /// Move the player to a placed reference and update the active cell.
+    pub fn debug_player_move_to_reference(&mut self, target: GlobalFormId) -> bool {
+        let player = self.player();
+        let Some((position, rotation, cell)) = self
+            .reference(target)
+            .map(|reference| (reference.position, reference.rotation, reference.cell))
+        else {
+            return false;
+        };
+        let Some(player_state) = self.reference(player) else {
+            return false;
+        };
+        player_state.position = position;
+        player_state.rotation = rotation;
+        player_state.cell = cell;
+        if self.loaded_cell != cell {
+            self.change_cell(cell);
+        }
+        true
+    }
+
+    /// Move the player to the origin of a cell selected by editor id.
+    pub fn debug_player_move_to_cell(&mut self, editor_id: &str) -> bool {
+        let Some(cell) = self.cell_by_editor_id(editor_id) else {
+            return false;
+        };
+        if self.tag_of(cell).is_none_or(|tag| tag != T(b"CELL")) {
+            return false;
+        }
+        let player = self.player();
+        let Some(reference) = self.reference(player) else {
+            return false;
+        };
+        reference.position = [0.0; 3];
+        reference.cell = Some(cell);
+        if self.loaded_cell != Some(cell) {
+            self.change_cell(Some(cell));
+        }
+        true
+    }
+
+    /// Find a placed actor or reference with a matching base inside a radius.
+    /// Record-backed references are read without constructing runtime state,
+    /// while already instantiated references use their current position and
+    /// enabled state.
+    pub fn find_reference_of_base(
+        &mut self,
+        base: Option<GlobalFormId>,
+        center: [f32; 3],
+        radius: f32,
+        actors_only: bool,
+        random: bool,
+    ) -> Option<GlobalFormId> {
+        if !center.iter().all(|value| value.is_finite()) || !radius.is_finite() || radius < 0.0 {
+            return None;
+        }
+
+        let radius_squared = radius * radius;
+        let mut candidates: Vec<_> = self
+            .order
+            .winners_of(T(b"ACHR"))
+            .map(|(id, _)| id)
+            .chain(self.order.winners_of(T(b"REFR")).map(|(id, _)| id))
+            .chain(self.refs.keys().copied())
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+
+        let mut matches = Vec::new();
+        for id in candidates {
+            let Some(state) = self
+                .refs
+                .get(&id)
+                .cloned()
+                .or_else(|| self.load_ref_record(id))
+            else {
+                continue;
+            };
+            if !state.enabled || state.deleted || (actors_only && !state.is_actor) {
+                continue;
+            }
+            if base.is_some_and(|expected| state.base != Some(expected)) {
+                continue;
+            }
+            let distance_squared = state
+                .position
+                .iter()
+                .zip(center)
+                .map(|(position, origin)| (position - origin).powi(2))
+                .sum::<f32>();
+            if distance_squared.is_finite() && distance_squared <= radius_squared {
+                matches.push((id, distance_squared));
+            }
+        }
+
+        if matches.is_empty() {
+            return None;
+        }
+        if random {
+            return Some(matches[(self.random_u64() % matches.len() as u64) as usize].0);
+        }
+        matches
+            .into_iter()
+            .min_by(|(left_id, left_distance), (right_id, right_distance)| {
+                left_distance
+                    .total_cmp(right_distance)
+                    .then_with(|| left_id.cmp(right_id))
+            })
+            .map(|(id, _)| id)
+    }
+
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let mut st = self.load_ref_record(id)?;
         if let Some(base) = st.base {
@@ -56,6 +193,7 @@ impl World {
             b"REFR" => {
                 let r = Refr::from_record(rec).ok()?;
                 let mut st = RefState::new(Some(self.order.resolve(file, r.base)));
+                st.opened = rec.find(T(b"ONAM")).is_some();
                 if let Some(t) = r.transform {
                     st.position = t.position;
                     st.rotation = t.rotation;
@@ -530,12 +668,28 @@ impl World {
     }
 
     pub fn move_to(&mut self, id: GlobalFormId, target: GlobalFormId, offset: [f32; 3]) -> bool {
-        let Some((pos, cell)) = self.reference(target).map(|t| (t.position, t.cell)) else {
+        self.move_to_with_rotation(id, target, offset, true)
+    }
+
+    pub fn move_to_with_rotation(
+        &mut self,
+        id: GlobalFormId,
+        target: GlobalFormId,
+        offset: [f32; 3],
+        match_rotation: bool,
+    ) -> bool {
+        let Some((pos, rotation, cell)) = self
+            .reference(target)
+            .map(|t| (t.position, t.rotation, t.cell))
+        else {
             return false;
         };
         match self.reference(id) {
             Some(r) => {
                 r.position = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];
+                if match_rotation {
+                    r.rotation = rotation;
+                }
                 r.cell = cell;
                 true
             }
@@ -558,6 +712,33 @@ impl World {
             }
             None => false,
         }
+    }
+
+    /// Reset a reference to its winning record state and base inventory.
+    /// An optional loaded target supplies the destination position and cell.
+    /// Actor faction and relationship state lives outside `RefState` and is
+    /// retained, while actors are resurrected.
+    pub fn reset_reference(&mut self, id: GlobalFormId, target: Option<GlobalFormId>) -> bool {
+        let Some(mut fresh) = self.load_ref(id) else {
+            return false;
+        };
+        let destination = if fresh.cell.is_some_and(|cell| self.cell_is_resident(cell)) {
+            target
+                .and_then(|target| self.reference(target))
+                .map(|target| (target.position, target.cell))
+        } else {
+            None
+        };
+        if let Some((position, cell)) = destination {
+            fresh.position = position;
+            fresh.cell = cell;
+        }
+        let is_actor = fresh.is_actor;
+        self.refs.insert(id, fresh);
+        if is_actor {
+            let _ = self.resurrect_actor(id);
+        }
+        true
     }
 
     pub fn distance(&mut self, a: GlobalFormId, b: GlobalFormId) -> f32 {
@@ -596,6 +777,9 @@ impl World {
         defer_unload: bool,
         alloc: Alloc<'_>,
     ) -> bool {
+        if self.is_ethereal(activator) {
+            return false;
+        }
         let Some((blocked, base, teleport)) = self
             .reference(target)
             .map(|r| (r.activation_blocked, r.base, r.teleport))

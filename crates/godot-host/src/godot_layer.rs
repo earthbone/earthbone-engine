@@ -29,7 +29,9 @@ use godot::classes::{
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
-use crate::batch::{batch_surfaces, instancing_candidates, BatchMember, InstanceGroup};
+use crate::batch::{
+    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
+};
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
 };
@@ -42,6 +44,13 @@ use crate::units::{
     SkyrimPos,
 };
 use soe_physics::{Iso, Vec3};
+
+fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
+    let encoded = u64::try_from(encoded).ok()?;
+    let file = u16::try_from(encoded >> 32).ok()?;
+    let object = u32::try_from(encoded & 0xffff_ffff).ok()?;
+    (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
+}
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
@@ -71,18 +80,27 @@ pub struct CellStreamerNode {
     /// benchmark compares against.
     #[export]
     batch_surfaces: bool,
+    /// Add one server-side occluder from the four largest opaque surfaces
+    /// in each cell. Godot versions without 3D occluder server methods skip it.
+    #[export]
+    cell_occluders: bool,
     streamer: Option<CellStreamer>,
     /// Set by `load_data`. `stream_cell` needs this before it can read a
     /// real cell, the synthetic streaming above never touches it.
     data_source: Option<Arc<DataSource>>,
+    chargen_cache: crate::data_source::ChargenCache,
     data_load: Option<JoinHandle<Result<DataSource, crate::data_source::DataSourceError>>>,
     /// One entry per `RenderingServer` instance `stream_cell` or
     /// `stream_exterior` created, in creation order. The scene tree never
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// The occlusion mesh and instance RIDs owned by each streamed cell.
+    occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Point lights for active magic effects that placed LIGH references.
+    runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -104,6 +122,8 @@ pub struct CellStreamerNode {
     /// without re-resolving `get_world_3d` itself.
     collision_space: Option<Rid>,
     collision_cell: Option<GlobalFormId>,
+    /// Host joints between linked references, released with either endpoint.
+    tethers: crate::godot_tether::TetherConstraints,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -163,6 +183,12 @@ struct Instance {
     arrays: SurfaceArrays,
 }
 
+struct CellOccluder {
+    cell: GlobalFormId,
+    instance: Rid,
+    mesh: Rid,
+}
+
 /// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
 /// with the placement already baked into its vertices, or a `MultiMesh`
 /// sharing one local-space `ArrayMesh` across a `Transform3D` per placement.
@@ -188,7 +214,42 @@ struct EffectShaderInstance {
     mesh: Gd<SphereMesh>,
     material: Gd<StandardMaterial3D>,
     remaining: Option<f32>,
+    elapsed: f32,
+    color_alpha: f32,
+    fade: [f32; 4],
     cell: Option<GlobalFormId>,
+}
+
+/// One runtime light attached to a RenderingServer scenario, without a node.
+struct RuntimeLight {
+    light: Rid,
+    instance: Rid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LightRenderData {
+    radius: f32,
+    color: [f32; 3],
+    negative: bool,
+}
+
+fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
+    if record.tag != soe_esm::Tag::new(b"LIGH") {
+        return None;
+    }
+    let data = record.find(soe_esm::Tag::new(b"DATA"))?;
+    if data.len() < 48 {
+        return None;
+    }
+    let radius = u32::from_le_bytes(data[4..8].try_into().ok()?) as f32;
+    if !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    Some(LightRenderData {
+        radius: radius * crate::units::METRES_PER_UNIT,
+        color: [data[8], data[9], data[10]].map(|channel| f32::from(channel) / 255.0),
+        negative: u32::from_le_bytes(data[12..16].try_into().ok()?) & (1 << 2) != 0,
+    })
 }
 
 impl Drop for CellStreamerNode {
@@ -314,11 +375,15 @@ impl INode3D for CellStreamerNode {
             max_unloads_per_tick: d.max_unloads_per_tick as i32,
             focus: None,
             batch_surfaces: true,
+            cell_occluders: false,
             streamer: None,
             data_source: None,
+            chargen_cache: crate::data_source::ChargenCache::default(),
             data_load: None,
             instances: Vec::new(),
+            occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -327,6 +392,7 @@ impl INode3D for CellStreamerNode {
             last_collision_stats: VarDictionary::new(),
             collision_space: None,
             collision_cell: None,
+            tethers: crate::godot_tether::TetherConstraints::default(),
             ref_cache: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
@@ -339,9 +405,12 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.clear_terrain_lod();
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.ref_cache.clear();
@@ -367,6 +436,23 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.grab_movable_reference(reference)
+    }
+
+    pub(crate) fn move_telekinesis_reference(
+        &mut self,
+        reference: GlobalFormId,
+        position: [f32; 3],
+    ) -> bool {
+        self.collision.grabbed_reference() == Some(reference)
+            && self.collision.move_grabbed_reference(position)
+    }
+
+    pub(crate) fn release_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.release_movable_reference(reference)
+    }
+
     /// Apply queued game requests and advance finite shader durations.
     pub(crate) fn sync_effect_shaders(
         &mut self,
@@ -401,6 +487,7 @@ impl CellStreamerNode {
             );
             if let Some(effect) = self.effect_shaders.get_mut(&key) {
                 effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.elapsed = 0.0;
                 effect.cell = world
                     .reference_ref(request.target)
                     .and_then(|reference| reference.cell);
@@ -413,9 +500,32 @@ impl CellStreamerNode {
             let mut material = StandardMaterial3D::new_gd();
             material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
             material.set_transparency(Transparency::ALPHA);
-            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            let color = request.appearance.color;
+            let color_alpha = f32::from(color[3]) / 255.0;
+            material.set_albedo(Color::from_rgba(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+                color_alpha,
+            ));
             material.set_feature(Feature::EMISSION, true);
-            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            material.set_emission(Color::from_rgb(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+            ));
+            if let (Some(source), Some(path)) = (
+                self.data_source.as_ref(),
+                request.appearance.fill_texture.as_deref(),
+            ) {
+                if let Some(texture) = source
+                    .effect_shader_texture(path)
+                    .and_then(|texture| image_texture_from(&texture))
+                {
+                    material.set_texture(TextureParam::ALBEDO, &texture);
+                }
+            }
+            material.set_blend_mode(effect_blend_mode(request.appearance.blend));
             let rid = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
@@ -426,6 +536,9 @@ impl CellStreamerNode {
                     mesh,
                     material,
                     remaining: (request.duration >= 0.0).then_some(request.duration),
+                    elapsed: 0.0,
+                    color_alpha,
+                    fade: request.appearance.fade,
                     cell: world
                         .reference_ref(request.target)
                         .and_then(|reference| reference.cell),
@@ -448,6 +561,13 @@ impl CellStreamerNode {
                 Vector3::new(position.x, position.y, position.z),
             );
             server.instance_set_transform(effect.rid, transform);
+            effect.elapsed += delta.max(0.0);
+            let alpha =
+                effect.color_alpha * effect_alpha(effect.elapsed, effect.remaining, effect.fade);
+            let color = effect.material.get_albedo();
+            effect
+                .material
+                .set_albedo(Color::from_rgba(color.r, color.g, color.b, alpha));
             effect.cell = world
                 .reference_ref(*target)
                 .and_then(|reference| reference.cell);
@@ -507,6 +627,7 @@ impl CellStreamerNode {
                 true
             }
         });
+        self.free_departed_occluders(departed);
         self.bounds = self
             .instances
             .iter()
@@ -549,9 +670,22 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        let stale_tethers: Vec<_> = self
+            .tether_endpoints()
+            .into_iter()
+            .filter(|id| {
+                world
+                    .ref_placement(*id)
+                    .is_none_or(|placement| !placement.visible)
+            })
+            .collect();
+        for id in stale_tethers {
+            self.tethers.release_reference(id);
+        }
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
+            self.collision.apply_reference_physics_requests(world);
             self.collision.poll_movable(world);
         }
         let mut changed = std::collections::HashSet::new();
@@ -560,7 +694,9 @@ impl CellStreamerNode {
                 return;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
-            let key = (placement.visible, iso);
+            let visible =
+                placement.visible && !crate::godot_physics::is_opened_door(world, reference);
+            let key = (visible, iso);
             if self.ref_cache.insert(reference, key) != Some(key) {
                 changed.insert(reference);
             }
@@ -580,6 +716,7 @@ impl CellStreamerNode {
             }
         }
         let mut server = RenderingServer::singleton();
+        self.sync_runtime_lights(world, &mut server);
         for instance in &mut self.instances {
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
@@ -594,11 +731,9 @@ impl CellStreamerNode {
                         if !changed.contains(reference) {
                             continue;
                         }
-                        let scale = if placement.visible {
-                            placement.scale
-                        } else {
-                            0.0
-                        };
+                        let visible = placement.visible
+                            && !crate::godot_physics::is_opened_door(world, *reference);
+                        let scale = if visible { placement.scale } else { 0.0 };
                         let transform =
                             placement_to_godot(target.rotation.rows, placement.position, scale);
                         multi.set_instance_transform(index as i32, transform3d_from(transform));
@@ -617,7 +752,9 @@ impl CellStreamerNode {
                 if changed.contains(&member.reference) {
                     touched = true;
                 }
-                targets.push((index, placement.visible, target_iso));
+                let visible = placement.visible
+                    && !crate::godot_physics::is_opened_door(world, member.reference);
+                targets.push((index, visible, target_iso));
             }
             if !touched {
                 continue;
@@ -635,6 +772,143 @@ impl CellStreamerNode {
             server.instance_set_base(instance.rid, new_mesh.get_rid());
             instance.mesh = InstanceMesh::Array(new_mesh);
         }
+    }
+
+    fn tether_endpoints(&self) -> Vec<GlobalFormId> {
+        self.tethers.endpoints()
+    }
+
+    fn sync_runtime_lights(&mut self, world: &soe_game::World, server: &mut Gd<RenderingServer>) {
+        let mut active: Vec<_> = world
+            .active_effects()
+            .filter_map(|effect| effect.summoned)
+            .filter(|reference| {
+                world
+                    .reference_ref(*reference)
+                    .and_then(|reference| reference.base)
+                    .and_then(|base| world.record(base))
+                    .is_some_and(|record| light_render_data(record).is_some())
+            })
+            .collect();
+        active.sort_unstable();
+        let active: std::collections::HashSet<_> = active.into_iter().collect();
+        self.runtime_lights.retain(|reference, light| {
+            if active.contains(reference)
+                && world
+                    .ref_placement(*reference)
+                    .is_some_and(|placement| placement.visible)
+            {
+                return true;
+            }
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+            false
+        });
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        for reference in active {
+            let Some(placement) = world
+                .ref_placement(reference)
+                .filter(|placement| placement.visible)
+            else {
+                continue;
+            };
+            let Some(base) = world.reference_ref(reference).and_then(|value| value.base) else {
+                continue;
+            };
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY,
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(light) = self.runtime_lights.get(&reference) {
+                server.instance_set_transform(light.instance, transform);
+                continue;
+            }
+            let light = server.omni_light_create();
+            server.light_set_color(
+                light,
+                Color::from_rgb(render.color[0], render.color[1], render.color[2]),
+            );
+            server.light_set_param(
+                light,
+                godot::classes::rendering_server::LightParam::RANGE,
+                render.radius,
+            );
+            server.light_set_negative(light, render.negative);
+            let instance = server.instance_create2(light, scenario);
+            server.instance_set_transform(instance, transform);
+            self.runtime_lights
+                .insert(reference, RuntimeLight { light, instance });
+        }
+    }
+
+    fn free_runtime_lights(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, light) in self.runtime_lights.drain() {
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+        }
+    }
+}
+
+fn effect_alpha(elapsed: f32, remaining: Option<f32>, fade: [f32; 4]) -> f32 {
+    let [fade_in, full_alpha_time, fade_out, persistent_ratio] = fade;
+    let fade_in_alpha = if fade_in > 0.0 {
+        (elapsed / fade_in).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let peak = if full_alpha_time > 0.0 && elapsed > fade_in + full_alpha_time {
+        persistent_ratio.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let fade_out_alpha = remaining.map_or(1.0, |left| {
+        if fade_out > 0.0 && left < fade_out {
+            (left / fade_out).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    });
+    fade_in_alpha.min(peak) * fade_out_alpha
+}
+
+fn effect_blend_mode(blend: (u32, u32)) -> godot::classes::base_material_3d::BlendMode {
+    use godot::classes::base_material_3d::BlendMode;
+    match blend {
+        (2 | 5, 2) | (2, 5) => BlendMode::ADD,
+        (2, 0) => BlendMode::MUL,
+        _ => BlendMode::MIX,
+    }
+}
+
+#[cfg(test)]
+mod mag_14_tests {
+    use super::{effect_alpha, effect_blend_mode};
+    use godot::classes::base_material_3d::BlendMode;
+
+    #[test]
+    fn mag_14_authored_fade_in_and_persistent_alpha_are_applied() {
+        assert_eq!(effect_alpha(0.0, None, [2.0, 1.0, 0.0, 0.25]), 0.0);
+        assert_eq!(effect_alpha(1.0, None, [2.0, 1.0, 0.0, 0.25]), 0.5);
+        assert_eq!(effect_alpha(4.0, None, [2.0, 1.0, 0.0, 0.25]), 0.25);
+    }
+
+    #[test]
+    fn mag_14_authored_blend_values_select_host_blend_mode() {
+        assert_eq!(effect_blend_mode((5, 6)), BlendMode::MIX);
+        assert_eq!(effect_blend_mode((2, 2)), BlendMode::ADD);
+        assert_eq!(effect_blend_mode((2, 0)), BlendMode::MUL);
     }
 }
 
@@ -673,6 +947,43 @@ impl CellStreamerNode {
         }
     }
 
+    /// Creates the cart-to-horse host pin joint once both rigid bodies are
+    /// resident. This node owns the joint RID and frees it with either form.
+    #[func]
+    pub fn tether_bodies(
+        &mut self,
+        cart_form: i64,
+        horse_form: i64,
+        cart_body: Rid,
+        horse_body: Rid,
+        cart_pivot: Vector3,
+        horse_pivot: Vector3,
+    ) -> bool {
+        let Some(cart) = tether_form_id(cart_form) else {
+            return false;
+        };
+        let Some(horse) = tether_form_id(horse_form) else {
+            return false;
+        };
+        self.tethers
+            .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot)
+    }
+
+    /// Explicitly removes every tether touching a reference.
+    #[func]
+    pub fn untether_reference(&mut self, file: i32, object: i64) -> i32 {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return 0;
+        };
+        self.tethers
+            .release_reference(GlobalFormId { file, object }) as i32
+    }
+
+    #[func]
+    pub fn tether_count(&self) -> i32 {
+        self.tethers.link_count() as i32
+    }
+
     #[func]
     pub fn resident_count(&self) -> i32 {
         self.streamer
@@ -685,6 +996,59 @@ impl CellStreamerNode {
         self.streamer
             .as_ref()
             .is_some_and(|s| s.is_resident(CellCoord::new(cell_x, cell_y)))
+    }
+
+    /// Load race menu head part models and chargen morph files into the host cache.
+    pub fn precache_chargen(&mut self, game: &soe_game::Game) -> bool {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamer: chargen cache requires loaded game data");
+            return false;
+        };
+        match crate::data_source::ChargenCache::load(source, game) {
+            Ok(cache) => {
+                self.chargen_cache = cache;
+                true
+            }
+            Err(error) => {
+                godot_error!("CellStreamer: precaching chargen data failed: {error}");
+                false
+            }
+        }
+    }
+
+    /// Release race menu models and morph files retained by `precache_chargen`.
+    pub fn precache_chargen_clear(&mut self) {
+        self.chargen_cache.clear();
+    }
+
+    /// Number of retained chargen asset files, for stream residency diagnostics.
+    #[func]
+    pub fn chargen_resident_count(&self) -> i32 {
+        self.chargen_cache.file_count() as i32
+    }
+
+    /// Number of retained chargen TRI morph files.
+    #[func]
+    pub fn chargen_morph_count(&self) -> i32 {
+        self.chargen_cache.morph_count() as i32
+    }
+
+    /// Number of retained chargen NIF model files.
+    #[func]
+    pub fn chargen_model_count(&self) -> i32 {
+        self.chargen_cache.model_count() as i32
+    }
+
+    /// Number of chargen asset paths absent from the active data VFS.
+    #[func]
+    pub fn chargen_missing_count(&self) -> i32 {
+        self.chargen_cache.missing_count() as i32
+    }
+
+    /// Retained chargen asset bytes, for stream memory diagnostics.
+    #[func]
+    pub fn chargen_resident_bytes(&self) -> i64 {
+        self.chargen_cache.resident_bytes() as i64
     }
 
     /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and
@@ -790,13 +1154,90 @@ impl CellStreamerNode {
                 return -1;
             }
         };
+        self.draw_editor_cell(cell_id, &loaded, &editor_id.to_string(), false)
+    }
+
+    /// Rows for the editor's worldspace and cell tree. Each row carries a
+    /// resolved cell id so duplicate editor ids remain individually selectable.
+    #[func]
+    pub fn editor_cell_tree(&self) -> Array<VarDictionary> {
+        let mut rows = Array::new();
+        let Some(source) = self.data_source.as_ref() else {
+            return rows;
+        };
+        for cell in source.editor_cells() {
+            let mut row = VarDictionary::new();
+            row.set("id", cell.id.as_str());
+            row.set("name", cell.name.as_str());
+            row.set("world_id", cell.world_id.as_deref().unwrap_or(""));
+            row.set("world_name", cell.world_name.as_deref().unwrap_or(""));
+            row.set("interior", cell.interior);
+            row.set("x", cell.x.unwrap_or_default());
+            row.set("y", cell.y.unwrap_or_default());
+            row.set("references", cell.references as i64);
+            rows.push(&row);
+        }
+        rows
+    }
+
+    /// Clears the shared scene view and opens the selected cell by resolved
+    /// form id. This avoids ambiguous editor ids and uses the same cell loader
+    /// as `stream_cell`.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn open_cell_id(&mut self, cell_form_id: GString) -> i32 {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamerNode::open_cell_id: load_data was not called");
+            return -1;
+        };
+        let Some((file, object)) =
+            cell_form_id
+                .to_string()
+                .split_once(':')
+                .and_then(|(file, object)| {
+                    Some((
+                        file.parse::<u16>().ok()?,
+                        u32::from_str_radix(object, 16).ok()?,
+                    ))
+                })
+        else {
+            return -1;
+        };
+        let cell_id = GlobalFormId { file, object };
+        let order = source.shared_order();
+        let Some(record) = order.winner(cell_id) else {
+            return -1;
+        };
+        if record.tag != soe_esm::tag::CELL {
+            return -1;
+        }
+        let loaded = match source.stream_cell_id(cell_id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                godot_error!("CellStreamerNode::open_cell_id: {e}");
+                return -1;
+            }
+        };
+        self.draw_editor_cell(cell_id, &loaded, &cell_form_id.to_string(), true)
+    }
+
+    fn draw_editor_cell(
+        &mut self,
+        cell_id: GlobalFormId,
+        loaded: &LoadedCell,
+        label: &str,
+        replace: bool,
+    ) -> i32 {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        if replace {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals::default();
-        totals.cell_list.push(editor_id.to_string());
-        self.add_cell(cell_id, &loaded, scenario, &mut totals);
+        totals.cell_list.push(label.to_owned());
+        self.add_cell(cell_id, loaded, scenario, &mut totals);
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
     }
@@ -898,6 +1339,30 @@ impl CellStreamerNode {
         out
     }
 
+    /// Terrain surfaces currently submitted to the RenderingServer, with
+    /// their RID and cached material for host-side visual checks.
+    #[func]
+    pub fn terrain_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let Some(path) = instance.arrays.material.diffuse.as_deref() else {
+                continue;
+            };
+            if !path.starts_with("terrain:") {
+                continue;
+            }
+            let key = crate::mesh::MaterialKey::from(&instance.arrays.material);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {
@@ -980,6 +1445,7 @@ impl CellStreamerNode {
             server.free_rid(instance.rid);
             drop(instance.mesh);
         }
+        self.free_departed_occluders(&[owner]);
         self.bounds = self
             .instances
             .iter()
@@ -1435,10 +1901,13 @@ impl CellStreamerNode {
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
+        self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
@@ -1486,6 +1955,9 @@ impl CellStreamerNode {
     ) {
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
+        if self.cell_occluders {
+            self.add_cell_occluder(cell, &loaded.surfaces, scenario);
+        }
         let (groups, remainder) = instancing_candidates(&loaded.surfaces);
         for group in &groups {
             self.add_multimesh(cell, group, scenario);
@@ -1612,6 +2084,58 @@ impl CellStreamerNode {
         for instance in self.instances.drain(..) {
             server.free_rid(instance.rid);
             drop(instance.mesh);
+        }
+    }
+
+    fn add_cell_occluder(&mut self, cell: GlobalFormId, surfaces: &[LoadedSurface], scenario: Rid) {
+        let mut server = RenderingServer::singleton();
+        if !server.has_method("occluder_create") || !server.has_method("occluder_set_mesh") {
+            return;
+        }
+        let (vertices, indices) = cell_occluder_mesh(surfaces);
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+        let packed_vertices: PackedVector3Array = vertices
+            .into_iter()
+            .map(|p| Vector3::new(p[0], p[1], p[2]))
+            .collect();
+        let packed_indices: PackedInt32Array = indices.into_iter().collect();
+        let mesh: Rid = server.call("occluder_create", &[]).to();
+        let mesh_args = [
+            mesh.to_variant(),
+            packed_vertices.to_variant(),
+            packed_indices.to_variant(),
+        ];
+        server.call("occluder_set_mesh", &mesh_args);
+        let instance_args = [mesh.to_variant(), scenario.to_variant()];
+        let instance: Rid = server.call("instance_create2", &instance_args).to();
+        server.instance_set_transform(instance, Transform3D::IDENTITY);
+        self.occluders.push(CellOccluder {
+            cell,
+            instance,
+            mesh,
+        });
+    }
+
+    fn free_departed_occluders(&mut self, departed: &[GlobalFormId]) {
+        let mut server = RenderingServer::singleton();
+        self.occluders.retain(|occluder| {
+            if departed.contains(&occluder.cell) {
+                server.free_rid(occluder.instance);
+                server.free_rid(occluder.mesh);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_occluders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for occluder in self.occluders.drain(..) {
+            server.free_rid(occluder.instance);
+            server.free_rid(occluder.mesh);
         }
     }
 
@@ -2189,6 +2713,38 @@ fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
     let sky = direction_to_skyrim(d);
     let moved = delta.apply_direction(Vec3::new(sky[0], sky[1], sky[2]));
     direction_to_godot([moved.x, moved.y, moved.z])
+}
+
+#[cfg(test)]
+mod mag_35_runtime_light_tests {
+    use super::light_render_data;
+    use soe_esm::{Record, Tag};
+
+    fn light_record(radius: u32, color: [u8; 3], flags: u32) -> Record {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        data[8..11].copy_from_slice(&color);
+        data[12..16].copy_from_slice(&flags.to_le_bytes());
+        Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), data)
+    }
+
+    #[test]
+    fn mag_35_runtime_light_uses_authored_radius_color_and_negative_flag() {
+        let data = light_render_data(&light_record(700, [255, 128, 0], 1 << 2))
+            .expect("valid authored light data");
+        assert!((data.radius - 700.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert_eq!(data.color, [1.0, 128.0 / 255.0, 0.0]);
+        assert!(data.negative);
+    }
+
+    #[test]
+    fn mag_35_runtime_light_ignores_wrong_record_short_data_and_zero_radius() {
+        let wrong = Record::new(Tag::new(b"STAT"), 1).sub(Tag::new(b"DATA"), vec![0; 48]);
+        let short = Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), vec![0; 16]);
+        assert!(light_render_data(&wrong).is_none());
+        assert!(light_render_data(&short).is_none());
+        assert!(light_render_data(&light_record(0, [1, 2, 3], 0)).is_none());
+    }
 }
 
 /// A `MultiMesh` sharing `group`'s local-space geometry across a

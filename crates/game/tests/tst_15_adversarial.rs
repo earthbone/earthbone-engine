@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};
@@ -35,6 +34,7 @@ fn populated_world_section_uses_reader_measured_legacy_tail() {
     world.player_level = 73;
     let original = world.save_state();
     let mut bytes = original.clone();
+    legacy::empty_legacy_world_collections(&mut bytes, 36);
     let tail = legacy::truncate_to_version(&mut bytes, 36, |candidate| {
         fixture().0.load_state(candidate).is_ok()
     });
