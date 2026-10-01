@@ -4070,9 +4070,11 @@ the shared appearance view described below. SPID `Skin` distributions are
 selected before the NPC's direct skin and the race fallback when assembling an
 actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
-distribution is keyed by the NPC base and comes from the current load-time
-mod-data pass. Per-actor SPID lifecycle and deterministic seeding remain
-unsupported.
+load pass resolves distributions by NPC base. Deterministic SPID rules are
+evaluated as each actor is built, with the seed combining the parsed entry
+value, host-supplied save character ID and actor runtime FormID. The host sets
+this input with `World::set_player_character_id`. It is runtime metadata and
+is not serialized by the engine.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.

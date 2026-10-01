@@ -676,6 +676,8 @@ pub struct World {
     /// Host interaction results for the current rendered frame.
     crosshair_reference: Option<GlobalFormId>,
     grabbed_reference: Option<GlobalFormId>,
+    /// Save character ID used by deterministic SPID distribution rules.
+    player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
     /// Player training purchases used at the current character level.
@@ -823,6 +825,20 @@ pub struct BinkOptions {
 }
 
 impl World {
+    /// Set the current save character ID used by deterministic SPID rules.
+    ///
+    /// The host supplies the ID from the active save identity. New games use
+    /// zero until the host sets one.
+    pub fn set_player_character_id(&mut self, id: u64) {
+        self.player_character_id = id;
+    }
+
+    /// Return the current save character ID used by deterministic SPID rules.
+    #[must_use]
+    pub const fn player_character_id(&self) -> u64 {
+        self.player_character_id
+    }
+
     pub fn new(order: LoadOrder) -> World {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -877,6 +893,7 @@ impl World {
             player: None,
             crosshair_reference: None,
             grabbed_reference: None,
+            player_character_id: 0,
             player_level: 1,
             training_sessions_this_level: 0,
             training_session_level: 1,
