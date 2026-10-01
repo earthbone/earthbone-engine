@@ -136,6 +136,7 @@ values. Equip options outside the supported plain single-item operation are repo
 They do not call the Rust `World` or prove a live engine binding. `game` currently owns actor
 spell hands, active effects, reference map flags and inventory equipment, but this source-level
 shim has no bridge from C++ into that state.
+
 ## Live world views, SHM-16
 
 `soe-game` implements the MIT data-handler and reference traits over its winning-form table
@@ -182,7 +183,7 @@ The contracts follow the local alandtse CommonLibSSE-NG declarations in
 the handle width, player read shape, process actor collection and projectile
 type while adapting reads to engine-owned state.
 
-## Untested
+## Untested SHM-14 contracts and survey limits
 
 The SHM-01 and SHM-14 tests compile generated umbrella headers with a C++20 compiler and check
 C++ signatures for the Rust methods they project. SHM-14 also exercises player and process-list
