@@ -97,6 +97,17 @@ and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
 An essential attacker can still attack an ordinary target.
 
+Live Enhance Weapon effects (MGEF archetype 39) contribute their associated
+ENCH to ordinary equipped melee hits by their target actor. A single
+unconditioned ENCH Value Modifier entry for detrimental Health adds its
+magnitude, scaled by the active effect magnitude, to weapon damage before
+armor and resistance. The contribution is read while the active effect is
+live, so expiry stops it without changing weapon records or inventory stacks.
+Unarmed hits and attempts with unequipped weapons do not receive the
+contribution. Other ENCH effects, conditions and multiple entries are rejected
+before hit state changes. See [active magic](game.md#active-magic-applications),
+MAG-60.
+
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
 record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may
@@ -845,11 +856,13 @@ magnitude is that health damage scaled by the weapon's own DNAM Stagger
 fraction, `health_damage * weapon.stagger`. A hit above `fStaggerThreshold`
 sets `ActorState::stagger_end_time` to `World::clock.real_seconds` plus
 `fStaggerDuration`, the same real-time clock `ai::wait_until` uses for its
-own deadlines, not the calendar `game_days` clock. `World::is_staggered(id)`
-reads that deadline lazily against the current clock, mirroring the
-`is_player` and `is_reference` query methods rather than adding an active
-per-tick clear. `HitResult::staggered` reports whether this particular hit
-crossed the threshold.
+own deadlines, not the calendar `game_days` clock. A qualifying hit passes
+its computed magnitude and attacker as direction source to the shared
+stagger lifecycle, which retains them with the deadline.
+`World::is_staggered(id)` reads that deadline lazily against the current clock,
+mirroring the `is_player` and `is_reference` query methods rather than adding
+an active per-tick clear. `HitResult::staggered` reports whether this
+particular hit crossed the threshold.
 
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` WEAP definition places the
 Stagger float as DNAM's last field, the four bytes at offset 96 to 100 of

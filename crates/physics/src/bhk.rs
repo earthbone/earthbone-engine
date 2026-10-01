@@ -21,6 +21,8 @@ use crate::{Error, Result};
 /// for every bhk shape, OpenMW keeps the same constant.
 pub const UNITS_PER_METER: f32 = 69.991_25;
 
+const VERSION_10_1_0_0: u32 = 0x0A01_0000;
+
 /// Skyrim collision layers, the `Layer` byte of a HavokFilter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layer(pub u8);
@@ -104,6 +106,29 @@ pub struct SimpleShapePhantom {
     pub transform: Iso,
 }
 
+/// A decoded Skyrim SE `bhkLimitedHingeConstraint` in Havok metres and
+/// radians. Body references are NIF block indices.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitedHingeConstraint {
+    pub body_a: BlockRef,
+    pub body_b: BlockRef,
+    pub priority: u32,
+    pub axis_a: [f32; 4],
+    pub perpendicular_a1: [f32; 4],
+    pub perpendicular_a2: [f32; 4],
+    pub pivot_a: [f32; 4],
+    pub axis_b: [f32; 4],
+    pub perpendicular_b1: [f32; 4],
+    pub perpendicular_b2: [f32; 4],
+    pub pivot_b: [f32; 4],
+    pub min_angle: f32,
+    pub max_angle: f32,
+    pub max_friction: f32,
+    pub motor_type: u8,
+    /// Serialized motor fields, retained in their NIF byte representation.
+    pub motor_data: Vec<u8>,
+}
+
 impl RigidBody {
     /// The body's transform in its node's space, in Havok metres.
     pub fn local_transform(&self) -> Iso {
@@ -154,6 +179,7 @@ pub enum Bhk {
         body: BlockRef,
     },
     RigidBody(RigidBody),
+    LimitedHingeConstraint(LimitedHingeConstraint),
     SimpleShapePhantom(SimpleShapePhantom),
     Box {
         material: u32,
@@ -164,8 +190,22 @@ pub enum Bhk {
         material: u32,
         radius: f32,
     },
+    Plane {
+        material: u32,
+        normal: Vec3,
+        distance: f32,
+        half_extents: Vec3,
+        center: Vec3,
+    },
     Capsule {
         material: u32,
+        radius: f32,
+        first: Vec3,
+        second: Vec3,
+    },
+    Cylinder {
+        material: u32,
+        shell_radius: f32,
         radius: f32,
         first: Vec3,
         second: Vec3,
@@ -199,6 +239,14 @@ pub enum Bhk {
         radius: f32,
     },
     CompressedMeshData(CompressedMeshData),
+    /// `bhkNiTriStripsShape`, whose geometry lives in ordinary NIF
+    /// `NiTriStripsData` blocks.
+    NiTriStrips {
+        material: u32,
+        scale: Vec3,
+        strips: Vec<BlockRef>,
+        filters: Vec<(Layer, u8, u16)>,
+    },
     /// A bhk block this crate does not decode: constraints, other phantoms, the
     /// pre-Skyrim packed strips, the Fallout 4 family.
     Other(String),
@@ -220,6 +268,10 @@ fn vec4(s: &mut Stream<'_>) -> Result<Vec3> {
     let v = Vec3::new(s.f32()?, s.f32()?, s.f32()?);
     s.f32()?;
     Ok(v)
+}
+
+fn vec4_fields(s: &mut Stream<'_>) -> Result<[f32; 4]> {
+    Ok([s.f32()?, s.f32()?, s.f32()?, s.f32()?])
 }
 
 fn vec3(s: &mut Stream<'_>) -> Result<Vec3> {
@@ -255,7 +307,12 @@ fn matrix44(s: &mut Stream<'_>) -> Result<Iso> {
 
 /// bhkConvexShape prefix: material then the shell radius.
 fn convex_prefix(s: &mut Stream<'_>) -> Result<(u32, f32)> {
-    Ok((s.u32()?, s.f32()?))
+    let material = s.u32()?;
+    let radius = s.f32()?;
+    if !radius.is_finite() || radius < 0.0 {
+        return Err(Error::Invalid("convex shape radius".into()));
+    }
+    Ok((material, radius))
 }
 
 fn refs(s: &mut Stream<'_>) -> Result<Vec<BlockRef>> {
@@ -264,6 +321,7 @@ fn refs(s: &mut Stream<'_>) -> Result<Vec<BlockRef>> {
 }
 
 /// Decode one `Block::Collision` payload by its type name.
+#[allow(clippy::similar_names)]
 pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
     let _span = soe_trace::Span::with_payload("physics.bhk_decode", "physics", data.len() as u64);
     check_version(header)?;
@@ -285,6 +343,85 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         }
         "bhkRigidBody" | "bhkRigidBodyT" => {
             Bhk::RigidBody(rigid_body(s, type_name == "bhkRigidBodyT")?)
+        }
+        "bhkLimitedHingeConstraint" => {
+            if header.bs_version != soe_nif::header::BS_SKYRIM_SE {
+                return Err(Error::Unsupported(
+                    "bhkLimitedHingeConstraint layout is supported for Skyrim SE".into(),
+                ));
+            }
+            let entity_count = s.u32()?;
+            if entity_count != 2 {
+                return Err(Error::Invalid(format!(
+                    "limited hinge has {entity_count} entities, expected 2"
+                )));
+            }
+            let body_a = s.block_ref()?;
+            let body_b = s.block_ref()?;
+            if body_a.0 < BlockRef::NONE.0 || body_b.0 < BlockRef::NONE.0 {
+                return Err(Error::Invalid(
+                    "limited hinge body reference is below the no-block sentinel".into(),
+                ));
+            }
+            let priority = s.u32()?;
+            let axis_a = vec4_fields(s)?;
+            let perp_a_first = vec4_fields(s)?;
+            let perp_a_second = vec4_fields(s)?;
+            let pivot_a = vec4_fields(s)?;
+            let axis_b = vec4_fields(s)?;
+            let perp_b_first = vec4_fields(s)?;
+            let perp_b_second = vec4_fields(s)?;
+            let pivot_b = vec4_fields(s)?;
+            let min_angle = s.f32()?;
+            let max_angle = s.f32()?;
+            let max_friction = s.f32()?;
+            let motor_type = s.u8()?;
+            if ![
+                axis_a,
+                perp_a_first,
+                perp_a_second,
+                pivot_a,
+                axis_b,
+                perp_b_first,
+                perp_b_second,
+                pivot_b,
+            ]
+            .iter()
+            .all(|v| v.iter().all(|field| field.is_finite()))
+                || !min_angle.is_finite()
+                || !max_angle.is_finite()
+                || !max_friction.is_finite()
+                || max_friction < 0.0
+                || min_angle > max_angle
+            {
+                return Err(Error::Invalid("limited hinge data".into()));
+            }
+            let motor_data_len = match motor_type {
+                0 => 0,
+                1 => 25,
+                2 => 18,
+                3 => 17,
+                other => return Err(Error::Invalid(format!("limited hinge motor type {other}"))),
+            };
+            let motor_data = s.take(motor_data_len)?.to_vec();
+            Bhk::LimitedHingeConstraint(LimitedHingeConstraint {
+                body_a,
+                body_b,
+                priority,
+                axis_a,
+                perpendicular_a1: perp_a_first,
+                perpendicular_a2: perp_a_second,
+                pivot_a,
+                axis_b,
+                perpendicular_b1: perp_b_first,
+                perpendicular_b2: perp_b_second,
+                pivot_b,
+                min_angle,
+                max_angle,
+                max_friction,
+                motor_type,
+                motor_data,
+            })
         }
         "bhkSimpleShapePhantom" => {
             let shape = s.block_ref()?;
@@ -325,6 +462,63 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         "bhkSphereShape" => {
             let (material, radius) = convex_prefix(s)?;
             Bhk::Sphere { material, radius }
+        }
+        "bhkPlaneShape" => {
+            let material = s.u32()?;
+            skip(s, 12)?;
+            let normal = vec3(s)?;
+            let distance = s.f32()?;
+            let half_extents = vec4(s)?;
+            let center = vec4(s)?;
+            let normal_length = normal.length();
+            if !normal.is_finite()
+                || !normal_length.is_finite()
+                || normal_length <= f32::EPSILON
+                || !distance.is_finite()
+                || !(distance / normal_length).is_finite()
+                || !half_extents.is_finite()
+                || half_extents.x < 0.0
+                || half_extents.y < 0.0
+                || half_extents.z < 0.0
+                || !center.is_finite()
+                || !(center + half_extents).is_finite()
+                || !(center - half_extents).is_finite()
+            {
+                return Err(Error::Invalid("plane geometry".into()));
+            }
+            Bhk::Plane {
+                material,
+                normal,
+                distance,
+                half_extents,
+                center,
+            }
+        }
+        "bhkCylinderShape" => {
+            let (material, shell_radius) = convex_prefix(s)?;
+            skip(s, 8)?;
+            let first = vec4(s)?;
+            let second = vec4(s)?;
+            let radius = s.f32()?;
+            skip(s, 12)?;
+            let axis = second - first;
+            if !first.is_finite()
+                || !second.is_finite()
+                || !radius.is_finite()
+                || radius <= 0.0
+                || !axis.length().is_finite()
+                || axis.length() <= f32::EPSILON
+                || !(radius + shell_radius).is_finite()
+            {
+                return Err(Error::Invalid("cylinder geometry".into()));
+            }
+            Bhk::Cylinder {
+                material,
+                shell_radius,
+                radius,
+                first,
+                second,
+            }
         }
         "bhkCapsuleShape" => {
             let (material, radius) = convex_prefix(s)?;
@@ -404,6 +598,42 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
             }
         }
         "bhkCompressedMeshShapeData" => Bhk::CompressedMeshData(compressed_mesh_data(s)?),
+        "bhkNiTriStripsShape" => {
+            let material = s.u32()?;
+            let radius = s.f32()?;
+            if !radius.is_finite() || radius < 0.0 {
+                return Err(Error::Invalid("triangle strip shape radius".into()));
+            }
+            skip(s, 20)?;
+            s.u32()?;
+            let scale = if header.version >= VERSION_10_1_0_0 {
+                let scale = vec4(s)?;
+                if !scale.is_finite() {
+                    return Err(Error::Invalid("triangle strip shape scale".into()));
+                }
+                scale
+            } else {
+                Vec3::new(1.0, 1.0, 1.0)
+            };
+            let strips = refs(s)?;
+            let n = s.counted(4)?;
+            if n != strips.len() {
+                return Err(Error::Invalid(format!(
+                    "triangle strip shape has {} data blocks and {n} filters",
+                    strips.len()
+                )));
+            }
+            let mut filters = Vec::with_capacity(n);
+            for _ in 0..n {
+                filters.push(filter(s)?);
+            }
+            Bhk::NiTriStrips {
+                material,
+                scale,
+                strips,
+                filters,
+            }
+        }
         other => Bhk::Other(other.to_string()),
     };
     Ok(block)

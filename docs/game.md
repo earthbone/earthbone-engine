@@ -48,8 +48,9 @@ corresponding Papyrus form object when a host value is present, and return
   (the determinism hash).
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
-  and phase fragments, and alias
-  scripts. Round-trips through `write` at the version and object format the
+  and phase fragments, PERK entry-point fragments, and alias scripts.
+  PERK preserves each fragment index, marker byte, script and function name.
+  Round-trips through `write` at the version and object format the
   record was authored with, not a fixed one, since installed Skyrim.esm and
   DLC records mix object format 1 and 2 and VMAD versions 4 and 5.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
@@ -63,7 +64,10 @@ corresponding Papyrus form object when a host value is present, and return
   sources, validation and combat target selection.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
   shared by every observer of one target. `World::evaluate_detection` checks a
-  whole batch of observations before it changes any pool. See
+  whole batch of observations before it changes any pool. MGEF Disguise is not
+  executed because its gameplay semantics remain undocumented. xEdit and UESP
+  identify archetype 44 and specify no extra archetype data, while the Creation
+  Kit archetype table describes it as unknown. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
 CTDA function 513, `IsCombatTarget`, checks whether the condition subject's
@@ -361,6 +365,19 @@ perpetrator set and the faction's violent bounty are updated through the
 existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
 remain later work.
 
+**Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
+`LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
+Actor` and `SetIntimidated - Actor`. `IsTrespassing` (145) reads the subject's
+runtime `trespassing` flag, which is saved in the `AI-43` actor section.
+`GetIsCrimeFaction`
+(152) compares the subject's crime faction with its required `FACT` parameter,
+matching CK `GetCrimeFaction - Actor`. These predicates reject nonzero unused
+parameters and invalid actor or faction context. The trespassing flag is also
+included in the world state hash. `GetCrime` (122),
+`GetTrespassWarningLevel` (144), `IsPCAMurderer` (176),
+`GetAmountSoldStolen` (190) and `GetIgnoreCrime` (192) remain unsupported with
+`conditions::Error::Function`: TES5Edit gives their signatures, but the local
+CK corpus supplies no usable return contract for these condition functions.
 **Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
 crime faction at one in-game day per 100 gold of bounty, rounded up and
 capped at seven days. It advances the shared clock, clears that faction's
@@ -384,6 +401,19 @@ The `FACT.DATA`, `CRVA`, `JAIL`, `STOL`, `PLCN` and `JOUT` fields follow
 The arrest flag and `IsArrested` status name the local CK faction and actor
 contracts. Jail marker travel, evidence storage, belongings restoration and
 combat behavior after resistance are not handled here.
+**Crime conditions.** CTDA functions 458, 459, 497, 499, 533 to 535 and 652
+read the actor witness set, faction crime ledgers, player gold and jail-day
+counter, or actor crime-faction links. Functions 459 and 533 to 535 accept an
+explicit `FACT` parameter or use the evaluated actor's crime faction when the
+parameter is null. Function 497 compares that actor faction's bounty with the
+player's `Gold001` count. Function 499 reads the player's accumulated served
+days. Function 458 is true when the evaluated actor witnessed the player
+commit a crime. Function 652 compares the evaluated actor's crime faction with
+the actor reference parameter. xEdit names these conditions and their
+parameters. The CK corpus has no pages for the CTDA condition functions, so
+their detailed behavior is inferred from the matching Papyrus faction and
+actor contracts and the runtime crime state. Invalid actor and form context
+returns a condition error.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -455,6 +485,17 @@ Instant return a parameter error. Voice and Instant have no selected spell in
 this runtime, so spell comparisons return false and casting type returns zero.
 Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
 state, dual-cast animation state and active voice variation are not tracked.
+
+**Follower services.** `World::recruit_follower` validates the actor,
+service faction and follow package. It enables teammate status and the
+requested favor permission, joins the faction at rank zero, and adds the
+service package before the actor's ordinary AI candidates. Dismissal restores
+the actor's prior teammate and favor values and its previous rank or absence
+in that faction, then removes the package overlay. The normal alias and base
+package stack remains underneath and becomes eligible again on reevaluation.
+This follows the CK `SetPlayerTeammate - Actor` description of teammate and
+favor flags. SOEW version 37 stores favor permission and active follower
+service ownership, including the values dismissal restores.
 
 **Equipment conditions.** CTDA identities and parameter types follow
 `TES5Edit/Core/wbDefinitionsTES5.pas` and
@@ -661,13 +702,36 @@ Their CK contracts are described by
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Version 37 stores each reference's persistent flag. Action
-  slots use zero-based positions from the SCEN action list because two vanilla
-  scenes reuse action numbers. The SCEN layout follows
-  `TES5Edit/Core/wbDefinitionsTES5.pas` and
-  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
-  action dispatch, and the scene flags are not implemented. `Sound.Play`
+  action slots. Version 37 stores each reference's persistent flag and appends
+  named state sections. The `DLG-19` world and actor sections store started
+  action slots, timer deadlines, actor package overrides and prior package
+  assignments. Package actions assign the first listed package to their actor
+  alias and restore its previous package at the action's end phase. Timer
+  actions expire on real time and complete their action slot. Action slots use
+  zero-based positions from the SCEN action list because two vanilla scenes
+  reuse action numbers. The SCEN layout follows xEdit's `wbRecord(SCEN)` and the
+  UESP SCEN page. The local CK corpus's scene index describes scene and timer
+  fragments but does not include their detailed behavior pages. Timer dispatch
+  is implemented, while CTDA evaluation, dialogue action dispatch and scene
+  flags are not. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
+  `Game::start_scene_dialogue_action` dispatches one active Dialogue action by
+  its zero-based position in the SCEN action list. It resolves the speaker alias
+  through the scene's parent quest and starts the action's assigned DIAL through
+  the dialogue selector, including INFO conditions and begin fragments. The
+  host presents each returned line and calls
+  `Game::advance_scene_dialogue_action` after playback. That method advances
+  response lines, runs INFO completion behavior, then marks the SCEN action slot
+  complete and closes the conversation when the line ends. A completed action
+  whose end phase is later remains recorded until that phase can advance. The
+  action must be in its authored phase interval, and the alias must resolve to
+  an actor. The ordered action slot preserves distinct actions even though UESP
+  records overlapping action numbers in two vanilla scenes. xEdit's
+  `wbRecord(SCEN)` defines the action alias, DIAL, and phase interval. The local
+  CK `GetCurrentScene` page documents participant lookup only, so it supplies no
+  action scheduling behavior. This API dispatches dialogue actions when called,
+  it does not automatically schedule scene actions or evaluate scene
+  conditions.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
@@ -847,6 +911,11 @@ running original-game comparison.
   confirms the counted phase list. Champollion describes PEX functions but
   does not define this record tail, so its fragment names did not supply a
   reusable VMAD reader. Scene execution remains in DLG-09.
+- `tests/fmt_17_perk_vmad.rs` checks PERK fragment entry-point identity,
+  authored-byte round trips, truncation and trailing data. xEdit's
+  `wbVMADFragmentedPERK` defines the signed extra-bind version, host file,
+  counted fragments, 32-bit indices and marker byte. Champollion describes
+  PEX functions but does not define the PERK record tail.
 - `tests/quest_flow.rs`: a synthetic master with a start-game-enabled quest,
   a lever whose script sets stage 10, a fragment on stage 10 that completes the
   objective, gives the player gold and sets stage 20 which completes the quest,
@@ -1028,6 +1097,13 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
+The `POBA`, `POCA` and `POEA` actions also start their authored idle or
+dialogue topic at the matching boundary. Idle delivery uses the actor's
+animation event path. A topic opens a dialogue session with the player as
+listener and makes that topic the session's initial choice. Dead and
+unconscious actors do not start boundary actions. Topic actions also require
+an available actor who can speak to the player and no active dialogue session.
+
 An unfinished package with `Must Complete` stays selected ahead of higher
 priority candidates until its procedure tree finishes. Combat can interrupt
 it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
@@ -1118,6 +1194,26 @@ fixtures, parameter and actor-context errors, and diagnostics for untracked
 queries. The fixtures use synthetic records and do not need installed game
 data.
 
+AI-52 implements condition 309, `IsXBox`, as false for this PC runtime and
+rejects either nonzero parameter. Conditions 224 `GetVATSMode`, 235
+`GetVatsTargetHeight`, 381 `GetHasNote`, 407 `GetVATSValue`, 427
+`GetPlantedExplosive`, 473 `GetIsAlignment` and 515 `GetVATSRightAreaFree`
+remain unsupported and return explicit condition errors. The AI package
+evaluator counts those functions as unsupported. xEdit's
+`wbDefinitionsTES5.pas` supplies their IDs and parameter types. No individual
+CK condition pages for these functions exist in the local CK corpus, so the
+engine does not infer their runtime values.
+AI-72 adds these queries to both condition evaluators: `GetOpenState` for
+placed `DOOR` references (0 for other references, 1 open and 3 closed),
+`GetIsCurrentPackage` against the subject actor's selected package,
+`GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
+reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
+The CK state values 2 (opening) and 4 (closing) require animation progress,
+which the current reference state does not track, so those transitions remain
+unavailable.
+`GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
+`GetCannibal` remain unsupported with a function diagnostic because the local
+sources name them without defining query results.
 AI-66 adds `GetWithinDistance` (639), using the run-on subject's position,
 the parameter reference's position and the parameter float as an inclusive
 distance threshold. xEdit's `wbConditionFunctions` and UESP's
@@ -1197,6 +1293,15 @@ first procedure before conditions. The parser's `ai_87` paired `Simultaneous`
 fixtures keep `FNAM` clear and set as separate policies, including an unknown
 bit case. Its `SKYRIM_DATA` survey checks that authored Skyrim.esm
 `Simultaneous` procedure records include both policies.
+`ForceGreet` is retained as an active package procedure. Without bound inputs,
+the actor follows the package driver's navmesh path toward the player while no
+greeting conversation is open. When the actor is within dialogue distance and
+has an eligible Player-category ForceGreet topic, the ordinary dialogue
+selector opens it. Closing that conversation completes the active procedure
+branch. Bound target and topic inputs use the assigned greeting path described
+below. Missing bound inputs remain unsupported. The `DLG-14` actor section
+retains the procedure identity in SOEW version 37. The tooling helper
+`procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.
@@ -1228,24 +1333,32 @@ Object ID, or the known Object Type value for any weapon, in its search cell.
 An authored location radius limits the search. Equal distances choose the
 lower resolved FormID. The selected identity is available as the actor's
 `AiState::found_reference`.
-`Sandbox` picks an idle marker or a piece of furniture (beds excluded)
-within the radius of the location, walks there, dwells 0.1 to 0.4 game
-hours, and picks the next, or a random point in the radius when the cell
-has no markers. `Sleep` walks to the bed the location names, or the
-nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. `Sit` reserves the first active,
+`Sandbox` picks an idle marker or a piece of furniture (beds excluded) within
+the location radius, walks there, dwells 0.1 to 0.4 game hours, then picks the
+next marker or a random point when the cell has none. `Sleep` walks to the bed
+the location names, or the nearest furniture in that cell whose base has a bed
+keyword, and holds with `sleeping` set. `Sit` reserves the first active,
 unreserved Sit marker on its furniture reference, walks to that reference's
 placement transform, and releases the reservation when it arrives. Furniture
 marker transforms are not read from the model. Its procedure tag is stored in
 the `AI-20` actor section. `Wait` holds for its real-time duration, with zero
-meaning indefinite. `Shout` casts the equipped `SHOU`'s highest nonzero `SNAM`
-spell through `World::cast_spell` and holds its tree branch until that word's
-authored recovery expires. An actor already in voice recovery waits before
-casting. Failed shout data or delivery leaves the procedure explicitly
-unsupported. Voice recovery is an absolute deadline in the world's real-seconds
-clock, exposed through `GetVoiceRecoveryTime` and `SetVoiceRecoveryTime`. The
-`AI-29` actor section stores that deadline under the version 37 section table.
-The CK package procedure page is absent from the local wiki snapshot.
+meaning indefinite. Walking `Patrol` follows linked markers, including their
+arrival radius and idle time.
+
+`Flee` chooses a reachable navmesh triangle whose centroid increases distance
+from its live combat target, runs there at the race's run speed, then succeeds
+the active tree branch. When the target leaves combat, Flee succeeds
+immediately. The existing tree cursor applies `Success Completes Package` and
+the following branch rules. If no reachable point increases distance, the actor
+holds position until the target or navmesh changes.
+
+`Shout` casts the equipped `SHOU`'s highest nonzero `SNAM` spell through
+`World::cast_spell` and holds its tree branch until that word's authored recovery
+expires. An actor already in voice recovery waits before casting. Failed shout
+data or delivery leaves the procedure explicitly unsupported. Voice recovery is
+an absolute deadline in the world's real-seconds clock, exposed through
+`GetVoiceRecoveryTime` and `SetVoiceRecoveryTime`. The `AI-29` actor section
+stores that deadline under the version 37 section table.
 
 `UseMagic` takes its target from the procedure's `PTDA` input and accepts a
 reference, self, linked reference or selected alias reference. It reads the
@@ -1259,18 +1372,24 @@ against the actor's current combat target, preferring its right hand weapon and
 then its left. It completes its tree branch after the attempt. The shared combat
 path validates equipment and combat modifiers and queues hit events. The
 procedure state is stored in the `AI-36` actor section under the version 37
-table. Every other procedure name is `Procedure::Unsupported` and the actor
-stands where it is. Location kinds near reference, in cell, near package start,
-near editor location, near linked reference, alias reference, alias location
-and near self resolve. Procedure names without a driver implementation remain
-`Procedure::Unsupported` and leave the actor standing.
+table.
 
-The local CK `EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages
-define package evaluation and observation, not Flee movement. PACK branch
-completion uses xEdit's `PRCB` flags and the UESP PACK layout. Route selection
-uses the shared combat target and vanilla NAVM graph already used by combat
-movement. No procedure-specific source in the local corpus defines Flee's
-destination choice.
+Location kinds near reference, in cell, near package start, near editor
+location, near linked reference, alias reference, alias location and near self
+resolve. An alias location uses its filled `LCTN` form's `MNAM` world marker as
+its destination. Location alias fill rules remain separate quest work. Other
+procedure names remain `Procedure::Unsupported` and leave the actor standing.
+The local CK package procedure page is absent from the local wiki snapshot. The
+execution uses the local `EquipShout_-_Actor` and
+`GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
+entries, and xEdit's PACK layout and shared spell APIs. The local CK
+`EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages define package
+evaluation and observation, not Flee movement. PACK branch completion uses
+xEdit's `PRCB` flags and the UESP PACK layout. Route selection uses the shared
+combat target and vanilla NAVM graph already used by combat movement. No
+procedure-specific source in the local corpus defines Flee's destination
+choice.
+
 `Follow` resolves its `PTDA` target as a specific reference, alias, linked
 reference or self. Its first two float inputs set catch-up and follow radii,
 defaulting to 20 and 5 units when omitted. Invalid radii or unresolved targets
@@ -1818,8 +1937,9 @@ the appearance empty.
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
   procedures, see the Packages section for the rest. Scene phase advancement
-  is action-gated, but action execution, phase and scene CTDA evaluation,
-  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  is action-gated. Package and timer actions execute, but phase and scene CTDA
+  evaluation, dialogue action dispatch, and repeat-while-conditions behavior
+  are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Arrest choice accounting and jail
@@ -2097,22 +2217,19 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements these CTDA function IDs:
-1, 14, 18, 24, 35, 45, 46, 47, 53, 56, 58, 59, 61, 67,
-69, 70, 71, 72, 73, 74, 77, 79, 80, 91, 98, 99, 106, 107,
-110, 111, 116, 123, 125, 127, 128, 136, 142, 182, 185, 214, 219, 223,
-225, 230, 248, 249, 250, 264, 277, 280, 286, 287, 289, 310, 313, 315,
-318, 325, 327, 339, 359, 360, 372, 378, 403, 408, 414, 426, 430, 432,
-434, 435, 444, 445, 446, 447, 448, 470, 491, 494, 500, 501, 519, 528,
-543, 550, 560, 561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592,
-598, 600, 601, 603, 604, 605, 606, 610, 625, 626, 629, 630, 635, 636,
-639, 640, 651, 655, 659, 660, 675, 683, 691, 692, 693, 696, 698, 699,
-704, 706, 711, 713, 718, 721, 723, 724, 730, 731, 734, 735.
-
-This is a bounded set, not the full CTDA contract. Evaluation supports ordered
-AND/OR groups, numeric or global comparisons, explicit references and
-caller-supplied quest aliases. Reserved PlayerRef resolves to the runtime
-player even without a placed record.
+The integrated condition evaluator implements these CTDA function IDs across its branches:
+1, 14, 18, 24, 35, 45, 46, 47, 50, 53, 56, 58, 59, 61
+67, 69, 70, 71, 72, 73, 74, 77, 79, 80, 91, 98, 99, 106
+107, 110, 111, 116, 123, 125, 127, 128, 136, 142, 182, 185, 214, 219
+223, 225, 230, 248, 249, 250, 263, 264, 277, 280, 286, 287, 289, 306
+310, 312, 313, 314, 315, 318, 325, 327, 329, 339, 353, 354, 359, 360
+362, 372, 378, 398, 403, 408, 414, 426, 430, 432, 434, 435, 444, 445
+446, 447, 448, 465, 470, 491, 494, 500, 501, 519, 528, 543, 550, 560
+561, 562, 563, 565, 566, 567, 568, 569, 570, 591, 592, 597, 598, 600
+601, 603, 604, 605, 606, 610, 624, 625, 626, 629, 630, 635, 636, 639
+640, 650, 651, 655, 659, 660, 675, 680, 682, 683, 691, 692, 693, 696
+698, 699, 700, 704, 706, 711, 713, 718, 720, 721, 722, 723, 724, 725
+726, 730, 731, 734, 735. This is a bounded set, not the full CTDA contract. Evaluation supports ordered AND/OR groups, numeric or global comparisons, explicit references and caller-supplied quest aliases. Reserved PlayerRef resolves to the runtime player even without a placed record.
 
 GetScale reads reference scale with the race and NPC height
 multipliers for actors, and GetDisabled reads reference state. GetDetected
@@ -2279,6 +2396,70 @@ Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
 VTYP and form-type links. The CK corpus does not document the four unavailable
 runtime states, and CMB-17 currently stores actor combat targets without a
 shared combat-group identity.
+
+AI-44 implements crime CTDA functions 193, 375, 376 and 402. `GetPCExpelled`
+reads the referenced faction's player-expelled flag. The crime-gold functions
+read that faction's violent or nonviolent bounty, and accept a zero faction
+parameter as the subject's crime faction. `IsBribedbyPlayer` reads the
+subject's `LastBribedIntimidated` actor value, the state currently shared with
+intimidation. The xEdit function table defines the form and unused-parameter
+slots. The CK `SetBribed` page defines the actor outcome, and the evaluator
+rejects nonzero unused parameters and unavailable actor or faction context.
+Functions 195, 282, 366 and 373 return `conditions::Error::Contract`: the CK
+corpus has no usable query contract for faction-murder counts, stolen-horse
+state or stolen-item value, and the runtime does not store those totals or
+flags. They are not inferred from bounty or inventory totals. See
+`crates/game/tests/ai_44_crime_conditions.rs` for positive, negative and
+invalid-context fixtures.
+AI-50 adds `IsWeaponOut` from actor draw state, `IsActorUsingATorch` from an
+equipped carryable `LIGH`, `IsWeaponInList` from assigned weapon hands,
+`GetKeywordItemCount` from the shared inventory totals, `GetEquippedItemType`
+from the CK hand values, and `GetInContainer` from an item's base-form count in
+the referenced container. The CK `GetEquippedItemType_-_Actor.wikitext` page
+defines hand arguments 0 and 1 and return values 0 through 12. xEdit's
+`wbDefinitionsTES5.pas` supplies the CTDA function ids and parameter types.
+The CK corpus has no usable semantic contract for conditions 479
+`GetIsUsedItemEquipType` and 487 `IsCarryable`, so evaluation returns a typed
+condition contract diagnostic for those ids. AI-50 fixtures cover true, false,
+and invalid form or hand contexts for the implemented functions, and the
+diagnostic paths for both source gaps.
+
+AI-74 adds `GetPCMiscStat` (312), `IsActorAVictim` (314), `IsFleeing` (329),
+`IsActor` (353), `IsEssential` (354) and `HasLinkedRef` (362). Misc-stat
+parameter values and names follow xEdit's `wbMiscStatEnum`, and values read
+the same tracked-stat table as `Game.QueryStat`. Victim state uses the saved
+`witnessed_crimes` relation: an actor is reported as a victim when any actor
+has recorded witnessing a crime by that actor. Fleeing reads the active package
+procedure, essential reads live actor state, and linked-reference checks match
+the requested keyword. The xEdit and UESP tables identify 367 and 368 as
+player-action queries, but the local CK references do not define their result
+or state semantics, so evaluation returns an explicit unsupported-function
+error for both.
+
+AI-74 also consults local xEdit `TES5Edit/Core/wbDefinitionsTES5.pas` for the
+condition function IDs, parameter types, miscellaneous-stat enum and player
+action enum, UESP `Raw_Function_Data.wikitext` for function names, and CK
+`ActorBase_Script.wikitext`, `Actor_Script.wikitext` and
+`ObjectReference_Script.wikitext` for the related essential and linked-ref
+contracts. Existing witnessed-crime state comes from
+`World::record_witnessed_crime`.
+
+The later condition batch checks `IsLinkedTo` against the subject reference's
+linked-reference keyword pairs, `WornHasKeyword` and
+`WornApparelHasKeywordCount` against worn ARMO forms, `IsCommandedActor` against
+live command effects. `DoesNotExist` is supported for declared quest aliases
+run on that alias and returns true when it is unfilled. The batch returns
+`conditions::Error::Contract` for `GetActivatorHeight` and
+`GetKnockedStateEnum`, since the local CK corpus provides no usable runtime
+contract or state representation for them. `GetTargetHeight` returns the
+signed Z difference from the subject reference to its parameter reference,
+as defined by UESP's local raw function table. Invalid actors, forms,
+parameters, and undeclared aliases return explicit errors. xEdit's local
+`wbDefinitionsTES5.pas` supplies the function IDs and parameter types. CK's
+`IsCommandedActor_-_Actor.wikitext`, `WornHasKeyword_-_Actor.wikitext` and
+`GetLinkedRef_-_ObjectReference.wikitext` supply the behavior used for those
+queries. The other condition IDs appear in xEdit's function table, but that
+schema does not establish their runtime behavior.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
@@ -2561,8 +2742,9 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, ForceGreet approach
-packages, walk-away topic selection, scene action execution and timers,
+Remaining dialogue work includes missing conditions, ForceGreet target and
+assigned-topic inputs, walk-away topic selection, scene action execution and
+timers,
 barter transactions, complete alias behavior and wider interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
@@ -2713,6 +2895,36 @@ No EffectShader page exists in the local CK wiki corpus. The host currently
 draws one temporary emissive sphere at the target reference placement. It
 does not parse EFSH textures, colors, blend modes or fade curves.
 
+### Cure Poison, MAG-50
+
+The Cure Poison archetype (MGEF archetype 29) ends active applications whose
+source is an ALCH record marked as a poison by ENIT flag bit 17. Other active
+effects on the target remain applied. Ending a selected application uses the
+usual dispel path, including reversal of recoverable actor-value changes and
+`OnEffectFinish` delivery.
+
+The archetype number and ALCH poison bit match
+`TES5Edit/Core/wbDefinitionsTES5.pas`, MGEF and ALCH, and CommonLibSSE-NG's
+`EffectArchetypes.h` and `AlchemyItem.h`. UESP's `MGEF.wikitext` lists Cure
+Poison without additional archetype data. The local CK wiki corpus has no page
+specifying the archetype's execution rules.
+
+### Peak Value Modifier, MAG-55
+
+Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
+form must resolve to a KYWD record. Active effects on the same target compete
+when their keyword and primary actor value match, and the greatest signed
+modifier is applied once. Distinct keywords form separate groups. A lower new
+modifier does not change the actor value.
+When the effect supplying the peak ends, the remaining group is recalculated
+and its next greatest modifier takes effect. Secondary actor value fields do
+not contribute. The group is derived from active effects and winning MGEF
+records, so it adds no save fields.
+
+`magic.rs` tests cover peak selection, keyword groups, ignored secondary
+values, and promotion of the next active modifier after expiration. They use
+synthetic records.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and
@@ -2841,7 +3053,8 @@ boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Absorb, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
+of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts,
+Dispel, Cloak and Etherealize effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self, aimed actor and target-actor delivery are supported for constant
 and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
@@ -2900,7 +3113,21 @@ Each effect applies to enabled, undeleted actor references inside its authored
 EFIT area around the selected point. A zero area selects only actors at the
 exact point. xEdit's SPIT definition and the local UESP SPEL format page name
 Target Location as delivery 4 and Range as valid for this delivery. The host
-collision result is supplied by `godot-host` and is not saved.
+collision result is supplied by `godot-host` and is not saved. Cloak effects
+are the concentration exception: their associated aimed or target spell runs
+once per second while the cloak is active. Their saved pulse phase and owned
+effect identities are described under Cloak, MAG-56.
+
+Etherealize is MGEF archetype 41. The Creation Kit's
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says the archetype
+prevents targets from dealing or taking damage. While an application is active,
+the runtime blocks hostile magic and melee hits, melee attacks, hostile spell
+casts and reference activation by that actor. It derives status from the
+actor's live Etherealize applications. Ending one application removes only
+that application's status, leaving overlapping applications and the actor's
+separate ghost flag intact. The xEdit MGEF archetype table and UESP's MGEF
+layout identify archetype 41 and list no additional record data. No save fields
+were added because active effect identities already persist.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
@@ -2949,6 +3176,22 @@ dispel. Future registrations alone do not keep an expired effect alive.
 before binding, a suspended finish callback, a live alias reference and a callback
 queued during `OnEffectFinish`. VM storage checks are described in
 [Papyrus](papyrus.md).
+
+Enhance Weapon (MGEF archetype 39) reads its associated ENCH record when a live
+effect's target lands an ordinary melee hit with an equipped weapon. Supported
+ENCH entries with direct detrimental Health modifiers add their magnitude to
+that weapon's damage for the hit. Direct detrimental Stamina modifiers reduce
+the target's Stamina on the same hit. Both contributions end with the active
+effect and do not change unarmed damage, another actor's hit or an unequipped
+item. Conditioned enchantment entries, multiple entries and other actor values
+return an unsupported-combat error before the hit changes state. The contract
+comes from the CK Magic Effect archetype table, xEdit's MGEF archetype and
+associated item fields, and Mutagen's ENCH association type.
+`mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon` covers
+Health damage and expiry. The adversarial `mag_60_supports_a_valid_non_health_associated_enchantment_on_melee_hit`
+case covers Stamina damage, and
+`mag_60_effect_does_not_benefit_a_different_attackers_weapon` covers attacker
+ownership.
 
 ### Frenzy, MAG-31
 
@@ -3014,6 +3257,15 @@ magic-effect application as a TODO, so it supplies no resistance formula. The
 85 percent cap and order are the runtime's selected behavior. Keeping magic
 and specific resistance as separate terms preserves their independent actor
 values.
+
+The runtime executes MGEF archetype 33, Stagger, for spells and ingestibles.
+Each prepared Stagger application passes its authored magnitude and caster
+form, falling back to the cast source, to the shared stagger lifecycle once.
+It uses the same `fStaggerDuration` real-time deadline as melee stagger. Actor
+state retains the latest magnitude and direction source with that deadline,
+serialized in the `MAG-54` actor save section under SOEW version 37. Local
+xEdit and UESP MGEF layouts name archetype 33 and specify no archetype-specific
+data. The local CK wiki dump has no page that defines its runtime behavior.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
@@ -3274,6 +3526,28 @@ the live application and finish path reused here. Synthetic
 ingestible path. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case.
 
+### Accumulate Magnitude, MAG-53
+
+MGEF archetype 32 accumulates the effect's authored magnitude into its primary
+actor value, at `fMagicWardPowerMaxBase` points per unpaused simulation second.
+The current value is capped at the effect magnitude. An effect with No Duration
+stays active until it is dispelled. Menu time does not accumulate the value.
+For the shipped ward records, xEdit names archetype 32 and UESP identifies its
+primary actor value as WardPower. The accumulation rate comes from the
+`fMagicWardPowerMaxBase` GMST. A missing or invalid setting returns a typed
+magic error and leaves the effect's elapsed time unchanged.
+
+The accumulated value uses the actor's existing persistent value components,
+so it and the active effect continue from their saved state after reload. No
+separate magic save field is added. `mag_53_accumulates_primary_actor_value_on_unpaused_clock_and_caps_at_magnitude`
+checks the primary value, paused clock, rate and cap.
+`mag_53_accumulated_amount_and_effect_resume_after_reload` checks the saved
+partial amount and continued accumulation. The local CK wiki corpus has no
+Accumulate Magnitude page describing its rate formula. This implementation
+uses the named GMST directly. The source inventory is local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`.
+
 ### Demoralize, MAG-30
 
 Direct Demoralize effects use the active-effect lifecycle to lower the target's
@@ -3347,6 +3621,50 @@ save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
 visuals, sounds, and host presentation remain outside this check.
 
+### Slow Time, MAG-58
+
+Direct casts execute MGEF archetype 37. The active effect magnitude is treated
+as a percentage of time removed, clamped to 100 percent. When multiple Slow
+Time effects are active, the strongest one sets the rate. The resulting rate
+scales game-calendar advancement and NPC package movement. The real-seconds
+clock, its update timers, active-effect durations and Papyrus real-time clock
+continue at the supplied tick duration. Menu ticks pause world clocks and
+movement while the Papyrus real-time clock continues.
+
+Local xEdit `wbDefinitionsTES5.pas` names archetype 37 Slow Time. Local UESP
+`MGEF.wikitext` says it has no archetype-specific extra data. The CK wiki dump
+has no page describing this archetype's execution formula, so the percentage
+interpretation uses the effect entry magnitude. `mag_58_slow_time_scales_game_time_without_slowing_real_time_waits`
+checks calendar progression and completion of an ordinary Papyrus wait. The
+menu test checks that menu pause preserves world clocks, completes a Papyrus
+menu wait and leaves an ordinary wait asleep. Both use synthetic records, and
+the check names no vanilla records.
+
+### Spawn Scripted Ref, MAG-64
+
+A target-location cast whose effects all use archetype 43 resolves the MGEF's
+EXPL link and that explosion's placed-object link in their owning plugin
+contexts. It places one dynamic reference at the target reference's transform.
+The reference uses the placed object's Papyrus class and receives scripts and
+properties from that base object's winning VMAD. Its dynamic FormID and VM
+object state survive SOEW save/load. An invalid or missing explosion or placed
+object returns a typed error before applying the cast. Other target-location
+archetypes and mixed-archetype target-location spells remain unsupported.
+EXPL DATA accepts the documented 40, 44, 48 and 52 byte layouts. Other lengths
+are rejected before placement.
+
+The layout comes from local
+`TES5Edit/Core/wbDefinitionsTES5.pas` (`MGEF.DATA` and `EXPL.DATA`) and
+`uesp-modfileformat/MGEF.wikitext` and `EXPL.wikitext`. The Creation Kit
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says Spawn Scripted
+Ref uses the explosion's placed object and identifies Throw Voice as an
+example. Script attachment follows this crate's VMAD and `Game::bind` path.
+`mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load`
+checks placement, base identity, VMAD attachment and save/load identity with
+synthetic records. `mag_64_rejects_truncated_expl_data_before_spawning` checks
+that a short DATA payload is rejected before application. The check names no
+vanilla records, so no data-gated case applies.
+
 ### Command Summoned, MAG-33
 
 Direct casts execute MGEF archetype 10 only for a reference spawned by a live
@@ -3399,6 +3717,58 @@ raise that event. Host appearance refresh is not handled here.
 `mag_57_reversion_restores_only_race_and_abilities_owned_by_transform` and
 `mag_57_saved_transform_restores_owned_state_after_load` cover the synthetic
 record path. The check names no installed records, so it has no
+`SKYRIM_DATA`-gated case.
+
+### Cloak, MAG-56
+
+Archetype 35 resolves its associated item as a winning SPEL record. The
+associated spell must use concentration casting with aimed or target-actor
+delivery. A live Cloak effect uses its authored magnitude as the radius around
+the effect target and applies the associated spell to enabled actor references
+in that range once per second. Area target selection ignores cell seams.
+Each cloak tracks the effect
+applications from its latest pulse. A later pulse removes those applications
+before creating the next set, and dispelling or expiring the cloak removes its
+owned applications.
+
+The xEdit source `TES5Edit/Core/wbDefinitionsTES5.pas` maps archetype 35 to a
+SPEL associated item. Local `uesp-modfileformat/MGEF.wikitext` agrees on the
+archetype and area fields. The local CK dump has no Magic Effect page. The
+published [Creation Kit Magic Effect page](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
+specifies the associated concentration spell and says Cloak casts it on area
+targets. Its concentration section establishes one-second reapplication.
+`area_targets` reuses MAG-06's loaded actor selection. The cloak pulse phase
+and owned active-effect identities are saved in the world section `MAG-56`,
+without changing SOEW version 37.
+
+`mag_56_cloak_pulses_on_its_one_second_cadence_and_selects_nearby_actors`
+checks pulse timing, radius selection and exclusion outside the authored
+area. `mag_56_cloak_expiry_cleans_up_only_its_owned_effects_and_survives_save_load`
+checks owned cleanup at expiry after save/load. Neither check names a vanilla
+record, so no `SKYRIM_DATA` case applies. Host visuals, sound and concentration
+input are outside this row.
+
+### Banish, MAG-63
+
+Direct casts execute MGEF archetype 42 against the actor reference selected by
+the spell. The target is eligible when it is the live actor reference retained
+by an active Summon Creature effect and its actor level does not exceed the
+effect magnitude. Banish ends that summon effect through the normal
+effect-finish path, which deletes and disables its spawned actor. An ordinary
+actor reference, an over-level summon or a different summon is left unchanged.
+This does not apply a Confidence value modifier.
+
+The local xEdit MGEF table names archetype 42 as Banish and assigns Confidence
+as its primary actor value. The local UESP MGEF table also records that actor
+value. The Creation Kit [Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
+states that Banish affects summoned actors up to the effect magnitude. The local
+CK dump has no Magic Effect archetype page. The implementation uses the summon
+reference retained by MAG-39 and the existing effect-ending path. It does not
+use the actor value as a modifier. Synthetic checks
+`mag_63_banish_dismisses_the_targeted_summon` and
+`mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged` cover
+target eligibility and dismissal. `mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level`
+covers the level cap. No vanilla records are named by this check, so it has no
 `SKYRIM_DATA`-gated case.
 
 ### Direct hostile hits, MAG-01
@@ -3552,6 +3922,28 @@ vanilla record, so no SKYRIM_DATA-gated case was added. Ingestible and poison
 area remains its own unsupported entry, out of this row's scope. Concentration,
 projectiles, contact and location delivery and taper stay separately
 unsupported as before.
+
+### Concussion archetype, MAG-51
+
+xEdit numbers Concussion as MGEF archetype 30. The local UESP MGEF page says
+this archetype has no extra data. Its associated-item selector does not assign
+archetype 30 a specialized association field. The existing `MagicEffect` view
+still decodes the shared DATA values, including archetype, actor values,
+casting and delivery values, and effect metadata. Those decoded fields do not
+establish which values Concussion execution reads.
+
+The local CK wiki corpus has no Magic Effect archetype page and defines no
+Concussion execution behavior. The local source evidence therefore establishes
+no live runtime contract, consumed archetype-specific fields or implementation
+to port. No execution row is warranted by this characterization.
+
+`mag_51_concussion_named_fixture_decodes_generic_mgef_data` exercises the
+shared DATA view on a named synthetic MGEF fixture with archetype 30.
+`mag_51_concussion_five_master_corpus_result` surveys the winning records in
+Skyrim, Update, Dawnguard, HearthFires and Dragonborn. On the installed data,
+the survey decoded 1,573 non-deleted winning MGEFs and found zero archetype-30
+records. This establishes absence from that five-master corpus, not absence
+from mods or behavior in the original runtime.
 
 ### Unnamed archetypes, MAG-68
 
@@ -4207,6 +4599,45 @@ scene action and favor values, invalid actors and slots, and explicit errors
 for the four conditions without a usable local contract. No saved state or
 save version changed.
 
+## Compatibility condition batch AI-42
+
+GetSKSEVersion (1024), GetSKSEVersionMinor (1025), GetSKSEVersionBeta (1026)
+and GetSKSERelease (1027) are parameterless condition functions. The engine
+returns zero for each component because it does not load an SKSE runtime, so
+conditions can test for SKSE absence. Nonzero integer parameters are errors.
+The CK corpus has no pages defining these SKSE-added condition functions.
+ClearInvalidRegistrations (1028) is also parameterless in xEdit and Mutagen,
+but SKSE documents it as cleanup of invalid update registrations rather than
+as a query. Evaluating it returns `NoConditionContract` instead of mutating VM
+registrations from a condition. All five still require the evaluator's normal
+run-on subject context.
+
+The function IDs come from xEdit `wbDefinitionsTES5.pas` and the parameter
+types from Mutagen Skyrim condition data. SKSE's save-load hook and change log
+document registration cleanup. The source corpus defines no CK return contract
+for the added checks, so the zero-version result expresses that SKSE is absent
+from this runtime rather than claiming an SKSE version.
+
+## Location condition batch AI-54
+
+The condition evaluator supports GetWantBlocking (0), GetLocked (5),
+GetInSameCell (32), GetLockLevel (65), IsPlayerInRegion (117),
+IsInMyOwnedCell (146), HasSameEditorLocAsRef (180), and
+HasSameEditorLocAsRefAlias (181). They read shared actor and reference state,
+the player's current cell region list, CELL ownership, authored editor
+locations, and the named quest alias. GetWantBlocking reads the actor's live
+block stance also used by combat. Region membership reads the CELL `XCLR`
+list. Editor-location matching applies the supplied keyword to the common
+location. No condition adds state or changes save data.
+
+xEdit `wbConditionFunctions` supplies the function identities and parameter
+types. CK `GetLockLevel` and `IsLocked` define the corresponding reference
+values. The remaining CK function pages are absent from the local corpus, so
+their behavior follows the named condition and its typed record fields.
+Missing actor, reference, player-cell, quest-alias, or form context returns a
+typed condition error. A malformed unused parameter is rejected. Synthetic
+coverage is in `tests/ai_54_location_conditions.rs`.
+
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
@@ -4287,6 +4718,27 @@ The contracts follow local xEdit `wbDefinitionsTES5.pas`, UESP
 results, actor and non-actor contexts, both invalid parameter slots and the
 three unavailable animation queries. SOEW version 36 stores the swimming,
 running and mount flags, with older saves loading them as false.
+
+## Legacy condition batch AI-53
+
+IsPS3 (520) has no parameters and returns false in this Skyrim Open Engine
+runtime, which does not run on PlayStation 3. The evaluator rejects nonzero
+parameter slots and invalid run-on context. Both the gameplay condition and
+package evaluators use this result.
+
+The VATS area-free functions 516 to 518 and target-visible functions 522 to
+525 remain unsupported. xEdit identifies their first parameter as a placed
+reference. The local CK function reference does not specify the result
+semantics, and this runtime has no VATS selection or targeting state to query.
+Gameplay condition evaluation returns `Error::Function` for these functions.
+Package conditions fail closed and increment the existing unsupported-function
+diagnostic.
+
+Sources are xEdit `wbDefinitionsTES5.pas` and the CK wiki's
+`Function_Reference.wikitext`. Mutagen's local `ConditionDatas.xml` confirms
+which VATS condition fields store a reference and marks the other fields as
+unused. The `ai_53_legacy_conditions` tests cover platform comparisons,
+parameter and run-on validation, both evaluator paths and VATS diagnostics.
 
 ### Sequential package validation
 
@@ -4581,6 +5033,21 @@ scene target, but the five Papyrus natives expose no target argument.
 Fallback target behavior, curve interpolation, unused channels and exact
 strength composition are not recovered contracts. They must not be inferred
 from similarly named Godot properties or a linear crossfade weight test.
+
+## Value and Parts archetype, MAG-52
+
+MGEF archetype 31 prepares the authored primary actor value as a reversible
+modifier on each selected actor, for spells and ingestibles. It does not change
+other actor values or actors outside the delivery target. The selected MGEF
+association field does not define a body-part target for this archetype.
+
+The local xEdit MGEF definition names archetype 31 and selects the `Unused`
+associated-item field for it. The local UESP `MGEF.wikitext` says the archetype
+uses PrimaryAV and is not used in game. The runtime follows that field contract
+for explicit records while keeping effect state in the shared actor-value
+system. The `mag_52_value_and_parts_changes_only_the_authored_value_on_its_target`
+and `mag_52_value_and_parts_ingestible_changes_only_its_authored_value` tests
+check the independent values and target actors for spell and ingestible paths.
 
 ## Dispel archetype, MAG-05
 
@@ -5581,3 +6048,25 @@ log.
 checks that the path is queued once and consumed. The headless Godot check is
 `godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
 the host gameplay runtime and checks the resulting PNG file.
+
+## Equipment conditions, AI-49
+
+CTDA functions 41, 48, 102, 103, 108 and 109 read the subject actor's
+equipped forms. Clothing value totals equipped ARMO records whose BOD2/BODT
+type is clothing, gold counts `Gold001` in inventory, torch conditions require
+an equipped LIGH with DATA flag 0x0002, and shield conditions check shield-slot
+ARMO records. UESP `LIGH.wikitext` names 0x0002 as "Can be carried". The local
+CK corpus has no condition page for `IsTorchOut`, so this follows that authored
+light flag rather than treating every LIGH as a torch. The weapon
+queries use the right hand before the left. The IDs and parameter types come
+from xEdit `wbConditionFunctions` in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The Papyrus Extender condition parser
+also confirms the ActorValue and FormType parameter encodings. Armor and
+weapon fields use the transient views in `combat/records.rs`.
+
+The CK wiki dump has no contract pages for these CTDA function names.
+`GetIsUsedItem` and `GetIsUsedItemType` therefore return
+`conditions::Error::UsedItemContext`: runtime state does not retain the
+action's used item, and the local CK corpus does not define a substitute
+interpretation. Invalid subjects and malformed equipment records fail with
+typed condition errors.

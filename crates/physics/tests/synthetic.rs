@@ -5,7 +5,7 @@
 //! in a block list the way `soe_nif` would parse them, then collected and
 //! dropped a character on. No file on disk is involved.
 
-use soe_nif::blocks::{Block, Node};
+use soe_nif::blocks::{Block, GeometryData, Node};
 use soe_nif::{BlockRef, Header};
 use soe_physics::bhk::{self, Bhk};
 use soe_physics::{
@@ -81,8 +81,12 @@ fn collision_object(body: i32) -> Block {
 }
 
 fn simple_phantom(shape: i32) -> Block {
+    simple_phantom_on_layer(shape, 30)
+}
+
+fn simple_phantom_on_layer(shape: i32, layer: u8) -> Block {
     let mut w = W::new();
-    w.i32(shape).u8(30).u8(0x42).u16(0x1234).zeros(28);
+    w.i32(shape).u8(layer).u8(0x42).u16(0x1234).zeros(28);
     for column in [
         [0.0, 1.0, 0.0, 0.0],
         [-1.0, 0.0, 0.0, 0.0],
@@ -147,6 +151,43 @@ fn cmb_29_authored_controller_keeps_filter_geometry_and_transform() {
     assert_eq!(*b, Vec3::new(0.0, 0.0, 1.25) * UNITS_PER_METER);
     let bounds = phantom.shape.aabb(&phantom.transform);
     assert!((bounds.max.z - bounds.min.z - 1.5 * UNITS_PER_METER).abs() < 0.0001);
+}
+
+#[test]
+fn fmt_22_named_trigger_phantom_keeps_volume_and_filter_without_solid_body() {
+    let mut blocks = controller_blocks();
+    if let Block::Node(node) = &mut blocks[0] {
+        node.av.net.name = "TriggerVolume".into();
+    }
+    blocks[2] = simple_phantom_on_layer(3, Layer::TRIGGER.0);
+
+    let collected = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
+
+    assert!(collected.colliders.is_empty());
+    assert!(collected.skipped.is_empty());
+    assert_eq!(collected.phantoms.len(), 1);
+    let phantom = &collected.phantoms[0];
+    assert_eq!(phantom.node_name, "TriggerVolume");
+    assert_eq!(phantom.layer, Layer::TRIGGER);
+    assert_eq!(phantom.filter_flags, 0x42);
+    assert_eq!(phantom.group, 0x1234);
+    assert_eq!(
+        phantom.transform.translation,
+        Vec3::new(10.0, 20.0, 30.0) + Vec3::new(1.0, 2.0, 3.0) * UNITS_PER_METER
+    );
+    let Shape::Material { id, shape } = &phantom.shape else {
+        panic!("missing phantom material");
+    };
+    assert_eq!(*id, 1591009235);
+    let Shape::Capsule { radius, .. } = shape.as_ref() else {
+        panic!("missing phantom volume");
+    };
+    assert_eq!(*radius, 0.25 * UNITS_PER_METER);
+    assert!(!collected.has_authored_controller());
+    assert_eq!(
+        soe_physics::controller_shape(&collected, 1.0).1,
+        soe_physics::generated_controller_shape(1.0)
+    );
 }
 
 #[test]
@@ -254,6 +295,19 @@ fn box_shape(half: [f32; 3]) -> Block {
     }
 }
 
+fn convex_vertices_shape(vertices: &[[f32; 3]]) -> Block {
+    let mut w = W::new();
+    w.u32(1).f32(0.05).zeros(24).u32(vertices.len() as u32);
+    for vertex in vertices {
+        w.vec4(*vertex);
+    }
+    w.u32(0);
+    Block::Collision {
+        type_name: "bhkConvexVerticesShape".into(),
+        data: w.done(),
+    }
+}
+
 fn compressed_mesh_shape(data: i32) -> Block {
     let mut w = W::new();
     w.i32(-1)
@@ -266,6 +320,27 @@ fn compressed_mesh_shape(data: i32) -> Block {
         .i32(data);
     Block::Collision {
         type_name: "bhkCompressedMeshShape".into(),
+        data: w.done(),
+    }
+}
+
+fn ni_tri_strips_shape(strips: &[i32], material: u32, scale: [f32; 3]) -> Block {
+    let mut w = W::new();
+    w.u32(material)
+        .f32(0.1)
+        .zeros(20)
+        .u32(1)
+        .vec4(scale)
+        .u32(strips.len() as u32);
+    for &strip in strips {
+        w.i32(strip);
+    }
+    w.u32(strips.len() as u32);
+    for _ in strips {
+        w.u8(Layer::STATIC.0).u8(0).u16(0);
+    }
+    Block::Collision {
+        type_name: "bhkNiTriStripsShape".into(),
         data: w.done(),
     }
 }
@@ -417,7 +492,7 @@ fn a_capsule_falls_through_a_floor_that_does_not_block_characters() {
 #[test]
 fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     // Node at x = 100 game units, body offset half a metre up, box half a
-    // metre tall: the top face sits one metre above the node.
+    // metre tall: its outer shell reaches 1.05 metres above the node.
     let blocks = vec![
         node("Crate", [100.0, 0.0, 0.0], 1, vec![]),
         collision_object(2),
@@ -438,7 +513,11 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
             shape => shape,
         },
         &Shape::Box {
-            half_extents: Vec3::new(UNITS_PER_METER, UNITS_PER_METER, 0.5 * UNITS_PER_METER)
+            half_extents: Vec3::new(
+                1.05 * UNITS_PER_METER,
+                1.05 * UNITS_PER_METER,
+                0.55 * UNITS_PER_METER,
+            )
         }
     );
     let mut world = SimpleWorld::new();
@@ -450,7 +529,7 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     let ch = world.character(player).unwrap();
     assert!(ch.on_ground);
     assert!(
-        (ch.position.z - UNITS_PER_METER).abs() < 0.5,
+        (ch.position.z - 1.05 * UNITS_PER_METER).abs() < 0.5,
         "feet at {}",
         ch.position.z
     );
@@ -458,13 +537,100 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     let hit = world
         .raycast(Vec3::new(100.0, 0.0, 500.0), Vec3::new(100.0, 0.0, -500.0))
         .unwrap();
-    assert!((hit.point.z - UNITS_PER_METER).abs() < 1e-2);
+    assert!((hit.point.z - 1.05 * UNITS_PER_METER).abs() < 1e-2);
     assert!(hit.normal.z > 0.99);
     assert_eq!(hit.material, Some(1));
     // Beside the box there is nothing.
     assert!(world
         .raycast(Vec3::new(300.0, 0.0, 500.0), Vec3::new(300.0, 0.0, -500.0))
         .is_none());
+}
+
+#[test]
+fn fmt_10_boxes_and_hulls_include_the_havok_convex_shell() {
+    let box_blocks = vec![
+        node("Box", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, 1, [0.0; 3], 7),
+        box_shape([1.0, 1.0, 1.0]),
+    ];
+    let box_collected = collect_blocks(&header(), &box_blocks, &[BlockRef(0)]).unwrap();
+    let box_collider = &box_collected.colliders[0];
+    let box_bounds = box_collider.aabb();
+    let radius_units = 0.05 * UNITS_PER_METER;
+    assert!(
+        ((box_bounds.max.x - UNITS_PER_METER) - radius_units).abs() < 0.001,
+        "box shell offset was {} units",
+        box_bounds.max.x - UNITS_PER_METER
+    );
+    let mut box_world = SimpleWorld::new();
+    box_world.add_static(box_collider);
+    let box_hit = box_world
+        .raycast(
+            Vec3::new(1.2 * UNITS_PER_METER, 0.0, 0.0),
+            Vec3::new(0.8 * UNITS_PER_METER, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!((box_hit.point.x - 1.05 * UNITS_PER_METER).abs() < 0.001);
+
+    let hull_blocks = vec![
+        node("Hull", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, 1, [0.0; 3], 7),
+        convex_vertices_shape(&[
+            [0.5, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.5],
+        ]),
+    ];
+    let hull_collected = collect_blocks(&header(), &hull_blocks, &[BlockRef(0)]).unwrap();
+    let hull_collider = &hull_collected.colliders[0];
+    let hull_bounds = hull_collider.aabb();
+    assert!(
+        ((hull_bounds.max.x - UNITS_PER_METER) - radius_units).abs() < 0.001,
+        "hull shell offset was {} units",
+        hull_bounds.max.x - UNITS_PER_METER
+    );
+    let mut hull_world = SimpleWorld::new();
+    hull_world.add_static(hull_collider);
+    let hull_hit = hull_world
+        .raycast(
+            Vec3::new(1.2 * UNITS_PER_METER, 0.0, 0.0),
+            Vec3::new(0.8 * UNITS_PER_METER, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!((hull_hit.point.x - 1.05 * UNITS_PER_METER).abs() < 0.001);
+}
+
+#[test]
+fn fmt_10_box_and_hull_reject_invalid_shell_radii() {
+    for radius in [f32::NAN, -0.05] {
+        let mut box_block = box_shape([1.0, 1.0, 1.0]);
+        let Block::Collision { data, .. } = &mut box_block else {
+            panic!("box collision block expected");
+        };
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        let Block::Collision { type_name, data } = box_block else {
+            panic!("box collision block expected");
+        };
+        assert!(bhk::decode(&type_name, &data, &header()).is_err());
+
+        let mut hull_block = convex_vertices_shape(&[
+            [0.5, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.5],
+        ]);
+        let Block::Collision { data, .. } = &mut hull_block else {
+            panic!("hull collision block expected");
+        };
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        let Block::Collision { type_name, data } = hull_block else {
+            panic!("hull collision block expected");
+        };
+        assert!(bhk::decode(&type_name, &data, &header()).is_err());
+    }
 }
 
 #[test]
@@ -516,6 +682,75 @@ fn unknown_and_dangling_references_are_reported_not_fatal() {
     let blocks = vec![node("Dangling", [0.0; 3], 7, vec![])];
     let c = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
     assert!(c.colliders.is_empty() && c.skipped.is_empty());
+}
+
+#[test]
+fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
+    let geometry = GeometryData {
+        vertices: vec![
+            soe_nif::Vec3::new(0.0, 0.0, 0.0),
+            soe_nif::Vec3::new(1.0, 0.0, 0.0),
+            soe_nif::Vec3::new(0.0, 1.0, 0.0),
+            soe_nif::Vec3::new(1.0, 1.0, 0.0),
+        ],
+        triangles: vec![[0, 1, 2], [2, 1, 3]],
+        from_strips: true,
+        ..Default::default()
+    };
+    let blocks = vec![
+        node("Strips", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, Layer::STATIC.0, [0.0; 3], 7),
+        ni_tri_strips_shape(&[4], 0x1234, [2.0, 3.0, 1.0]),
+        Block::GeometryData(geometry),
+    ];
+
+    let Block::Collision { data, .. } = &blocks[3] else {
+        unreachable!()
+    };
+    let Bhk::NiTriStrips {
+        material,
+        scale,
+        strips,
+        filters,
+    } = bhk::decode("bhkNiTriStripsShape", data, &header()).unwrap()
+    else {
+        panic!("expected a triangle strip shape");
+    };
+    assert_eq!(material, 0x1234);
+    assert_eq!(scale, Vec3::new(2.0, 3.0, 1.0));
+    assert_eq!(strips, [BlockRef(4)]);
+    assert_eq!(filters, [(Layer::STATIC, 0, 0)]);
+
+    let collected = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
+    assert!(collected.skipped.is_empty(), "{:?}", collected.skipped);
+    let Shape::Material { id, shape } = &collected.colliders[0].shape else {
+        panic!("expected a material wrapper");
+    };
+    assert_eq!(*id, 0x1234);
+    let Shape::TriangleMesh {
+        vertices,
+        triangles,
+        materials,
+    } = shape.as_ref()
+    else {
+        panic!("expected a triangle mesh");
+    };
+    assert_eq!(triangles, &[[0, 1, 2], [2, 1, 3]]);
+    assert_eq!(materials, &[Some(0x1234), Some(0x1234)]);
+    assert_eq!(vertices[1], Vec3::new(2.0, 0.0, 0.0) * UNITS_PER_METER);
+    assert_eq!(vertices[3], Vec3::new(2.0, 3.0, 0.0) * UNITS_PER_METER);
+}
+
+#[test]
+fn fmt_09_rejects_a_filter_count_that_does_not_match_strip_data() {
+    let Block::Collision { data, .. } = ni_tri_strips_shape(&[4], 0, [1.0; 3]) else {
+        unreachable!()
+    };
+    let mut malformed = data;
+    let filter_count = malformed.len() - 8;
+    malformed[filter_count..filter_count + 4].copy_from_slice(&0u32.to_le_bytes());
+    assert!(bhk::decode("bhkNiTriStripsShape", &malformed, &header()).is_err());
 }
 
 #[test]
