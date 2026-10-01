@@ -64,7 +64,10 @@ corresponding Papyrus form object when a host value is present, and return
   sources, validation and combat target selection.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
   shared by every observer of one target. `World::evaluate_detection` checks a
-  whole batch of observations before it changes any pool. See
+  whole batch of observations before it changes any pool. MGEF Disguise is not
+  executed because its gameplay semantics remain undocumented. xEdit and UESP
+  identify archetype 44 and specify no extra archetype data, while the Creation
+  Kit archetype table describes it as unknown. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 
 CTDA function 513, `IsCombatTarget`, checks whether the condition subject's
@@ -2870,7 +2873,7 @@ boundary.
 
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier, Absorb, Dual Value Modifier, Value and Parts,
-Dispel and Cloak effects, including hostile hits. Definitions
+Dispel, Cloak and Etherealize effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self, aimed actor and target-actor delivery are supported for constant
 and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
@@ -2934,6 +2937,17 @@ are the concentration exception: their associated aimed or target spell runs
 once per second while the cloak is active. Their saved pulse phase and owned
 effect identities are described under Cloak, MAG-56.
 
+Etherealize is MGEF archetype 41. The Creation Kit's
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says the archetype
+prevents targets from dealing or taking damage. While an application is active,
+the runtime blocks hostile magic and melee hits, melee attacks, hostile spell
+casts and reference activation by that actor. It derives status from the
+actor's live Etherealize applications. Ending one application removes only
+that application's status, leaving overlapping applications and the actor's
+separate ghost flag intact. The xEdit MGEF archetype table and UESP's MGEF
+layout identify archetype 41 and list no additional record data. No save fields
+were added because active effect identities already persist.
+
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
 delivery recipient as subject and the credited caster as target. A false group
@@ -2981,6 +2995,22 @@ dispel. Future registrations alone do not keep an expired effect alive.
 before binding, a suspended finish callback, a live alias reference and a callback
 queued during `OnEffectFinish`. VM storage checks are described in
 [Papyrus](papyrus.md).
+
+Enhance Weapon (MGEF archetype 39) reads its associated ENCH record when a live
+effect's target lands an ordinary melee hit with an equipped weapon. Supported
+ENCH entries with direct detrimental Health modifiers add their magnitude to
+that weapon's damage for the hit. Direct detrimental Stamina modifiers reduce
+the target's Stamina on the same hit. Both contributions end with the active
+effect and do not change unarmed damage, another actor's hit or an unequipped
+item. Conditioned enchantment entries, multiple entries and other actor values
+return an unsupported-combat error before the hit changes state. The contract
+comes from the CK Magic Effect archetype table, xEdit's MGEF archetype and
+associated item fields, and Mutagen's ENCH association type.
+`mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon` covers
+Health damage and expiry. The adversarial `mag_60_supports_a_valid_non_health_associated_enchantment_on_melee_hit`
+case covers Stamina damage, and
+`mag_60_effect_does_not_benefit_a_different_attackers_weapon` covers attacker
+ownership.
 
 ### Frenzy, MAG-31
 
@@ -3429,6 +3459,31 @@ menu test checks that menu pause preserves world clocks, completes a Papyrus
 menu wait and leaves an ordinary wait asleep. Both use synthetic records, and
 the check names no vanilla records.
 
+### Spawn Scripted Ref, MAG-64
+
+A target-location cast whose effects all use archetype 43 resolves the MGEF's
+EXPL link and that explosion's placed-object link in their owning plugin
+contexts. It places one dynamic reference at the target reference's transform.
+The reference uses the placed object's Papyrus class and receives scripts and
+properties from that base object's winning VMAD. Its dynamic FormID and VM
+object state survive SOEW save/load. An invalid or missing explosion or placed
+object returns a typed error before applying the cast. Other target-location
+archetypes and mixed-archetype target-location spells remain unsupported.
+EXPL DATA accepts the documented 40, 44, 48 and 52 byte layouts. Other lengths
+are rejected before placement.
+
+The layout comes from local
+`TES5Edit/Core/wbDefinitionsTES5.pas` (`MGEF.DATA` and `EXPL.DATA`) and
+`uesp-modfileformat/MGEF.wikitext` and `EXPL.wikitext`. The Creation Kit
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says Spawn Scripted
+Ref uses the explosion's placed object and identifies Throw Voice as an
+example. Script attachment follows this crate's VMAD and `Game::bind` path.
+`mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load`
+checks placement, base identity, VMAD attachment and save/load identity with
+synthetic records. `mag_64_rejects_truncated_expl_data_before_spawning` checks
+that a short DATA payload is rejected before application. The check names no
+vanilla records, so no data-gated case applies.
+
 ### Command Summoned, MAG-33
 
 Direct casts execute MGEF archetype 10 only for a reference spawned by a live
@@ -3511,6 +3566,29 @@ area. `mag_56_cloak_expiry_cleans_up_only_its_owned_effects_and_survives_save_lo
 checks owned cleanup at expiry after save/load. Neither check names a vanilla
 record, so no `SKYRIM_DATA` case applies. Host visuals, sound and concentration
 input are outside this row.
+
+### Banish, MAG-63
+
+Direct casts execute MGEF archetype 42 against the actor reference selected by
+the spell. The target is eligible when it is the live actor reference retained
+by an active Summon Creature effect and its actor level does not exceed the
+effect magnitude. Banish ends that summon effect through the normal
+effect-finish path, which deletes and disables its spawned actor. An ordinary
+actor reference, an over-level summon or a different summon is left unchanged.
+This does not apply a Confidence value modifier.
+
+The local xEdit MGEF table names archetype 42 as Banish and assigns Confidence
+as its primary actor value. The local UESP MGEF table also records that actor
+value. The Creation Kit [Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
+states that Banish affects summoned actors up to the effect magnitude. The local
+CK dump has no Magic Effect archetype page. The implementation uses the summon
+reference retained by MAG-39 and the existing effect-ending path. It does not
+use the actor value as a modifier. Synthetic checks
+`mag_63_banish_dismisses_the_targeted_summon` and
+`mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged` cover
+target eligibility and dismissal. `mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level`
+covers the level cap. No vanilla records are named by this check, so it has no
+`SKYRIM_DATA`-gated case.
 
 ### Direct hostile hits, MAG-01
 

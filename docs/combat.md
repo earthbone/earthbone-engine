@@ -97,6 +97,17 @@ and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
 An essential attacker can still attack an ordinary target.
 
+Live Enhance Weapon effects (MGEF archetype 39) contribute their associated
+ENCH to ordinary equipped melee hits by their target actor. A single
+unconditioned ENCH Value Modifier entry for detrimental Health adds its
+magnitude, scaled by the active effect magnitude, to weapon damage before
+armor and resistance. The contribution is read while the active effect is
+live, so expiry stops it without changing weapon records or inventory stacks.
+Unarmed hits and attempts with unequipped weapons do not receive the
+contribution. Other ENCH effects, conditions and multiple entries are rejected
+before hit state changes. See [active magic](game.md#active-magic-applications),
+MAG-60.
+
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
 record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may

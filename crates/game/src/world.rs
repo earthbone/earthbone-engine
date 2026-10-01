@@ -585,6 +585,11 @@ pub enum Pending {
         object: ObjectId,
         effect: GlobalFormId,
     },
+    /// Attach the winning base object's VMAD scripts to a placed reference.
+    BindReference {
+        object: ObjectId,
+        base: GlobalFormId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

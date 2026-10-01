@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::combat::{Error as CombatError, MeleeHit};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
@@ -38,6 +39,8 @@ const SUMMON_BASE: u32 = 0x501;
 const CELL: u32 = 0x800;
 const NAVM: u32 = 0x810;
 const LIGHT_BASE: u32 = 0x502;
+const SCRIPTED_REF_BASE: u32 = 0x602;
+const SCRIPTED_REF_EXPLOSION: u32 = 0x603;
 
 #[path = "magic/absorb.rs"]
 mod absorb;
@@ -171,6 +174,20 @@ fn location_effect() -> Record {
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+fn spell_for_effect(form: u32, effect_form: u32, magnitude: f32, duration: u32) -> Record {
+    let mut data = vec![0; 36];
+    put(&mut data, 8, 0);
+    put(&mut data, 16, 1);
+    put(&mut data, 20, 3);
+    let mut efit = magnitude.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&duration.to_le_bytes());
+    Record::new(T(b"SPEL"), form)
+        .sub(T(b"SPIT"), data)
+        .sub(T(b"EFID"), effect_form.to_le_bytes())
+        .sub(T(b"EFIT"), efit)
 }
 
 /// Like [`spell`], with the EFIT `Area` field set to `area` game units
@@ -386,6 +403,30 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
         effect(flags, archetype, 24, false),
         vec![spell(SPELL, 0, false, magnitude, duration)],
     ))
+}
+
+fn summon_and_banish_game(banish_magnitude: f32) -> Game {
+    const BANISH_EFFECT: u32 = EFFECT + 1;
+    const BANISH_SPELL: u32 = SPELL + 1;
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut banish = effect(1, 42, 24, false);
+    banish.form_id = BANISH_EFFECT;
+    let mut banish_spell = spell(BANISH_SPELL, 0, false, banish_magnitude, 0);
+    banish_spell.subrecords[1].data = BANISH_EFFECT.to_le_bytes().to_vec();
+    let mut plugin = plugin(summon, vec![spell(SPELL, 0, false, 0.0, 30), banish_spell]);
+    let summon_base = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.tag == T(b"NPC_") && record.form_id == SUMMON_BASE)
+        .unwrap();
+    let acbs = summon_base
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"ACBS"))
+        .unwrap();
+    put(&mut acbs.data, 8, 10);
+    plugin.push_top(banish);
+    game(plugin)
 }
 
 fn mag_30_navmesh() -> Geometry {
@@ -733,12 +774,20 @@ fn mag_11_malformed_effect_group_leaves_the_ingestible_in_inventory() {
 }
 
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
+    cast_form(game, spell, id(target))
+}
+
+fn cast_form(
+    game: &mut Game,
+    spell: u32,
+    target: GlobalFormId,
+) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
         id(spell),
         id(ACTOR),
         Some(id(ACTOR)),
-        Some(id(target)),
+        Some(target),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
@@ -1013,6 +1062,209 @@ fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
 }
 
+fn mag_60_weapon(object: u32, damage: u16) -> Record {
+    let mut data = vec![0; 10];
+    put(&mut data, 4, 8_f32.to_bits());
+    data[8..10].copy_from_slice(&damage.to_le_bytes());
+    let mut dnam = vec![0; 100];
+    dnam[0] = 1;
+    put(&mut dnam, 4, 1_f32.to_bits());
+    put(&mut dnam, 8, 1.1_f32.to_bits());
+    put(&mut dnam, 76, 6);
+    put(&mut dnam, 88, u32::MAX);
+    Record::new(T(b"WEAP"), object)
+        .sub(T(b"DATA"), data)
+        .sub(T(b"DNAM"), dnam)
+}
+
+fn mag_60_close(actual: f32, expected: f32) {
+    assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+}
+
+#[test]
+fn mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon() {
+    const ENCHANTMENT: u32 = 0x710;
+    const ENCHANT_EFFECT: u32 = 0x711;
+    const WEAPON: u32 = 0x712;
+    const UNEQUIPPED: u32 = 0x713;
+
+    let enhance = effect_with_associated_item(0, 39, 0, false, ENCHANTMENT);
+    let mut strike = effect(1 << 2, 0, 24, true);
+    strike.form_id = ENCHANT_EFFECT;
+    let mut efit = 5_f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    let enchantment = Record::new(T(b"ENCH"), ENCHANTMENT)
+        .sub(T(b"ENIT"), vec![0; 8])
+        .sub(T(b"EFID"), ENCHANT_EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(enhance, vec![spell(SPELL, 0, false, 1.0, 1)]);
+    plugin.push_top(strike);
+    plugin.push_top(enchantment);
+    plugin.push_top(mag_60_weapon(WEAPON, 10));
+    plugin.push_top(mag_60_weapon(UNEQUIPPED, 10));
+    let mut game = game(plugin);
+    game.world_mut().add_item(id(ACTOR), id(WEAPON), 1);
+    game.world_mut().equip_item(id(ACTOR), id(WEAPON)).unwrap();
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(WEAPON),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .unwrap();
+    mag_60_close(result.weapon_damage, 15.0);
+    mag_60_close(result.health_damage, 15.0);
+    let health_after_hit = game
+        .world()
+        .actor_ref(id(OTHER))
+        .unwrap()
+        .values
+        .get("health")
+        .current();
+    assert!(game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(UNEQUIPPED),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .is_err());
+    mag_60_close(
+        game.world()
+            .actor_ref(id(OTHER))
+            .unwrap()
+            .values
+            .get("health")
+            .current(),
+        health_after_hit,
+    );
+}
+
+#[test]
+fn mag_60_enhance_weapon_stops_contributing_when_effect_expires() {
+    const ENCHANTMENT: u32 = 0x720;
+    const ENCHANT_EFFECT: u32 = 0x721;
+    const WEAPON: u32 = 0x722;
+
+    let enhance = effect_with_associated_item(0, 39, 0, false, ENCHANTMENT);
+    let mut strike = effect(1 << 2, 0, 24, true);
+    strike.form_id = ENCHANT_EFFECT;
+    let mut efit = 5_f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    let enchantment = Record::new(T(b"ENCH"), ENCHANTMENT)
+        .sub(T(b"ENIT"), vec![0; 8])
+        .sub(T(b"EFID"), ENCHANT_EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(enhance, vec![spell(SPELL, 0, false, 1.0, 1)]);
+    plugin.push_top(strike);
+    plugin.push_top(enchantment);
+    plugin.push_top(mag_60_weapon(WEAPON, 10));
+    let mut game = game(plugin);
+    game.world_mut().add_item(id(ACTOR), id(WEAPON), 1);
+    game.world_mut().equip_item(id(ACTOR), id(WEAPON)).unwrap();
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    game.tick(2.0);
+
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(WEAPON),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .unwrap();
+    mag_60_close(result.weapon_damage, 10.0);
+}
+
+#[test]
+fn mag_62_etherealize_grants_immunity_and_blocks_hostile_actions_and_activation() {
+    let ethereal = effect(0, 41, 24, false);
+    let mut hostile = effect(5, 0, 24, false);
+    hostile.form_id = EFFECT + 1;
+    let mut plugin = plugin(
+        ethereal.clone(),
+        vec![
+            spell(SPELL, 0, false, 0.0, 10),
+            spell_for_effect(SPELL + 1, EFFECT + 1, 20.0, 0),
+        ],
+    );
+    plugin.push_top(hostile);
+    let mut game = game(plugin);
+
+    assert_eq!(cast(&mut game, SPELL, OTHER).unwrap().len(), 1);
+    assert!(game.world().is_ethereal(id(OTHER)));
+    assert!(cast(&mut game, SPELL + 1, OTHER).unwrap().is_empty());
+    assert!(matches!(
+        game.melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: GlobalFormId {
+                file: 0,
+                object: 0x1F4
+            },
+            is_bash: false,
+            is_power_attack: false,
+        }),
+        Err(CombatError::Unsupported("ethereal target"))
+    ));
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert!(matches!(
+        game.melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: GlobalFormId {
+                file: 0,
+                object: 0x1F4
+            },
+            is_bash: false,
+            is_power_attack: false,
+        }),
+        Err(CombatError::Unsupported("ethereal action"))
+    ));
+    assert!(matches!(
+        cast(&mut game, SPELL + 1, OTHER),
+        Err(MagicError::Unsupported("ethereal action"))
+    ));
+    let shared = game.shared_world();
+    let activated =
+        shared
+            .borrow_mut()
+            .activate(id(SOURCE), id(ACTOR), true, &mut |name, class| {
+                game.vm.create_object_of(name, class)
+            });
+    assert!(!activated);
+    assert_eq!(game.world().active_effects().count(), 2);
+}
+
+#[test]
+fn mag_62_ending_etherealize_removes_only_that_applications_restrictions() {
+    let mut game = fixture(0, 41, 0.0, 10);
+    game.world_mut().actor(id(OTHER)).unwrap().ghost = true;
+    let first = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    let second = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    assert_ne!(first, second);
+    assert!(game.world().is_ethereal(id(OTHER)));
+
+    assert!(dispel(&mut game, first));
+    assert!(game.world().is_ethereal(id(OTHER)));
+    assert!(game.world_mut().actor(id(OTHER)).unwrap().ghost);
+
+    assert!(dispel(&mut game, second));
+    assert!(!game.world().is_ethereal(id(OTHER)));
+    assert!(game.world_mut().actor(id(OTHER)).unwrap().ghost);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
 #[test]
 fn mag_54_stagger_forwards_authored_magnitude_and_caster_direction_once_through_reload() {
     let authored_magnitude = 0.65;
@@ -1201,6 +1453,78 @@ fn mag_35_authored_light_spawns_at_target_and_is_removed_on_expiry() {
 }
 
 #[test]
+fn mag_63_banish_dismisses_the_targeted_summon() {
+    let mut game = summon_and_banish_game(10.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast_form(&mut game, SPELL + 1, summoned).unwrap();
+
+    let world = game.world();
+    let reference = world.reference_ref(summoned).unwrap();
+    assert!(reference.deleted, "Banish deletes its linked summon");
+    assert!(!reference.enabled, "Banish disables its linked summon");
+    assert!(world
+        .active_effects()
+        .all(|effect| effect.summoned != Some(summoned)));
+}
+
+#[test]
+fn mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged() {
+    let mut game = summon_and_banish_game(10.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast(&mut game, SPELL + 1, OTHER).unwrap();
+
+    let world = game.world();
+    let persistent = world.reference_ref(id(OTHER)).unwrap();
+    assert!(
+        !persistent.deleted,
+        "Banish must preserve persistent actors"
+    );
+    assert!(
+        persistent.enabled,
+        "Banish must leave persistent actors enabled"
+    );
+    let summon = world.reference_ref(summoned).unwrap();
+    assert!(!summon.deleted, "a different summon is not the target");
+    assert!(summon.enabled, "a different summon remains enabled");
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
+}
+
+#[test]
+fn mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level() {
+    let mut game = summon_and_banish_game(9.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast_form(&mut game, SPELL + 1, summoned).unwrap();
+
+    let world = game.world();
+    let reference = world.reference_ref(summoned).unwrap();
+    assert!(!reference.deleted, "a higher-level summon resists Banish");
+    assert!(reference.enabled, "a higher-level summon remains enabled");
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
+}
+
+#[test]
 fn mag_39_summon_creature_dismisses_spawned_actor_on_expiry() {
     let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
     let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]));
@@ -1282,6 +1606,81 @@ fn mag_39_saved_summon_keeps_its_actor_link_until_expiry() {
     let reference = world.reference_ref(spawned).unwrap();
     assert!(reference.deleted);
     assert!(!reference.enabled);
+}
+
+#[test]
+fn mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load() {
+    let mut data = vec![0; 152];
+    put(&mut data, 64, 43);
+    put(&mut data, 76, SCRIPTED_REF_EXPLOSION);
+    put(&mut data, 80, 1);
+    put(&mut data, 84, 4);
+    let effect = Record::new(T(b"MGEF"), EFFECT).sub(T(b"DATA"), data);
+    let mut spell_data = vec![0; 36];
+    put(&mut spell_data, 8, 1);
+    put(&mut spell_data, 16, 1);
+    put(&mut spell_data, 20, 4);
+    let mut efit = 1.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&10u32.to_le_bytes());
+    let scripted_spell = Record::new(T(b"SPEL"), SPELL)
+        .sub(T(b"SPIT"), spell_data)
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(effect, vec![scripted_spell]);
+    let mut explosion_data = vec![0; 52];
+    put(&mut explosion_data, 16, SCRIPTED_REF_BASE);
+    plugin
+        .push_top(Record::new(T(b"EXPL"), SCRIPTED_REF_EXPLOSION).sub(T(b"DATA"), explosion_data));
+    let script = ScriptBuilder::new("SpawnedRefProbe", "ObjectReference")
+        .function(FunctionBuilder::new("OnLoad", "None").build())
+        .bytes();
+    plugin.push_top(
+        Record::new(T(b"ACTI"), SCRIPTED_REF_BASE)
+            .zsub(T(b"EDID"), "SpawnedRef")
+            .sub(
+                T(b"VMAD"),
+                Vmad {
+                    scripts: vec![ScriptEntry::new("SpawnedRefProbe")],
+                    ..Vmad::default()
+                }
+                .write(T(b"ACTI")),
+            ),
+    );
+    let mut original = game(plugin.clone());
+    original.load_script(&script).unwrap();
+    original.world_mut().reference(id(ACTOR)).unwrap().position = [12.0, 34.0, 56.0];
+
+    assert_eq!(cast(&mut original, SPELL, ACTOR).unwrap().len(), 1);
+    let spawned = GlobalFormId {
+        file: soe_game::world::DYNAMIC_FILE,
+        object: 0x1001,
+    };
+    let saved = original.save_state().unwrap();
+    original.run_until_idle(64);
+    {
+        let world = original.world();
+        let reference = world.reference_ref(spawned).unwrap();
+        assert_eq!(reference.base, Some(id(SCRIPTED_REF_BASE)));
+        assert_eq!(reference.position, [12.0, 34.0, 56.0]);
+    }
+    let spawned_object = original.object_of(Handle::Form(spawned));
+    assert!(original
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
+
+    let mut restored = game(plugin);
+    restored.load_script(&script).unwrap();
+    restored.load_state(&saved).unwrap();
+    restored.run_until_idle(64);
+    assert_eq!(
+        restored.world().reference_ref(spawned).unwrap().base,
+        Some(id(SCRIPTED_REF_BASE))
+    );
+    let spawned_object = restored.object_of(Handle::Form(spawned));
+    assert!(restored
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
 }
 
 #[test]

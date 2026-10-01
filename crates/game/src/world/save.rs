@@ -279,6 +279,11 @@ impl World {
                     body.u64(object.0);
                     write_form_id(&mut body, *effect);
                 }
+                Pending::BindReference { object, base } => {
+                    body.u8(5);
+                    body.u64(object.0);
+                    write_form_id(&mut body, *base);
+                }
                 Pending::Event { object, name, args } => {
                     body.u8(0);
                     body.u64(object.0);
@@ -695,6 +700,10 @@ impl World {
                 2 if version == 5 || version >= 9 => pending.push(Pending::BindEffect {
                     object: ObjectId(r.u64()?),
                     effect: read_form_id(&mut r)?,
+                }),
+                5 if version >= 37 => pending.push(Pending::BindReference {
+                    object: ObjectId(r.u64()?),
+                    base: read_form_id(&mut r)?,
                 }),
                 0 => {
                     let object = ObjectId(r.u64()?);

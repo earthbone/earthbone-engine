@@ -16,6 +16,11 @@
 //! the SPIT field in xEdit and applies only through an actor target supplied
 //! by a projectile contact. Target-location delivery uses the selected point
 //! as the center for authored area effects.
+//! enums. MGEF and EXPL links follow xEdit's `wbDefinitionsTES5.pas` and
+//! UESP's local MGEF and EXPL layouts. Definitions stay in the winning
+//! records. Per-cast magnitudes, elapsed time and reversible actor-value
+//! deltas belong to the world.
+//! Unsupported delivery and archetypes return errors before applying effects.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +51,8 @@ const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
+const ETHEREALIZE: u32 = 41;
+const SPAWN_SCRIPTED_REF: u32 = 43;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
@@ -185,6 +192,9 @@ struct PreparedEffect {
     open_lock: bool,
     disarm: bool,
     stagger_duration: Option<f64>,
+    banish: bool,
+    scripted_ref_base: Option<GlobalFormId>,
+    scripted_ref_anchor: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -493,6 +503,18 @@ impl World {
                 && self
                     .magic_effect(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
+        })
+    }
+
+    /// Whether an actor currently has a live Etherealize application.
+    /// The status belongs to the active effect identity, so ending one
+    /// application cannot clear another or an actor's independent ghost flag.
+    pub fn is_ethereal(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == actor
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == ETHEREALIZE)
         })
     }
 
@@ -1024,6 +1046,9 @@ impl World {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -1177,6 +1202,9 @@ impl World {
                             .map_err(|_| MagicError::StaggerSetting("fStaggerDuration"))
                     })
                     .transpose()?,
+                banish: false,
+                scripted_ref_base: None,
+                scripted_ref_anchor: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -2016,6 +2044,15 @@ impl World {
                 target
             }
             3 => target.ok_or(MagicError::Target)?,
+            4 if !definition.effects.is_empty()
+                && definition.effects.iter().all(|entry| {
+                    self.resolve_from(spell, entry.base_effect)
+                        .and_then(|effect| self.magic_effect(effect).ok())
+                        .is_some_and(|effect| effect.data.archetype == SPAWN_SCRIPTED_REF)
+                }) =>
+            {
+                target.unwrap_or(source)
+            }
             4 if cast_delivery == CastDelivery::Location => {
                 let position = location.ok_or(MagicError::Target)?;
                 if !position.iter().all(|value| value.is_finite())
@@ -2071,9 +2108,14 @@ impl World {
             if data.archetype == PEAK_VALUE_MODIFIER {
                 self.peak_value_keyword(effect, &base)?;
             }
+            let condition_target = if data.archetype == SPAWN_SCRIPTED_REF {
+                source
+            } else {
+                target
+            };
             let context = Context {
                 owner: spell,
-                subject: target,
+                subject: condition_target,
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
@@ -2096,6 +2138,9 @@ impl World {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -2132,6 +2177,10 @@ impl World {
                     | 33
                     | PEAK_VALUE_MODIFIER
                     | SLOW_TIME
+                    | 39
+                    | ETHEREALIZE
+                    | 42
+                    | SPAWN_SCRIPTED_REF
                     | 45
                     | 10
                     | 20
@@ -2290,6 +2339,24 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
+            if data.archetype == 39 {
+                let enchantment = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+                    return Err(MagicError::Unsupported("enhance weapon association"));
+                }
+            }
+            let scripted_ref_base = if data.archetype == SPAWN_SCRIPTED_REF {
+                if definition.data.delivery != 4 || magnitude == 0.0 {
+                    return Err(MagicError::Unsupported(
+                        "scripted reference delivery or magnitude",
+                    ));
+                }
+                Some(self.scripted_ref_base(effect)?)
+            } else {
+                None
+            };
             let duration = if (definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD)
                 || (data.archetype == 32 && data.flags & NO_DURATION != 0)
             {
@@ -2334,7 +2401,9 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = if werewolf_race.is_some()
+            let mut recipients = if scripted_ref_base.is_some() {
+                vec![source]
+            } else if werewolf_race.is_some()
                 || vampire_form.is_some()
                 || matches!(data.archetype, LOCK | OPEN)
             {
@@ -2348,6 +2417,7 @@ impl World {
                 recipients.retain(|&id| {
                     self.actor(id)
                         .is_some_and(|actor| !actor.dead && !actor.ghost)
+                        && !self.is_ethereal(id)
                 });
             }
             for recipient in recipients {
@@ -2448,6 +2518,9 @@ impl World {
                     open_lock: data.archetype == OPEN,
                     disarm,
                     stagger_duration,
+                    banish: data.archetype == 42,
+                    scripted_ref_base,
+                    scripted_ref_anchor: scripted_ref_base.map(|_| target),
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -2456,6 +2529,38 @@ impl World {
             }
         }
         Ok(prepared)
+    }
+
+    fn scripted_ref_base(&self, effect: GlobalFormId) -> Result<GlobalFormId, MagicError> {
+        let effect_ref = self
+            .order
+            .winner_ref(effect)
+            .ok_or(MagicError::Missing(effect))?;
+        let effect_record = self.order.record(effect_ref);
+        let data = effect_record
+            .find(super::T(b"DATA"))
+            .filter(|data| data.len() >= 80)
+            .ok_or(MagicError::Unsupported("scripted reference effect data"))?;
+        let explosion_raw = u32::from_le_bytes([data[76], data[77], data[78], data[79]]);
+        let explosion = self
+            .resolve_from(effect, explosion_raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let explosion_ref = self
+            .order
+            .winner_ref(explosion)
+            .ok_or(MagicError::Missing(explosion))?;
+        let explosion_record = self.order.record(explosion_ref);
+        if explosion_record.tag != super::T(b"EXPL") {
+            return Err(MagicError::Unsupported("scripted reference explosion"));
+        }
+        let data = explosion_record
+            .find(super::T(b"DATA"))
+            .filter(|data| matches!(data.len(), 40 | 44 | 48 | 52))
+            .ok_or(MagicError::Unsupported("scripted reference explosion data"))?;
+        let base_raw = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+        self.resolve_from(explosion, base_raw)
+            .filter(|base| self.tag_of(*base).is_some())
+            .ok_or(MagicError::Missing(explosion))
     }
 
     fn apply_prepared_effects(
@@ -2562,6 +2667,13 @@ impl World {
             }
             if let Some(base) = prepared.light_base {
                 prepared.effect.summoned = Some(self.place_at(base, prepared.effect.target, false));
+            }
+            if let (Some(base), Some(anchor)) =
+                (prepared.scripted_ref_base, prepared.scripted_ref_anchor)
+            {
+                let spawned = self.place_at(base, anchor, false);
+                let object = self.object_of(Handle::Form(spawned), alloc);
+                self.pending.push(Pending::BindReference { object, base });
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(
@@ -2671,6 +2783,29 @@ impl World {
             }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
+            }
+            if prepared.banish {
+                let target_level = self.actor(prepared.effect.target).map(|actor| actor.level);
+                let summon = target_level
+                    .filter(|level| prepared.effect.magnitude >= *level as f32)
+                    .and_then(|_| {
+                        self.active_effects
+                            .values()
+                            .find(|effect| {
+                                effect.summoned == Some(prepared.effect.target)
+                                    && self.reference_ref(prepared.effect.target).is_some_and(
+                                        |reference| {
+                                            reference.is_actor
+                                                && reference.enabled
+                                                && !reference.deleted
+                                        },
+                                    )
+                            })
+                            .map(|effect| effect.id)
+                    });
+                if let Some(summon) = summon {
+                    self.dispel_effect(summon, alloc);
+                }
             }
             if prepared.effect.recover
                 || prepared.effect.duration == Some(0.0)
@@ -3344,10 +3479,16 @@ impl World {
         let (protected, essential) = (actor.protected, actor.essential);
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
+        let mut applicable = effect.clone();
+        if self.is_ethereal(effect.target) {
+            applicable
+                .changes
+                .retain(|(name, amount)| name != "health" || f64::from(*amount) * scale >= 0.0);
+        }
         if self.is_peak_value_effect(effect.effect)? {
-            self.change_peak_value(&mut values, effect, scale)?;
+            self.change_peak_value(&mut values, &applicable, scale)?;
         } else {
-            change_values(&mut values, effect, scale)?;
+            change_values(&mut values, &applicable, scale)?;
         }
         let touches_health = effect.changes.iter().any(|(name, _)| name == "health");
         // The caster stands in for melee_hit's attacker (combat.rs,
