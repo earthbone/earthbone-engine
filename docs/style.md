@@ -147,7 +147,8 @@ tools/lint.sh
 ```
 
 The gate runs `cargo deny check` and `cargo audit` against the workspace dependency
-tree. The GitHub workflow installs pinned versions of both tools. `deny.toml` defines
+tree when installed, and reports a skip for each missing tool. Installed tools must
+pass. The GitHub workflow installs pinned versions of both tools. `deny.toml` defines
 the accepted dependency licenses and records the advisory exception for the locked
 `paste` dependency.
 

@@ -37,10 +37,18 @@ step "cargo clippy --workspace --no-default-features --all-targets -- -D warning
 cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
 step "cargo deny check"
-cargo deny check
+if command -v cargo-deny >/dev/null 2>&1; then
+  cargo deny check
+else
+  echo "cargo-deny not installed, skipping"
+fi
 
 step "cargo audit"
-cargo audit
+if command -v cargo-audit >/dev/null 2>&1; then
+  cargo audit
+else
+  echo "cargo-audit not installed, skipping"
+fi
 
 step "comment-lint crates docs"
 if command -v comment-lint >/dev/null 2>&1; then
