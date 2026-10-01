@@ -5,6 +5,7 @@
 
 #[cfg(feature = "godot")]
 use std::collections::HashMap;
+use std::collections::HashSet;
 #[cfg(feature = "godot")]
 use std::hash::BuildHasher;
 
@@ -105,6 +106,27 @@ struct Swing {
 #[derive(Debug, Default)]
 pub struct MeleeContact {
     swing: Option<Swing>,
+}
+
+/// Tracks projectile instance IDs that already reported a contact.
+#[derive(Debug, Default)]
+pub struct AimedProjectileContacts {
+    consumed: HashSet<i64>,
+}
+
+impl AimedProjectileContacts {
+    /// Resolve a projectile's first contact and ignore repeated signal delivery.
+    pub fn contact(&mut self, projectile_id: i64, resolve: impl FnOnce() -> bool) -> bool {
+        if !self.consumed.insert(projectile_id) {
+            return false;
+        }
+        resolve()
+    }
+
+    /// Forget a projectile after its host node is freed.
+    pub fn forget(&mut self, projectile_id: i64) {
+        self.consumed.remove(&projectile_id);
+    }
 }
 
 /// Armed bow or crossbow release, canceled without consuming ammunition.

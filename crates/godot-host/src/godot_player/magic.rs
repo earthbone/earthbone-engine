@@ -261,6 +261,7 @@ impl PlayerNode {
         &mut self,
         spell_file: i32,
         spell_object: i64,
+        projectile_instance_id: i64,
         contact_body: Rid,
     ) -> bool {
         let (Ok(file), Ok(object)) = (u16::try_from(spell_file), u32::try_from(spell_object))
@@ -276,20 +277,30 @@ impl PlayerNode {
         let spell = GlobalFormId { file, object };
         let caster = game.player();
         let shared = game.shared_world();
-        let result = shared.borrow_mut().cast_spell_on_projectile_contact(
-            spell,
-            caster,
-            Some(caster),
-            target,
-            &mut |name, class| game.vm.create_object_of(name, class),
-        );
-        match result {
-            Ok(_) => true,
-            Err(error) => {
-                godot_error!("PlayerNode: {error}");
-                false
-            }
-        }
+        self.aimed_projectile_contacts
+            .contact(projectile_instance_id, || {
+                let result = shared.borrow_mut().cast_spell_on_projectile_contact(
+                    spell,
+                    caster,
+                    Some(caster),
+                    target,
+                    &mut |name, class| game.vm.create_object_of(name, class),
+                );
+                match result {
+                    Ok(_) => true,
+                    Err(error) => {
+                        godot_error!("PlayerNode: {error}");
+                        false
+                    }
+                }
+            })
+    }
+
+    /// Release the one-shot contact guard when a projectile node is freed.
+    #[func]
+    pub fn aimed_spell_projectile_finished(&mut self, projectile_instance_id: i64) {
+        self.aimed_projectile_contacts
+            .forget(projectile_instance_id);
     }
 
     /// Open the shared player's known-spell list.
