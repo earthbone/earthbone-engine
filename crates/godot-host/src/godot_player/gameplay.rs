@@ -7,6 +7,8 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
+use godot::prelude::{GString, Variant};
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -110,6 +112,55 @@ impl PlayerNode {
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
+            let (hud_cart_mode, requests) = {
+                let mut world = game.world_mut();
+                (world.hud_cart_mode, world.take_game_ui_requests())
+            };
+            if hud_cart_mode != self.presented_hud_cart_mode {
+                self.presented_hud_cart_mode = hud_cart_mode;
+                self.base_mut()
+                    .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
+            }
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
+        }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+            }
+        }
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let requests = game.world_mut().take_effect_shader_requests();
+            let world = game.world();
+            streamer
+                .bind_mut()
+                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
         }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
@@ -200,7 +251,14 @@ impl PlayerNode {
                 lockpick_request,
             )
         };
-        self.pending_lockpick = lockpick_request.then_some(target);
+        if lockpick_request {
+            self.pending_lockpick = Some(target);
+            if self.open_lockpicking_menu(target) {
+                self.pending_lockpick = None;
+            }
+            return false;
+        }
+        self.pending_lockpick = None;
         if show_container {
             self.open_container_menu(target);
         }

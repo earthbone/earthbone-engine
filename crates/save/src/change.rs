@@ -451,7 +451,7 @@ impl ChangeForm {
         if self.record_type() != "ALCH" {
             return Ok(None);
         }
-        self.base_object_change("ALCH change").map(Some)
+        self.base_object_change_fields("ALCH change").map(Some)
     }
 
     /// Decode ENCH form flags and base-object change markers.
@@ -462,10 +462,10 @@ impl ChangeForm {
         if self.record_type() != "ENCH" {
             return Ok(None);
         }
-        self.base_object_change("ENCH change").map(Some)
+        self.base_object_change_fields("ENCH change").map(Some)
     }
 
-    fn base_object_change(&self, region: &'static str) -> Result<BaseObjectChange> {
+    fn base_object_change_fields(&self, region: &'static str) -> Result<BaseObjectChange> {
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, region);
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -1391,6 +1391,9 @@ pub struct RelationshipChange {
     pub created: Option<[RefId; 3]>,
     pub rank: Option<i32>,
 }
+
+/// Compatibility name for the WOOP/MGEF view of [`BaseObjectChange`].
+pub type BaseObjectMarkerChange = BaseObjectChange;
 
 /// Saved PACK fields. Waiting and never-run are zero-byte change markers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

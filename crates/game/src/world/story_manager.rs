@@ -369,6 +369,13 @@ impl World {
                 target,
                 quest: None,
                 tempering_enchanted: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                magic_item: None,
+                dual_cast: None,
+                skill_use: None,
+                light_level: None,
             },
             &node.conditions,
         )
@@ -517,7 +524,11 @@ fn story_event_name(code: [u8; 4]) -> &'static str {
     }
 }
 
-pub(super) fn write_history(world: &World, writer: &mut Writer) {
+pub(super) fn write_history(
+    world: &World,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.len(world.story_history.len());
     for (quest, (starts, deadline)) in &world.story_history {
         write_form_id(writer, *quest);
@@ -537,6 +548,7 @@ pub(super) fn write_history(world: &World, writer: &mut Writer) {
 pub(super) fn read_history(
     world: &mut World,
     reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     let count = reader.len()?;
     let mut history = std::collections::BTreeMap::new();

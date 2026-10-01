@@ -144,6 +144,12 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+  MGEF form flags, the two payload-free base-object change markers, and retain
+  unnamed flag bits. Only the form-flags marker contributes payload bytes.
+  The game crate applies these fields as persisted record metadata. It leaves
+  source subrecords in place because the two base-object markers contain no
+  replacement values or text.
 - `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
   their value, full-name and TACT speaker change markers. The markers consume
   no payload bytes, as defined by xEdit. Unnamed xEdit flag bits remain in the
@@ -236,6 +242,14 @@ The implementation follows xEdit's `wbDefinitionsTES5Saves.pas`. UESP's save
 format page establishes the type indices but does not document these payload
 fields. FallrimTools `ChangeFormDefault` retains payload bytes without a typed
 layout, so it remains useful as a raw preservation reference.
+
+`World::restore_vanilla_static_objects` maps these changes through saved plugin
+names and applies the form-flags inversion mask to winning CONT, MISC and FURN
+records. It retains the value and full-name markers and opaque suffix bytes.
+The markers have zero-byte layouts in xEdit, so neither marker replaces a
+record subrecord. Restore prepares every record before installing any override.
+SOEW version 37 stores the decoded fields and reapplies the mask when loading
+engine state.
 
 ## Runtime instance import
 
@@ -1086,6 +1100,19 @@ LVSP and shared form-mask combinations have synthetic coverage only. No save
 bytes were copied into the repository. `World::restore_vanilla_lists` in the
 game crate applies decoded changes to live record overrides.
 
+## WOOP and MGEF change application, SAV-50
+
+`World::restore_vanilla_base_objects` maps all WOOP and MGEF changes before
+installing their record overrides. It retains the optional six-byte form flag
+pair, both zero-byte change markers and unnamed flag bits. It validates every
+change before installing overrides. The optional form-flag mask is XORed with
+the winning record flags, following xEdit's `CHANGE_FORM_FLAGS` definition as
+"Mask Invert Flags". The base-object value and full-name markers do not include
+replacement data, so saved records keep their authored subrecords. MGEF runtime
+views read through the override-aware record lookup. SOEW version 37 stores
+the retained metadata and reapplies the mask after engine save/load. Earlier
+versions still load without that extension.
+
 ## Reference ownership and locks, SAV-16, blocked
 
 The partial `World::restore_vanilla_reference_extras` pass inspects every
@@ -1203,6 +1230,16 @@ rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
 combinations for each record type and reports record counts, distinct flag
 sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
 
+`World::restore_vanilla_base_objects` applies these fields to shared record
+overrides after mapping saved identities through plugin names. It validates
+all LIGH, STAT and MSTT changes before changing the world. The live records
+remain available through `World::record`, while
+`World::restored_base_object_extra` returns the saved form-flag words and the
+two zero-byte change markers. Since the markers contain no replacement value
+or name, record-backed value and name queries continue to use the winning
+plugin record. SOEW version 37 retains this metadata through engine save/load
+in the SAV-53 world section.
+
 `ChangeForm::apparatus_change` and `ChangeForm::idle_marker_change` decode
 APPA and IDLM payloads from the xEdit `Change APPA Data` and `Change IDLM Data`
 definitions. Both have an optional six-byte form-flags section. The value and
@@ -1213,7 +1250,9 @@ keeps both types raw. The gated SAV-43 survey accounts for both types across
 the external save corpus and checks exact typed re-encoding. The 60-save corpus
 contains no APPA or IDLM changes, so payload coverage comes from synthetic
 fixtures. UESP's local mod-file format pages describe the APPA and IDLM records,
-not their save payloads.
+not their save payloads. The game applies their form-flag inversion masks to
+winning records and keeps the decoded fields in the SAV-44 world section.
+This section leaves older version-37 saves unchanged when absent.
 
 ## BOOK, NOTE and KEYM saved fields
 

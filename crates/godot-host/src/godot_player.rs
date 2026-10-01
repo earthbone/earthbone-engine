@@ -44,9 +44,12 @@ mod detection;
 mod exterior;
 mod footsteps;
 mod gameplay;
+mod hud;
+mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod race;
 mod saves;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -102,6 +105,7 @@ pub struct PlayerNode {
     last_melee_target: Option<GlobalFormId>,
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
+    presented_hud_cart_mode: bool,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     dialogue_voice_slot: Option<i32>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -111,6 +115,7 @@ pub struct PlayerNode {
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
     door_fade_view: Option<DoorFadeView>,
+    hud_view: Option<hud::HudView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -130,8 +135,15 @@ pub struct PlayerNode {
     menu: crate::ui::MenuState,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
+    race_choice: Option<(GlobalFormId, bool)>,
+    appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
+    quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
+    mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    lockpick_target: Option<GlobalFormId>,
+    lockpick_angle: f32,
+    lockpick_status: Option<Gd<godot::classes::Label>>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
 
@@ -161,6 +173,7 @@ impl INode3D for PlayerNode {
             last_melee_target: None,
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
+            presented_hud_cart_mode: false,
             sound_bank: None,
             dialogue_voice_slot: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
@@ -185,9 +198,17 @@ impl INode3D for PlayerNode {
             menu: crate::ui::MenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
+            race_choice: None,
+            appearance_choice: None,
             menu_view: None,
+            quest_journal_snapshot: None,
+            mcm_config: None,
             container_menu: None,
+            lockpick_target: None,
+            lockpick_angle: 0.0,
+            lockpick_status: None,
             restore_mouse_on_focus: None,
+            hud_view: None,
         }
     }
 
@@ -203,6 +224,7 @@ impl INode3D for PlayerNode {
         self.register_actions();
         self.create_camera();
         self.create_door_fade();
+        self.create_hud();
 
         self.create_menu();
         if self.capture_mouse {
@@ -242,6 +264,17 @@ impl INode3D for PlayerNode {
                 && !key.is_echo()
                 && !self.menu.is_open()
                 && self.open_magic_menu()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
+            if key.get_keycode() == Key::J
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_quest_journal()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
@@ -300,6 +333,9 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        if self.menu.title() == Some("Quests") {
+            self.refresh_quest_journal();
+        }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
@@ -307,6 +343,13 @@ impl INode3D for PlayerNode {
             let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
             let (feet, height) = self.motion.sample(fraction);
             self.place_camera(feet, height);
+        }
+        if let Some(game) = self.game.as_mut() {
+            if let Some(view) = self.hud_view.as_mut() {
+                view.refresh(game, self.rig.yaw());
+            }
+        } else if let Some(view) = self.hud_view.as_mut() {
+            view.hide();
         }
     }
 
@@ -321,6 +364,7 @@ impl INode3D for PlayerNode {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
         self.camera = None;
+        self.hud_view = None;
     }
 }
 
@@ -334,9 +378,36 @@ impl PlayerNode {
     #[signal]
     fn menu_closed();
 
+    /// A Game native changed the HUD cart-mode flag.
+    #[signal]
+    fn hud_cart_mode_changed(enabled: bool);
+
+    /// A Game native requested the race and sex editor.
+    #[signal]
+    fn race_menu_requested();
+
+    /// A Game native requested a screen blood effect.
+    #[signal]
+    fn screen_blood_requested(value: i32);
+
+    /// A Game native requested Bink playback with its authored options.
+    #[signal]
+    fn bink_requested(
+        file_name: GString,
+        interruptible: bool,
+        mute_audio: bool,
+        mute_music: bool,
+        letterbox: bool,
+    );
+
     #[func]
     fn input_focus_lost(&mut self) {
         self.input_focused = false;
+        if let Some(game) = self.game.as_mut() {
+            let player = game.player();
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
+        }
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -534,7 +605,20 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
+        let previous_held = self.held_actions.clone();
         let input = self.gather();
+        self.route_hand_casts(
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::LeftAttackBlock),
+                held: input.left_attack_held,
+                pressed: input.left_attack_pressed,
+            },
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::RightAttackBlock),
+                held: input.right_attack_held,
+                pressed: input.right_attack_pressed,
+            },
+        );
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
@@ -1057,6 +1141,9 @@ impl PlayerNode {
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
             right_attack_pressed: pressed(Action::RightAttack),
+            left_attack_held: held(Action::LeftAttackBlock),
+            right_attack_held: held(Action::RightAttackBlock),
+            left_attack_pressed: pressed(Action::LeftAttackBlock),
         };
         self.held_actions = held_now;
         state

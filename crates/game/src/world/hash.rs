@@ -49,9 +49,8 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
-    /// What the mod data files attached, distributed and swapped. Distribution
-    /// rolls a chance from the world generator, so this part moving between
-    /// two runs of one seed is a real divergence and not noise.
+    /// What the mod data files attached, distributed and swapped, including
+    /// retained actor-specific deterministic distribution rules.
     pub mod_data: u64,
 }
 
@@ -141,6 +140,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.position);
     point(h, s.rotation);
     h.f32(s.scale);
+    h.u32(s.record_flags);
     h.bool(s.enabled);
     h.bool(s.persistent);
     h.bool(s.deleted);
@@ -188,6 +188,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -277,7 +278,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
     }
     match &a.procedure {
-        Procedure::None => h.u8(0),
+        Procedure::None | Procedure::UseMagic => h.u8(0),
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
@@ -294,9 +295,43 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
+        Procedure::UseWeapon => h.u8(9),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
+            h.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                h.f64(until);
+            }
+        }
+        Procedure::Hover => {
+            h.u8(7);
+            h.f32(a.hover_height);
+        }
+        Procedure::Follow => h.u8(8),
+        Procedure::ForceGreet => h.u8(10),
+        Procedure::DialogueActivate => h.u8(16),
+        Procedure::HoldPosition => h.u8(11),
+        Procedure::Orbit { height } => {
+            h.u8(12);
+            h.f32(*height);
+        }
+        Procedure::Escort => h.u8(13),
+        Procedure::Activate => h.u8(14),
+        Procedure::Find => h.u8(15),
+        Procedure::UseIdleMarker { marker } => {
+            h.u8(9);
+            if let Some(marker) = marker {
+                h.u8(1);
+                h.u16(marker.file);
+                h.u32(marker.object);
+            } else {
+                h.u8(0);
+            }
+        }
+        Procedure::Sit => h.u8(18),
+        Procedure::Shout => {
+            h.u8(17);
             h.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
                 h.f64(until);
@@ -317,6 +352,10 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         opt_form(h, *c);
     }
     h.bool(a.arrived);
+    h.bool(a.force_greet_started);
+    h.bool(a.activate_started);
+    opt_form(h, a.found_reference);
+    h.bool(a.dialogue_activate_started);
     h.bool(a.sleeping);
     opt_form(h, a.bed);
     opt_point(h, a.center);
@@ -370,7 +409,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
+        a.sprinting,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -399,11 +442,18 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.graph_ints.len());
+    for (k, v) in &a.graph_ints {
+        h.str(k);
+        h.i32(*v);
+    }
     h.len(a.skill_experience.len());
     for (skill, experience) in &a.skill_experience {
         h.str(skill);
         h.f32(*experience);
     }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -430,6 +480,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.u16(marker);
     } else {
         h.bool(false);
+    }
+    h.u32(a.days_in_jail);
+    h.bool(a.voice_recovery_until.is_some());
+    if let Some(until) = a.voice_recovery_until {
+        h.f64(until);
     }
 }
 
@@ -596,6 +651,21 @@ impl World {
                 } => {
                     h.u8(1);
                     h.u64(object.0);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
                     h.str(function);
                     h.len(args.len());
                     for a in args {
@@ -836,10 +906,41 @@ impl World {
                 h.bool(d.on_death);
             }
         }
+        h.len(self.mod_data.actor_rules.len());
+        for rule in &self.mod_data.actor_rules {
+            form(&mut h, rule.base);
+            form(&mut h, rule.what);
+            h.str(&format!("{:?}", rule.record_type));
+            h.u64(rule.distribution.line_seed);
+            h.f32(rule.distribution.chance);
+            h.i32(rule.count);
+            h.str(&format!("{:?}", rule.distribution));
+        }
         h.len(self.mod_data.base_swaps.len());
         for (from, to) in &self.mod_data.base_swaps {
             form(&mut h, *from);
             form(&mut h, *to);
+        }
+        for (from, chance) in &self.mod_data.base_swap_chances {
+            form(&mut h, *from);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        h.len(self.mod_data.reference_swaps.len());
+        for (reference, to) in &self.mod_data.reference_swaps {
+            form(&mut h, *reference);
+            form(&mut h, *to);
+        }
+        for (reference, chance) in &self.mod_data.reference_swap_chances {
+            form(&mut h, *reference);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        for (target, properties) in &self.mod_data.properties {
+            form(&mut h, *target);
+            h.str(&format!("{properties:?}"));
         }
         let mod_data = h.finish();
 
