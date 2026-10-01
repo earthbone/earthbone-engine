@@ -37,9 +37,13 @@ impl World {
 
     /// Advance calendar globals before timers and packages observe this tick.
     pub fn advance_clock(&mut self, real_seconds: f64) {
+        self.advance_clock_scaled(real_seconds, 1.0);
+    }
+
+    pub(crate) fn advance_clock_scaled(&mut self, real_seconds: f64, game_time_scale: f64) {
         let mut calendar = self.calendar();
-        let elapsed_hours = real_seconds.max(0.0) * self.clock.timescale / 3600.0;
-        self.clock.advance(real_seconds);
+        let elapsed_hours = real_seconds.max(0.0) * self.clock.timescale * game_time_scale / 3600.0;
+        self.clock.advance_scaled(real_seconds, game_time_scale);
         if elapsed_hours == 0.0 {
             return;
         }

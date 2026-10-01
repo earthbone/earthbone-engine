@@ -138,6 +138,8 @@ pub enum Procedure {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AiState {
     pub package: Option<GlobalFormId>,
+    /// Package temporarily assigned by a running scene action.
+    pub scene_package: Option<GlobalFormId>,
     /// The quest alias the package came from, none for a base package.
     pub alias: Option<(GlobalFormId, u32)>,
     pub procedure: Procedure,
@@ -449,6 +451,12 @@ pub(crate) fn dialogue_activate_started(world: &mut World, actor: GlobalFormId) 
 /// The packages an actor could run, in evaluation order.
 pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
     let mut out = Vec::new();
+    if let Some(package) = world.follower_package(actor) {
+        out.push(Candidate {
+            package,
+            alias: None,
+        });
+    }
     let mut alias_packages: Vec<(u8, Candidate)> = Vec::new();
     for quest in world.loaded_quests() {
         let Some(q) = world.quest(quest) else {
@@ -519,6 +527,12 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 /// `Must Complete` package that still holds keeps its place.
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
+    if let Some(package) = world.actor(actor)?.ai.scene_package {
+        return Some(Candidate {
+            package,
+            alias: None,
+        });
+    }
     let today = world.clock.game_days.floor() as u32;
     let state = world.actor(actor)?;
     let current = state.ai.package;
@@ -734,6 +748,7 @@ fn function_value(
             crate::conditions::actor_query(world, package_id, subject, c.function, c.param1).ok()?
         }
         18 => world.calendar().hour as f32,
+        309 | 520 if c.param1 == 0 && c.param2 == 0 => 0.0,
         32 => {
             let r = form(world, c.param1)?;
             let a = cell_of(world, subject);
@@ -814,11 +829,52 @@ fn function_value(
         }
         161 => {
             let p = form(world, c.param1)?;
+            if c.param2 != 0 || world.tag_of(p) != Some(T(b"PACK")) {
+                return None;
+            }
             bool_f(
                 world
                     .actor(subject)
                     .is_some_and(|a| a.ai.package == Some(p)),
             )
+        }
+        157 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            let (base, opened) = world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)
+                .map(|reference| (reference.base, reference.opened))?;
+            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
+                if opened {
+                    1.0
+                } else {
+                    3.0
+                }
+            } else {
+                0.0
+            }
+        }
+        203 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            bool_f(
+                world
+                    .reference(subject)
+                    .filter(|reference| !reference.deleted)?
+                    .destroyed,
+            )
+        }
+        215 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)?;
+            bool_f(world.record(subject)?.find(T(b"ONAM")).is_some())
         }
         170 => (world.clock.game_days.floor() as i64).rem_euclid(7) as f32,
         286 => 0.0,
@@ -859,6 +915,42 @@ fn function_value(
 /// scripts. Returns the package now running.
 pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Option<GlobalFormId> {
     let chosen = select(world, actor);
+    switch_to(world, actor, chosen, alloc)
+}
+
+/// Restore the package and alias saved before a scene temporarily replaced
+/// them, rebuilding the actor's procedure cursor when the package changed.
+pub(crate) fn restore_scene_package(
+    world: &mut World,
+    actor: GlobalFormId,
+    package: Option<GlobalFormId>,
+    alias: Option<(GlobalFormId, u32)>,
+    alloc: Alloc<'_>,
+) -> Option<GlobalFormId> {
+    let now = world.clock.real_seconds;
+    if let Some(state) = world.actor(actor) {
+        state.ai.scene_package = None;
+        if state.ai.package == package {
+            state.ai.alias = alias;
+            state.ai.reevaluate = false;
+            state.ai.last_evaluation = now;
+            return package;
+        }
+    }
+    switch_to(
+        world,
+        actor,
+        package.map(|package| Candidate { package, alias }),
+        alloc,
+    )
+}
+
+fn switch_to(
+    world: &mut World,
+    actor: GlobalFormId,
+    chosen: Option<Candidate>,
+    alloc: Alloc<'_>,
+) -> Option<GlobalFormId> {
     let now = world.clock.real_seconds;
     let current = world.actor(actor)?.ai.package;
     if let Some(a) = world.actor(actor) {
@@ -982,7 +1074,6 @@ fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
         }
     }
 }
-
 fn start_boundary_action(
     world: &mut World,
     package_id: GlobalFormId,
@@ -1209,7 +1300,7 @@ fn begin_procedure(
                 } else {
                     ai.procedure = Procedure::Unsupported("ForceGreet target".into());
                 }
-            } else {
+            } else if !tree::force_greet_without_inputs(world, ai) {
                 ai.procedure = Procedure::Unsupported("ForceGreet inputs".into());
             }
         }
@@ -1820,14 +1911,15 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             }
             continue;
         }
-        let active_target = combat_target(world, actor);
+        let mut active_target = combat_target(world, actor);
         if active_target.is_some_and(|target| !target_in_guard_area(world, actor, target)) {
             clear_combat_engagement(world, actor);
+            active_target = None;
         }
         let fleeing = world
             .actor(actor)
             .is_some_and(|state| state.ai.procedure == Procedure::Flee);
-        if active_target.is_none() {
+        if active_target.is_none() && !fleeing {
             let due = world.actor(actor).is_some_and(|state| {
                 state.ai.package.is_none()
                     || state.ai.reevaluate
@@ -2349,6 +2441,30 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         }
         tree::succeeded(world, &mut ai);
     }
+    if ai.procedure == Procedure::ForceGreet {
+        let procedure_active = ai
+            .tree
+            .as_ref()
+            .is_some_and(|tree| tree.active && !tree.finished);
+        let greeting_open = world
+            .dialogue
+            .session
+            .as_ref()
+            .is_some_and(|session| session.speaker == actor);
+        if procedure_active && !greeting_open {
+            let player = world.player();
+            if let Some(reference) = world.reference(player) {
+                ai.destination = Some(reference.position);
+                ai.center_cell = reference.cell;
+                ai.arrived = false;
+            }
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = true;
+        }
+    }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
     }
@@ -2625,6 +2741,30 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     }
 }
 
+/// Complete the active ForceGreet branch when its conversation ends.
+pub(crate) fn finish_force_greet(world: &mut World, actor: GlobalFormId) {
+    let Some(mut ai) = world
+        .actor(actor)
+        .map(|state| std::mem::take(&mut state.ai))
+    else {
+        return;
+    };
+    if ai.procedure == Procedure::ForceGreet {
+        tree::succeeded(world, &mut ai);
+    }
+    if let Some(state) = world.actor(actor) {
+        state.ai = ai;
+    }
+}
+
+pub(crate) fn is_force_greet_active(ai: &AiState) -> bool {
+    ai.procedure == Procedure::ForceGreet
+        && ai
+            .tree
+            .as_ref()
+            .is_some_and(|tree| tree.active && !tree.finished)
+}
+
 fn follow_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3]) {
     let Some((owner, target_data, catch_up_radius, follow_radius)) =
         tree::follow_parameters(world, ai)
@@ -2679,6 +2819,9 @@ fn approach_assigned_target(
     position: [f32; 3],
 ) {
     if ai.force_greet_started || ai.activate_started || ai.dialogue_activate_started {
+        return;
+    }
+    if ai.procedure == Procedure::ForceGreet && tree::force_greet_without_inputs(world, ai) {
         return;
     }
     let target_data = match ai.procedure {
@@ -2848,7 +2991,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
-        Procedure::Flee => w.u8(if version >= 37 { 19 } else { 7 }),
+        Procedure::Flee => w.u8(if version < 34 { 7 } else { 19 }),
         Procedure::Patrol => {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref(), version);
@@ -3400,6 +3543,7 @@ mod tests {
     fn ai_state_round_trips() {
         let mut a = AiState {
             package: Some(GlobalFormId { file: 1, object: 2 }),
+            scene_package: None,
             alias: Some((GlobalFormId { file: 1, object: 3 }, 4)),
             procedure: Procedure::Unsupported("Patrol".into()),
             tree: Some(TreeState {

@@ -88,7 +88,7 @@ pub struct DetectionEvent {
 pub struct Senses {
     /// The observer's current Sneak actor value.
     pub observer_sneak: f32,
-    /// The target's current Sneak actor value.
+    /// The target's effective Sneak value, including active Disguise effects.
     pub target_sneak: f32,
     /// Summed weight of the target's worn armor records.
     pub armor_weight: f32,
