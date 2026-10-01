@@ -3151,11 +3151,15 @@ as allowed by the shipped ActiveMagicEffect.psc contract.
 
 An active effect targeting an inventory holder receives `OnItemAdded` and
 `OnItemRemoved` only when its own filters admit the changed base item. The
-filters follow the same direct form-list matching as reference and alias
-recipients. Expiry and dispel remove the effect's filters before later changes
-are queued. `active_effect_inventory_filters_forward_matching_events_until_expiry`
-in `tests/magic.rs` covers allowed additions and removals, rejected items and
-the absence of later events after expiry.
+three `ActiveMagicEffect` filter natives use the same `World` filter API as
+references and aliases. Filters stack, match a form directly or one of the
+direct members of a form list, and remain local to each listener. Nested form
+lists are not searched. Removing one filter preserves the others, while
+`RemoveAllInventoryEventFilters` restores unfiltered notifications. Expiry and
+dispel remove the effect's filters before later changes are queued.
+`active_effect_inventory_filters_forward_matching_events_until_expiry` and
+`scr_01_active_effect_inventory_filter_bindings_control_events` in
+`tests/magic.rs` cover dispatch, arguments, removal, and expiry.
 
 After each VM run, expired effect objects are reclaimed once no script variable,
 array, thread frame, thread result or queued callback retains them. Pending
