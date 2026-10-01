@@ -3045,7 +3045,7 @@ as its primary actor value. The local UESP MGEF table also records that actor
 value. The Creation Kit [Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
 states that Banish affects summoned actors up to the effect magnitude. The local
 CK dump has no Magic Effect archetype page. The implementation uses the summon
-reference retained by MAG-39 and the existing effect-ending path; it does not
+reference retained by MAG-39 and the existing effect-ending path. It does not
 use the actor value as a modifier. Synthetic checks
 `mag_63_banish_dismisses_the_targeted_summon` and
 `mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged` cover
