@@ -251,7 +251,9 @@ pub fn supports_function(function: u16) -> bool {
             | 246
             | 247
             | 639
+            | 654
             | 655
+            | 656
             | 659
             | 254
             | 258
@@ -1796,6 +1798,22 @@ fn function_value(
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
         }
+        654 => {
+            // GetBribeSuccess observes the player's bribe outcome. The CK
+            // SetBribed/IsBribed contract stores bribed and intimidated
+            // outcomes in LastBribedIntimidated, which is also used by
+            // IsIntimidatedbyPlayer (function 116).
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
         309 => {
             // CONTEXT: xEdit declares no parameters. The CK corpus has no page
             // for this legacy platform predicate. This runtime targets PC, so
@@ -2604,12 +2622,21 @@ fn function_value(
             // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
             // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
             // perk entry point for the real formula, which this engine does not run
-            // yet. This approximates the same shape without the entry point: the
-            // player's Speechcraft against
-            // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
-            // the 0 to 100 skill range.
+            // yet (the native is still a stub in natives.rs). Do not approximate
+            // the authored perk formula with a Speechcraft and Confidence threshold.
             no_parameter(c)?;
-            boolean(will_intimidate_succeed(world, subject)?)
+            let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if !subject_actor.values.contains("confidence") {
+                // No AIDT subrecord on the speaker's NPC_ record means the
+                // condition has no usable actor-value contract for this form.
+                return Err(Error::StateContract(c.function));
+            }
+            return Err(Error::Unavailable(c.function));
+        }
+        656 => {
+            // CK Actor.IsArrested reports the actor's current arrest state.
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,

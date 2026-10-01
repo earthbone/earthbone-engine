@@ -365,6 +365,24 @@ dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 establishes that aliases are objects owned by their quest. Fill selection for
 location reference types and `ALFI` forced-into copying are not implemented.
 
+**Quest transition queries.** `Quest.IsStarting` and `Quest.IsStopping` are
+registered natives backed by restored quest lifecycle tasks. Quest start and
+stop normally complete synchronously, so both queries return false then. A
+transitional startup or shutdown task restored from a save is reported until
+the lifecycle scheduler resumes it. See SAV-10 in BACKLOG.csv.
+
+**World reference placement. World reads out, host never writes back.**
+`World::ref_placement` (in
+`world/refs.rs`) is the read-only view a host uses to keep its own rendering
+and collision resources in step with a reference's runtime state: current
+position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
+struct, not the mutable `RefState` a native or VM path uses to change that
+state. It returns `None` for a reference never instantiated, whose
+record-authored placement is still current. A deleted reference remains
+present with `visible: false` so the host can release its resources. The host
+side of this contract, and the split it takes
+between collision and rendering change detection, is documented in
+[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
 `World::set_host_ref_pose` accepts finite position and rotation from a live
 rigid body for an enabled, non-deleted, non-actor reference. The host calls it
 after a physics step, and rendering reads the resulting placement in the same
@@ -2883,13 +2901,31 @@ DLG-07 adds IsIntimidatedbyPlayer (116) and GetIntimidateSuccess (655). Both
 take no parameter in `wbDefinitionsTES5.pas` and
 `Raw_Function_Data.wikitext`, so a nonzero value in either parameter slot is
 rejected with `Error::Parameter`. The intimidated flag reads the
-LastBribedIntimidated actor value that also backs SetBribed, and the success
-check, also used by `Actor.WillIntimidateSucceed`, compares the player's Speechcraft against the subject's Confidence
-(AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an
-approximation of the CK wiki's "Mod Player Intimidation" perk entry point
-formula, which the engine does not run yet. No engine state sets
-LastBribedIntimidated yet, so `IsIntimidatedbyPlayer` reads false until
+LastBribedIntimidated actor value that also backs SetBribed. The success
+check returns `Error::StateContract(655)` when the subject has no Confidence
+actor value and `Error::Unavailable(655)` otherwise. The local CK
+`WillIntimidateSucceed_-_Actor.wikitext` points to the "Mod Player Intimidation"
+perk entry point formula, which the engine does not run yet. Speechcraft and
+Confidence alone cannot supply the CTDA result. The Papyrus native
+`WillIntimidateSucceed` separately uses the Speechcraft and Confidence
+approximation and returns false when that check has invalid input. No engine
+state sets LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads
+false until
 a bribe or intimidate native writes it.
+
+AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
+parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
+value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
+Arrested state reads the subject actor's `arrested` field, matching CK's
+`IsArrested`. Nonzero unused parameter slots and subjects without actor state
+return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
+`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
+has no arresting-target state to evaluate. Its condition is reported as
+`Error::Function(657)` instead of guessing from combat or alert state. The
+function names and parameter counts follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
+contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
+`IsArrestingTarget` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
