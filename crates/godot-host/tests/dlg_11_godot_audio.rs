@@ -53,9 +53,10 @@ fn write_fixture_data(data: &Path) {
         )
         .unwrap();
     }
-    let audio = wave();
-    let first = fuz::write(1, &[], &audio);
-    let second = fuz::write(1, &[], &audio);
+    let (first, second) = installed_voice_pair().unwrap_or_else(|| {
+        let audio = wave();
+        (fuz::write(1, &[], &audio), fuz::write(1, &[], &audio))
+    });
     let archive = write_bsa(
         &[
             BsaFile {
@@ -71,6 +72,45 @@ fn write_fixture_data(data: &Path) {
     )
     .unwrap();
     std::fs::write(data.join("Skyrim - Voices_en0.bsa"), archive).unwrap();
+}
+
+/// Use a real PC voice when the game data is available so the mixer test also
+/// exercises the default xWMA decoder. The generated WAV keeps the test usable
+/// on machines without an installed game.
+fn installed_voice_pair() -> Option<(Vec<u8>, Vec<u8>)> {
+    use soe_audio::wma::Native;
+    let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
+    let archive = data.join("Skyrim - Voices_en0.bsa");
+    if !archive.exists() {
+        return None;
+    }
+    let mut vfs = Vfs::new();
+    vfs.add_archive_path(&archive).ok()?;
+    let source = SoundSource::new(&vfs).with_wma_decoder(&Native);
+    let mut names: Vec<_> = vfs
+        .paths()
+        .filter(|name| {
+            name.contains("sound/voice/skyrim.esm/")
+                && Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("fuz"))
+        })
+        .collect();
+    names.sort_unstable();
+    let stride = (names.len() / 60).max(1);
+    let mut loudest: Option<(f32, Vec<u8>)> = None;
+    for name in names.iter().step_by(stride).take(60) {
+        let Ok(sound) = source.read(name) else {
+            continue;
+        };
+        let peak = sound.pcm.peak();
+        if loudest.as_ref().is_none_or(|(best, _)| peak > *best) {
+            let Ok(bytes) = vfs.read(name) else { continue };
+            loudest = Some((peak, bytes));
+        }
+    }
+    let (peak, voice) = loudest?;
+    (peak > 0.01).then(|| (voice.clone(), voice))
 }
 
 fn godot_binary() -> Option<PathBuf> {

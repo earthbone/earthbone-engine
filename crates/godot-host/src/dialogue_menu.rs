@@ -106,8 +106,10 @@ pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
     let raw_quest = u32::from_le_bytes(raw_quest.try_into().ok()?);
     let quest_id = world.resolve_from(response_topic, raw_quest)?;
     let quest = world.record(quest_id)?;
-    let quest_name = quest.editor_id()?;
-    let topic_name = topic.editor_id()?;
+    // Mutagen's asset lookup treats missing editor IDs as empty path
+    // components. Some valid records do not carry EDID subrecords.
+    let quest_name = quest.editor_id().unwrap_or_default();
+    let topic_name = topic.editor_id().unwrap_or_default();
 
     let response_plugin = world
         .order()

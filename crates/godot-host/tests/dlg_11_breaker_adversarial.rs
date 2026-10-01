@@ -138,6 +138,13 @@ fn dlg_11_repeated_response_replacement_stops_each_previous_voice_once() {
     replace_voice(&mut output, &mut active, None);
 
     assert_eq!(output.stopped, [0, 1, 2]);
-    assert_eq!(output.played, [("first.fuz".to_owned(), first.position), ("second.fuz".to_owned(), second.position), ("second.fuz".to_owned(), second.position)]);
+    assert_eq!(
+        output.played,
+        [
+            ("first.fuz".to_owned(), first.position),
+            ("second.fuz".to_owned(), second.position),
+            ("second.fuz".to_owned(), second.position)
+        ]
+    );
     assert_eq!(active, None);
 }

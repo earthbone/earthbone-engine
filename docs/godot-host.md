@@ -1255,7 +1255,7 @@ its own kind. So a crowded room drops footsteps rather than cutting dialogue.
 
 `tests/real_audio.rs`, gated on `SKYRIM_DATA`. Footsteps are `.wav` and need no
 decoder beyond `hound`, so they play in the default build. Voice lines are xWMA
-inside a FUZ and need the `xwma-ffmpeg` feature.
+inside a FUZ and use the in-process WMA v2 decoder in the default build.
 
 | Check | Result |
 |---|---|
@@ -1285,9 +1285,11 @@ newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`; otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 
-The capture proves Godot's mixer received both voice buffers. It does not
-prove that a physical speaker or headset produced audible output. That still
-needs a windowed run with installed data and a `SoundBank` in the tree.
+When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
+line. Without installed data it uses a generated WAV. The capture proves
+Godot's mixer received both voice buffers. It does not prove that a physical
+speaker or headset produced audible output. That still needs a windowed run
+with installed data and a `SoundBank` in the tree.
 Footsteps are driven by the character controller. Dialogue response audio is
 now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
@@ -2077,9 +2079,11 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
-Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
-`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
-assets. The dialogue tests use a mock output and do not verify Godot playback.
+The default host build decodes vanilla xWMA in process through the audio
+crate's native WMA v2 decoder. The optional `xwma-ffmpeg` feature selects
+ffmpeg as a comparison decoder. The dialogue tests exercise response selection
+and replacement with mock output. The Godot mixer test checks speaker playback
+with a generated WAV fixture; installed xWMA playback still needs a live run.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 samples the native mouth targets against that player's playback position,

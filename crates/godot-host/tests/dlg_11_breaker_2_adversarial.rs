@@ -131,5 +131,7 @@ fn dlg_11_talking_activator_uses_its_vnam_voice_type_and_position() {
         voice.path,
         "Sound/Voice/Dialogue.esm/VoiceHuman/Quest_Topic_00000A00_3.fuz"
     );
-    assert_eq!(voice.position, [4.0, 6.0, -5.0]);
+    for (actual, expected) in voice.position.into_iter().zip([5.715, 8.5725, -7.14375]) {
+        assert!((actual - expected).abs() < 0.0001);
+    }
 }

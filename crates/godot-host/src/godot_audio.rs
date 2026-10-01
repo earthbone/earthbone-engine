@@ -414,15 +414,16 @@ impl SoundBank {
             .or(self.vfs.as_ref())
             .ok_or_else(|| "no audio data source".to_owned())?;
 
-        // The ffmpeg-backed decoder is only present when the feature is on.
-        // Without it a vanilla voice line reports `Unsupported::Wma` and every
-        // other format still plays, which is the crate's own arrangement.
+        // The pure Rust decoder handles vanilla xWMA without an external
+        // process. The optional ffmpeg decoder remains useful for comparison.
         #[cfg(feature = "xwma-ffmpeg")]
         let wma = soe_audio::wma::Ffmpeg::new();
         #[cfg(feature = "xwma-ffmpeg")]
         let source = SoundSource::new(vfs).with_wma_decoder(&wma);
         #[cfg(not(feature = "xwma-ffmpeg"))]
-        let source = SoundSource::new(vfs);
+        let wma = soe_audio::wma::Native;
+        #[cfg(not(feature = "xwma-ffmpeg"))]
+        let source = SoundSource::new(vfs).with_wma_decoder(&wma);
 
         let sound = source
             .read(data_path)
