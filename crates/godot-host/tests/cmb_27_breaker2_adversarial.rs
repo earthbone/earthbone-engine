@@ -3,15 +3,17 @@
 
 //! CMB-27 persistence and authored reaction edge case.
 
+#[cfg(feature = "godot")]
 use std::path::Path;
 
+#[cfg(feature = "godot")]
 use soe_bsa::Vfs;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
-use soe_godot_host::{
-    actor::{ActorAssets, MASTER_BEHAVIOR},
-    combat::MeleeContact,
-};
+#[cfg(feature = "godot")]
+use soe_godot_host::actor::{ActorAssets, MASTER_BEHAVIOR};
+use soe_godot_host::combat::MeleeContact;
+#[cfg(feature = "godot")]
 use soe_hkx::interp::Interpreter;
 
 fn id(object: u32) -> GlobalFormId {
@@ -115,6 +117,7 @@ fn staggered_hit_is_applied_once_and_deadline_survives_save_load() {
 }
 
 #[test]
+#[cfg(feature = "godot")]
 fn moving_locomotion_returns_after_authored_stagger_stop() {
     let mut game = fixture();
     let attacker = id(0x14);
