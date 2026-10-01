@@ -1228,6 +1228,13 @@ live actor flying state, rejects values outside that range, and reports
 unavailable when movement has not supplied a state. That live state is not
 saved and defaults to unavailable after load.
 
+**Known-form conditions, AI-76.** `PlayerKnows` (493) reads the player's
+known-form state for `SPEL`, `ENCH`, `MGEF` and `WOOP` records. Its knowable
+record types follow xEdit's `ptKnowable`; a `SHOU` record is not a word of
+power and returns a typed state-contract error. Spell knowledge remains in the
+player spell set, while other supported form types use the saved known-form
+set.
+
 **Quest reference alias searches.** At quest start, a reference alias with
 Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
 and `REFR` records in sorted FormID order. The scan stops before evaluation if

@@ -11,6 +11,7 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"WOOP"), 0xA03));
     plugin.push_top(Record::new(Tag(*b"MGEF"), 0xA00));
     plugin.push_top(Record::new(Tag(*b"ENCH"), 0xA01));
     plugin.push_top(Record::new(Tag(*b"SHOU"), 0xA02));
@@ -60,7 +61,7 @@ fn evaluate(game: &Game, form: u32, expected: f32) -> Result<bool, conditions::E
 #[test]
 fn ai_76_player_knows_reads_and_saves_ck_knowable_forms() {
     let game = fixture();
-    for form in [0xA00, 0xA01, 0xA02] {
+    for form in [0xA00, 0xA01, 0xA03] {
         assert_eq!(evaluate(&game, form, 1.0), Ok(false));
         game.world_mut()
             .actor(GlobalFormId {
@@ -82,5 +83,5 @@ fn ai_76_player_knows_reads_and_saves_ck_knowable_forms() {
     restored.load_state(&saved).unwrap();
     assert_eq!(evaluate(&restored, 0xA00, 1.0), Ok(true));
     assert_eq!(evaluate(&restored, 0xA01, 1.0), Ok(true));
-    assert_eq!(evaluate(&restored, 0xA02, 1.0), Ok(true));
+    assert_eq!(evaluate(&restored, 0xA03, 1.0), Ok(true));
 }

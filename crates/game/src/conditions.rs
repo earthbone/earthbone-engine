@@ -1232,7 +1232,7 @@ fn function_value(
             let form = resolve(world, context.owner, raw, None)?;
             if matches!(
                 world.tag_of(form),
-                Some(Tag(tag)) if [*b"MGEF", *b"ENCH", *b"SHOU"].contains(&tag)
+                Some(Tag(tag)) if [*b"MGEF", *b"ENCH", *b"WOOP"].contains(&tag)
             ) {
                 let player = world.player();
                 boolean(
@@ -2601,7 +2601,10 @@ fn function_value(
             boolean(world.distance(subject, other) <= maximum_distance)
         }
         619 => {
-            let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
+            let axis = raw
+                .checked_sub(88)
+                .and_then(|axis| usize::try_from(axis).ok())
+                .ok_or(Error::Parameter(c.function, raw))?;
             if axis >= 3 {
                 return Err(Error::Parameter(c.function, raw));
             }
