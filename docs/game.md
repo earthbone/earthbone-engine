@@ -5503,6 +5503,7 @@ persists the result within SOEW version 37. TES5Edit
 `Core/wbDefinitionsTES5Saves.pas` defines the shared flags but leaves these
 subtype payload structures empty, so the importer does not map the raw payload
 onto plugin subrecords or claim subtype fields are implemented.
+
 ## Scripted knockback and ragdoll requests, CMB-38
 
 `ObjectReference.PushActorAway` queues a radial impulse from the calling
