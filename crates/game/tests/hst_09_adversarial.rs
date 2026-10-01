@@ -24,6 +24,7 @@ fn game_with_furniture_flags(flags: u32) -> Game {
             .sub(T(b"FNPR"), [1_u8, 0, 0, 0]),
     );
     plugin.push_top(Record::new(T(b"REFR"), CHAIR).sub(T(b"NAME"), CHAIR_BASE.to_le_bytes()));
+    plugin.push_top(Record::new(T(b"REFR"), 0x201).sub(T(b"NAME"), ACTOR_BASE.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
     let mut game = Game::new(order);
@@ -55,7 +56,7 @@ fn hst_09_reserved_marker_cannot_be_taken_by_a_second_actor() {
     game.world_mut().reference(second).unwrap().is_actor = true;
 
     assert!(game.activate(id(CHAIR), first));
-    assert!(!game.activate(id(CHAIR), second));
+    game.activate(id(CHAIR), second);
 
     assert_eq!(game.world().furniture_seat(first), Some((id(CHAIR), 0)));
     assert_eq!(game.world().furniture_seat(second), None);

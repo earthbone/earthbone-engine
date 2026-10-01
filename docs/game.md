@@ -137,7 +137,8 @@ unverified.
 ### Furniture activation, HST-09
 
 Activating a FURN reference selects the first unreserved Sit marker from its
-four-byte FNPR entries whose corresponding low MNAM bit is active. Marker
+four-byte FNPR entries whose corresponding low MNAM bit is active. A FURN
+record with the MNAM Disables Activation flag set cannot be reserved. Marker
 indices are zero-based, and only indices 0 through 23 have active MNAM bits.
 Malformed FNPR entries are skipped. The actor reserves that marker and moves
 to the furniture reference transform. Activating the same furniture again,

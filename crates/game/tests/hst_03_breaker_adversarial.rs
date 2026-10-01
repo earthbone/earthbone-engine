@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, Pending};
+use soe_game::{Game, Handle, Pending};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const DOOR: u32 = 0x100;
@@ -115,13 +115,23 @@ fn hst_03_picked_lock_state_survives_engine_save_and_load() {
 fn hst_03_repeating_a_success_does_not_emit_another_lock_event_or_spend_a_pick() {
     let mut game = Game::new(order(50, true));
     let player = game.player();
+    game.object_of(Handle::Form(id(DOOR)));
     game.world_mut().add_item(player, id(LOCKPICK), 2);
 
-    assert!(game.attempt_lockpick(id(DOOR), player, id(LOCKPICK), 46.2));
+    assert!(game
+        .world_mut()
+        .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
+            panic!("unexpected form allocation")
+        }));
     assert_eq!(lock_events(&game), 1);
-    assert!(!game.attempt_lockpick(id(DOOR), player, id(LOCKPICK), 46.2));
+    game.world_mut().pending.clear();
+    assert!(!game
+        .world_mut()
+        .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
+            panic!("unexpected form allocation")
+        }));
 
     assert!(!game.world_mut().reference(id(DOOR)).unwrap().locked);
     assert_eq!(game.world_mut().item_count(player, id(LOCKPICK)), 2);
-    assert_eq!(lock_events(&game), 1);
+    assert_eq!(lock_events(&game), 0);
 }
