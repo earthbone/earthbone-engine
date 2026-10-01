@@ -23,7 +23,10 @@ fn utility_budget_indices_outside_registry_do_not_alias_valid_budgets() {
                         soe_papyrus::asm::ident("index"),
                     ],
                 )
-                .ins(soe_papyrus::Opcode::Return, vec![soe_papyrus::asm::ident("result")])
+                .ins(
+                    soe_papyrus::Opcode::Return,
+                    vec![soe_papyrus::asm::ident("result")],
+                )
                 .build(),
         )
         .bytes();
@@ -37,4 +40,3 @@ fn utility_budget_indices_outside_registry_do_not_alias_valid_budgets() {
         assert_eq!(game.vm.thread_result(thread), Some(Value::Int(0)));
     }
 }
-
