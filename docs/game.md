@@ -6307,8 +6307,12 @@ Its six ordered parameters are PathStart, PointRadius, Repeatable,
 StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
 Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
 vanilla Patrol template. Some branches omit optional inputs using index 255.
-Their defaults are not established, so those branches report Unsupported.
-Public parameter names do not determine execution.
+Omitted Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
+inputs default to false. Missing PathStart or PointRadius remains unsupported.
+The CK procedure-tree tutorial authors Static Pathing as a boolean input but
+does not describe a separate movement result. This runtime accepts either
+value and follows the same cached navmesh segment route for both. It does not
+model a separate static-path request or dynamic-obstacle replanning.
 
 PathStart currently supports a specific reference or the actor's keyword-free
 linked reference. Template overrides retain their defining plugin namespace.
@@ -6345,8 +6349,13 @@ accepts null topic placeholders. The primary author's
 [Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
 linked order, nearest entry, reversal and circular traversal. The
 [procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
-describes the parameter types. These sources provide no reusable runtime
-walker, so this implementation extends the existing actor driver.
+describes the parameter types and authors Static Pathing as an assigned input,
+without documenting a distinct path result. CommonLib names a
+`MovementMessageSetStaticPath` type, but its available declarations do not
+expose a Patrol-specific behavior contract. The runtime comparison fixture
+therefore establishes only that both values use the current cached navmesh
+segment walker. These sources provide no reusable runtime walker, so this
+implementation extends the existing actor driver.
 
 The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
