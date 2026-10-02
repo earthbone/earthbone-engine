@@ -600,6 +600,8 @@ mod hst_12_adversarial;
 mod hst_12_host_pose;
 #[path = "hst_13_adversarial.rs"]
 mod hst_13_adversarial;
+#[path = "hst_13_breaker_adversarial.rs"]
+mod hst_13_breaker_adversarial;
 #[path = "hst_13_reference_3d_residency.rs"]
 mod hst_13_reference_3d_residency;
 #[path = "hst_14_adversarial.rs"]
@@ -608,6 +610,8 @@ mod hst_14_adversarial;
 mod hst_14_trigger_volumes;
 #[path = "hst_15_adversarial.rs"]
 mod hst_15_adversarial;
+#[path = "hst_15_breaker_adversarial.rs"]
+mod hst_15_breaker_adversarial;
 #[path = "hst_16_adversarial.rs"]
 mod hst_16_adversarial;
 #[path = "hst_16_translation.rs"]
