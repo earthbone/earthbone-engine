@@ -157,6 +157,8 @@ pub struct PlayerNode {
     /// Distance from the eye to the host body held by Telekinesis.
     telekinesis_distance: Option<f32>,
     host_telekinesis_target: Option<GlobalFormId>,
+    /// The live Grab Actor effect and actor currently driven by the host.
+    host_grab_actor: Option<(soe_game::world::magic::EffectId, GlobalFormId)>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
@@ -240,6 +242,7 @@ impl INode3D for PlayerNode {
             grabbed_host: None,
             telekinesis_distance: None,
             host_telekinesis_target: None,
+            host_grab_actor: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
@@ -384,6 +387,7 @@ impl INode3D for PlayerNode {
         if self.auto_step {
             self.advance(delta);
             self.sync_actor_bodies();
+            self.update_grab_actor();
         }
     }
 

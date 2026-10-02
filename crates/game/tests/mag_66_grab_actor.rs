@@ -129,3 +129,22 @@ fn mag_66_grab_actor_releases_controlled_actor_on_death() {
 
     assert!(game.world().grab_actor_effect_on(id(TARGET)).is_none());
 }
+
+#[test]
+fn mag_66_host_actor_pose_updates_the_existing_reference_placement() {
+    let game = fixture(30);
+    let mut world = game.world_mut();
+    assert!(world.set_host_actor_pose(id(TARGET), [12.0, 34.0, 56.0], [0.1, 0.2, 0.3]));
+    let placement = world.ref_placement(id(TARGET)).unwrap();
+    assert_eq!(placement.position, [12.0, 34.0, 56.0]);
+    assert_eq!(placement.rotation, [0.1, 0.2, 0.3]);
+}
+
+#[test]
+fn mag_66_host_actor_pose_rejects_invalid_or_non_actor_references() {
+    let game = fixture(30);
+    let mut world = game.world_mut();
+    assert!(!world.set_host_actor_pose(id(SPELL), [1.0; 3], [0.0; 3]));
+    assert!(!world.set_host_actor_pose(id(TARGET), [f32::NAN, 0.0, 0.0], [0.0; 3]));
+    assert_eq!(world.ref_placement(id(TARGET)).unwrap().position, [0.0; 3]);
+}

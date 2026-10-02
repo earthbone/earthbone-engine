@@ -28,6 +28,29 @@ fn touch_ray(transform: Transform3D, reach: f32) -> Option<(Vector3, Vector3)> {
     Some((transform.origin, end))
 }
 
+fn grab_actor_throw_impulse(direction: Vec3) -> Option<Vector3> {
+    let length = direction.length();
+    if !length.is_finite() || length <= f32::EPSILON {
+        return None;
+    }
+    let direction = Vector3::new(direction.x, direction.z, -direction.y);
+    let impulse = direction / length * 7.0 + Vector3::UP * 1.5;
+    impulse.is_finite().then_some(impulse)
+}
+
+fn grab_actor_hold_position(eye: Vec3, direction: Vec3) -> Option<Vec3> {
+    let length = direction.length();
+    if !eye.x.is_finite()
+        || !eye.y.is_finite()
+        || !eye.z.is_finite()
+        || !length.is_finite()
+        || length <= f32::EPSILON
+    {
+        return None;
+    }
+    Some(eye + direction * (120.0 / length) - Vec3::Z * 72.0)
+}
+
 fn touch_target(hit: crate::godot_combat::ContactHit) -> Option<GlobalFormId> {
     match hit {
         crate::godot_combat::ContactHit::Actor(actor) => Some(actor),
@@ -78,6 +101,69 @@ fn select_telekinesis_target(
 }
 
 impl PlayerNode {
+    fn release_host_grab(&mut self, actor: GlobalFormId, direction: Vec3) {
+        let impulse = grab_actor_throw_impulse(direction).unwrap_or(Vector3::UP * 1.5);
+        self.actor_bodies.throw_grabbed_actor(actor, impulse);
+    }
+
+    /// Keep the player's active Grab Actor target at eye level, then throw it
+    /// when its effect ends or the actor leaves the resident host set.
+    pub(super) fn update_grab_actor(&mut self) {
+        let desired = self.game.as_mut().and_then(|game| {
+            let player = game.player();
+            let mut world = game.world_mut();
+            world.contact_actors().into_iter().find_map(|actor| {
+                world
+                    .grab_actor_effect_on(actor.actor)
+                    .filter(|effect| effect.caster == Some(player))
+                    .map(|effect| (effect.id, actor.actor))
+            })
+        });
+
+        if self
+            .host_grab_actor
+            .is_some_and(|(_, actor)| self.actor_bodies.body(actor).is_none())
+        {
+            self.host_grab_actor = None;
+        }
+        if self.host_grab_actor.map(|(_, actor)| actor) != desired.map(|(_, actor)| actor) {
+            if let Some((_, actor)) = self.host_grab_actor.take() {
+                self.release_host_grab(actor, self.rig.look_direction());
+            }
+            if let Some((effect, actor)) = desired {
+                if self.actor_bodies.grab_actor(actor) {
+                    self.host_grab_actor = Some((effect, actor));
+                }
+            }
+        } else if let Some((effect, actor)) = desired {
+            self.host_grab_actor = Some((effect, actor));
+        }
+
+        let Some((_, actor)) = self.host_grab_actor else {
+            return;
+        };
+        let eye = self.rig.head(self.feet(), self.capsule_height());
+        let direction = self.rig.look_direction();
+        let Some(feet) = grab_actor_hold_position(eye, direction) else {
+            self.host_grab_actor = None;
+            self.release_host_grab(actor, direction);
+            return;
+        };
+        let pose = [feet.x, feet.y, feet.z];
+        if self.actor_bodies.move_grabbed_actor(actor, pose) {
+            if let Some(game) = &mut self.game {
+                let rotation = game
+                    .world()
+                    .ref_placement(actor)
+                    .map_or([0.0; 3], |placement| placement.rotation);
+                game.world_mut().set_host_actor_pose(actor, pose, rotation);
+            }
+        } else {
+            self.host_grab_actor = None;
+            self.release_host_grab(actor, direction);
+        }
+    }
+
     /// Route an activation press to one resident movable reference while the
     /// player's active concentration effect is Telekinesis, then keep its
     /// host body at the same eye-relative position until World releases it.
@@ -278,7 +364,7 @@ impl PlayerNode {
 
 #[cfg(test)]
 mod tests {
-    use super::select_telekinesis_target;
+    use super::{grab_actor_hold_position, grab_actor_throw_impulse, select_telekinesis_target};
     use soe_esm::GlobalFormId;
     use soe_physics::Vec3;
 
@@ -300,6 +386,36 @@ mod tests {
             ],
         );
         assert_eq!(target, Some((id(2), 80.0)));
+    }
+
+    #[test]
+    fn mag_66_throw_impulse_follows_the_look_direction_with_upward_lift() {
+        let impulse = grab_actor_throw_impulse(Vec3::new(3.0, 0.0, 0.0)).unwrap();
+        assert!((impulse.x - 7.0).abs() < 1e-5);
+        assert!((impulse.y - 1.5).abs() < 1e-5);
+        assert_eq!(impulse.z, 0.0);
+    }
+
+    #[test]
+    fn mag_66_held_actor_stays_a_fixed_eye_relative_distance() {
+        let eye = Vec3::new(100.0, 200.0, 300.0);
+        let held = grab_actor_hold_position(eye, Vec3::new(2.0, 0.0, 0.0)).unwrap();
+        assert_eq!(held, Vec3::new(220.0, 200.0, 228.0));
+    }
+
+    #[test]
+    fn mag_66_held_actor_pose_rejects_non_finite_camera_state() {
+        assert!(grab_actor_hold_position(Vec3::ZERO, Vec3::ZERO).is_none());
+        assert!(
+            grab_actor_hold_position(Vec3::new(f32::NAN, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mag_66_throw_impulse_rejects_degenerate_look_directions() {
+        assert!(grab_actor_throw_impulse(Vec3::ZERO).is_none());
+        assert!(grab_actor_throw_impulse(Vec3::new(f32::NAN, 0.0, 0.0)).is_none());
     }
 }
 

@@ -251,6 +251,19 @@ fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
 `OnGrab` and `OnRelease` events.
 
+### Grab Actor, MAG-66
+
+After actor bodies sync from World, `PlayerNode` finds a resident actor with a
+live Grab Actor effect cast by the player. The existing RID-backed actor
+capsule changes to kinematic mode and follows a point 1.2 metres ahead of and
+0.9 metres below the camera eye. Each held pose is written back to the actor's
+existing World reference placement. When the effect ends, the body changes to
+rigid mode and receives a forward and upward central impulse. World follows the
+rigid body's Skyrim-space position until it settles, then the body returns to
+static contact-query mode. Clearing or replacing the cell releases its bodies
+and drops any hold state. This uses the actor body's existing RID and adds no
+scene node or saved field.
+
 ### Papyrus Debug host requests, SCR-20
 
 `PlayerNode::advance_game` drains the transient `World::debug_host_requests`

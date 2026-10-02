@@ -792,6 +792,9 @@ mod mag_65_adversarial;
 mod mag_66_breaker_adversarial;
 #[path = "mag_66_grab_actor.rs"]
 mod mag_66_grab_actor;
+
+#[path = "mag_66_adversarial.rs"]
+mod mag_66_adversarial;
 #[path = "mag_67_adversarial.rs"]
 mod mag_67_adversarial;
 #[path = "mag_69_adversarial.rs"]
