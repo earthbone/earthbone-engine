@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use godot::prelude::*;
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Tag};
 use soe_game::detection::Motion;
 
 use super::PlayerNode;
@@ -15,6 +15,72 @@ use crate::units::SkyrimPos;
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Return enabled LIGH references in the active cell as FormIDs and Godot
+    /// positions. The live detection check uses these to isolate record-backed
+    /// light changes without creating actor scene nodes.
+    #[func]
+    pub fn detection_light_references(&mut self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        let Some(game) = &mut self.game else {
+            return result;
+        };
+        let player = game.player();
+        let world = game.world();
+        let Some(cell) = world
+            .reference_ref(player)
+            .and_then(|reference| reference.cell)
+        else {
+            return result;
+        };
+        let mut references = world.order().build_cell_index().references(cell).to_vec();
+        references.extend(world.runtime_references_in_cell(cell));
+        for id in references {
+            let (base, placement) = if let Some(record) = world
+                .record(id)
+                .filter(|record| record.tag == Tag(*b"REFR"))
+            {
+                let Some(raw_base) = record.find(Tag(*b"NAME")).filter(|bytes| bytes.len() == 4)
+                else {
+                    continue;
+                };
+                let raw = u32::from_le_bytes([raw_base[0], raw_base[1], raw_base[2], raw_base[3]]);
+                (world.resolve_from(id, raw), world.ref_placement(id))
+            } else if let Some(reference) = world.reference_ref(id) {
+                let placement = soe_game::world::RefPlacement {
+                    position: reference.position,
+                    rotation: reference.rotation,
+                    scale: reference.scale,
+                    visible: reference.enabled && !reference.deleted,
+                };
+                (reference.base, Some(placement))
+            } else {
+                continue;
+            };
+            let Some(base) = base else { continue };
+            if world
+                .record(base)
+                .is_none_or(|record| record.tag != Tag(*b"LIGH"))
+            {
+                continue;
+            }
+            let Some(placement) = placement.filter(|placement| placement.visible) else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set("position", Vector3::new(position.x, position.y, position.z));
+            result.push(&row);
+        }
+        result
+    }
+
     /// Run one shared detection sample on demand. The gameplay loop calls the
     /// same path each physics step. This entry point lets host checks sample
     /// the live physics space at a controlled point in time.
