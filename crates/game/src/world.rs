@@ -443,6 +443,10 @@ pub struct ActorState {
     pub days_in_jail: u32,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
+    /// Reference attached through Papyrus `Actor.SetVehicle`.
+    pub vehicle: Option<GlobalFormId>,
+    /// Script-forced look target and whether the actor paths toward it.
+    pub forced_look_at: Option<(GlobalFormId, bool)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

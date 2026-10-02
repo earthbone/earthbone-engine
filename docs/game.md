@@ -505,13 +505,21 @@ collision and rendering change detection are documented in
 `Actor.SetEssential` delegates to `World::set_actor_essential`. For actors
 with a base-data source it updates that source and initialized inheriting
 actors, using the same path as `ActorBase.SetEssential`. Baseless actors update
-their runtime flag. SCR-11's `GetSitState` and `GetFlyingState` still return
-their quiet default because no actor animation-state source exists. `SetVehicle`
-and `SetLookAt` remain stubs because vehicle-follow movement and forced
-look-at behavior have no owning world or host implementation yet. The local
-CK pages define sit values 0, 2, 3 and 4, flying values 0 through 4, and
-`SetVehicle(None)` or self as detachment. These bindings need those owning
-systems before they can be completed.
+their runtime flag. `GetSitState` reports 0 without a Sit procedure, 2 while
+that procedure is approaching furniture, and 3 after arrival. Transient
+animation states 1 and 4 are unavailable because the host does not report sit
+transition animations. `GetFlyingState`
+returns the live movement state when present, otherwise 3 for the AI Hover
+procedure and 0 in other cases.
+
+`SetVehicle` stores a placed-reference target on the actor. `None` and the
+actor itself detach it. `SetLookAt` stores its placed-reference target and
+pathing argument, and `ClearLookAt` clears the target. The actor section
+`SCR-11` persists these relationships and they are included in the
+determinism hash. `World::actor_vehicle` and `World::actor_look_at` expose the
+values. Vehicle-follow movement and forced-look rendering are not connected to
+the host, so these native effects currently expose the requested relationships
+without moving or turning the actor.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
 current time-driven sun position in Skyrim units, using a 100,000-unit orbit
@@ -839,8 +847,7 @@ parameter type but provide no usable evaluation contract.
 boolean on an actor. `World::head_tracking` returns that value, or `true` when
 no script has set it. The explicit value is persisted in the actor section
 `SCR-12` and included in the determinism hash. The host does not yet apply the
-flag to authored head-tracking bones. `ClearLookAt` has no target state to
-clear because `SetLookAt` remains a stub. `ShowGiftMenu` remains a stub until
+flag to authored head-tracking bones. `ShowGiftMenu` remains a stub until
 UI-15 supplies the gift menu and inventory transaction path.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the

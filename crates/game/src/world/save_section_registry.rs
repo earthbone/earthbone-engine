@@ -157,6 +157,18 @@ fn read_scr_12(
     World::read_scr_12(actor, reader)
 }
 
+fn write_scr_11(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_scr_11(actor, writer);
+}
+
+fn read_scr_11(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_11(actor, reader)
+}
+
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::super::progression::write_character_progression(actor, writer);
 }
@@ -280,6 +292,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
     Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
+    Section { name: "SCR-11", write: write_scr_11, read: read_scr_11 },
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
