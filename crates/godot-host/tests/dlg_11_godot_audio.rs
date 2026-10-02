@@ -34,7 +34,7 @@ fn wave() -> Vec<u8> {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_bytes.to_le_bytes());
     for frame in 0..frames {
-        // Voice assets can have leading silence longer than a mixer buffer.
+        // Voice assets can begin with silence longer than a mixer buffer.
         let sample = if frame < frames / 4 {
             0
         } else {
@@ -50,12 +50,7 @@ fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
     std::fs::write(
         data.parent().unwrap().join("Skyrim_Default.ini"),
-        "[General]\nsLanguage=English\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
-    )
-    .unwrap();
-    std::fs::write(
-        data.parent().unwrap().join("Skyrim_Default.ini"),
-        "[General]\nsLanguage=ENGLISH\n",
+        "[General]\nsLanguage=ENGLISH\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
     )
     .unwrap();
     for master in [
@@ -104,19 +99,39 @@ fn installed_voice_pair(data: &Path) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut vfs = Vfs::new();
     vfs.add_archive_path(&archive).ok()?;
     let source = SoundSource::new(&vfs).with_wma_decoder(&Native);
-    let name = vfs.paths().find(|name| {
-        name.contains("sound/voice/skyrim.esm/maleelfhaughty/voicepowers_shout01b")
-            && Path::new(name)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("fuz"))
-    })?;
-    let voice = vfs.read(name).ok()?;
-    if !matches!(soe_audio::Fuz::split(&voice), Ok(fuz) if fuz.audio_kind() == soe_audio::AudioKind::Xwma)
+    let mut names: Vec<_> = vfs
+        .paths()
+        .filter(|name| {
+            name.contains("sound/voice/skyrim.esm/")
+                && Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("fuz"))
+        })
+        .collect();
+    names.sort_unstable();
+    let stride = (names.len() / 60).max(1);
+    let preferred = names
+        .iter()
+        .find(|name| name.contains("maleelfhaughty/voicepowers_shout01b"));
+    for name in preferred
+        .into_iter()
+        .chain(names.iter().step_by(stride).take(60))
     {
-        return None;
+        let Ok(voice) = vfs.read(name) else {
+            continue;
+        };
+        if !matches!(soe_audio::Fuz::split(&voice), Ok(fuz) if fuz.audio_kind() == soe_audio::AudioKind::Xwma)
+        {
+            continue;
+        }
+        let Ok(sound) = source.read(name) else {
+            continue;
+        };
+        if sound.pcm.peak() > 0.01 {
+            return Some((voice.clone(), voice));
+        }
     }
-    let sound = source.read(name).ok()?;
-    (sound.pcm.peak() > 0.01).then(|| (voice.clone(), voice))
+    None
 }
 
 fn godot_binary() -> Option<PathBuf> {
