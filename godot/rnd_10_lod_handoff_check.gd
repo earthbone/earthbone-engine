@@ -50,7 +50,11 @@ func _run() -> void:
 	var selected_cell: Dictionary = {}
 	var selected_distance := 2147483647
 	for cell in streamer.call("editor_cell_tree"):
+		var cell_id := String(cell.get("id", ""))
+		var cell_name := String(cell.get("name", ""))
 		if bool(cell.get("interior", true)) or cell.get("world_name", "") != "Tamriel":
+			continue
+		if cell_name.is_empty() or cell_name == cell_id:
 			continue
 		var distance: int = max(abs(int(cell.get("x", 0)) - 28), abs(int(cell.get("y", 0)) + 60))
 		if distance < selected_distance:
@@ -62,22 +66,25 @@ func _run() -> void:
 		quit(1)
 		return
 
-	var near_instances: int = streamer.call("open_cell_id", String(selected_cell.get("id", "")))
-	var near_cells: Array[Vector2i] = [Vector2i(int(selected_cell.get("x", 0)), int(selected_cell.get("y", 0)))]
+	var focus := Vector2i(int(selected_cell.get("x", 0)), int(selected_cell.get("y", 0)))
+	var near_instances: int = streamer.call("stream_exterior", String(selected_cell.get("name", "")), 2)
+	var near_cells: Array[Vector2i] = []
+	for y in range(focus.y - 2, focus.y + 3):
+		for x in range(focus.x - 2, focus.x + 3):
+			near_cells.append(Vector2i(x, y))
 	_check(near_instances > 0, "full-resolution exterior cell drew no renderer instances")
 	_check(not bool(selected_cell.get("interior", true)), "selected near cell has no exterior grid identity")
-	var focus := near_cells[0]
 	var world := String(selected_cell.get("world_name", ""))
 	_check(not world.is_empty(), "selected near cell has no worldspace identity")
 
-	var terrain_count: int = streamer.call("stream_terrain_lod", world, focus.x, focus.y, 0, 16, 0)
+	var terrain_count: int = streamer.call("stream_terrain_lod", world, focus.x, focus.y, 2, 16, 0)
 	var terrain: Dictionary = streamer.call("terrain_lod_stats")
 	_check(terrain_count > 0, "no real terrain LOD block became resident")
 	_check(int(terrain.get("instances", 0)) > 0, "terrain LOD created no RenderingServer instances")
 	_check(_blocks_are_disjoint(String(terrain.get("blocks", "")), near_cells),
 		"a terrain LOD block covers a full-resolution cell, so both levels would draw it")
 
-	var object_count: int = streamer.call("stream_object_lod", world, focus.x, focus.y, 0, 16, 0)
+	var object_count: int = streamer.call("stream_object_lod", world, focus.x, focus.y, 2, 16, 0)
 	var objects: Dictionary = streamer.call("object_lod_stats")
 	_check(object_count > 0, "no real object LOD block became resident")
 	_check(int(objects.get("instances", 0)) > 0, "object LOD created no RenderingServer instances")

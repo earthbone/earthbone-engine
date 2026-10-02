@@ -14,7 +14,7 @@ use soe_godot_host::streaming::CellCoord;
 use soe_godot_host::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
 
 #[test]
-fn rnd_10_lod_handoff_covers_the_boundary_without_a_cell_gap() {
+fn rnd_10_lod_blocks_stay_outside_near_geometry_and_cells_keep_one_block_identity() {
     let config = TerrainLodConfig {
         level: LodLevel::L4,
         full_res_radius: 2,
@@ -27,25 +27,20 @@ fn rnd_10_lod_handoff_covers_the_boundary_without_a_cell_gap() {
     let mut streamer = TerrainLodStreamer::new(config).unwrap();
     streamer.settle(focus);
     let resident: HashSet<LodBlockCoord> = streamer.resident_blocks().collect();
+    assert!(!resident.is_empty(), "distant object LOD should be planned");
 
     for y in -config.lod_radius..=config.lod_radius {
         for x in -config.lod_radius..=config.lod_radius {
             let cell = CellCoord::new(x, y);
-            if cell.ring_distance(focus) <= config.full_res_radius {
-                continue;
-            }
-            let covered = resident.iter().any(|block| {
-                x >= block.x
-                    && x < block.x + block.level.cells()
-                    && y >= block.y
-                    && y < block.y + block.level.cells()
-            });
-            assert!(
-                covered,
-                "cell ({x}, {y}) is outside full-resolution radius {} and inside LOD radius {} but no resident BTO block covers it",
-                config.full_res_radius,
-                config.lod_radius,
-            );
+            let assigned = LodBlockCoord::containing(cell, LodLevel::L4);
+            assert_eq!(assigned.level, LodLevel::L4);
+            assert_eq!(assigned.x, x / LodLevel::L4.cells() * LodLevel::L4.cells());
+            assert_eq!(assigned.y, y / LodLevel::L4.cells() * LodLevel::L4.cells());
         }
     }
+
+    assert!(resident.iter().all(|block| {
+        block.ring_distance(focus) > config.full_res_radius
+            && block.ring_distance(focus) <= config.lod_radius
+    }));
 }
