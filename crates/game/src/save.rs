@@ -523,6 +523,8 @@ impl Game {
         self.world.borrow_mut().load_state(world_bytes)?;
         self.vm.load_state(vm_bytes)?;
         self.bound = None;
+        self.bound_cells.clear();
+        self.bound_forms.clear();
         Ok(())
     }
 }

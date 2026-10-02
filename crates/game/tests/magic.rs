@@ -33,6 +33,9 @@ const KEYWORD: u32 = 0x400;
 const DISEASE_KEYWORD: u32 = 0x401;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
+const FILTER_LIST: u32 = 0x602;
+const NESTED_FILTER_LIST: u32 = 0x603;
+const LIST_ONLY_ITEM: u32 = 0x604;
 const SUMMON_BASE: u32 = 0x501;
 const GRANTED_PERK: u32 = 0x700;
 const CELL: u32 = 0x800;
@@ -73,6 +76,9 @@ mod peak_value;
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]
 mod worn_enchantment;
+
+#[path = "magic/cure_addiction.rs"]
+mod cure_addiction;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -393,6 +399,14 @@ fn plugin_with_positions(
     plugin.push_top(Record::new(T(b"PERK"), GRANTED_PERK).zsub(T(b"EDID"), "GrantedPerk"));
     plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
     plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));
+    plugin.push_top(Record::new(T(b"MISC"), LIST_ONLY_ITEM).zsub(T(b"EDID"), "ListItem"));
+    plugin.push_top(
+        Record::new(T(b"FLST"), FILTER_LIST)
+            .sub(T(b"LNAM"), LIST_ONLY_ITEM.to_le_bytes())
+            .sub(T(b"LNAM"), NESTED_FILTER_LIST.to_le_bytes()),
+    );
+    plugin
+        .push_top(Record::new(T(b"FLST"), NESTED_FILTER_LIST).sub(T(b"LNAM"), ITEM.to_le_bytes()));
     plugin.push_top(effect);
     for spell in spells {
         plugin.push_top(spell);
@@ -417,6 +431,7 @@ fn game(plugin: Plugin) -> Game {
         .variable("finished", "Int", i(0))
         .variable("added", "Int", i(0))
         .variable("removed", "Int", i(0))
+        .variable("lastAddedItem", "Form", soe_papyrus::asm::none())
         .variable("target", "Actor", soe_papyrus::asm::none())
         .variable("caster", "Actor", soe_papyrus::asm::none())
         .function(
@@ -445,6 +460,7 @@ fn game(plugin: Plugin) -> Game {
                     IAdd,
                     vec![ident("added"), ident("added"), ident("aiItemCount")],
                 )
+                .ins(Assign, vec![ident("lastAddedItem"), ident("akBaseItem")])
                 .build(),
         )
         .function(
@@ -2973,6 +2989,184 @@ fn active_effect_inventory_filters_forward_matching_events_until_expiry() {
 }
 
 #[test]
+fn scr_01_active_effect_inventory_filter_bindings_control_events() {
+    let mut game = fixture(0, 1, 0.0, 10);
+    let application = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    assert!(game.run_until_idle(64));
+
+    let effect = Value::Object(game.object_of(Handle::ActiveEffect(application)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+    let unrelated = Value::Object(game.object_of_form(id(ACTOR)));
+    let item = Value::Object(game.object_of_form(id(ITEM)));
+    let other_item = Value::Object(game.object_of_form(id(OTHER_ITEM)));
+    let filter_list = Value::Object(game.object_of_form(id(FILTER_LIST)));
+    let list_only_item = Value::Object(game.object_of_form(id(LIST_ONLY_ITEM)));
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "AddInventoryEventFilter",
+            std::slice::from_ref(&item),
+        ),
+        Value::None
+    );
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "AddInventoryEventFilter",
+            std::slice::from_ref(&other_item),
+        ),
+        Value::None
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            target.clone(),
+            "AddItem",
+            &[item.clone(), Value::Int(2)],
+        ),
+        Value::None
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(ITEM))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        native(
+            &mut game,
+            target.clone(),
+            "AddItem",
+            &[other_item.clone(), Value::Int(3)],
+        ),
+        Value::None
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(5))
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(OTHER_ITEM))
+    );
+
+    native(
+        &mut game,
+        effect.clone(),
+        "AddInventoryEventFilter",
+        std::slice::from_ref(&filter_list),
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "RemoveInventoryEventFilter",
+            std::slice::from_ref(&item),
+        ),
+        Value::None
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[item.clone(), Value::Int(7)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[list_only_item.clone(), Value::Int(11)],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(16))
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(LIST_ONLY_ITEM))
+    );
+    native(
+        &mut game,
+        effect.clone(),
+        "RemoveInventoryEventFilter",
+        std::slice::from_ref(&other_item),
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[other_item, Value::Int(13)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[list_only_item.clone(), Value::Int(17)],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(33))
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "RemoveAllInventoryEventFilters",
+            &[],
+        ),
+        Value::None
+    );
+    native(
+        &mut game,
+        target,
+        "AddItem",
+        &[item.clone(), Value::Int(19)],
+    );
+    native(&mut game, unrelated, "AddItem", &[item, Value::Int(23)]);
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(52))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "removed"),
+        Some(Value::Int(0))
+    );
+}
+
+#[test]
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
@@ -3448,6 +3642,66 @@ fn each_hostile_effect_emits_a_hit_to_existing_effect_and_alias_listeners() {
                 .count(),
             2
         );
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_consumes_a_dead_actor_corpse_once() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+
+    assert!(cast(&mut game, SPELL, OTHER).unwrap().is_empty());
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_living_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(reference.enabled);
+        assert!(!world.actor_ref(id(OTHER)).unwrap().dead);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_disabled_dead_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+    game.world_mut().reference(id(OTHER)).unwrap().enabled = false;
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(!reference.enabled);
     }
 }
 

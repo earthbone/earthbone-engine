@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "cell_attach_binding.rs"]
+mod cell_attach_binding;
+
 #[path = "actor_attributes_adversarial.rs"]
 mod actor_attributes_adversarial;
 #[path = "actor_skills_adversarial.rs"]
@@ -247,6 +250,10 @@ mod ai_71_reference_conditions;
 mod ai_72_adversarial;
 #[path = "ai_72_reference_state_conditions.rs"]
 mod ai_72_reference_state_conditions;
+#[path = "ai_73_breaker_adversarial.rs"]
+mod ai_73_breaker_adversarial;
+#[path = "ai_73_reference_conditions.rs"]
+mod ai_73_reference_conditions;
 #[path = "ai_74_adversarial.rs"]
 mod ai_74_adversarial;
 #[path = "ai_74_conditions.rs"]
@@ -263,8 +270,38 @@ mod ai_76_breaker2_adversarial;
 mod ai_76_breaker_adversarial;
 #[path = "ai_76_reference_conditions.rs"]
 mod ai_76_reference_conditions;
+#[path = "ai_77_breaker_adversarial.rs"]
+mod ai_77_breaker_adversarial;
+#[path = "ai_77_reference_conditions.rs"]
+mod ai_77_reference_conditions;
 #[path = "ai_78_adversarial.rs"]
 mod ai_78_adversarial;
+#[path = "ai_79_breaker_adversarial.rs"]
+mod ai_79_breaker_adversarial;
+#[path = "ai_79_relationship_conditions.rs"]
+mod ai_79_relationship_conditions;
+#[path = "ai_80_breaker_adversarial.rs"]
+mod ai_80_breaker_adversarial;
+#[path = "ai_80_player_conditions.rs"]
+mod ai_80_player_conditions;
+#[path = "ai_81_breaker_adversarial.rs"]
+mod ai_81_breaker_adversarial;
+#[path = "ai_82_breaker_adversarial.rs"]
+mod ai_82_breaker_adversarial;
+#[path = "ai_82_relationship_conditions.rs"]
+mod ai_82_relationship_conditions;
+#[path = "ai_83_breaker_adversarial.rs"]
+mod ai_83_breaker_adversarial;
+#[path = "ai_83_relationship_conditions.rs"]
+mod ai_83_relationship_conditions;
+#[path = "ai_84_breaker_adversarial.rs"]
+mod ai_84_breaker_adversarial;
+#[path = "ai_84_world_conditions.rs"]
+mod ai_84_world_conditions;
+#[path = "ai_85_adversarial.rs"]
+mod ai_85_adversarial;
+#[path = "ai_85_conditions_batch_2.rs"]
+mod ai_85_conditions_batch_2;
 #[path = "ai_86_adversarial.rs"]
 mod ai_86_adversarial;
 #[path = "ai_86_condition_contracts.rs"]
@@ -671,18 +708,40 @@ mod mag_37_open;
 mod mag_38_adversarial;
 #[path = "mag_39_summon_adversarial.rs"]
 mod mag_39_summon_adversarial;
+#[path = "mag_40_adversarial.rs"]
+mod mag_40_adversarial;
+#[path = "mag_40_detect_life.rs"]
+mod mag_40_detect_life;
 #[path = "mag_41_adversarial.rs"]
 mod mag_41_adversarial;
 #[path = "mag_41_breaker_adversarial.rs"]
 mod mag_41_breaker_adversarial;
 #[path = "mag_41_breaker_extra_adversarial.rs"]
 mod mag_41_breaker_extra_adversarial;
+#[path = "mag_42_adversarial.rs"]
+mod mag_42_adversarial;
+#[path = "mag_43_adversarial.rs"]
+mod mag_43_adversarial;
+#[path = "mag_43_reanimate.rs"]
+mod mag_43_reanimate;
+#[path = "mag_44_adversarial.rs"]
+mod mag_44_adversarial;
+#[path = "mag_44_soul_trap.rs"]
+mod mag_44_soul_trap;
 #[path = "mag_45_adversarial.rs"]
 mod mag_45_adversarial;
 #[path = "mag_45_turn_undead.rs"]
 mod mag_45_turn_undead;
+#[path = "mag_46_adversarial.rs"]
+mod mag_46_adversarial;
+#[path = "mag_46_guide.rs"]
+mod mag_46_guide;
+#[path = "mag_47_adversarial.rs"]
+mod mag_47_adversarial;
 #[path = "mag_48_adversarial.rs"]
 mod mag_48_adversarial;
+#[path = "mag_49_adversarial.rs"]
+mod mag_49_adversarial;
 #[path = "mag_50_adversarial.rs"]
 mod mag_50_adversarial;
 #[path = "mag_50_cure_poison.rs"]
@@ -939,14 +998,44 @@ mod sav_68_adversarial;
 mod sav_68_reset;
 #[path = "save_generations.rs"]
 mod save_generations;
+#[path = "scr_01_adversarial.rs"]
+mod scr_01_adversarial;
+#[path = "scr_02_adversarial.rs"]
+mod scr_02_adversarial;
+#[path = "scr_02_native_contract_inventory.rs"]
+mod scr_02_native_contract_inventory;
+#[path = "scr_03_adversarial.rs"]
+mod scr_03_adversarial;
+#[path = "scr_03_component.rs"]
+mod scr_03_component;
+#[path = "scr_05_adversarial.rs"]
+mod scr_05_adversarial;
+#[path = "scr_05_lazy_cell_binding.rs"]
+mod scr_05_lazy_cell_binding;
 #[path = "scr_08_actor_native_contracts.rs"]
 mod scr_08_actor_native_contracts;
 #[path = "scr_08_adversarial.rs"]
 mod scr_08_adversarial;
+#[path = "scr_09_actor_queries.rs"]
+mod scr_09_actor_queries;
+#[path = "scr_09_adversarial.rs"]
+mod scr_09_adversarial;
 #[path = "scr_10_actor_state_natives.rs"]
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_11_adversarial.rs"]
+mod scr_11_adversarial;
+#[path = "scr_12_adversarial.rs"]
+mod scr_12_adversarial;
+#[path = "scr_13_actor_native_batch.rs"]
+mod scr_13_actor_native_batch;
+#[path = "scr_13_adversarial.rs"]
+mod scr_13_adversarial;
+#[path = "scr_14_adversarial.rs"]
+mod scr_14_adversarial;
+#[path = "scr_15_adversarial.rs"]
+mod scr_15_adversarial;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
 #[path = "scr_17_adversarial.rs"]
@@ -1171,6 +1260,17 @@ mod tool_01_breaker_adversarial;
 mod tool_01_validation_runner;
 #[path = "transitions.rs"]
 mod transitions;
+#[path = "tst_01_adversarial.rs"]
+mod tst_01_adversarial;
+#[path = "tst_01_rng_streams.rs"]
+mod tst_01_rng_streams;
+#[cfg(feature = "save-fault-tests")]
+#[path = "tst_06_adversarial.rs"]
+mod tst_06_adversarial;
+#[path = "tst_11_adversarial.rs"]
+mod tst_11_adversarial;
+#[path = "tst_11_papyrus_log.rs"]
+mod tst_11_papyrus_log;
 #[path = "tst_12_additional_adversarial.rs"]
 mod tst_12_additional_adversarial;
 #[path = "tst_12_adversarial.rs"]

@@ -336,6 +336,15 @@ pub fn game() -> Game {
     for pex in scripts() {
         game.load_script(&pex).unwrap();
     }
+    let cell = game.form("TestCellA").unwrap();
+    let report = game.load_cell(cell);
+    assert_eq!(report.forms_with_scripts, 2, "{report:?}");
+    assert_eq!(report.scripts_attached, 2, "{report:?}");
+    assert_eq!(report.properties_set, 1, "{report:?}");
+    assert!(
+        report.scripts_missing.is_empty() && report.properties_missing.is_empty(),
+        "{report:?}"
+    );
     game
 }
 
@@ -350,9 +359,9 @@ fn script_errors(game: &Game) -> Vec<String> {
 fn a_quest_advances_on_activation_end_to_end() {
     let mut game = game();
     let report = game.start();
-    assert_eq!(report.forms_with_scripts, 3, "{report:?}");
-    assert_eq!(report.scripts_attached, 4, "{report:?}");
-    assert_eq!(report.properties_set, 3, "{report:?}");
+    assert_eq!(report.forms_with_scripts, 1, "{report:?}");
+    assert_eq!(report.scripts_attached, 2, "{report:?}");
+    assert_eq!(report.properties_set, 2, "{report:?}");
     assert!(
         report.scripts_missing.is_empty() && report.properties_missing.is_empty(),
         "{report:?}"

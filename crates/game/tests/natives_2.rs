@@ -18,11 +18,14 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
+};
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
-use soe_game::HostRequest;
+use soe_game::{world::RngStream, HostRequest};
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -53,6 +56,9 @@ const RAGS: u32 = 0x90F;
 const LOOT_LIST: u32 = 0x910;
 const GOLD: u32 = 0x911;
 const SWORD: u32 = 0x912;
+const SHIELD: u32 = 0x987;
+const DAGGER: u32 = 0x988;
+const BROKEN_ARMOR: u32 = 0x989;
 const WEAPON_KEYWORD: u32 = 0x980;
 const CARRIED_ITEMS: u32 = 0x981;
 const GOLD_REF: u32 = 0x982;
@@ -226,6 +232,24 @@ fn test_plugin() -> Plugin {
             .zsub(EDID, "IronSword")
             .sub(T(b"KWDA"), le(WEAPON_KEYWORD)),
     );
+    p.push_top(
+        Record::new(T(b"WEAP"), DAGGER)
+            .zsub(EDID, "IronDagger")
+            .sub(T(b"KWDA"), le(WEAPON_KEYWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"ARMO"), SHIELD)
+            .zsub(EDID, "IronShield")
+            .sub(T(b"DNAM"), le(0))
+            .sub(
+                T(b"BOD2"),
+                [1u32 << 9, 2]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ),
+    );
+    p.push_top(Record::new(T(b"ARMO"), BROKEN_ARMOR).zsub(EDID, "BrokenArmor"));
     p.push_top(
         Record::new(T(b"FLST"), CARRIED_ITEMS)
             .zsub(EDID, "CarriedItems")
@@ -591,6 +615,10 @@ fn game() -> Game {
     for s in scripts() {
         game.load_script(&s).unwrap();
     }
+    game.load_cell(GlobalFormId {
+        file: 0,
+        object: INN_CELL,
+    });
     game
 }
 
@@ -1419,6 +1447,8 @@ fn locations_know_their_parents() {
 #[test]
 fn scr_35_location_is_loaded_tracks_active_cell() {
     let mut g = game();
+    let other_cell = g.form("OtherCell").unwrap();
+    g.world_mut().load_cell(other_cell);
     let inn = obj(&mut g, "InnLoc");
     let town = obj(&mut g, "TownLoc");
     let hold = obj(&mut g, "HoldLoc");
@@ -2105,6 +2135,99 @@ fn combat_targets_and_killers_are_remembered() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// GetEquippedWeapon selects the right hand by default and the left hand
+/// when true. GetEquippedShield returns equipped armor in BOD2 shield slot 9.
+#[test]
+fn scr_14_equipped_weapon_hands_and_shield_follow_equipment() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let shield = GlobalFormId {
+        file: 0,
+        object: SHIELD,
+    };
+    let dagger = GlobalFormId {
+        file: 0,
+        object: DAGGER,
+    };
+    assert!(g.world_mut().record(shield).is_some());
+    assert_eq!(
+        g.world_mut().record(shield).unwrap().find(T(b"BOD2")),
+        Some(
+            [le(1 << 9).as_slice(), le(2).as_slice()]
+                .concat()
+                .as_slice()
+        )
+    );
+    assert!(g.world_mut().record(dagger).is_some());
+
+    assert_eq!(call(&mut g, &guard, "GetEquippedWeapon", &[]), Value::None);
+    assert_eq!(
+        call(&mut g, &guard, "GetEquippedWeapon", &[Value::Bool(true)]),
+        Value::None
+    );
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+
+    g.world_mut().equip_item(actor, sword).unwrap();
+    g.world_mut().equip_item(actor, shield).unwrap();
+    g.world_mut().equip_item(actor, dagger).unwrap();
+    let mut world = g.world_mut();
+    let state = world.actor(actor).unwrap();
+    state.left_weapon = Some(dagger);
+    state.right_weapon = Some(sword);
+    drop(world);
+    assert!(g
+        .world_mut()
+        .actor(actor)
+        .unwrap()
+        .equipped
+        .contains(&shield));
+    assert_eq!(g.world_mut().item_count(actor, shield), 1);
+    assert_eq!(g.world_mut().equipped_shield(actor).unwrap(), Some(shield));
+
+    let right = call(&mut g, &guard, "GetEquippedWeapon", &[]);
+    let left = call(&mut g, &guard, "GetEquippedWeapon", &[Value::Bool(true)]);
+    assert!(is(&mut g, &right, "IronSword"));
+    assert!(matches!(
+        left,
+        Value::Object(object) if g.world_mut().form_of(object) == Some(dagger)
+    ));
+    let equipped_shield = call(&mut g, &guard, "GetEquippedShield", &[]);
+    assert!(matches!(
+        equipped_shield,
+        Value::Object(object) if g.world_mut().form_of(object) == Some(shield)
+    ));
+
+    g.world_mut().unequip_item(actor, shield).unwrap();
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetEquippedShield returns no form and logs its typed record error when an
+/// equipped armor record has no required physical fields.
+#[test]
+fn scr_14_equipped_shield_reports_malformed_equipment() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    let broken = GlobalFormId {
+        file: 0,
+        object: BROKEN_ARMOR,
+    };
+    g.world_mut().add_item(actor, broken, 1);
+    g.world_mut().actor(actor).unwrap().equipped.insert(broken);
+
+    assert_eq!(call(&mut g, &guard, "GetEquippedShield", &[]), Value::None);
+    assert!(
+        g.traces()
+            .iter()
+            .any(|trace| trace.contains("Actor.GetEquippedShield:")),
+        "{:?}",
+        g.traces()
+    );
+}
+
 /// GetCrimeFaction reads CRIF, SetCrimeFaction "if the actor does not
 /// currently belong to the crime faction, it will be added to that
 /// faction", SetOutfit changes the default or the sleep outfit.
@@ -2181,6 +2304,76 @@ fn actor_base_flags_and_setters() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// SCR-11: Actor.SetEssential updates its base-data source and every loaded
+/// actor inheriting that source through the shared world API.
+#[test]
+fn scr_11_actor_set_essential_updates_shared_actor_state() {
+    let mut g = game();
+    let actor = obj(&mut g, "GuardRef");
+    let base = g.form("GuardBase").unwrap();
+    let actor_id = g.form("GuardRef").unwrap();
+
+    assert_eq!(call(&mut g, &actor, "IsEssential", &[]), Value::Bool(true));
+    assert_eq!(
+        call(&mut g, &actor, "SetEssential", &[Value::Bool(false)]),
+        Value::None
+    );
+    assert!(!g.world_mut().actor_base(base).unwrap().essential);
+    assert!(!g.world_mut().actor(actor_id).unwrap().essential);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+
+    call(&mut g, &actor, "SetEssential", &[Value::Bool(true)]);
+    assert!(g.world_mut().actor_base(base).unwrap().essential);
+    assert!(g.world_mut().actor(actor_id).unwrap().essential);
+}
+
+/// SCR-12: expression setters validate CK ranges and restore record mood on
+/// clear. Head tracking uses the CK default, accepts its optional argument,
+/// and persists an explicit value through the actor section.
+#[test]
+fn scr_12_expression_and_head_tracking_actor_natives() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let id = g.form("GuardRef").unwrap();
+    assert_eq!(g.world_mut().head_tracking(id), Some(true));
+
+    call(&mut g, &guard, "SetHeadTracking", &[Value::Bool(false)]);
+    assert_eq!(g.world_mut().head_tracking(id), Some(false));
+    call(&mut g, &guard, "SetHeadTracking", &[]);
+    assert_eq!(g.world_mut().head_tracking(id), Some(true));
+    call(&mut g, &guard, "SetHeadTracking", &[Value::Bool(false)]);
+
+    call(
+        &mut g,
+        &guard,
+        "SetExpressionOverride",
+        &[Value::Int(12), Value::Int(45)],
+    );
+    assert_eq!(g.world_mut().facial_expression(id), Some((12, 45)));
+    call(&mut g, &guard, "ClearExpressionOverride", &[]);
+    let cleared = g.world_mut().facial_expression(id);
+    assert_ne!(cleared, Some((12, 45)));
+
+    call(
+        &mut g,
+        &guard,
+        "SetExpressionOverride",
+        &[Value::Int(17), Value::Int(45)],
+    );
+    assert!(g
+        .world_mut()
+        .set_expression_override(id, 17, 45)
+        .unwrap_err()
+        .contains("expression mood 17"));
+    assert_eq!(g.world_mut().facial_expression(id), cleared);
+
+    let saved = g.world_mut().save_state();
+    let loaded = game();
+    loaded.world_mut().load_state(&saved).unwrap();
+    let loaded_id = loaded.form("GuardRef").unwrap();
+    assert_eq!(loaded.world_mut().head_tracking(loaded_id), Some(false));
+}
+
 // ----- references, cells, ownership -----
 
 /// GetActorOwner "gets the ActorBase that owns this object", None when
@@ -2221,6 +2414,7 @@ fn scr_19_cell_is_attached_tracks_cell_residency() {
     let mut g = game();
     let cell = obj(&mut g, "InnCell");
     let id = g.form("InnCell").unwrap();
+    g.world_mut().unload_cell(id);
     assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
     g.world_mut().prefetch_cell(id);
     assert_eq!(call(&mut g, &cell, "IsAttached", &[]), Value::Bool(false));
@@ -2389,6 +2583,8 @@ fn add_item_expands_mixed_form_list_with_leveled_metadata() {
     let mut g = game();
     let guard = obj(&mut g, "GuardRef");
     let list = obj(&mut g, "NestedLeveledAddList");
+    let loot = g.form("LootList").unwrap();
+    g.world_mut().leveled_list(loot).unwrap().chance_none = 0;
     let guard_id = g.form("GuardRef").unwrap();
     let gold = g.form("Gold001").unwrap();
     let sword = g.form("IronSword").unwrap();
@@ -2425,7 +2621,7 @@ fn add_item_preflights_mixed_base_leveled_and_reference_atomically() {
     world.add_item(guard, sword, i32::MAX - 1);
     world.leveled_list(loot_list).unwrap();
     let saved = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&saved).unwrap();
     let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
     assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
@@ -2433,7 +2629,7 @@ fn add_item_preflights_mixed_base_leveled_and_reference_atomically() {
     assert_eq!(world.item_count(guard, sword), i32::MAX - 1);
     assert!(world.reference_ref(loose).unwrap().item.is_some());
     assert!(world.pending.is_empty());
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 /// A later overflowing member rejects the complete list before the preceding

@@ -409,6 +409,12 @@ entry points. Cell replacement clears registrations and cancels the swing.
 Collision owners must unregister bodies before freeing them. No dependency or
 per-reference node is added.
 
+PlayerNode routes the `Right Attack/Block` press edge through
+`MeleeContact::begin_from_attack_press`, which arms the player's right hand
+once and ignores held frames. The CMB-04 integration test gathers that edge
+from a control map, arms the contact through the same entry point, and applies
+one hit to the shared Game.
+
 The CMB-03 tests exercise the decoded annotation through the behavior
 interpreter into Game and assert the exact frame, hand and single damage
 application. They also cover misses, cancellation, equipment changes, rejected

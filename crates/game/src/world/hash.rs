@@ -284,6 +284,7 @@ fn faction_state(h: &mut StateHasher, f: &FactionState) {
     h.i32(f.infamy_nonviolent);
     h.bool(f.player_expelled);
     h.bool(f.player_enemy);
+    h.bool(f.player_attacked);
     h.bool(f.tracks_crime);
 }
 
@@ -545,6 +546,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
     }
+    match a.head_tracking {
+        None => h.u32(0),
+        Some(false) => h.u32(1),
+        Some(true) => h.u32(2),
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -591,6 +597,9 @@ impl World {
 
         let mut h = StateHasher::new();
         h.u64(self.rng);
+        for state in self.rng_streams {
+            h.u64(state);
+        }
         let rng = h.finish();
 
         let mut h = StateHasher::new();
@@ -734,6 +743,11 @@ impl World {
                     h.u8(5);
                     h.u64(object.0);
                     form(&mut h, *base);
+                }
+                Pending::ReferenceEvent { reference, name } => {
+                    h.u8(6);
+                    form(&mut h, *reference);
+                    h.str(name);
                 }
                 Pending::Event { object, name, args } => {
                     h.u8(0);

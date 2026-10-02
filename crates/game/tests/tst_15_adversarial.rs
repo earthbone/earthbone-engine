@@ -33,12 +33,11 @@ fn populated_world_section_uses_reader_measured_legacy_tail() {
     let (mut world, _) = fixture();
     world.player_level = 73;
     let original = world.save_state();
-    assert!(legacy::world_section_growth(&original) > 0);
     let mut bytes = original.clone();
-    legacy::empty_legacy_world_collections(&mut bytes, 36);
-    legacy::truncate_to_version(&mut bytes, 36, |candidate| {
+    let tail = legacy::truncate_to_version(&mut bytes, 36, |candidate| {
         fixture().0.load_state(candidate).is_ok()
     });
+    assert!(tail > 0);
     let mut restored = fixture().0;
     restored.load_state(&bytes).unwrap();
     assert_eq!(restored.player_level, 1);

@@ -6,7 +6,7 @@
 use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::World;
+use soe_game::{world::RngStream, World};
 use std::collections::BTreeMap;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -150,24 +150,24 @@ fn prg_05_nested_cycles_are_rejected_even_beyond_the_current_level() {
         list(CHILD, 0, 0, &[(1, LIST, 1)]),
     ]);
     let before = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world
         .roll_leveled_items(id(LIST), 1, 1)
         .unwrap_err()
         .to_string()
         .contains("cyclic"));
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 #[test]
 fn overflow_after_a_random_choice_restores_rng() {
     let mut world = world(vec![list(LIST, 1, 0, &[(1, A, 2), (1, B, 2)])]);
     let before = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world.roll_leveled_items(id(LIST), 1, i32::MAX).is_err());
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 #[test]
@@ -204,14 +204,14 @@ fn malformed_lists_and_unmodeled_metadata_are_explicit_errors() {
 fn expansion_budget_prevents_unbounded_per_count_work_and_restores_rng() {
     let mut world = world(vec![list(LIST, 2, 50, &[(1, A, 1)])]);
     let before = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world
         .roll_leveled_items(id(LIST), 1, i32::MAX)
         .unwrap_err()
         .to_string()
         .contains("expansion"));
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 #[test]
@@ -258,14 +258,14 @@ fn shared_nested_lists_are_not_cycles_and_each_call_rolls_separately() {
 fn no_eligible_items_and_zero_count_return_empty_without_random_draws() {
     let mut world = world(vec![list(LIST, 0, 50, &[(10, A, 1)])]);
     let before = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world.roll_leveled_items(id(LIST), 1, 1).unwrap().is_empty());
     assert!(world
         .roll_leveled_items(id(LIST), 10, 0)
         .unwrap()
         .is_empty());
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 #[test]
@@ -487,13 +487,13 @@ fn special_loot_without_per_count_multiplies_one_level_draw() {
     records.push(list(LIST, 8, 0, &[(1, A, 1), (20, B, 1)]));
     let mut world = world(records);
     let before = world.save_state();
-    world.random_u64();
-    let expected_next = world.random_u64();
+    world.random_u64_for(RngStream::LeveledItems);
+    let expected_next = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     let items = world.roll_leveled_items(id(LIST), 1, 1000).unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items.values().sum::<i32>(), 1000);
-    assert_eq!(world.random_u64(), expected_next);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_next);
 }
 
 #[test]
@@ -548,10 +548,10 @@ fn special_loot_chance_none_and_use_all_bypass_level_draws() {
     ] {
         let mut world = world(vec![list(LIST, flags, chance, &[(1, A, 1), (100, B, 1)])]);
         let before = world.save_state();
-        let expected_next = world.random_u64();
+        let expected_next = world.random_u64_for(RngStream::LeveledItems);
         world.load_state(&before).unwrap();
         assert_eq!(world.roll_leveled_items(id(LIST), 1, 1).unwrap(), expected);
-        assert_eq!(world.random_u64(), expected_next);
+        assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_next);
     }
 }
 
@@ -591,20 +591,20 @@ fn special_loot_invalid_settings_and_late_overflow_preserve_rng() {
         soe_papyrus::Value::Float(f32::NAN),
     );
     let before = world.save_state();
-    let expected_next = world.random_u64();
+    let expected_next = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world
         .roll_leveled_items(id(LIST), 10, 1)
         .unwrap_err()
         .to_string()
         .contains("Special Loot setting"));
-    assert_eq!(world.random_u64(), expected_next);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_next);
     world.settings.clear();
     let before = world.save_state();
-    let expected_next = world.random_u64();
+    let expected_next = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&before).unwrap();
     assert!(world.roll_leveled_items(id(LIST), 10, i32::MAX).is_err());
-    assert_eq!(world.random_u64(), expected_next);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_next);
 }
 
 #[test]

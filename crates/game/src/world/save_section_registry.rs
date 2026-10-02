@@ -21,7 +21,6 @@ use soe_papyrus::VmError;
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
-    Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
@@ -33,12 +32,15 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
-    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-58", write: write_empty_section, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
-    super::magic::GRANTED_PERK_SECTION,
+    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
+    Section { name: "TST-01", write: write_rng_streams, read: read_rng_streams },
+    super::magic::REANIMATE_SECTION,
+    Section { name: "DLG-09", write: write_scene_runtime, read: read_scene_runtime },
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
@@ -51,6 +53,10 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-48", write: crate::dialogue::write_known_topics, read: crate::dialogue::read_known_topics },
     Section { name: "SCR-24", write: |world, writer, _pool| world.write_effect_shader_section(writer), read: |world, reader, _table| world.read_effect_shader_section(reader) },
     Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
+    Section { name: "AI-80", write: write_faction_attacks, read: read_faction_attacks },
+    Section { name: "MAG-64", write: write_reference_bindings, read: read_reference_bindings },
+    Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
+    super::magic::GRANTED_PERK_SECTION,
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -110,6 +116,18 @@ fn read_expression_override(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     World::read_expression_override(actor, reader)
+}
+
+fn write_scr_12(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_scr_12(actor, writer);
+}
+
+fn read_scr_12(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_12(actor, reader)
 }
 
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -234,7 +252,10 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
+    Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
+    Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
+    Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
 ];
 
 fn write_stagger_metadata(
@@ -761,5 +782,222 @@ fn read_saved_form_flags(
         value.saved_form_flags = Some((flags, unknown));
         value.record.flags = flags;
     }
+    Ok(())
+}
+
+fn write_rng_streams(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    for state in world.rng_streams {
+        writer.u64(state);
+    }
+}
+
+fn read_rng_streams(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    for state in &mut world.rng_streams {
+        *state = reader.u64()?;
+    }
+    Ok(())
+}
+
+fn write_scene_runtime(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(world.scene_runs.len());
+    for (id, run) in &world.scene_runs {
+        super::save::write_form_id(writer, *id);
+        writer.u32(run.phase);
+        writer.len(run.completed_actions.len());
+        for slot in &run.completed_actions {
+            writer.u32(*slot);
+        }
+    }
+}
+
+fn read_scene_runtime(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let count = reader.len()?;
+    let mut runs = BTreeMap::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        let phase = reader.u32()?;
+        let action_count = reader.len()?;
+        let mut completed_actions = BTreeSet::new();
+        for _ in 0..action_count {
+            if !completed_actions.insert(reader.u32()?) {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-09 duplicate completed scene action".into(),
+                ));
+            }
+        }
+        let scene_record = world.record(id).ok_or_else(|| {
+            soe_papyrus::VmError::State("DLG-09 scene runtime state names a missing form".into())
+        })?;
+        let scene =
+            soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(|error| {
+                soe_papyrus::VmError::State(format!("DLG-09 invalid scene: {error}"))
+            })?;
+        let valid_phase = if scene.phases.is_empty() {
+            phase == 0 && completed_actions.is_empty()
+        } else {
+            (phase as usize) < scene.phases.len()
+        };
+        if !world.scenes.contains(&id)
+            || !valid_phase
+            || completed_actions.iter().any(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_none_or(|action| action.end_phase != Some(phase))
+            })
+            || runs
+                .insert(
+                    id,
+                    super::SceneRunState {
+                        phase,
+                        completed_actions,
+                        ..Default::default()
+                    },
+                )
+                .is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "DLG-09 invalid scene runtime state".into(),
+            ));
+        }
+    }
+    if runs.len() != world.scenes.len() || world.scenes.iter().any(|id| !runs.contains_key(id)) {
+        return Err(soe_papyrus::VmError::State(
+            "DLG-09 scene runtime state is incomplete".into(),
+        ));
+    }
+    world.scene_runs = runs;
+    Ok(())
+}
+
+fn write_faction_attacks(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    let attacked: std::collections::BTreeSet<_> = world
+        .factions
+        .iter()
+        .filter_map(|(id, faction)| faction.player_attacked.then_some(*id))
+        .collect();
+    writer.len(attacked.len());
+    for id in attacked {
+        super::save::write_form_id(writer, id);
+    }
+}
+
+fn read_faction_attacks(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "AI-80 faction count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("AI-80 duplicate faction".into()));
+        }
+        let faction = world
+            .factions
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("AI-80 missing faction".into()))?;
+        faction.player_attacked = true;
+    }
+    Ok(())
+}
+
+fn write_movement_flags(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(actor.swimming);
+    writer.bool(actor.running);
+    writer.bool(actor.riding_mount);
+}
+
+fn read_movement_flags(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.swimming = reader.bool()?;
+    actor.running = reader.bool()?;
+    actor.riding_mount = reader.bool()?;
+    Ok(())
+}
+
+fn write_reference_bindings(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    let bindings: Vec<_> = world
+        .pending
+        .iter()
+        .filter(|pending| !matches!(pending, super::Pending::ReferenceEvent { .. }))
+        .enumerate()
+        .filter_map(|(index, pending)| match pending {
+            super::Pending::BindReference { object, base } => Some((index, object, base)),
+            _ => None,
+        })
+        .collect();
+    writer.len(bindings.len());
+    for (index, object, base) in bindings {
+        writer.len(index);
+        writer.u64(object.0);
+        super::save::write_form_id(writer, *base);
+    }
+}
+
+fn read_reference_bindings(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 18 {
+        return Err(VmError::State(
+            "MAG-64 binding count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut previous = None;
+    for _ in 0..count {
+        let index = reader.len()?;
+        let object = soe_papyrus::ObjectId(reader.u64()?);
+        let base = super::save::read_form_id(reader)?;
+        if previous.is_some_and(|prior| index <= prior) || index > world.pending.len() {
+            return Err(VmError::State("MAG-64 invalid binding position".into()));
+        }
+        previous = Some(index);
+        world
+            .pending
+            .insert(index, super::Pending::BindReference { object, base });
+    }
+    Ok(())
+}
+
+fn write_package_tree(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    crate::ai::write_tree_state(writer, actor.ai.tree.as_ref());
+}
+
+fn read_package_tree(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.ai.tree = crate::ai::read_tree_state(reader)?;
     Ok(())
 }

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW versions 5 and 37 store active applications after the world body.
-//! Loaded actor values already contain recoverable modifiers. Version 36
-//! stores authored taper values. Version 37 stores granted perks in the
-//! `MAG-21` world section and command owners in the `MAG-33` section.
+//! SOEW version 5 stores active applications after the version 4 world body.
+//! Loaded actor values already contain recoverable modifiers.
 
 use std::collections::BTreeMap;
 
@@ -21,6 +19,13 @@ pub(crate) const SECTION: crate::world::save_sections::Section<World> =
         name: "MAG-33",
         write: write_command_owners,
         read: read_command_owners,
+    };
+
+pub(crate) const REANIMATE_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-43",
+        write: write_reanimate_owners,
+        read: read_reanimate_owners,
     };
 
 pub(crate) const PERK_SECTION: crate::world::save_sections::Section<World> =
@@ -120,6 +125,50 @@ impl World {
         }
         Ok(())
     }
+}
+
+fn write_reanimate_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let owners: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| {
+            effect
+                .reanimated_previous_owner
+                .map(|owner| (effect.id, owner))
+        })
+        .collect();
+    w.len(owners.len());
+    for (id, owner) in owners {
+        w.u64(id.0);
+        write_opt_form_id(w, owner);
+    }
+}
+
+fn read_reanimate_owners(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 9 {
+        return Err(VmError::State(
+            "MAG-43 owner count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let owner = read_opt_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-43 duplicate effect identity".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-43 missing active effect".into()))?;
+        effect.reanimated_previous_owner = Some(owner);
+    }
+    Ok(())
 }
 
 fn write_granted_perks(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
@@ -286,6 +335,7 @@ pub(in crate::world) fn read_magic(
             elapsed,
             summoned,
             granted_perk: None,
+            reanimated_previous_owner: None,
             restore_owner: None,
             recover,
             changes,

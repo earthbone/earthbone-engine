@@ -31,7 +31,6 @@ fn tst_15_legacy_tails_follow_the_versioned_reader() {
     let original = World::new(order()).save_state();
     for version in [4, 7, 8, 9, 11, 14, 19, 20, 21, 22, 24, 25, 26, 34, 35, 36] {
         let mut bytes = original.clone();
-        legacy::empty_legacy_world_collections(&mut bytes, version);
         let fixture_len = bytes.len();
         let tail = legacy::truncate_to_version(&mut bytes, version, |candidate| {
             World::new(order()).load_state(candidate).is_ok()
@@ -107,6 +106,23 @@ fn tst_15_corruption_offsets_follow_serialized_fields() {
         before,
         "failed load preserves the live world"
     );
+}
+
+#[test]
+fn tst_15_world_section_search_preserves_a_false_table_prefix() {
+    let mut sections = vec![1, 0, 6];
+    sections.extend_from_slice(b"SAV-59");
+    sections.extend_from_slice(&1_u32.to_le_bytes());
+    sections.push(0);
+
+    // CONTEXT: A zero-length name lets ordinary fields resemble an enclosing table.
+    let mut bytes = vec![1, 0, 0];
+    bytes.extend_from_slice(&(sections.len() as u32).to_le_bytes());
+    let prefix = bytes.clone();
+    bytes.extend_from_slice(&sections);
+
+    assert_eq!(legacy::strip_world_sections(&mut bytes), sections.len());
+    assert_eq!(bytes, prefix);
 }
 
 fn check_tail_offsets(path: &Path) {

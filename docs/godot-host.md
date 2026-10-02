@@ -23,8 +23,39 @@ The estimate does not yet select a live WTHR from climate or apply WTHR
 ambient, sunlight and image-space sunlight scale. The current sound path
 covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
-ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
-interactive Godot sight run or frame-cost measurement is recorded here.
+ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
+
+`godot/cmb_32_live_detection_test.gd` samples live resident actors in the
+Bannered Mare, adds a PhysicsServer box between the nearest pair, and checks
+that the shared detection value drops. It then emits an actor-owned sound and
+checks the value rises. The same pair's awareness is checked after an unlocked
+door changes cells. The test reports actor and ordered-pair counts, elapsed
+time for 40 sync and detection samples, time per pair sample, and scene-node
+count before and after. Actor body sync and those samples add zero scene nodes.
+Run it with installed data and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script cmb_32_live_detection_test.gd
+```
+
+On Godot 4.7.2 with installed data, the Bannered Mare run sampled 7 actors and
+42 ordered pairs. A wall changed one shared detection value from 33.497 to
+-12.832, then an actor sound raised it to 38.581. The same observer and target
+FormIDs retained awareness after the door changed cells. Forty sync and
+observation samples took 19,580 microseconds, or 11.655 microseconds per pair
+sample. The active scene had a node delta of zero through sampling and the
+door transition. This times the shared host path in that loaded scene. It
+does not estimate the memory or frame cost of a hypothetical node-per-actor
+design.
+Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID.
+The CMB-32 query maps that RID to the actor FormID or treats it as an
+obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
+150 range. Local `LIGH` and `CELL` layouts define the light radius, flags,
+fade and ambient/inheritance fields used by the current estimate. RAID's
+lighting note says detection lighting differs from screen brightness, but it
+does not define the world-light calculation. The implementation therefore
+keeps the estimate separate from rendered brightness and does not infer
+outdoor WTHR lighting.
 
 ## Cell ambience, AUD-09
 
@@ -264,12 +295,23 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
 | `camera` | no | first and third person placement in Skyrim units, the basis Godot wants |
+| `detect_life` | no | active Detect Life targets as authored-shader presentation requests in Godot coordinates |
 | `input` | no | the vanilla `controlmap.txt`, key bindings, and a frame of input into movement intent |
 | `godot_layer` | yes | the `CellStreamer` node, `RenderingServer` instances, `array_mesh_from`, `heightmap_image_from` |
 | `godot_player` | yes | the `PlayerNode`: devices in, physics character and camera out |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
+
+## Detect Life presentation, MAG-40
+
+`detect_life::presentations` reads the selected targets from the shared game
+world and converts each Skyrim position to Godot metres and axes. The request
+retains the winning MGEF Hit Shader FormID and active effect identity so a host
+effect renderer can identify the authored shader and remove it when the effect
+ends. This adapter returns requests only. It does not decode EFSH records or
+draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
+`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
@@ -1440,11 +1482,13 @@ is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
 The `Right Attack/Block` gameplay event is also registered from the PC control
-map. Its press edge arms one right-hand melee contact in PlayerNode. The
+map. PlayerNode passes its press edge to `MeleeContact::begin_from_attack_press`,
+which arms the player's right-hand contact once and ignores held frames. The
 authored animation's `HitFrame` marker still supplies the contact pose and
-reaches the same shared Game path as other melee contacts. A single-key or
-single-button action can also be pressed through Godot's Input action API,
-while chorded bindings continue to require every device input.
+reaches the same shared Game path as other melee contacts. The CMB-04 test
+injects the mapped keyboard press and verifies one hit in that Game. A
+single-key or single-button action can also be pressed through Godot's Input
+action API, while chorded bindings continue to require every device input.
 
 MAG-22 adds `Left Attack/Block` and `Right Attack/Block` as held gameplay
 actions. PlayerNode compares each frame with the prior held state and calls
@@ -2517,25 +2561,28 @@ the separate authored plane range, asymmetric limits or position motors.
 
 A bound `SkinnedActorNode` watches its actor's shared `stagger_end_time`.
 `load_character` loads the vanilla master graph, which connects locomotion and
-stagger behavior. When a new active deadline appears, the rig writes the graph's
-`staggerMagnitude` input and sends `staggerStart` once. At expiry it sends
+stagger behavior. When a new active deadline appears, the rig writes the
+actor's latest `stagger_magnitude` to the graph's `staggerMagnitude` input and
+sends `staggerStart` once. At expiry it sends
 `staggerStop` once.
 The graph selects and plays its authored hit reaction, then follows its own
 transitions back to the locomotion state. This rendering step only reads World
 state and advances the animation interpreter. It never resolves the hit or
 changes health, so the combat event cannot apply damage twice.
+`cmb_27_shared_game_applies_stagger_damage_once_per_hit_frame` checks the
+shared Game applies damage once and consumes duplicate hit-frame events while
+the target is staggered.
 
 `activeragdoll/src/main.cpp`'s `StaggerActor` and the local Nemesis master,
 stagger and one-handed behavior graphs establish the variable and event names.
-CMB-14 stores only the stagger deadline, not hit strength or source direction,
-so the host uses magnitude `1.0`. The master graph does not expose
+CMB-14 stores the stagger deadline, computed hit magnitude and source
+direction. The master graph does not expose
 `staggerDirection` from its referenced stagger graph, so the host cannot select
 a hit direction through the outer graph's variable table. The gated
 `cmb_27_vanilla_hit_reaction_plays_and_returns_to_locomotion_without_damage`
 test checks the installed master graph plays its authored stagger clip and
-returns to the original active state. Exact hit direction, stagger tier and
-same-frame repeated deadlines are not represented by the current World event
-state.
+returns to the original active state. Exact hit direction and same-frame
+repeated deadlines are not represented by the current World event state.
 
 The `cmb_19_` unit tests check bone assignment, frame conversion and the
 death-to-resurrection mode transition. The installed-data gated
@@ -3651,6 +3698,11 @@ Open gaps, none closed by this row:
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
 
 ## Player trigger crossings, HST-14
+
+Player cell changes and streaming arrivals call the Game transition methods.
+Those methods bind attached references and resolve queued cell events before
+returning. This includes startup placement, coc, restored-game placement and
+neighbor resource arrivals. The SCR-01 repair adds no per-reference host nodes.
 
 `PlayerNode::advance_game` submits the player's previous and current world
 positions to `Game::update_trigger_actor_position` after writing the current

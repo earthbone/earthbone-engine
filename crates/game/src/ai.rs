@@ -820,7 +820,7 @@ fn function_value(
             let g = form(world, c.param1)?;
             world.global_value(g)
         }
-        77 => world.random_int(0, 99) as f32,
+        77 => world.random_int_for(crate::world::RngStream::Ai, 0, 99) as f32,
         80 => world.actor(subject).map_or(0.0, |a| a.level as f32),
         98 => bool_f(!world.player_controls),
         136 => {
@@ -2469,6 +2469,13 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
+pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
+    nav_graph(world)
+        .find_path_between(from, to)
+        .map(|path| path.points.into_iter().skip(1).collect())
+        .unwrap_or_else(|| vec![to])
+}
+
 fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
@@ -2666,15 +2673,18 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             .map(|c| sandbox_markers(world, c, center, ai.radius))
             .unwrap_or_default();
         let target = if markers.is_empty() {
-            let angle = world.random_float(0.0, std::f32::consts::TAU);
-            let r = world.random_float(0.0, ai.radius);
+            let angle =
+                world.random_float_for(crate::world::RngStream::Ai, 0.0, std::f32::consts::TAU);
+            let r = world.random_float_for(crate::world::RngStream::Ai, 0.0, ai.radius);
             [
                 center[0] + r * angle.cos(),
                 center[1] + r * angle.sin(),
                 center[2],
             ]
         } else {
-            let pick = world.random_int(0, markers.len() as i32 - 1) as usize;
+            let pick =
+                world.random_int_for(crate::world::RngStream::Ai, 0, markers.len() as i32 - 1)
+                    as usize;
             world
                 .reference(markers[pick])
                 .map(|s| s.position)
@@ -2771,7 +2781,8 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         if ai.path.is_empty() && distance(pos, dest) <= ARRIVAL_DISTANCE {
             ai.arrived = true;
             if ai.procedure == Procedure::Sandbox {
-                ai.dwell_until = hours + f64::from(world.random_float(0.1, 0.4));
+                ai.dwell_until = hours
+                    + f64::from(world.random_float_for(crate::world::RngStream::Ai, 0.1, 0.4));
             }
             if matches!(ai.procedure, Procedure::Travel | Procedure::Flee) {
                 tree::succeeded(world, &mut ai);
@@ -3052,7 +3063,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
-        Procedure::Flee => w.u8(if version < 34 { 7 } else { 19 }),
+        Procedure::Flee if version >= 34 => w.u8(19),
         Procedure::Patrol => {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref(), version);
@@ -3063,7 +3074,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
             w.u8(4);
             w.str("AI-30 Guard");
         }
-        Procedure::Sit => w.u8(if version >= 37 { 18 } else { 9 }),
+        Procedure::Sit if version >= 37 => w.u8(18),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -3098,7 +3109,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
                 None => w.bool(false),
             }
         }
-        Procedure::Shout => {
+        Procedure::Shout if version >= 37 => {
             w.u8(17);
             w.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
@@ -3206,6 +3217,18 @@ pub(crate) fn write_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
             };
             write_record_state(w, &state);
         }
+    }
+}
+
+/// Write the package cursor layout frozen by SOEW version 37.
+pub(crate) fn write_legacy_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
+    w.bool(tree.is_some());
+    if let Some(tree) = tree {
+        w.u16(tree.owner.file);
+        w.u32(tree.owner.object);
+        w.u32(tree.branch);
+        w.bool(tree.active);
+        w.bool(tree.finished);
     }
 }
 

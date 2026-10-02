@@ -176,6 +176,7 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
                 | soe_game::Pending::CallScript { .. }
                 | soe_game::Pending::BindEffect { .. }
                 | soe_game::Pending::BindReference { .. }
+                | soe_game::Pending::ReferenceEvent { .. }
                 | soe_game::Pending::DeferredDeath { .. }
                 | soe_game::Pending::ActorDeath { .. } => None,
             })
@@ -187,18 +188,18 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
             .world_mut()
             .cell_by_editor_id("WhiterunBanneredMare")
             .expect("the Bannered Mare is in Skyrim.esm");
-        g.world_mut().load_cell(cell);
+        g.load_cell(cell);
         let pair = first_load_door(g, cell).expect("the tavern has a door onto the street");
         g.world_mut().pending.clear();
         pair
     };
 
-    // Bind first on both, so the same references carry the same objects and
-    // the two event lists are comparable at all.
+    // The host goes through the Game transitions, which bind the references
+    // they attach, so both paths queue the same events.
     let mut cold = real_game(&data);
     cold.bind();
     let (_, target) = setup(&mut cold);
-    cold.world_mut().change_cell(Some(target));
+    cold.change_cell(Some(target));
     let from_cold = names(&cold);
 
     let mut warm = real_game(&data);
@@ -208,7 +209,7 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
         .world_mut()
         .arm_doorway(door)
         .expect("the door teleports");
-    warm.world_mut().commit_doorway(&way);
+    warm.commit_doorway(&way);
     let from_warm = names(&warm);
 
     eprintln!("events on the cold move {}", from_cold.len());

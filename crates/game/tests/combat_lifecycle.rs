@@ -343,8 +343,6 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     queued.truncate(queued.len() - tail);
     queued[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
-    assert!(game.world_mut().load_state(&queued).is_err());
-    assert_eq!(game.world().save_state(), before);
     // Version 14 held only the boolean and health, without a queued request.
     game.world_mut().pending.clear();
     let mut bytes = legacy::without_exclusive_branches(
@@ -353,13 +351,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     );
     bytes.truncate(bytes.len() - tail);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
-    let tail = legacy::version_tail_len(&bytes, |candidate| {
-        fresh().world_mut().load_state(candidate).is_ok()
-    });
-    bytes.truncate(bytes.len() - tail);
-    queued.truncate(queued.len() - tail);
-    queued[4..6].copy_from_slice(&14_u16.to_le_bytes());
-    let before = game.world().save_state();
+    game.world_mut().load_state(&before).unwrap();
     assert_eq!(
         game.world_mut()
             .load_state(&queued)
