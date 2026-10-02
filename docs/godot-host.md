@@ -3689,10 +3689,25 @@ sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
 returns that name or an empty string when none is active. A plain return clears
 any active sequence. Starting a new game leaves the main menu state.
 
-The SCR-31 host tests call both globals through Papyrus, check their transient
-requests, and apply those requests to the same menu state used by the host.
-`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
-preserves the requested sequence name.
+The Creation Kit `engine-refs/ck-wiki/Game_Script.wikitext` says
+`QuitToMainMenu` forces the game back to the main menu and
+`StartTitleSequence` plays the specified sequence in the title menu. The
+SCR-31 host tests call both globals through Papyrus and check their transient
+requests. `QuitToMainMenu` clears a current sequence, while
+`StartTitleSequence` preserves the requested sequence name.
+
+`PlayerNode.debug_invoke_main_menu_native` invokes either of those two Game
+globals through the active VM and consumes the resulting host request. The
+host emits `title_sequence_started(name)` for the menu presenter and exposes
+the active name through `active_title_sequence`. The Godot check
+`godot/ui_18_main_menu_test.gd` starts a live runtime, verifies the title
+sequence signal and menu state, reattaches the data source, and verifies that
+quitting closes gameplay and clears the sequence. Run it with installed game
+data and the built extension:
+
+```text
+SOE_GODOT_BIN --path godot --script ui_18_main_menu_test.gd --resolution 640x360
+```
 
 Open gaps, none closed by this row:
 
