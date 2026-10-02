@@ -1397,7 +1397,7 @@ rotation twice instead of cancelling it.
 
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
-walking. Materials are still unwired, so they are unlit grey.
+walking.
 
 ## Sound out (2026-09-18, branch `playback`)
 
@@ -3233,7 +3233,15 @@ vanilla texture archives alongside its mesh and animation archives, creates a
 attaches it to the uploaded mesh surface. The installed-data check
 `rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
 that the vanilla male body has authored diffuse paths and that each path
-resolves to image data. This verifies material inputs, not a rendered capture.
+resolves to image data. The windowed check
+`godot/rnd_05_vanilla_npc_material_check.gd` renders that body through
+RenderingServer, captures the 640 by 360 viewport and checks for visible
+character pixels with diffuse color variation. On Godot 4.4.1 with installed
+data, it passed with 4,874 character pixels, 3,093 colored pixels and 17
+quantized color bins. The capture was saved to
+`/tmp/rnd_05_vanilla_npc_material_check.png`. This exercises the vanilla body
+mesh and its authored skin and clothing textures, not a complete NPC head or
+full race appearance assembly.
 
 ## Nearby interior prefetch, HST-07
 
