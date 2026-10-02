@@ -11,6 +11,13 @@ func _check(ok: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 func _run() -> void:
+	# CONTEXT: A fresh checkout has no editor-generated extension discovery cache.
+	if not GDExtensionManager.is_extension_loaded("res://soe.gdextension"):
+		GDExtensionManager.load_extension("res://soe.gdextension")
+	if not ClassDB.class_exists("PlayerNode"):
+		printerr("FAIL: PlayerNode is not registered, the extension did not load")
+		quit(1)
+		return
 	var data := OS.get_environment("SKYRIM_DATA")
 	var player: Node3D = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", false)
