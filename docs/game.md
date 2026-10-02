@@ -621,6 +621,16 @@ because projectile simulation is not implemented. The matching local
 CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 `ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
 shim exposes source-level C++ declarations only, without an FFI bridge.
+
+`World::commonlib_extra_worn`, `commonlib_game_setting`, `commonlib_hazard`,
+`commonlib_high_process` and `commonlib_resolve_hit` project current inventory,
+setting, placed hazard, actor combat-process and resolved melee-hit state into
+the MIT shim types. Hazard reads require a placed reference whose base record
+is HAZD. High-process reads include combat membership, target and stagger only.
+Hit resolution runs through the existing melee combat path. The SHM-11 game
+tests cover live settings, worn markers, present and absent hazards, actor
+combat process state, and a resolved hit. These Rust adapters do not provide a
+C++ to Rust binding.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. The
