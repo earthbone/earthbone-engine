@@ -1216,6 +1216,8 @@ mod scr_67_adversarial;
 mod scr_67_native_registry;
 #[path = "scr_68_adversarial.rs"]
 mod scr_68_adversarial;
+#[path = "scr_68_breaker_adversarial.rs"]
+mod scr_68_breaker_adversarial;
 #[path = "scr_68_native_contracts.rs"]
 mod scr_68_native_contracts;
 #[path = "scr_69_adversarial.rs"]
