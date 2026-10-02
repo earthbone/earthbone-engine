@@ -353,6 +353,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an optimized build and an idle machine, see docs/performance-limits.md"]
     fn prf_07_thousand_travel_and_sandbox_actors_meet_frame_and_memory_budgets() {
         let config = config("actors", 1_000);
         let mut workload = Workload::new(&config).unwrap();

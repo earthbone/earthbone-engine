@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
+#[ignore = "requires an optimized build and an idle machine, see docs/performance-limits.md"]
 fn prf_07_runner_records_thousand_actor_budget_sample() {
     let out = std::env::temp_dir().join(format!("soe-prf-07-adversarial-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);

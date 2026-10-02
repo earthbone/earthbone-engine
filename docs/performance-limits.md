@@ -110,6 +110,14 @@ Use `--samples`, `--warmup`, `--seed`, `--vm-budget`, `--repeats` and `--refine`
 to specify a reproduction. Defaults are printed in `--help` and saved in every
 report. Do not change thresholds after seeing results to make a run pass.
 
+The thousand-actor timing tests are ignored in the ordinary workspace gate.
+Their frame budgets require an optimized build on an otherwise idle machine,
+with no concurrent tests. Run it explicitly:
+
+```text
+rtk proxy cargo test -p soe-bench --profile thin prf_07 -- --ignored --test-threads=1
+```
+
 Windowed host runs, with an installed Godot binary:
 
 ```text
