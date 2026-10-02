@@ -23,13 +23,21 @@ fn mag_14_host_snapshot_keeps_stop_scoped_to_one_shader_target_pair() {
     let game = Game::new(order);
     let mut host = EffectShaderStack::default();
 
-    game.world_mut().play_effect_shader(id(0x801), id(0x803), -1.0).unwrap();
-    game.world_mut().play_effect_shader(id(0x801), id(0x804), 8.0).unwrap();
-    game.world_mut().play_effect_shader(id(0x802), id(0x803), 3.0).unwrap();
+    game.world_mut()
+        .play_effect_shader(id(0x801), id(0x803), -1.0)
+        .unwrap();
+    game.world_mut()
+        .play_effect_shader(id(0x801), id(0x804), 8.0)
+        .unwrap();
+    game.world_mut()
+        .play_effect_shader(id(0x802), id(0x803), 3.0)
+        .unwrap();
     host.sync(&game.world());
     assert_eq!(host.playbacks().len(), 3);
 
-    game.world_mut().stop_effect_shader(id(0x801), id(0x803)).unwrap();
+    game.world_mut()
+        .stop_effect_shader(id(0x801), id(0x803))
+        .unwrap();
     host.sync(&game.world());
     assert_eq!(host.playbacks().len(), 2);
     assert!(host
@@ -56,8 +64,12 @@ fn mag_14_host_snapshot_replay_refreshes_without_duplicate_effects() {
     let game = Game::new(order);
     let mut host = EffectShaderStack::default();
 
-    game.world_mut().play_effect_shader(id(0x801), id(0x803), 2.0).unwrap();
-    game.world_mut().play_effect_shader(id(0x801), id(0x803), -1.0).unwrap();
+    game.world_mut()
+        .play_effect_shader(id(0x801), id(0x803), 2.0)
+        .unwrap();
+    game.world_mut()
+        .play_effect_shader(id(0x801), id(0x803), -1.0)
+        .unwrap();
     host.sync(&game.world());
 
     assert_eq!(host.playbacks().len(), 1);

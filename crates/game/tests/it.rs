@@ -644,6 +644,8 @@ mod mag_14_breaker_adversarial;
 mod mag_14_effect_shader;
 #[path = "mag_16_adversarial.rs"]
 mod mag_16_adversarial;
+#[path = "mag_16_breaker_adversarial.rs"]
+mod mag_16_breaker_adversarial;
 #[path = "mag_17_adversarial.rs"]
 mod mag_17_adversarial;
 #[path = "mag_17_breaker_adversarial.rs"]

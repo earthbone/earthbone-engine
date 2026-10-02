@@ -43,7 +43,10 @@ fn mag_17_location_cast_rejects_aimed_delivery_before_applying_effects() {
         &mut |name, class| game.vm.create_object_of(name, class),
     );
 
-    assert!(result.is_err(), "an aimed spell is not a target-location cast");
+    assert!(
+        result.is_err(),
+        "an aimed spell is not a target-location cast"
+    );
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
 }
