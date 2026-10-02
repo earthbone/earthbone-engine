@@ -1358,6 +1358,14 @@ impl CellStreamerNode {
             let mut row = VarDictionary::new();
             row.set("rid", instance.rid);
             row.set("material", material);
+            row.set(
+                "center",
+                Vector3::new(
+                    f32::midpoint(instance.bounds.min.x, instance.bounds.max.x),
+                    f32::midpoint(instance.bounds.min.y, instance.bounds.max.y),
+                    f32::midpoint(instance.bounds.min.z, instance.bounds.max.z),
+                ),
+            );
             out.push(&row);
         }
         out
