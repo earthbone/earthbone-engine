@@ -422,6 +422,8 @@ mod cmb_36_lazy_actor_base_save_contract;
 mod cmb_36_lazy_actor_base_save_state_adversarial;
 #[path = "cmb_37_breaker_adversarial.rs"]
 mod cmb_37_breaker_adversarial;
+#[path = "cmb_37_adversarial.rs"]
+mod cmb_37_adversarial;
 #[path = "cmb_37_destruction.rs"]
 mod cmb_37_destruction;
 #[path = "cmb_38_adversarial.rs"]
