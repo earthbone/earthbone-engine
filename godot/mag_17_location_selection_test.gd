@@ -26,7 +26,7 @@ func _run() -> void:
 	player.set("auto_step", false)
 	get_root().add_child(player)
 	_check(player.call("use_streamer_data", streamer), "shared data source failed")
-	_check(player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) > 0,
+	_check(player.call("enter_cell", "WhiterunBanneredMare", -125.0, -800.0, 120.0) > 0,
 		"Bannered Mare collision load failed")
 	_check(player.call("start_gameplay"), "gameplay startup failed")
 	mag_17_live_host_selection_casts_at_selected_position(player)
@@ -39,11 +39,11 @@ func mag_17_live_host_selection_casts_at_selected_position(player: Node3D) -> vo
 	var selected := PackedVector3Array()
 	var cast := false
 	for index in range(16):
-		player.call("set_facing", TAU * float(index) / 16.0, 0.0)
+		player.call("set_facing", TAU * float(index) / 16.0, -1.39)
 		selected = player.call("selected_location_position")
 		if selected.size() == 1:
 			var point: Vector3 = selected[0]
-			if point.is_finite() and player.call("cast_location_spell_at_look", 0, 0x1C4E6):
+			if point.is_finite() and player.call("cast_location_spell_at_look", 0, 0x5DB90):
 				cast = true
 				break
 	_check(selected.size() == 1, "camera ray did not select loaded static geometry")

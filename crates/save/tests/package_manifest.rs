@@ -4,7 +4,7 @@
 //! PackageData coverage ledger using the strict reader's failure offsets.
 //! Source limits and ledger schema are in docs/save-package-variants.md.
 
-use soe_save::{Error, Save};
+use soe_save::{reference::Field, Error, Save};
 use std::path::{Path, PathBuf};
 
 const MANIFEST: &str = include_str!("../../../docs/save-package-variants-v1.tsv");
@@ -44,7 +44,7 @@ fn classify(error: Error, payload: &[u8]) -> (&'static str, usize) {
 }
 
 #[test]
-fn sav_22_manifest_classifies_every_corpus_package_failure() {
+fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_stacked() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping package manifest corpus");
         return;
@@ -67,6 +67,10 @@ fn sav_22_manifest_classifies_every_corpus_package_failure() {
         assert_eq!(save.form_version, 78);
         let (mut file_references, mut file_failures) = (0, 0);
         for form in &save.change_forms {
+            // CONTEXT: The version-1 ledger predates projectile placement decoding.
+            if !matches!(form.type_index(), 0 | 1) {
+                continue;
+            }
             match form.reference_contents(save.form_version) {
                 Ok(None) => continue,
                 Ok(Some(contents)) => {
@@ -75,7 +79,51 @@ fn sav_22_manifest_classifies_every_corpus_package_failure() {
                         contents.data_bytes().unwrap(),
                         payload[contents.start..contents.end]
                     );
-                    decoded += 1;
+                    let variant = contents.extra.as_ref().and_then(|extras| {
+                        extras.entries.iter().find_map(|extra| {
+                            if extra.kind != 108 {
+                                return None;
+                            }
+                            extra.fields.iter().find_map(|field| match field {
+                                Field::String(name) if name.bytes() == b"Sequence" => {
+                                    Some("PD18-SEQUENCE")
+                                }
+                                Field::String(name) if name.bytes() == b"Stacked" => {
+                                    Some("PD18-STACKED")
+                                }
+                                _ => None,
+                            })
+                        })
+                    });
+                    if let Some(variant) = variant {
+                        let occurrence = MANIFEST
+                            .lines()
+                            .find(|row| {
+                                let columns: Vec<_> = row.split('\t').collect();
+                                columns.len() == 9
+                                    && columns[0] == "occurrence"
+                                    && columns[1] == name
+                                    && columns[2] == format!("{:06x}", form.form.raw())
+                                    && columns[7] == variant
+                            })
+                            .unwrap();
+                        let offset = occurrence.split('\t').nth(5).unwrap();
+                        let at: usize = offset.parse().unwrap();
+                        if variant == "PD18-SEQUENCE" {
+                            assert_eq!(&payload[at..at + 13], b"\x6c\x12\0\x08\0Sequence");
+                            sequence += 1;
+                        } else {
+                            assert_eq!(&payload[at..at + 12], b"\x6c\x12\0\x07\0Stacked");
+                            stacked += 1;
+                        }
+                        rows.push(format!(
+                            "occurrence\t{name}\t{:06x}\t{:08x}\t{:08x}\t{offset}\t{}\t{variant}\tOPAQUE-CONTINUATION",
+                            form.form.raw(), save.resolve(form.form).unwrap(), form.change_flags, payload.len(),
+                        ));
+                        file_failures += 1;
+                    } else {
+                        decoded += 1;
+                    }
                 }
                 Err(error) => {
                     let payload = form.payload().unwrap();
@@ -109,7 +157,7 @@ fn sav_22_manifest_classifies_every_corpus_package_failure() {
         eprintln!("PACKAGE-MANIFEST-BEGIN\n{actual}PACKAGE-MANIFEST-END");
     }
     assert_eq!(actual, MANIFEST, "versioned package coverage changed");
-    eprintln!("SAV-22: 60 saves, {references} reference sections, {decoded} exact reencodings, {sequence} Sequence and {stacked} Stacked blockers classified");
+    eprintln!("SAV-22 baseline accounted: 60 saves, {references} reference sections, {} current exact reencodings, {sequence} decoded Sequence and {stacked} decoded Stacked entries", decoded + sequence + stacked);
 }
 
 #[test]

@@ -75,6 +75,23 @@ fn anm_58_graph_unload_only_completes_waits_for_unloaded_reference() {
 }
 
 #[test]
+fn anm_58_disabling_reference_completes_its_wait_false() {
+    let mut game = game();
+    let player = game.player();
+    let source = game.world_mut().place_at(id(BASE), player, false);
+    game.world_mut()
+        .wait_for_animation_event(source, "finished", LatentId(7));
+
+    game.world_mut().set_reference_enabled(source, false);
+
+    assert_eq!(
+        game.world().completed_animation_waits,
+        [(LatentId(7), false)]
+    );
+    assert!(game.world().animation_waiters.is_empty());
+}
+
+#[test]
 fn anm_58_nonmatching_event_does_not_resolve_wait_or_duplicate_event_delivery() {
     let mut game = game();
     let player = game.player();

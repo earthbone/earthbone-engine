@@ -120,6 +120,13 @@ pub enum ReferencePhysicsRequest {
         direction: [f32; 3],
         magnitude: f32,
     },
+    /// Join a placed cart and horse at their CK Havok pivots.
+    Tether {
+        cart: GlobalFormId,
+        horse: GlobalFormId,
+        cart_pivot: [f32; 3],
+        horse_pivot: [f32; 3],
+    },
 }
 
 impl World {
@@ -148,6 +155,17 @@ impl World {
                 source,
                 name: name.to_string(),
             });
+    }
+
+    /// Remove the queued copy when the matching Godot signal was delivered
+    /// immediately. Unmatched notices remain ordered for the game-loop drain.
+    pub(crate) fn consume_animation_report(&mut self, source: GlobalFormId, name: &str) {
+        if let Some(index) = self.animation_host_notices.iter().position(|notice| {
+            matches!(notice, AnimationHostNotice::Event { source: queued, name: queued_name }
+                if *queued == source && queued_name == name)
+        }) {
+            self.animation_host_notices.remove(index);
+        }
     }
 
     /// Drain ordered graph and unload notifications for the game loop.

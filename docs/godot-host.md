@@ -18,6 +18,10 @@ value, sight, motion and queued detection sounds to
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
+`PlayerNode::detection_light_references` returns enabled placed LIGH FormIDs and
+their Godot positions in the active cell for the live observation check. The
+check toggles those references through the shared World and samples the same
+actor pair to verify a placed light changes detection.
 
 The estimate does not yet select a live WTHR from climate or apply WTHR
 ambient, sunlight and image-space sunlight scale. The current sound path
@@ -25,11 +29,20 @@ covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
 
+The light reader requires the full 92-byte CELL/XCLL structure and 48-byte
+LIGH/DATA structure before using those fields. Inherited LGTM/DATA reads its
+ambient prefix from the 24-byte layout recorded in TES5Edit, including the
+legacy 24-byte template noted in `wbDefinitionsTES5.pas`. The layouts come
+from `uesp-modfileformat/CELL.wikitext`,
+`uesp-modfileformat/LIGH.wikitext`, and `TES5Edit/Core/wbDefinitionsTES5.pas`
+in the local `engine-refs` corpus.
+
 `godot/cmb_32_live_detection_test.gd` samples live resident actors in the
-Bannered Mare, adds a PhysicsServer box between the nearest pair, and checks
-that the shared detection value drops. It then emits an actor-owned sound and
-checks the value rises. The same pair's awareness is checked after an unlocked
-door changes cells. The test reports actor and ordered-pair counts, elapsed
+Bannered Mare, toggles enabled placed lights until one changes the shared
+detection value, adds a PhysicsServer box between the nearest pair and checks
+that sight lowers the value. It then emits an actor-owned sound and checks the
+value rises. The same pair's awareness is checked after an unlocked door
+changes cells. The test reports actor and ordered-pair counts, elapsed
 time for 40 sync and detection samples, time per pair sample, and scene-node
 count before and after. Actor body sync and those samples add zero scene nodes.
 Run it with installed data and the host extension loaded:
@@ -47,6 +60,11 @@ sample. The active scene had a node delta of zero through sampling and the
 door transition. This times the shared host path in that loaded scene. It
 does not estimate the memory or frame cost of a hypothetical node-per-actor
 design.
+The same check passed on Godot 4.4.1 with installed data: 7 actors and 42
+ordered pairs, visible detection 40.985, blocked detection -12.832, and heard
+detection 38.581. Forty samples took 21,529 microseconds, or 12.815
+microseconds per pair sample. Awareness for the same FormIDs remained present
+after the door changed cells, and scene-node count stayed unchanged.
 Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID.
 The CMB-32 query maps that RID to the actor FormID or treats it as an
 obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
@@ -81,6 +99,17 @@ saved.
 The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.
+
+### Destruction-stage models, CMB-37
+
+When a resident reference has a selected destruction-stage model in the
+shared `World`, `CellStreamerNode` hides its base geometry and loads the
+selected DMDL through the same VFS, NIF, mesh and material path as streamed
+cell geometry. The replacement uses RenderingServer instances and adds no
+reference node. Advancing to a model-less stage retains the latest selected
+DMDL through `World::destruction_model`. Clearing destruction removes the
+replacement and reveals the base model. Releasing the owning cell or clearing
+the streamer frees its replacement mesh and instance RIDs.
 
 ### Character race and sex selection, UI-07
 
@@ -154,15 +183,18 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
-supplied cart and horse body RIDs and keys ownership by both resolved
-reference IDs, each encoded as `(file << 32) | object`. Creating another link
-for either endpoint first frees the old one. `untether_reference` frees links
-for explicit untethering. The player
-sync path also releases a link when either endpoint is missing or disabled,
-and `clear` or node teardown frees every remaining joint. The caller supplies
-the rigid bodies and local pivots. The host API does not infer cart bones or
-build the wheel, pole, chassis or horse rig from NIF collision data.
+`CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and
+horse body RIDs and keys ownership by both resolved reference IDs, each
+encoded as `(file << 32) | object`. Papyrus queues the two references and the
+CK Havok pivots. The cell host resolves each reference to its resident body,
+maps the pivots into Godot's axis basis and creates the joint. Creating
+another link for either endpoint first frees the old one. `untether_reference`
+frees links for explicit untethering. The player sync path releases a link
+when either endpoint is missing or disabled. Releasing the collision cell,
+calling `clear`, or tearing down the node frees its joints before its bodies.
+The CK page names `HorseSpine2` and describes the chassis and horse connection
+pivots. The host connects whole reference bodies and does not infer that bone
+or build wheel, pole and chassis rig constraints from NIF collision data.
 
 ### Editor forms dock, EDT-02
 
@@ -521,6 +553,15 @@ requested. Each rendered block remains keyed by its worldspace and
 `clear_object_lod` to release it. BTO surfaces retain the worldspace form as
 their source identity because the merged file does not encode individual
 placed-reference identities.
+
+`terrain_lod_stats` and `object_lod_stats` report each stream's resident
+block coordinates in the `blocks` field as space-separated
+`level:x:y` entries, alongside drawn instance and triangle counts. The live
+RND-10 renderer check streams a radius-2 exterior area and real BTR and BTO
+blocks in the same scenario, then checks that the LOD block squares do not
+cover any coordinate in that near area. This exercises the handoff through
+`RenderingServer` instances without treating BTO surfaces as individual
+placed references.
 
 ## Mesh
 
@@ -1086,8 +1127,12 @@ the rendering path on Godot's existing mesh and material servers without adding 
 `rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
 `LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
 terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
-RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
-block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+RenderingServer instances and albedo resources, then renders a terrain instance in the main
+viewport and checks the captured frame for visible, varied, non-white terrain pixels. The
+inspection rows include each terrain instance's bounds center so the camera can frame that
+surface without using unrelated cell geometry.
+`godot/pan_capture.gd` orbits and pans that block through 25 shots for a quick visual sweep.
+Distant geometry is Bethesda's precomputed
 LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
@@ -1277,6 +1322,11 @@ and false if the graph unloads first. This bridge only drives visuals
 explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
 animation graphs are not instantiated by this bridge.
 
+`PlayerNode.gameplay_animation_events` returns the source file and object IDs
+and event name for each graph event delivered to the active Game. The ANM-58
+Godot integration test emits the rig signal after binding and checks that the
+event reaches this world log.
+
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
 `godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
@@ -1384,7 +1434,7 @@ rotation twice instead of cancelling it.
 
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
-walking. Materials are still unwired, so they are unlit grey.
+walking.
 
 ## Sound out (2026-09-18, branch `playback`)
 
@@ -1451,9 +1501,12 @@ would be silent, and 57 are not.
 
 `godot/dlg_11_audio_test.gd`, launched by
 `crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
-through `SoundBank::open_data`. The script starts a response at the speaker
+through `SoundBank::open_data`. The fixture sets `sLanguage=ENGLISH` in
+`Skyrim_Default.ini` to select its English voice archive.
+The script creates a current `AudioListener3D`, starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
-player, starts a replacement at a second position, and captures its output.
+player through the exposed `stop_voice` method, starts a replacement at a
+second position, and captures its output.
 Capture polls for signal until the stream duration plus half a second, since
 voice assets can start with silence. The generated WAV fixture includes a
 quarter second of leading silence. The capture buffer is cleared between
@@ -1464,6 +1517,10 @@ Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
+does not require an editor import or a cached extension list. This uses
+`GDExtensionManager.load_extension` from the local
+`engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
 line. Without installed data it uses a generated WAV with 250 milliseconds of
@@ -2663,6 +2720,12 @@ uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
 approximation because the CK pages do not state the force unit expected by
 the physics solver.
 
+`godot/cmb_38_ragdoll_test.gd` loads a vanilla Bannered Mare actor, explicitly
+adds its ragdoll, queues `PushActorAway` through the shared `World`, and checks
+that Jolt changes the root body's velocity. It then removes the explicit
+ragdoll and checks that the bodies are freed and animated rendering resumes.
+The host bridge calls the same `World` methods used by the Papyrus natives.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears
@@ -3076,6 +3139,14 @@ when the loaded cell changes. A Godot pixel readback is not part of that test.
 MAG-71 retains animated curves, active-stack composition, all authored blur
 modes and modifier renderer cleanup. Both rows require rendered evidence.
 
+`mag_72_windowed_fixture_reads_hdr_color_and_depth_pixels` launches Godot with
+a 640 by 360 window and captures a checkerboard SubViewport. Its Rust runner
+resolves synthetic CELL/XCIM and selected WTHR/IMSP records through World and
+ImageSpaceStack, then passes their render values to the Godot script. The script
+applies those values to Environment, CameraAttributesPractical and a tint
+overlay. It compares rendered pixels for the clear, cell, weather and
+restored-cell states, and compares depth-of-field enabled and disabled output.
+
 Sources read under `engine-refs`:
 
 - xEdit `Core/wbDefinitionsTES5.pas` and `Core/wbDefinitionsCommon.pas`, plus
@@ -3227,7 +3298,15 @@ vanilla texture archives alongside its mesh and animation archives, creates a
 attaches it to the uploaded mesh surface. The installed-data check
 `rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
 that the vanilla male body has authored diffuse paths and that each path
-resolves to image data. This verifies material inputs, not a rendered capture.
+resolves to image data. The windowed check
+`godot/rnd_05_vanilla_npc_material_check.gd` renders that body through
+RenderingServer, captures the 640 by 360 viewport and checks for visible
+character pixels with diffuse color variation. On Godot 4.4.1 with installed
+data, it passed with 4,874 character pixels, 3,093 colored pixels and 17
+quantized color bins. The capture was saved to
+`/tmp/rnd_05_vanilla_npc_material_check.png`. This exercises the vanilla body
+mesh and its authored skin and clothing textures, not a complete NPC head or
+full race appearance assembly.
 
 ## Nearby interior prefetch, HST-07
 
@@ -3787,3 +3866,39 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd`
 checks that this path writes a PNG under Godot headless with installed data.
+
+## Per-cell occluders, RND-07
+
+`CellStreamerNode.cell_occluders` optionally creates one RenderingServer
+occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
+selects at most four nonempty opaque static surfaces by descending triangle
+count, keeps source order for equal counts, and applies a `MultiMesh` surface's
+instance transform before combining its vertices. Skinned, blend and cutout
+surfaces are excluded. Cell release and node cleanup free both occluder RIDs.
+The export defaults to off.
+
+Godot 4.4's `tutorials/3d/occlusion_culling.rst` requires a simplified
+occluder representation made from static objects. Skinned actor surfaces
+change with their skeleton, so including them in the generated stationary
+mesh would leave stale occlusion as the actor moves.
+
+The candidate is based on Godot's local `engine-refs/godot-docs` sources:
+`classes/class_arrayoccluder3d.rst` documents the procedural vertex and index
+mesh, and `tutorials/3d/occlusion_culling.rst` explains that Godot CPU
+rasterizes occluders and that scenes with few occlusion opportunities can
+lose performance.
+
+The 2026-10-02 comparison used the installed Whiterun Bannered Mare cell,
+Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
+1600 by 900 render target, and three 600-frame samples per mode. Both modes
+drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
+the p99 samples were 40.514, 40.018 and 44.655 ms, median 40.514 ms. With
+occluders on, they were 39.019, 41.130 and 46.134 ms, median 41.130 ms. The
+enabled median was 0.616 ms higher, so the export remains off. These results
+are specific to this scene, machine and renderer.
+
+`crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
+input, deterministic source ordering for ties, top-four opaque selection,
+valid combined indices and transformed `MultiMesh` placement. The frame-time
+comparison was run through `godot/bench.gd`. An exterior attempt was rejected
+because its large world coordinates produced zero rendered primitives.

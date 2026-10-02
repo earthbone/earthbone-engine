@@ -25,7 +25,7 @@ fn stacked_count(extra: &ExtraData) -> usize {
             entry.kind == 108
                 && matches!(
                     entry.fields.as_slice(),
-                    [Field::Byte(18), Field::Byte(0), Field::String(name)]
+                    [Field::Byte(18), Field::Byte(0), Field::String(name), Field::Group(_)]
                         if name.bytes() == b"Stacked"
                 )
         })

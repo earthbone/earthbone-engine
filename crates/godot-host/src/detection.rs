@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use soe_esm::{GlobalFormId, Tag};
+use soe_esm::{plugin::flags, GlobalFormId, Tag};
 use soe_game::detection::{DetectionEvent, Motion, Observation};
 use soe_game::world::ContactActor;
 use soe_game::World;
@@ -124,11 +124,10 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
         .filter(|record| record.tag == T(b"LGTM"))
         .and_then(|record| record.find(T(b"DATA")));
     let ambient = (if inherited || cell_light.is_none() {
-        template
+        template.filter(|bytes| bytes.len() >= 24)
     } else {
-        cell_light
+        cell_light.filter(|bytes| bytes.len() >= 92)
     })
-    .filter(|bytes| bytes.len() >= 3)
     .map_or(0.0, |bytes| {
         (f32::from(bytes[0]) + f32::from(bytes[1]) + f32::from(bytes[2])) / 3.0
     });
@@ -165,12 +164,15 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
         };
         let Some(data) = base_record
             .find(T(b"DATA"))
-            .filter(|bytes| bytes.len() >= 16)
+            .filter(|bytes| bytes.len() >= 48)
         else {
             continue;
         };
         let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-        if placement.is_some_and(|p| !p.visible) || (placement.is_none() && flags & (1 << 5) != 0) {
+        if placement.is_some_and(|p| !p.visible)
+            || reference.is_some_and(|record| record.flags & flags::INITIALLY_DISABLED != 0)
+            || (placement.is_none() && flags & (1 << 5) != 0)
+        {
             continue;
         }
         let radius = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as f32;
@@ -310,12 +312,15 @@ mod cmb_32_tests {
     fn cmb_32_cell_ambient_and_placed_light_follow_records() {
         let mut plugin = Plugin::new(FileHeader::default());
         let cell = GlobalFormId { file: 0, object: 1 };
-        plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+        let mut cell_light = vec![0_u8; 92];
+        cell_light[..3].copy_from_slice(&[60, 60, 60]);
+        plugin.push_top(Record::new(T(b"CELL"), 1).sub(b"XCLL", cell_light));
         let mut data = Vec::new();
         data.extend_from_slice(&(-1_i32).to_le_bytes());
         data.extend_from_slice(&100_u32.to_le_bytes());
         data.extend_from_slice(&[255, 255, 255, 0]);
         data.extend_from_slice(&0_u32.to_le_bytes());
+        data.resize(48, 0);
         plugin.push_top(Record::new(T(b"LIGH"), 2).sub(b"DATA", data));
         let mut reference = Record::new(T(b"REFR"), 3)
             .sub(b"NAME", 2_u32.to_le_bytes())
@@ -341,7 +346,7 @@ mod cmb_32_tests {
                 .sub(b"XCLL", cell_light)
                 .sub(b"LTMP", 2_u32.to_le_bytes()),
         );
-        plugin.push_top(Record::new(T(b"LGTM"), 2).sub(b"DATA", [120, 120, 120, 0]));
+        plugin.push_top(Record::new(T(b"LGTM"), 2).sub(b"DATA", [120; 24]));
         let mut order = LoadOrder::new();
         order.add("Template.esm", plugin).unwrap();
         let world = World::new(order);
