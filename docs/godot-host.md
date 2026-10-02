@@ -2035,10 +2035,17 @@ shared Game, then successful picks resume ordinary activation. The
 `hst_03_lockpick_handoff.gd` runtime test uses the synthetic
 `inventory_fixture` records to activate a keyless locked door, submit the
 record-derived successful angle, activate the unlocked door and reject a
-level 255 key-only door. Generate the fixture with
+level 255 key-only door. `ui_08_lockpicking.gd` drives the same Godot controls
+through a failed turn, checks the remaining pick in the native inventory, then
+completes a successful turn and activates the door. The fixture starts with two
+lockpicks so both outcomes run in one session. Generate the fixture with
 `cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
-"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
-in the disposable Godot project used for host runtime tests.
+"$SKYRIM_DATA"`, then run the script with the fixture path:
+
+```sh
+rtk env SOE_UI_TEST_DATA=/tmp/soe-hst-03 "$SOE_GODOT_BIN" --path godot --script \
+  "$PWD/crates/godot-host/tests/ui_08_lockpicking.gd" --resolution 640x360
+```
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2893,14 +2900,14 @@ angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
 A miss consumes a pick and leaves the menu available for another angle. A
 successful turn closes the menu and activates the same reference through the
 ordinary Game path. The menu is presenter state only. The
-`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
-synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
-xEdit's XLOC definition establish lock state, level bands and the key-only
-level 255 case. The angle rule is the game crate policy documented in
-[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
-tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn. Visual presentation and minigame feel remain
-unverified.
+`hst_03_lockpick_handoff.gd` and `ui_08_lockpicking.gd` exercise this PlayerNode
+path against a synthetic keyless door and the shared Game. CK Lock and
+GetLockLevel pages plus xEdit's XLOC definition establish lock state, level
+bands and the key-only level 255 case. The angle rule follows the game crate
+policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The live Godot interaction
+test checks the failed and successful turns. Visual presentation and minigame
+feel remain unverified.
 
 ## Dialogue menu, DLG-10
 
