@@ -164,54 +164,71 @@ merely because the repository includes them.
 ## Native contract audit, SCR-67
 
 The registry inventory comes from `game/src/natives.rs::register`, including
-the method registrations and the quiet-stub tables. The inventory test checks
-each direct `ObjectReference` method and both `MusicType` methods against the
-live `NativeRegistry`. Neither class has a direct global binding. Inherited
-`Form` methods are outside this class inventory.
+implemented methods and quiet stubs. `scr_67_object_reference_method_inventory_matches_registry`
+compares the full sorted set returned by `NativeRegistry::method_bindings`
+against the ObjectReference inventory below and checks the corresponding
+global set is empty. `scr_67_music_type_bindings_are_methods_and_not_globals`
+does the same for MusicType.Add and MusicType.Remove. Neither class has a
+direct global binding. Inherited `Form` methods are outside this inventory.
 
 For each listed `ObjectReference` method, the corresponding
 `ck-wiki/<Function>_-_ObjectReference.wikitext` page was compared for its
 Papyrus signature, parameter order and defaults, return type and stated
 behavior. The class declaration is `ck-wiki/ObjectReference_Script.wikitext`.
 `MusicType.Add` and `MusicType.Remove` have no named function or class page in
-the local CK corpus. They are registered as methods and remain quiet stubs.
-Their owning implementation work is SCR-37.
+the local CK corpus. Their no-argument, no-return signatures were compared
+with `skymp/skyrim-platform/src/platform_se/codegen/convert-files/FunctionsDump.txt`.
+They validate a live MUSC receiver and mutate the world's transient music-type
+list, as described in `game.md`.
 
 | Registry method | CK contract comparison |
 |---|---|
 | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled | The enable pages distinguish waiting and no-wait variants. The state queries return booleans. |
-| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded is a stub assigned to SCR-38. |
+| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded reads reference cell residency; publishing exact host 3D residency is assigned to HST-13. |
 | GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior | Form returns and interior-cell query match their CK pages. |
 | GetPositionX, GetPositionY, GetPositionZ, GetAngleX, GetAngleY, GetAngleZ | The six scalar getters match the axis and degree contracts. |
 | SetPosition, SetAngle | Both take three floats. SetAngle uses degrees at the Papyrus boundary. |
 | MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
 | Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
 | GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
-| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems does not yet honor quest-item retention. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems currently ignores ownership retention and quest-item retention flags. |
 | GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
-| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation returns a boolean. The three unavailable animation/wait systems are quiet stubs assigned to SCR-39 and SCR-41. |
+| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation queues an event and returns a boolean. PlayAnimationAndWait and WaitForAnimationEvent defer until an event. PlayGamebryoAnimation only accepts a non-empty name; authored legacy animation playback remains unsupported under SCR-39. |
 | GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
 | PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
 | AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
-| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs. Destruction-stage behavior belongs to SCR-40. |
+| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction resets supported destruction state. GetCurrentDestructionStage returns the stage or -1 when none is set. |
 | IgnoreFriendlyHits, IsIgnoringFriendlyHits | Setter and query match the documented boolean behavior. |
 | GetCurrentLocation, GetEditorLocation, IsInLocation | Reference location queries match their return types and child-location behavior. |
+| IsInDialogueWithPlayer | The named page takes no arguments and returns whether this actor or talking activator is talking to the player. The native reads the current dialogue target and returns false for other references. |
 | GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner | Owner methods match their typed form parameters and None returns. |
 | AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | These are void methods on references. Their matching alias declarations are separately registered on `ReferenceAlias`. |
 | SetAnimationVariableFloat, SetAnimationVariableInt, SetAnimationVariableBool | Each setter takes its typed value and returns None. |
 | GetAnimationVariableFloat, GetAnimationVariableInt, GetAnimationVariableBool | Each getter returns the matching scalar type. |
-| GetCurrentScene, IsFurnitureInUse, IsFurnitureMarkerInUse, GetTriggerObjectCount | Signatures match the class pages. Each is currently a quiet stub assigned to SCR-38 or SCR-39. |
-| SetMotionType, ApplyHavokImpulse, SetNoFavorAllowed, DamageObject, KnockAreaEffect, PushActorAway, InterruptCast | Their parameter contracts are documented, but implementations are quiet stubs assigned to SCR-39 or SCR-40. |
-| ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, CreateDetectionEvent, TranslateTo, SplineTranslateTo, StopTranslation, Reset | Their method bindings are quiet stubs assigned to SCR-41 or SCR-42. |
+| GetCurrentScene | Takes no arguments and returns the active scene for this reference, or None. It reads the world's active scene set. |
+| IsFurnitureInUse, IsFurnitureMarkerInUse | Signatures and defaults match the CK pages. The runtime reads HST-09 marker reservations. It currently returns false whenever `abIgnoreReserved` is true because the saved actor seat state does not distinguish a reservation from actual use. HST-09 owns that state distinction. |
+| GetTriggerObjectCount | Takes no arguments and returns the count of tracked trigger occupants. A non-trigger logs an error and returns zero. This uses HST-14 trigger tracking. |
+| SetMotionType, ApplyHavokImpulse | SetMotionType takes the motion type and optional activation flag; ApplyHavokImpulse takes a direction and magnitude. Both validate the request and queue host physics work. Host support is bounded to HST-12's movable references. |
+| SetNoFavorAllowed, DamageObject | Their argument and result shapes match their pages. SetNoFavorAllowed updates the shared flag. DamageObject advances supported destruction state. |
+| KnockAreaEffect, PushActorAway | Their signatures match the CK pages. Both queue shared actor impulses through CMB-38; KnockAreaEffect uses the documented magnitude and radius with a documented linear attenuation approximation. |
+| InterruptCast, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse | InterruptCast clears the shared pending cast. Ragdoll methods set a saved actor override through CMB-38. TetherToHorse moves the horse to an approximate cart-relative position; host constraint work belongs to HST-15. |
+| CreateDetectionEvent | Takes an owner Actor and sound level, then records a shared detection event. |
+| TranslateTo, SplineTranslateTo, StopTranslation, Reset | Translation methods queue linear or spline motion and dispatch completion/failure events through HST-16. Reset restores the reference's supported authored state. |
+| MusicType.Add, MusicType.Remove | Both are methods with no arguments and no return. They validate the receiver as a live MUSC record and add or remove it from the world's transient active music list. |
 
-The audit found two implementation discrepancies. `MoveTo` ignored
-`abMatchRotation`. SCR-67 fixes it, and the synthetic native-call test covers
-both the default and false value. `RemoveAllItems` currently clears every
-inventory entry even when `abRemoveQuestItems` is false. The inventory model
-does not preserve quest-item eligibility, so the owning fix needs an inventory
-contract row before it can be implemented. SCR-67 is restricted to the game
-crate and the backlog is explicitly unchanged, so this finding remains open
-and is the completion gap for this audit.
+The audit found that `MoveTo` ignored `abMatchRotation`; SCR-67 fixes it, and
+`scr_67_move_to_respects_match_rotation_and_default` checks the default true
+case and the false case. The named `IsInDialogueWithPlayer` page was also
+missing from the earlier hand-kept inventory; the registry-derived check now
+includes it and the docs record its argument and result contract.
+
+`RemoveAllItems` currently ignores `abKeepOwnership` and
+`abRemoveQuestItems`. The CommonLib `InventoryEntryData::IsQuestObject` source
+identifies quest-object extra data on inventory stacks, but the game's current
+stack model does not classify those extras for this call. No existing open
+backlog row owns this Papyrus removal policy. A dedicated inventory prerequisite
+row is needed; this audit does not edit `BACKLOG.csv` under the task boundary.
+This remains an explicit implementation gap.
 
 ## Native contract audit, SCR-73
 
