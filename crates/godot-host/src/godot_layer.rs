@@ -23,8 +23,8 @@ use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
-    ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
-    Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
+    ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, QuadMesh,
+    RenderingServer, Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -50,6 +50,30 @@ fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     let file = u16::try_from(encoded >> 32).ok()?;
     let object = u32::try_from(encoded & 0xffff_ffff).ok()?;
     (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
+}
+
+fn shader_particle_count(density: f32) -> i32 {
+    if density <= 0.0 {
+        0
+    } else {
+        (density * 64.0).ceil().clamp(1.0, 256.0) as i32
+    }
+}
+
+fn shader_particle_offset(form: GlobalFormId, index: u32, box_size: f32) -> [f32; 3] {
+    let seed = (u64::from(form.file) << 48) | (u64::from(form.object) << 16) | u64::from(index);
+    let component = |axis: u64| {
+        let mut value = seed ^ axis.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        value ^= value >> 31;
+        (value as u32) as f32 / u32::MAX as f32 - 0.5
+    };
+    [
+        component(1) * box_size,
+        component(2) * box_size,
+        component(3) * box_size,
+    ]
 }
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
@@ -99,6 +123,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Active SPGD layers, each rendered as one server-side MultiMesh.
+    shader_particles: std::collections::BTreeMap<GlobalFormId, ShaderParticleInstance>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -218,6 +244,15 @@ struct EffectShaderInstance {
     color_alpha: f32,
     fade: [f32; 4],
     cell: Option<GlobalFormId>,
+}
+
+/// One active SPGD layer rendered through a single server-side MultiMesh.
+struct ShaderParticleInstance {
+    rid: Rid,
+    _mesh: Gd<QuadMesh>,
+    multi: Gd<MultiMesh>,
+    material: Gd<StandardMaterial3D>,
+    elapsed: f32,
 }
 
 /// One runtime light attached to a RenderingServer scenario, without a node.
@@ -383,6 +418,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            shader_particles: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -407,6 +443,7 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_shader_particles();
         self.free_runtime_lights();
         self.clear_terrain_lod();
         self.collision.free();
@@ -582,6 +619,110 @@ impl CellStreamerNode {
                 true
             }
         });
+    }
+
+    /// Consume the shared world's SPGD snapshot and draw each layer near the player.
+    pub(crate) fn sync_shader_particles(
+        &mut self,
+        layers: &[soe_game::world::shader_particles::ShaderParticleLayer],
+        origin: [f32; 3],
+        delta: f32,
+    ) {
+        let Some(scenario) = self.scenario() else {
+            self.free_shader_particles();
+            return;
+        };
+        let mut server = RenderingServer::singleton();
+        let mut seen = std::collections::BTreeSet::new();
+        for layer in layers {
+            let geometry = &layer.geometry;
+            seen.insert(geometry.form);
+            if !self.shader_particles.contains_key(&geometry.form) {
+                let particle_count = shader_particle_count(geometry.particle_density);
+                let mut mesh = QuadMesh::new_gd();
+                let size_x =
+                    geometry.particle_size_x.abs().max(1.0) * crate::units::METRES_PER_UNIT;
+                let size_y =
+                    geometry.particle_size_y.abs().max(1.0) * crate::units::METRES_PER_UNIT;
+                mesh.set_size(Vector2::new(size_x, size_y));
+                let mut material = StandardMaterial3D::new_gd();
+                material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+                material.set_transparency(Transparency::ALPHA);
+                material.set_cull_mode(CullMode::DISABLED);
+                if let (Some(source), Some(path)) =
+                    (self.data_source.as_ref(), geometry.texture.as_deref())
+                {
+                    if let Some(texture) = source
+                        .effect_shader_texture(path)
+                        .and_then(|texture| image_texture_from(&texture))
+                    {
+                        material.set_texture(TextureParam::ALBEDO, &texture);
+                    }
+                }
+                mesh.set_material(&material);
+                let mut multi = MultiMesh::new_gd();
+                multi.set_transform_format(TransformFormat::TRANSFORM_3D);
+                multi.set_mesh(&mesh);
+                multi.set_instance_count(particle_count);
+                multi.set_visible_instance_count(particle_count);
+                let rid = server.instance_create2(multi.get_rid(), scenario);
+                self.shader_particles.insert(
+                    geometry.form,
+                    ShaderParticleInstance {
+                        rid,
+                        _mesh: mesh,
+                        multi,
+                        material,
+                        elapsed: 0.0,
+                    },
+                );
+            }
+            if let Some(instance) = self.shader_particles.get_mut(&geometry.form) {
+                instance.elapsed += delta.max(0.0);
+                let color = instance.material.get_albedo();
+                instance.material.set_albedo(Color::from_rgba(
+                    color.r,
+                    color.g,
+                    color.b,
+                    layer.strength.clamp(0.0, 1.0),
+                ));
+                let count = instance.multi.get_instance_count().max(0) as usize;
+                let box_size = geometry.box_size.max(1) as f32;
+                let center_z =
+                    f32::midpoint(geometry.center_offset_min, geometry.center_offset_max);
+                for index in 0..count {
+                    let offset = shader_particle_offset(geometry.form, index as u32, box_size);
+                    let fall = (instance.elapsed * geometry.gravity_velocity).rem_euclid(box_size);
+                    let pos = crate::units::SkyrimPos::new(
+                        origin[0] + offset[0],
+                        origin[1] + offset[1],
+                        origin[2] + center_z + offset[2] - fall,
+                    )
+                    .to_godot();
+                    let transform =
+                        Transform3D::new(Basis::IDENTITY, Vector3::new(pos.x, pos.y, pos.z));
+                    instance
+                        .multi
+                        .set_instance_transform(index as i32, transform);
+                }
+                server.instance_set_transform(instance.rid, Transform3D::IDENTITY);
+            }
+        }
+        self.shader_particles.retain(|form, instance| {
+            if seen.contains(form) {
+                true
+            } else {
+                server.free_rid(instance.rid);
+                false
+            }
+        });
+    }
+
+    fn free_shader_particles(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, instance) in std::mem::take(&mut self.shader_particles) {
+            server.free_rid(instance.rid);
+        }
     }
 
     fn free_effect_shaders(&mut self) {
@@ -2817,6 +2958,32 @@ pub fn heightmap_image_from(region: &RegionHeightmap) -> Option<Gd<Image>> {
         Format::RF,
         &bytes,
     )
+}
+
+#[cfg(test)]
+mod scr_46_shader_particle_render_tests {
+    use super::{shader_particle_count, shader_particle_offset};
+    use soe_esm::GlobalFormId;
+
+    #[test]
+    fn scr_46_shader_particle_density_controls_bounded_multimesh_count() {
+        assert_eq!(shader_particle_count(0.0), 0);
+        assert_eq!(shader_particle_count(0.01), 1);
+        assert_eq!(shader_particle_count(0.75), 48);
+        assert_eq!(shader_particle_count(100.0), 256);
+    }
+
+    #[test]
+    fn scr_46_shader_particle_placement_is_stable_and_within_authored_box() {
+        let form = GlobalFormId {
+            file: 2,
+            object: 0x1234,
+        };
+        let first = shader_particle_offset(form, 7, 4096.0);
+        assert_eq!(first, shader_particle_offset(form, 7, 4096.0));
+        assert_ne!(first, shader_particle_offset(form, 8, 4096.0));
+        assert!(first.iter().all(|axis| (-2048.0..=2048.0).contains(axis)));
+    }
 }
 
 #[cfg(test)]

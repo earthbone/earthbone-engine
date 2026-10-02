@@ -1211,14 +1211,18 @@ Their CK contracts are described by
   `SPGD` record and starts or restarts its transient layer. `Remove(fadeSeconds)`
   removes it immediately or fades it out. `World::shader_particle_layers`
   exposes decoded geometry fields and the current fade strength in form order.
+  `soe-godot-host` consumes that snapshot and renders one server-side MultiMesh
+  per active form, centered on the player. Particle positions are stable for a
+  form and index, wrap through the authored box as gravity advances, and use
+  the SPGD texture when it can be loaded. The host bounds density to 256 quads.
   Both methods reject malformed record data and non-finite or negative fade
   values before changing the active set. Game ticks advance the fades. These
   effects are transient and are not saved. The CK corpus has no named pages for
   these two methods. The DATA and ICON layout follows xEdit's
   `wbRecord(SPGD)`, UESP's `SPGD.wikitext`, Mutagen's Skyrim SPGD schema, and
-  CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
-  identifies both functions and their float arguments. The host does not yet
-  consume the layer snapshot or render particle geometry.
+  CommonLib's `BGSShaderParticleGeometryData`. UESP's
+  `Raw_Function_Data.wikitext` identifies the Play and Stop functions and
+  their float arguments.
 
 ### Utility runtime queries, SCR-50
 
@@ -5581,10 +5585,10 @@ registered Sound names and method/global placement match those declarations.
 `World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
 removes the selected instance from the world's sound-instance table.
 
-| Registry binding | CK contract comparison | Current implementation and assigned work |
+| Registry binding | Source comparison | Current implementation |
 |---|---|---|
-| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
-| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `ShaderParticleGeometry.Apply` method | The CK function page and class declaration were not present in the crawl. UESP lists Play as a form plus float function. | Validates the winning SPGD record and nonnegative finite fade, then applies the transient layer. |
+| `ShaderParticleGeometry.Remove` method | The CK function page and class declaration were not present in the crawl. UESP lists Stop as a form plus float function. | Validates the fade and removes the layer immediately or fades it out. |
 | `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
 | `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
 | `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
