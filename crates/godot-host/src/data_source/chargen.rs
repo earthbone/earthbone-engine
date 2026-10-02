@@ -167,6 +167,9 @@ mod tests {
         cache.clear();
         assert_eq!(cache.file_count(), 0);
         assert_eq!(cache.resident_bytes(), 0);
+        assert_eq!(cache.model_count(), 0);
+        assert_eq!(cache.morph_count(), 0);
+        assert_eq!(cache.missing_count(), 0);
     }
 
     #[test]

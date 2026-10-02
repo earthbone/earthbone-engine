@@ -117,11 +117,12 @@ morph values.
 
 `Game.PrecacheCharGen` asks the host to read model files for playable race
 head-part choices and the TRI files tagged as chargen morphs on those parts.
-The streamer retains each available path once and reports retained file count,
-NIF count, TRI count, byte total and paths missing from the active data VFS.
-`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
-counts. The asset buffers are CPU-side file data. This does not upload preview
-meshes or apply morphs to a rendered actor.
+The host processes this request before the race menu request from the same
+Papyrus call sequence. The streamer retains each available path once and
+reports retained file count, NIF count, TRI count, byte total and paths missing
+from the active data VFS. `Game.PrecacheCharGenClear` drops the buffers and
+resets residency and byte counts. The asset buffers are CPU-side file data.
+This does not upload preview meshes or apply morphs to a rendered actor.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
