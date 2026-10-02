@@ -692,6 +692,8 @@ mod mag_34_breaker_2_adversarial;
 mod mag_34_breaker_adversarial;
 #[path = "mag_35_adversarial.rs"]
 mod mag_35_adversarial;
+#[path = "mag_35_breaker_3_adversarial.rs"]
+mod mag_35_breaker_3_adversarial;
 #[path = "mag_35_breaker_2_adversarial.rs"]
 mod mag_35_breaker_2_adversarial;
 #[path = "mag_35_breaker_adversarial.rs"]
