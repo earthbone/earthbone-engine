@@ -306,8 +306,10 @@ is a menu-neutral copy of those rows. Selection and update report `ItemSelection
 `LookupReferenceByHandle` resolves a source-level handle represented by the reference's runtime
 FormID and reports whether the reference is an actor.
 
-The C++ fixture compiles and calls these declarations, including all unsupported results. The
-Rust game fixture exercises the same views against loaded records and live `World` state. The
+The C++ fixture compiles and calls these declarations, including all unsupported results. A
+second C++ fixture exchanges factory, inventory and handle requests with the Rust game test
+process, which answers through `commonlib` using live `World` state. The Rust game fixture also
+exercises the views directly. The
 CommonLibSSE-NG `IFormFactory.h`, `InventoryChanges.h`, `InventoryEntryData.h`, `ItemList.h`,
 `Misc.h` and `Misc.cpp` supplied the source-level names and signatures. The shim declarations
 are original MIT code and do not copy upstream implementation code. These views are not binary

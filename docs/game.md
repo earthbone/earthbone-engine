@@ -56,7 +56,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
 
 - `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
   stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
-  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results. The
+  SHM-12 C++ contract test exchanges requests with a Rust test fixture that answers from this
+  adapter and a live `World`.
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
