@@ -30,7 +30,7 @@ fn installed_lock_byte_mapping_matches_authored_levels() {
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
-    assert!(paths.len() >= 50);
+    assert_eq!(paths.len(), 60, "SAV-69 requires the complete save corpus");
     let (mut locks, mut authored, mut matched) = (0, 0, 0);
     let mut bytes = std::collections::BTreeMap::new();
     for path in &paths {
@@ -443,7 +443,7 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
-    assert!(paths.len() >= 50);
+    assert_eq!(paths.len(), 60, "SAV-69 requires the complete save corpus");
     let (mut references, mut owners, mut locks, mut leveled) = (0, 0, 0, 0);
     for path in &paths {
         let save = Save::open(path).unwrap();
@@ -473,6 +473,35 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
             let restored = loaded.reference_ref(id).unwrap();
             assert_eq!(state, restored);
             assert_eq!(world.key(id), loaded.key(id));
+            let Some(extra) = change.reference_extra_data(save.form_version).unwrap() else {
+                continue;
+            };
+            for entry in extra.entries {
+                match (entry.kind, entry.fields.as_slice()) {
+                    (33, [Field::Reference(owner)]) => {
+                        assert_eq!(state.owner, mapping.reference(*owner).unwrap());
+                    }
+                    (34, [Field::Reference(global)]) => {
+                        assert_eq!(state.owner_global, mapping.reference(*global).unwrap());
+                    }
+                    (35, [Field::Word(rank)]) => {
+                        assert_eq!(state.owner_rank, Some(*rank as i32));
+                    }
+                    (
+                        42,
+                        [Field::Byte(level), Field::Byte(flags), Field::Reference(key), Field::Word(first), Field::Word(second)],
+                    ) => {
+                        let lock = state.lock_extra.unwrap();
+                        assert_eq!(state.lock_level, i32::from(*level));
+                        assert_eq!(state.locked, flags & 1 != 0);
+                        assert_eq!(lock.key, mapping.reference(*key).unwrap());
+                        assert_eq!(world.key(id), lock.key);
+                        assert_eq!(lock.flags, flags & !1);
+                        assert_eq!(lock.unknown, [*first, *second]);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
     eprintln!("reference extras survey: {} saves, {references} references, {owners} ownership changes, {locks} locks, {leveled} leveled locks", paths.len());
@@ -489,6 +518,7 @@ fn installed_extra_presence_audit() {
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
+    assert_eq!(paths.len(), 60, "SAV-69 requires the complete save corpus");
     let mut missed = std::collections::BTreeMap::new();
     let mut failed = std::collections::BTreeMap::new();
     for path in paths {
@@ -592,4 +622,164 @@ fn later_unsupported_package_data_leaves_prepared_ownership_and_locks_unapplied(
         .contains("unsupported Sequence child"));
     assert_eq!(world.save_state(), before);
     assert!(world.pending.is_empty());
+}
+
+#[test]
+fn sav_69_named_packages_before_ownership_and_locks_restore_and_persist() {
+    for tree in ["Sequence", "Stacked"] {
+        for actor in [false, true] {
+            let mut save = save();
+            let mut change = change(0x400100, 0x400811, 75, 5, 0x400801);
+            let mut package = vec![108, 18, 0];
+            WString::from_text(tree).write(&mut package);
+            WString::from_text("Wait").write(&mut package);
+            package.extend([0x85; 4]);
+            package.extend(8_u32.to_le_bytes());
+            change.data[0] = 12;
+            change.data.splice(1..1, package);
+            change.change_flags = 1 << 31;
+            if actor {
+                change.type_field = 1;
+                change.data.splice(..0, [0; 8]);
+            }
+            save.change_forms = vec![change];
+            let mut world = World::new(fixture_order());
+            world.reference(id(0, 0x100)).unwrap();
+            let report = world.restore_vanilla_reference_extras(&save).unwrap();
+            assert_eq!((report.references, report.owners, report.locks), (1, 1, 1));
+            assert_eq!(
+                report.leveled_locks.into_iter().collect::<Vec<_>>(),
+                [id(0, 0x100)]
+            );
+            let state = world.reference_ref(id(0, 0x100)).unwrap();
+            assert_eq!(state.owner, Some(id(0, 0x811)));
+            assert_eq!(state.lock_level, 75);
+            assert!(state.locked);
+            assert_eq!(world.key(id(0, 0x100)), Some(id(0, 0x801)));
+            let lock = state.lock_extra.unwrap();
+            assert_eq!(lock.flags, 4);
+            assert_eq!(lock.unknown, [0xAABB_CCDD, 0x1234_5678]);
+            assert!(world.pending.is_empty());
+            let bytes = world.save_state();
+            let mut loaded = World::new(fixture_order());
+            loaded.load_state(&bytes).unwrap();
+            assert_eq!(loaded.reference_ref(id(0, 0x100)), Some(state));
+            assert_eq!(loaded.state_hash(), world.state_hash());
+            assert_eq!(loaded.save_state(), bytes);
+        }
+    }
+}
+
+#[test]
+fn sav_69_all_60_saves_reencode_every_top_level_extra_list() {
+    let Some(saves) = std::env::var_os("SOE_TEST_SAVES") else {
+        eprintln!("SOE_TEST_SAVES unset, skipping SAV-69 extra-list survey");
+        return;
+    };
+    let mut paths = vec![];
+    collect_saves(Path::new(&saves), &mut paths);
+    paths.sort();
+    assert_eq!(paths.len(), 60, "SAV-69 requires the complete save corpus");
+    let (mut references, mut lists, mut owners, mut locks) = (0, 0, 0, 0);
+    let mut named = std::collections::BTreeMap::new();
+    for path in &paths {
+        let save = Save::open(path).unwrap();
+        for change in &save.change_forms {
+            let Some(header) = change.reference_header(save.form_version).unwrap() else {
+                continue;
+            };
+            references += 1;
+            let Some(extra) = change
+                .reference_extra_data(save.form_version)
+                .unwrap_or_else(|error| panic!("{} {:?}: {error}", path.display(), change.form))
+            else {
+                continue;
+            };
+            lists += 1;
+            let payload = change.payload().unwrap();
+            let encoded = extra.data_bytes().unwrap();
+            assert_eq!(
+                encoded,
+                payload[header.bytes_consumed..header.bytes_consumed + encoded.len()]
+            );
+            for entry in extra.entries {
+                owners += usize::from(entry.kind == 33);
+                locks += usize::from(entry.kind == 42);
+                if entry.kind == 108 {
+                    if let [Field::Byte(18), Field::Byte(0), Field::String(name), Field::Group(_)] =
+                        entry.fields.as_slice()
+                    {
+                        *named.entry(name.to_text()).or_insert(0_usize) += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(references >= 1_000_000);
+    assert!(lists >= 1000);
+    assert!(owners >= 100);
+    assert!(locks >= 1000);
+    assert_eq!(
+        named,
+        std::collections::BTreeMap::from([("Sequence".into(), 72), ("Stacked".into(), 9)])
+    );
+    eprintln!("SAV-69: {} saves, {references} reference prefixes, {lists} exact top-level lists, {owners} owners, {locks} locks, named packages {named:?}", paths.len());
+}
+
+#[test]
+fn sav_69_vanilla_lock_schema_agrees_with_saved_level_flags_and_key() {
+    let (Some(_data), Some(saves)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping SAV-69 vanilla lock check");
+        return;
+    };
+    let order = installed::load_order(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ])
+    .unwrap();
+    let mut paths = vec![];
+    collect_saves(Path::new(&saves), &mut paths);
+    paths.sort();
+    assert_eq!(paths.len(), 60, "SAV-69 requires the complete save corpus");
+    let (mut authored, mut matches, mut keys) = (0, 0, 0);
+    for path in paths {
+        let save = Save::open(path).unwrap();
+        let mapping = SavedFormMap::new(&save, &order).unwrap();
+        for change in &save.change_forms {
+            let Some(extra) = change.reference_extra_data(save.form_version).unwrap() else {
+                continue;
+            };
+            for entry in extra.entries.iter().filter(|entry| entry.kind == 42) {
+                let [Field::Byte(level), Field::Byte(flags), Field::Reference(key), Field::Word(_), Field::Word(_)] =
+                    entry.fields.as_slice()
+                else {
+                    panic!("invalid saved lock fields")
+                };
+                assert_eq!(flags & !5, 0, "observed locks use locked and leveled bits");
+                if let Some(key) = mapping.reference(*key).unwrap() {
+                    assert_eq!(order.winner(key).unwrap().tag, Tag(*b"KEYM"));
+                    keys += 1;
+                }
+                let target = mapping.reference(change.form).unwrap().unwrap();
+                if let Some(raw) = order.winner(target).and_then(|r| r.find(Tag(*b"XLOC"))) {
+                    let lock = soe_esm::records::refr::Lock::from_bytes(raw).unwrap();
+                    authored += 1;
+                    matches += usize::from(lock.level == *level);
+                }
+            }
+        }
+    }
+    assert!(authored >= 1000);
+    assert!(keys >= 100);
+    assert!(
+        matches * 100 >= authored * 90,
+        "saved levels agree with at least 90 percent of authored locks"
+    );
+    eprintln!("SAV-69 vanilla lock schema: {matches}/{authored} authored level matches, {keys} typed keys");
 }
