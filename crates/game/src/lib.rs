@@ -170,6 +170,7 @@ pub struct Game {
     bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
+    budget_usage: Rc<natives::BudgetUsage>,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
     /// Parsed OAR submods, ordered by descending priority.
@@ -242,7 +243,8 @@ impl Game {
     pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
-        let registered = natives::register(&mut vm, &world);
+        let budget_usage = Rc::new(natives::BudgetUsage::default());
+        let registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
         Game {
             vm,
             world,
@@ -251,6 +253,7 @@ impl Game {
             bound_forms: BTreeSet::new(),
             bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
+            budget_usage,
             hash_log: None,
             oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
@@ -1624,7 +1627,8 @@ impl Game {
         }
         for _ in 0..max_rounds {
             self.pump();
-            self.vm.run(self.budget);
+            let instructions = self.vm.run(self.budget);
+            self.budget_usage.vm_instructions.set(instructions);
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
             let queued = self.world.borrow().has_pending_calls();
             if self.vm.idle() && !queued {
@@ -1632,6 +1636,11 @@ impl Game {
             }
         }
         false
+    }
+
+    /// Record exterior cells successfully entered during the latest host update.
+    pub fn record_exterior_cell_loads(&self, count: usize) {
+        self.budget_usage.exterior_cell_loads.set(count);
     }
 
     pub fn traces(&self) -> Vec<String> {

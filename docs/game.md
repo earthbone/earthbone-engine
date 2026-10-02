@@ -1229,12 +1229,13 @@ unavailable. `GetCurrentMemory`,
 host memory-tracking provider exists. Calls return `None` and add an explicit
 error to the Papyrus log. `GetBudgetName` also requires exactly one integer
 index. The capture lifecycle and average query remain available. The scheduler
-budget methods `GetCurrentBudget` and `OverBudget` report two engine limits:
-`Papyrus instructions per slice` and `Exterior cell loads per update`.
-`GetCurrentBudget` returns each configured limit, and `OverBudget` is false
-because these are scheduling caps, not measured usage counters. The CK Utility
-page documents these signatures, and SKSE's vanilla `Utility.psc` declares
-them as global natives.
+budget methods `GetCurrentBudget` and `OverBudget` expose two transient usage
+counters: instructions from the latest completed VM scheduler run, and
+successfully entered exterior cells from the latest host update. `OverBudget`
+compares each count with its configured per-slice or per-update limit. Before
+the host reports an exterior update, that counter is zero. The CK Utility page
+documents these signatures, and SKSE's vanilla `Utility.psc` declares them as
+global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.

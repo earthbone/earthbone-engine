@@ -10,7 +10,7 @@
 //! that returns a fixed value because the engine has no such system yet is
 //! a stub and is listed as one in `docs/game.md`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use soe_esm::{GlobalFormId, Tag};
@@ -27,6 +27,13 @@ use crate::world::{
 };
 
 pub type Shared = Rc<RefCell<World>>;
+
+/// Transient usage for the two engine budgets exposed to Papyrus.
+#[derive(Default)]
+pub(crate) struct BudgetUsage {
+    pub vm_instructions: Cell<usize>,
+    pub exterior_cell_loads: Cell<usize>,
+}
 
 /// What [`register`] put into the VM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -219,6 +226,14 @@ macro_rules! global {
 /// second provider registering the same name loses, and the VM's
 /// `natives.duplicates` list says so.
 pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
+    register_with_budget_usage(vm, world, &Rc::new(BudgetUsage::default()))
+}
+
+pub(crate) fn register_with_budget_usage(
+    vm: &mut Vm,
+    world: &Shared,
+    budget_usage: &Rc<BudgetUsage>,
+) -> Registered {
     declare_parents(vm);
     let before = vm.natives.duplicates.len();
     form(vm, world);
@@ -228,7 +243,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     alias(vm, world);
     game(vm, world);
     debug(vm, world);
-    utility(vm, world);
+    utility(vm, world, budget_usage);
     globals_and_lists(vm, world);
     leveled(vm, world);
     location(vm, world);
@@ -2928,7 +2943,7 @@ fn debug(vm: &mut Vm, w: &Shared) {
     });
 }
 
-fn utility(vm: &mut Vm, w: &Shared) {
+fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
     global!(vm, w, "Utility", "IsInMenuMode", |world, _call| b(
         world.menu_mode
     ));
@@ -3033,24 +3048,70 @@ fn utility(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
+    let current_budget_usage = Rc::clone(budget_usage);
     vm.natives.register_global(
         "Utility",
         "GetCurrentBudget",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .map_or_else(|| i(0), |budget| i(budget.1))
+        Box::new(move |call| {
+            if call.args.len() != 1 {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.GetCurrentBudget expects 1 argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return i(0);
+            }
+            let Some(Value::Int(index)) = call.args.first() else {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetCurrentBudget expects an integer budget index".to_owned(),
+                );
+                return i(0);
+            };
+            let Some(budget) = ENGINE_BUDGETS.get(usize::try_from(*index).unwrap_or(usize::MAX))
+            else {
+                return i(0);
+            };
+            let usage = match budget.0 {
+                BudgetKind::PapyrusInstructions => current_budget_usage.vm_instructions.get(),
+                BudgetKind::ExteriorCellLoads => current_budget_usage.exterior_cell_loads.get(),
+            };
+            i(i32::try_from(usage).unwrap_or(i32::MAX))
         }),
     );
+    let over_budget_usage = Rc::clone(budget_usage);
     vm.natives.register_global(
         "Utility",
         "OverBudget",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            b(ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .is_some_and(|budget| budget.2))
+        Box::new(move |call| {
+            if call.args.len() != 1 {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.OverBudget expects 1 argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return b(false);
+            }
+            let Some(Value::Int(index)) = call.args.first() else {
+                call.log.push(
+                    call.time,
+                    "error: Utility.OverBudget expects an integer budget index".to_owned(),
+                );
+                return b(false);
+            };
+            let Some(budget) = ENGINE_BUDGETS.get(usize::try_from(*index).unwrap_or(usize::MAX))
+            else {
+                return b(false);
+            };
+            let usage = match budget.0 {
+                BudgetKind::PapyrusInstructions => over_budget_usage.vm_instructions.get(),
+                BudgetKind::ExteriorCellLoads => over_budget_usage.exterior_cell_loads.get(),
+            };
+            b(usage > budget.1)
         }),
     );
     // These queries depend on engine services that are not available in the
@@ -3133,16 +3194,20 @@ fn utility(vm: &mut Vm, w: &Shared) {
     });
 }
 
-const ENGINE_BUDGETS: [(&str, i32, bool); 2] = [
+#[derive(Clone, Copy)]
+enum BudgetKind {
+    PapyrusInstructions,
+    ExteriorCellLoads,
+}
+
+const ENGINE_BUDGETS: [(BudgetKind, usize); 2] = [
     (
-        "Papyrus instructions per slice",
-        crate::PAPYRUS_INSTRUCTIONS_PER_SLICE as i32,
-        false,
+        BudgetKind::PapyrusInstructions,
+        crate::PAPYRUS_INSTRUCTIONS_PER_SLICE,
     ),
     (
-        "Exterior cell loads per update",
-        crate::EXTERIOR_CELL_LOADS_PER_UPDATE as i32,
-        false,
+        BudgetKind::ExteriorCellLoads,
+        crate::EXTERIOR_CELL_LOADS_PER_UPDATE,
     ),
 ];
 
