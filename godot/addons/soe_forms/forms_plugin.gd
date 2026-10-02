@@ -54,6 +54,8 @@ func _enter_tree() -> void:
 	status = Label.new()
 	dock.add_child(status)
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, dock)
+	if OS.get_environment("SOE_EDT_02_RUNTIME_TEST") == "1":
+		_run_runtime_check.call_deferred()
 
 
 func _exit_tree() -> void:
@@ -108,3 +110,47 @@ func _select_form() -> void:
 	if form_resource != null:
 		EditorInterface.edit_resource(form_resource)
 		status.text = "Inspector resources created: %d" % form_table.resources_created()
+
+
+func _run_runtime_check() -> void:
+	var base_path := OS.get_environment("SOE_EDT_02_BASE")
+	var patch_path := OS.get_environment("SOE_EDT_02_PATCH")
+	var active_name := OS.get_environment("SOE_EDT_02_ACTIVE")
+	if base_path.is_empty() or patch_path.is_empty() or active_name.is_empty():
+		_finish_runtime_check(false, "fixture paths were not supplied")
+		return
+	load_order_paths.text = base_path + ";" + patch_path
+	active_plugin.text = active_name
+	if not form_table.open(PackedStringArray([base_path, patch_path]), active_name):
+		_finish_runtime_check(false, "fixture load order did not open: " + form_table.last_error())
+		return
+	signature_filter.text = "STAT"
+	text_filter.text = "oAk"
+	_show_page()
+	var root := results.get_root()
+	if root == null or root.get_child_count() != 2:
+		_finish_runtime_check(false, "dock did not show the two filtered winning STAT forms")
+		return
+	if root.get_first_child().get_text(0) != "0:000800" or root.get_first_child().get_next().get_text(0) != "0:000801":
+		_finish_runtime_check(false, "dock results did not contain the expected sorted winning FormIDs")
+		return
+	if form_table.resources_created() != 0:
+		_finish_runtime_check(false, "search created an inspector Resource")
+		return
+	var selected := root.get_first_child()
+	results.set_selected(selected, 0)
+	if form_table.resources_created() == 0:
+		_select_form()
+	if form_table.resources_created() != 1:
+		_finish_runtime_check(false, "selecting one result did not create exactly one Resource")
+		return
+	print("EDT-02 PASS: dock filtered loaded forms and created one Resource on selection")
+	get_tree().quit(0)
+
+
+func _finish_runtime_check(passed: bool, detail: String) -> void:
+	if passed:
+		get_tree().quit(0)
+	else:
+		printerr("EDT-02 FAIL: " + detail)
+		get_tree().quit(1)
