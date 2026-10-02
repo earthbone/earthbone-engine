@@ -253,7 +253,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 385;
+pub const NATIVE_COUNT: usize = 388;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1807,6 +1807,21 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsBleedingOut", |world, call, me| b(
         world.actor_is_bleeding_out(me)
     ));
+    method!(vm, w, "Actor", "IsRunning", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.running)));
+    method!(vm, w, "Actor", "IsSprinting", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.sprinting)));
+    method!(vm, w, "Actor", "IsHostileToActor", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
+        b(target.is_some_and(|target| {
+            world.actor(target).is_some()
+                && world
+                    .actor(me)
+                    .is_some_and(|actor| actor.in_combat && actor.combat_target == Some(target))
+        }))
+    });
     // StartSneaking toggles (the page's note), IsSneaking reads it.
     method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -4839,22 +4854,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
-    let bools: &[(&str, &str, bool)] = &[
-        ("Actor", "IsRunning", false),
-        ("Actor", "IsSprinting", false),
-        ("Actor", "IsHostileToActor", false),
-    ];
-    for (class, name, value) in bools {
-        let global = matches!(*class, "Game" | "Utility" | "Debug");
-        let v = *value;
-        let f: soe_papyrus::NativeFn = Box::new(move |_| b(v));
-        if global {
-            vm.natives.register_global(class, name, f);
-        } else {
-            vm.natives.register_method(class, name, f);
-        }
-        n += 1;
-    }
     let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
     for (class, name, value) in ints {
         let global = *class == "Game";
