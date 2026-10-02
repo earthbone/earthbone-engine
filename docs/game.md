@@ -141,6 +141,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   expire on unpaused game ticks, and `Stop` removes all matching instances.
   Hosts can inspect the active requests in stable call order. Rendering the
   RFCT art object is not connected yet.
+- `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
+  typed spell art requests on `World`. `take_spell_art_requests` drains them in
+  Papyrus call order. `Unload` queues only when this world previously received
+  `Preload` for that spell. The Godot host does not consume these requests yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.

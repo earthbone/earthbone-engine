@@ -38,6 +38,7 @@ use crate::conditions::{self, Context};
 
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{Alloc, Handle, Pending, World, T};
+use super::{SpellArtAction, SpellArtRequest};
 
 mod state;
 pub(crate) use state::PERK_SECTION as GRANTED_PERK_SECTION;
@@ -263,6 +264,45 @@ impl MagicExecution for AllocationExecution<'_> {
 }
 
 impl World {
+    /// Request that the host load art resources referenced by a spell.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `id` does not resolve to a valid spell record.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn preload_spell_art(&mut self, id: GlobalFormId) -> Result<(), MagicError> {
+        self.spell(id)?;
+        self.spell_art_requests.push(SpellArtRequest {
+            spell: id,
+            action: SpellArtAction::Preload,
+        });
+        self.preloaded_spell_art.insert(id);
+        Ok(())
+    }
+
+    /// Request that the host release art resources previously loaded for a spell.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `id` does not resolve to a valid spell record.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn unload_spell_art(&mut self, id: GlobalFormId) -> Result<(), MagicError> {
+        self.spell(id)?;
+        if self.preloaded_spell_art.remove(&id) {
+            self.spell_art_requests.push(SpellArtRequest {
+                spell: id,
+                action: SpellArtAction::Unload,
+            });
+        }
+        Ok(())
+    }
+
     fn resolve_effect_perk(
         &self,
         effect: GlobalFormId,

@@ -3865,12 +3865,13 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     });
     for name in ["Preload", "Unload"] {
         method!(vm, w, "Spell", name, |world, call, me| {
-            match world.spell(me) {
-                Ok(_) => call.log.push(
-                    call.time,
-                    format!("Spell.{name}: spell art resource loading is unsupported"),
-                ),
-                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            let result = if name == "Preload" {
+                world.preload_spell_art(me)
+            } else {
+                world.unload_spell_art(me)
+            };
+            if let Err(error) = result {
+                call.log.push(call.time, format!("Spell.{name}: {error}"));
             }
             none()
         });
