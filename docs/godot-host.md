@@ -406,6 +406,22 @@ in the same divergence report as world and VM state.
 
 ## Streaming
 
+### Vanilla save recovery sessions, SAV-61
+
+`save_recovery::accept_vanilla_recovery_session` performs a read-only
+dependency preflight before restoring a vanilla ESS. Missing plugins, missing
+scripts and changed regular/light plugin kinds return the report and refuse
+session start. ESS provenance that is unavailable in the format remains
+reported as unknown. The currently opaque PARW change-form payload also
+refuses execution so it is not silently omitted. Other supported restoration
+errors return before a recovery generation is written.
+
+After restoration succeeds, the host writes a native generation to the
+caller-provided recovery store. The operation does not open or replace the
+source ESS path. It does not claim that every vanilla change-form type or
+saved Papyrus behavior can be resumed. A caller has to opt into this operation
+after reviewing its returned dependency report.
+
 ### Attaching a restored player, SAV-19
 
 `PlayerNode::attach_restored_game` accepts a `Game` after its vanilla-save
