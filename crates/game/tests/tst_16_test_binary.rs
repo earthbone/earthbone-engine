@@ -82,6 +82,26 @@ fn tst_16_child_test_names_keep_nested_modules_without_the_crate_prefix() {
 }
 
 #[test]
+fn tst_16_test_names_match_the_pre_consolidation_inventory() {
+    let before: BTreeSet<_> = include_str!("data/tst_16_before_test_names.txt")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let after: BTreeSet<_> = include_str!("data/tst_16_after_test_names.txt")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(before.len(), 2_289, "pre-change inventory size changed");
+    assert_eq!(after.len(), 2_289, "post-change inventory size changed");
+    let missing: Vec<_> = before.difference(&after).cloned().collect();
+    let added: Vec<_> = after.difference(&before).cloned().collect();
+    assert!(
+        missing.is_empty() && added.is_empty(),
+        "before and after test-name inventories differ: missing {missing:?}, added {added:?}"
+    );
+}
+
+#[test]
 fn tst_16_manifest_selects_one_integration_binary() {
     let manifest = include_str!("../Cargo.toml");
     let package = manifest
