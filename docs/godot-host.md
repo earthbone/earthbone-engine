@@ -2040,6 +2040,12 @@ level 255 key-only door. Generate the fixture with
 "$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
 in the disposable Godot project used for host runtime tests.
 
+The PlayerNode handoff passed on Godot 4.4.1 at 640 by 360 with llvmpipe.
+The script activated fixture reference `0:000511`, opened the lockpick panel,
+submitted angle 23.6, then activated the now-unlocked door. It also confirmed
+that key-only reference `0:000513` did not open the lockpick panel. The fixture
+used installed Skyrim assets in place and was generated under `/tmp`.
+
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
 also removed unused mutable bindings in the benchmark and navmesh test,
