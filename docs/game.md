@@ -141,6 +141,14 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   expire on unpaused game ticks, and `Stop` removes all matching instances.
   Hosts can inspect the active requests in stable call order. Rendering the
   RFCT art object is not connected yet.
+- MGEF archetype 12, Light, resolves its associated LIGH form through the
+  winning load order and places that light at the effect target. The active
+  effect owns the runtime reference, which expires with the effect and is
+  removed on its final tick. A missing or non-LIGH associated form rejects
+  the cast before effect or reference state changes. The archetype number and
+  associated-item field follow local xEdit `wbDefinitionsTES5.pas`. The CK
+  magic-effect pages in the local corpus do not specify additional Light
+  runtime semantics.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -572,12 +580,13 @@ after that target reports the named graph event. The host fails the wait if
 the bound visual unloads first. The host does not dispatch the requested
 animation on arbitrary references, and neither native fabricates a graph
 event.
-`PlayGamebryoAnimation` validates its animation name and reference but legacy
-NIF playback is not implemented.
+`PlayGamebryoAnimation` returns false because legacy NIF playback is not
+implemented. It does not report success without starting an animation.
 `SetMotionType` validates the documented motion range and queues the motion
 request for the host. Motion type 7 maps to a kinematic host body.
 `ApplyHavokImpulse` rejects zero-length or non-finite direction data,
-normalizes finite directions without intermediate float overflow, and queues
+logging the Creation Kit Papyrus warning for a zero-length vector. It
+normalizes finite directions without intermediate float overflow and queues
 the magnitude and direction for the host. Placed-reference Havok behavior
 remains a stub. These contracts follow the local
 `GetCurrentScene_-_ObjectReference.wikitext`,

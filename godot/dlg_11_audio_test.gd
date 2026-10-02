@@ -64,8 +64,9 @@ func _run() -> void:
 	var capture := AudioEffectCapture.new()
 	capture.buffer_length = 2.0
 	AudioServer.add_bus_effect(0, capture)
-	var first_position := Vector3(1.25, 2.5, -3.75)
-	var second_position := Vector3(7.0, 8.0, 9.0)
+	await process_frame
+	var first_position := Vector3(1.25, 0.0, -1.0)
+	var second_position := Vector3(2.0, 0.0, -1.0)
 	var first_slot: int = bank.call("play_voice", first_path, first_position)
 	_check(first_slot >= 0, "first resolved voice did not start: " + str(bank.call("last_error")))
 	if first_slot < 0:
@@ -95,7 +96,8 @@ func _run() -> void:
 	_check(second_peak > MIN_PEAK, "replacement voice produced no Godot mixer output")
 	_check(bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
 	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
-	bank.queue_free()
+	bank.free()
+	listener.free()
 	camera.queue_free()
 	print("DLG-11 mixer peaks: first=", first_peak, " replacement=", second_peak)
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " dialogue audio playback")

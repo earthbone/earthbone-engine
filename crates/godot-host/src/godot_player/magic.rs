@@ -421,6 +421,35 @@ mod tests {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Cast a self-delivered spell through the shared runtime world.
+    #[func]
+    pub fn cast_spell_on_self(&mut self, spell_file: i32, spell_object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(spell_file),
+            u32::try_from(spell_object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let player = game.player();
+        let shared = game.shared_world();
+        let result = shared.borrow_mut().cast_spell(
+            spell,
+            player,
+            Some(player),
+            Some(player),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        );
+        match result {
+            Ok(effects) => !effects.is_empty(),
+            Err(error) => {
+                godot_error!("PlayerNode: self cast rejected: {error}");
+                false
+            }
+        }
+    }
+
     /// Cast a touch spell at the first eligible actor under the camera reticle.
     /// The ray is capped by the spell's authored SPIT reach and static bodies
     /// block actors behind them.

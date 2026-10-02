@@ -332,6 +332,39 @@ fn mag_35_light_spawns_at_target_and_removes_the_same_reference_on_expiry_after_
     assert!(restored.world().reference_ref(spawned).unwrap().deleted);
 }
 
+#[test]
+fn mag_35_vanilla_candlelight_has_a_timed_light_association() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping vanilla Candlelight survey");
+        return;
+    };
+    let bytes = std::fs::read(data.join("Skyrim.esm")).expect("read installed Skyrim.esm");
+    let mut order = LoadOrder::new();
+    order
+        .add(
+            "Skyrim.esm",
+            Plugin::parse(&bytes).expect("parse installed Skyrim.esm"),
+        )
+        .expect("add installed Skyrim.esm");
+    let game = Game::new(order);
+    let spell = game
+        .world_mut()
+        .spell(id(0x0004_3324))
+        .expect("vanilla Candlelight spell");
+    assert_eq!(spell.editor_id.as_deref(), Some("Candlelight"));
+    assert!(spell.effects.iter().any(|entry| entry.data.duration > 0));
+    let world = game.world();
+    let effect_id = world
+        .resolve_from(id(0x0004_3324), spell.effects[0].base_effect)
+        .unwrap();
+    let effect = world.magic_effect(effect_id).expect("Candlelight MGEF");
+    assert_eq!(effect.data.archetype, 12);
+    let light_id = world
+        .resolve_from(effect_id, effect.data.associated_item)
+        .expect("Candlelight associated light");
+    assert_eq!(world.record(light_id).unwrap().tag, T(b"LIGH"));
+}
+
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(

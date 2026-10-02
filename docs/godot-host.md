@@ -429,8 +429,17 @@ reuse the same cached state. Animated and ragdoll poses share these mesh
 instances, so the visibility change applies in either render mode. A later
 process update restores visibility after the effect expires or breaks. The
 game tests cover detection and break actions, while host unit tests cover the
-RenderingServer visibility mapping. Live Godot coverage of actors outside
-`SkinnedActorNode` remains open.
+RenderingServer visibility mapping. `godot/mag_34_invisibility_test.gd` binds
+the player appearance, casts the installed Invisibility spell, and checks the
+host visibility state before and after expiry. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_34_invisibility_test.gd --resolution 640x360
+```
+
+This live check covers the supported `SkinnedActorNode` path. Other actor
+rendering paths are not implemented by the host.
 
 ## Runtime summoned lights, MAG-35
 
@@ -440,6 +449,19 @@ winning LIGH record's 48-byte DATA, using its RGB color, radius and negative
 light flag. The light follows the runtime reference position and is freed
 when the effect reference expires, becomes hidden or the streamer is cleared.
 It adds no scene node. Other LIGH references are not uploaded by this path.
+Each positive `PlayerNode.advance` step ticks the shared `Game` before syncing
+reference changes, so timed effects expire in that host path and their light
+instances are released on the same synchronization pass.
+`CellStreamerNode.runtime_light_count` reports the currently owned light
+`PlayerNode.cast_spell_on_self` sends a self-delivered spell through the
+shared World. `mag_35_runtime_light_test.gd` casts vanilla Candlelight in a
+loaded cell. It checks that the RenderingServer instance appears and then
+disappears after the effect's authored duration. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_35_runtime_light_test.gd --resolution 640x360
+```
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
@@ -458,9 +480,10 @@ switch, default on, and the generated normals follow it.
 ## Determinism
 
 `data_source::workers::ordered_map` returns builder results in input order for
-both sequential and threaded runs. The TST-02 test hashes those results into
-the game's per-tick `host.builders` partition, so worker output participates
-in the same divergence report as world and VM state.
+both sequential and threaded runs. TST-02 compares threaded surfaces with
+serial results for the same inputs, then hashes their arrays and bounds into
+the matching game's per-tick `host.builders` partition. Worker output
+therefore participates in the same divergence report as world and VM state.
 
 ## Streaming
 
@@ -1513,8 +1536,8 @@ quarter second of leading silence. The capture buffer is cleared between
 responses using Godot's `AudioEffectCapture` API, documented in local
 `engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
-Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
-newer executable and the release extension exists at
+windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
+names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
@@ -1522,17 +1545,20 @@ does not require an editor import or a cached extension list. This uses
 `GDExtensionManager.load_extension` from the local
 `engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
-When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
-line. Without installed data it uses a generated WAV with 250 milliseconds of
-leading silence. The capture polls for signal within the clip duration plus
-one second, since a voice's opening silence can exceed 150 milliseconds.
-It retains the 0.0001 peak threshold and clears captured samples after the
-interrupted player drains, before starting the replacement. The capture uses
-the ring-buffer API described in local
-`godot-docs/classes/class_audioeffectcapture.rst`. The capture proves
-Godot's mixer received both voice buffers. It does not prove that a physical
-speaker or headset produced audible output. That still needs a windowed run
-with installed data and a `SoundBank` in the tree.
+`dlg_11_installed_xwma_voice_plays_in_windowed_godot_mixer`, gated on
+`SKYRIM_DATA`, reads the surveyed `maleelfhaughty/voicepowers_shout01b` xWMA
+FUZ from the installed English voice archive, then runs the same mixer check
+with that voice. If that path is unavailable, the test samples up to 60 sorted
+vanilla FUZ paths and uses the first decodable xWMA voice with signal. The
+generic mixer test uses generated WAV data with 250 milliseconds of leading
+silence. Capture polls for signal through the clip duration plus one second,
+retains the 0.0001 peak threshold and clears captured samples after the
+interrupted player drains. The capture uses the ring-buffer API described in
+local `godot-docs/classes/class_audioeffectcapture.rst`. Both checks prove
+Godot's mixer received both voice buffers at the requested speaker positions.
+They do not prove that a physical speaker or headset produced audible output.
+That still needs a windowed run with installed data and a `SoundBank` in the
+tree.
 Footsteps are driven by the character controller. Dialogue response audio is
 now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
@@ -2356,12 +2382,14 @@ lookup.
 The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
-refuses to stop a slot that has since been released or reused for an effect.
+exposes `stop_voice(slot)` to Godot scripts and refuses to stop a slot that has
+since been released or reused for an effect.
 The default host build decodes vanilla xWMA in process through the audio
 crate's native WMA v2 decoder. The optional `xwma-ffmpeg` feature selects
 ffmpeg as a comparison decoder. The dialogue tests exercise response selection
 and replacement with mock output. The Godot mixer test checks speaker playback
-with a generated WAV fixture. Installed xWMA playback still needs a live run.
+with generated WAV data, and its installed-data case checks xWMA decoding
+through Godot's mixer.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 tracks the active dialogue slot and samples the native mouth targets against

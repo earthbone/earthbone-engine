@@ -248,6 +248,87 @@ mod tests {
         use soe_game::determinism::{compare, Divergence, TickHash};
         use soe_game::Game;
 
+        fn feed(hash: &mut u64, value: u32) {
+            for byte in value.to_le_bytes() {
+                *hash ^= u64::from(byte);
+                *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+
+        fn feed_values(hash: &mut u64, tag: u32, values: impl IntoIterator<Item = u32>) {
+            feed(hash, tag);
+            let values: Vec<_> = values.into_iter().collect();
+            feed(hash, values.len() as u32);
+            for value in values {
+                feed(hash, value);
+            }
+        }
+
+        fn hash_surfaces(surfaces: &[crate::mesh::SurfaceArrays]) -> u64 {
+            let mut hash = 0xcbf2_9ce4_8422_2325u64;
+            feed(&mut hash, surfaces.len() as u32);
+            for surface in surfaces {
+                let bounds = surface.bounds;
+                feed_values(
+                    &mut hash,
+                    1,
+                    surface
+                        .positions
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits()),
+                );
+                feed_values(
+                    &mut hash,
+                    2,
+                    surface
+                        .normals
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits()),
+                );
+                feed_values(
+                    &mut hash,
+                    3,
+                    surface.tangents.iter().map(|value| value.to_bits()),
+                );
+                feed_values(
+                    &mut hash,
+                    4,
+                    surface.uvs.iter().flatten().map(|value| value.to_bits()),
+                );
+                feed_values(
+                    &mut hash,
+                    5,
+                    surface.indices.iter().map(|value| *value as u32),
+                );
+                feed_values(
+                    &mut hash,
+                    6,
+                    surface.bones.iter().map(|value| *value as u32),
+                );
+                feed_values(
+                    &mut hash,
+                    7,
+                    surface.weights.iter().map(|value| value.to_bits()),
+                );
+                feed(&mut hash, 8);
+                feed_values(
+                    &mut hash,
+                    9,
+                    [
+                        bounds.min.x.to_bits(),
+                        bounds.min.y.to_bits(),
+                        bounds.min.z.to_bits(),
+                        bounds.max.x.to_bits(),
+                        bounds.max.y.to_bits(),
+                        bounds.max.z.to_bits(),
+                    ],
+                );
+            }
+            hash
+        }
+
         fn run(seed: u64) -> Vec<TickHash> {
             let mut game = Game::new(LoadOrder::new());
             game.record_hashes();
@@ -263,8 +344,7 @@ mod tests {
                         random
                     })
                     .collect();
-                let built = ordered_map(&inputs, 4, |value| {
-                    std::thread::yield_now();
+                let build_surface_for_input = |value: &u64| {
                     let x = (value % 10_000) as f32;
                     let mesh = MeshData {
                         positions: vec![[x, 0.0, 0.0], [x + 100.0, 0.0, 0.0], [x, 0.0, 100.0]],
@@ -273,30 +353,20 @@ mod tests {
                         ..MeshData::default()
                     };
                     build_surface(&mesh, MeshOptions::default()).unwrap()
+                };
+                let expected = inputs
+                    .iter()
+                    .map(build_surface_for_input)
+                    .collect::<Vec<_>>();
+                let built = ordered_map(&inputs, 4, |value| {
+                    std::thread::sleep(std::time::Duration::from_micros(
+                        ((10_000 - value % 10_000) % 7_000) + 1,
+                    ));
+                    build_surface_for_input(value)
                 })
                 .unwrap();
-                let mut host_hash = 0xcbf2_9ce4_8422_2325u64;
-                for surface in built {
-                    for value in surface
-                        .positions
-                        .iter()
-                        .flatten()
-                        .map(|value| value.to_bits())
-                        .chain(
-                            surface
-                                .normals
-                                .iter()
-                                .flatten()
-                                .map(|value| value.to_bits()),
-                        )
-                        .chain(surface.indices.iter().map(|value| *value as u32))
-                    {
-                        for byte in value.to_le_bytes() {
-                            host_hash ^= u64::from(byte);
-                            host_hash = host_hash.wrapping_mul(0x0000_0100_0000_01b3);
-                        }
-                    }
-                }
+                assert_eq!(built, expected, "worker results retain input order");
+                let host_hash = hash_surfaces(&built);
                 let game_hash = game.hash_log().last().unwrap().clone();
                 log.push(game_hash.with_host_builder_hash(host_hash));
             }
