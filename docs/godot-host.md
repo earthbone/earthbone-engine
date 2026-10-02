@@ -2790,11 +2790,15 @@ documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
 
 The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
-It lists positive inventory totals after applying the optional form or keyword
-filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+It lists positive inventory totals after applying the optional FormList's form
+and keyword matches. Stolen stacks are hidden unless the request asks to show
+them. Selecting a row transfers one item through `Game::gift_menu_transfer`
 and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
 with the accumulated nonnegative gift value. Both giving and taking use the
-same source and target transaction path.
+same source and target transaction path. The `ui_15_gift_menu_lists_only_filtered_forms_and_keywords`
+test checks that a direct form match and a keyword match appear while an
+unmatched inventory item does not. A second UI-15 test checks that a stolen
+row is hidden by default and shown when requested.
 
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
