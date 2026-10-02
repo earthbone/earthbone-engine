@@ -9,6 +9,8 @@ use super::{
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode::*, Value};
 
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
@@ -39,6 +41,57 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke either main-menu Game native for host integration checks.
+    pub(super) fn invoke_main_menu_native_for_check(
+        &mut self,
+        name: &GString,
+        sequence: &GString,
+    ) -> bool {
+        let name = name.to_string();
+        let native_args = match name.as_str() {
+            "QuitToMainMenu" => Vec::new(),
+            "StartTitleSequence" => vec![ident("sequence")],
+            _ => return false,
+        };
+        let script_name = "SoeUi18MainMenuHostCheck";
+        let mut function = FunctionBuilder::new("Run", "None")
+            .global()
+            .local("result", "None");
+        let mut operands = vec![s("Game"), s(&name), ident("result")];
+        if name == "StartTitleSequence" {
+            function = function.param("sequence", "String");
+        }
+        operands.extend(native_args);
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(function.ins(CallStatic, operands).build())
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            godot_error!("PlayerNode: failed to load UI-18 host check script: {error}");
+            return false;
+        }
+        let args = if name == "StartTitleSequence" {
+            vec![Value::string(&sequence.to_string())]
+        } else {
+            Vec::new()
+        };
+        let thread = match game.vm.call_global(script_name, "Run", &args) {
+            Ok(thread) => thread,
+            Err(error) => {
+                godot_error!("PlayerNode: Game.{name} host check failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            godot_error!("PlayerNode: Game.{name} host check did not complete");
+            return false;
+        }
+        self.apply_host_requests();
+        true
+    }
+
     /// Attach a Game whose vanilla-save restoration has already succeeded.
     /// Installs the restored location and camera, then advances one host frame.
     /// The caller must replace its active Game only after this returns true.

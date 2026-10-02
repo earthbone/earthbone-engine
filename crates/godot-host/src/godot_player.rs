@@ -523,6 +523,13 @@ impl PlayerNode {
             .map_or_else(GString::new, GString::from)
     }
 
+    /// Invoke a main-menu Game native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_main_menu_native(&mut self, name: GString, sequence: GString) -> bool {
+        self.invoke_main_menu_native_for_check(&name, &sequence)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
