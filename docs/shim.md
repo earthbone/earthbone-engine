@@ -145,6 +145,29 @@ unsupported-state error, so a missing actor cannot appear as the default stage.
 `Actor::actor_ptr` requires each provider to return its optional handle. A
 stale actor handle can therefore be represented as an empty pointer result.
 
+## SHM-13 magic and equipment contracts
+
+`CommonLibMagic` in `soe-game` implements the MIT `MagicWorldState` provider
+over the current `World`. Favorite membership is a separate actor-owned set
+and is saved in the named `SHM-13` actor section. Casting checks report an
+active cast, exhausted power recovery and insufficient magicka where those
+states are represented, and return a typed unsupported-state error when the
+spell cost or record cannot be evaluated. Magic-target queries read the
+target's active applications, and spell dispel uses the existing world magic
+path.
+
+Map-marker visibility and fast-travel flags read and write the placed
+reference's `on_map` and `fast_travel` fields. `ShowAllHidden` has no runtime
+field and is rejected. Equip requests use the shared inventory equipment
+operation when parameters match the supported default. Extra-data, slot,
+force, message, sound and count variants return an unsupported-state error.
+The local alandtse CommonLib sources read for this mapping were
+`include/RE/M/MagicFavorites.h`, `MagicSystem.h`, `MagicTarget.h`,
+`include/RE/E/ExtraMapMarker.h` and
+`include/RE/M/MiddleHighProcessData.h`. The MIT Rust provider is the engine
+boundary. The generated C++ headers remain declarations and do not create a
+C ABI or executable singleton access.
+
 ## SHM-05 world contracts
 
 `RE/World.h` exposes `ActorValueList` reads and writes through an `ActorValueWorldState`
