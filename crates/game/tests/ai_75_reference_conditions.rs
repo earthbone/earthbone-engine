@@ -19,7 +19,7 @@ fn fixture() -> Game {
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x801).sub(Tag(*b"VTCK"), 0x831_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"VTYP"), 0x830));
     plugin.push_top(Record::new(Tag(*b"VTYP"), 0x831));
-    for object in [0x900, 0x901, 0x902] {
+    for object in [0x900, 0x901, 0x902, 0x903] {
         plugin.push_top(Record::new(Tag(*b"ACHR"), object).sub(
             Tag(*b"NAME"),
             if object == 0x900 { 0x800_u32 } else { 0x801 }.to_le_bytes(),
@@ -246,4 +246,14 @@ fn ai_75_grabbed_reference_condition_matches_current_host_reference() {
         ),
         Err(conditions::Error::Parameter(463, 1))
     );
+}
+
+#[test]
+fn ai_75_combat_group_counts_exclude_unconnected_combators() {
+    let game = fixture();
+    game.world_mut().actor(id(0x900)).unwrap().combat_target = Some(id(0x901));
+    game.world_mut().actor(id(0x902)).unwrap().combat_target = Some(id(0x903));
+
+    assert_eq!(evaluate(&game, id(0x900), &condition(415, 0, 1.0)), Ok(true));
+    assert_eq!(evaluate(&game, id(0x900), &condition(416, 0, 1.0)), Ok(true));
 }

@@ -210,3 +210,19 @@ fn ai_70_disease_query_reads_active_effect_after_engine_save_load() {
     restored.world_mut().load_state(&bytes).unwrap();
     assert_eq!(evaluate(&restored, id(0x900), &condition(39, 0, 1.0)), Ok(true));
 }
+
+#[test]
+fn ai_70_failed_visibility_batch_preserves_last_los_and_detection_state() {
+    let game = fixture();
+    game.world_mut()
+        .evaluate_detection(&[observation(0x901, 0x900, true)], 0.0)
+        .unwrap();
+    let previous_awareness = game.world_mut().awareness(id(0x901), id(0x900));
+    let invalid = [
+        observation(0x901, 0x900, false),
+        observation(0x901, 0x900, false),
+    ];
+    assert!(game.world_mut().evaluate_detection(&invalid, 0.0).is_err());
+    assert_eq!(game.world_mut().awareness(id(0x901), id(0x900)), previous_awareness);
+    assert_eq!(evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)), Ok(true));
+}

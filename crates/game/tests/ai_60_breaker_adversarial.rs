@@ -209,3 +209,12 @@ fn ai_60_host_animation_setters_reject_missing_actor_without_panicking() {
     assert!(world.set_dual_casting(id(0x8ff), Some(true)).is_err());
     assert!(world.set_shout_variation(id(0x8ff), Some(1)).is_err());
 }
+
+#[test]
+fn ai_60_rejected_ward_state_does_not_clear_last_host_state() {
+    let game = fixture();
+    game.world_mut().set_ward_state(id(ACTOR), Some(2)).unwrap();
+    assert!(game.world_mut().set_ward_state(id(ACTOR), Some(u32::MAX)).is_err());
+    assert_eq!(evaluate(&game, 602, 2, 1.0), Ok(true));
+    assert_eq!(evaluate(&game, 602, 1, 1.0), Ok(false));
+}
