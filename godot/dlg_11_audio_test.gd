@@ -2,10 +2,22 @@ extends SceneTree
 
 ## Runs SoundBank voice assets through Godot's 3D player and captures its mixer.
 var failures := 0
+var finished := false
 const MIN_PEAK := 0.0001
 
 func _initialize() -> void:
+	call_deferred("_watchdog")
 	call_deferred("_run")
+
+func _watchdog() -> void:
+	await create_timer(90.0).timeout
+	if not finished:
+		printerr("FAIL: dialogue audio test exceeded its 90 second script limit")
+		_finish(1)
+
+func _finish(exit_code: int) -> void:
+	finished = true
+	quit(exit_code)
 
 func _check(ok: bool, message: String) -> void:
 	if not ok:
@@ -37,14 +49,14 @@ func _run() -> void:
 		GDExtensionManager.load_extension("res://soe.gdextension")
 	if not ClassDB.class_exists("SoundBank"):
 		printerr("FAIL: SoundBank is not registered, the extension did not load")
-		quit(1)
+		_finish(1)
 		return
 	var data := OS.get_environment("DLG_11_TEST_DATA")
 	var first_path := OS.get_environment("DLG_11_FIRST_VOICE")
 	var second_path := OS.get_environment("DLG_11_SECOND_VOICE")
 	if data.is_empty() or first_path.is_empty() or second_path.is_empty():
 		printerr("FAIL: dialogue voice fixtures were not supplied")
-		quit(1)
+		_finish(1)
 		return
 
 	var listener := AudioListener3D.new()
@@ -58,7 +70,7 @@ func _run() -> void:
 	await process_frame
 	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive: " + str(bank.call("last_error")))
 	if failures != 0:
-		quit(1)
+		_finish(1)
 		return
 
 	var capture := AudioEffectCapture.new()
@@ -70,7 +82,7 @@ func _run() -> void:
 	var first_slot: int = bank.call("play_voice", first_path, first_position)
 	_check(first_slot >= 0, "first resolved voice did not start: " + str(bank.call("last_error")))
 	if first_slot < 0:
-		quit(1)
+		_finish(1)
 		return
 	var first_player := bank.get_child(first_slot) as AudioStreamPlayer3D
 	_check(first_player.playing, "first AudioStreamPlayer3D is not playing")
@@ -87,7 +99,7 @@ func _run() -> void:
 	var second_slot: int = bank.call("play_voice", second_path, second_position)
 	_check(second_slot >= 0, "replacement resolved voice did not start: " + str(bank.call("last_error")))
 	if second_slot < 0:
-		quit(1)
+		_finish(1)
 		return
 	var second_player := bank.get_child(second_slot) as AudioStreamPlayer3D
 	_check(second_player.playing, "replacement AudioStreamPlayer3D is not playing")
@@ -101,4 +113,4 @@ func _run() -> void:
 	camera.queue_free()
 	print("DLG-11 mixer peaks: first=", first_peak, " replacement=", second_peak)
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " dialogue audio playback")
-	quit(0 if failures == 0 else 1)
+	_finish(0 if failures == 0 else 1)

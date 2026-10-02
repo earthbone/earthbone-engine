@@ -1536,16 +1536,20 @@ quarter second of leading silence. The capture buffer is cleared between
 responses using Godot's `AudioEffectCapture` API, documented in local
 `engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
-windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
-names a Godot 4.4 or newer executable and the release extension exists at
-`target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
-extension with `cargo build -p soe-godot-host --release` before running it.
+headless Godot process at 640 by 360. The script exits on each checked failure
+and success path, with a 90 second watchdog for unexpected stalls. The Rust
+test gives the Godot child 110 seconds, kills and reaps it at the deadline, and
+includes captured standard output and error in a failure message. The test runs
+when `SOE_GODOT_BIN` names a Godot 4.4 or newer executable and the release
+extension exists at `target/release/libsoe_godot_host.so`. It skips when Godot
+is unavailable. Build the extension with
+`cargo build -p soe-godot-host --release` before running the test.
 The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
 does not require an editor import or a cached extension list. This uses
 `GDExtensionManager.load_extension` from the local
 `engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
-`dlg_11_installed_xwma_voice_plays_in_windowed_godot_mixer`, gated on
+`dlg_11_installed_xwma_voice_plays_in_headless_godot_mixer`, gated on
 `SKYRIM_DATA`, reads the surveyed `maleelfhaughty/voicepowers_shout01b` xWMA
 FUZ from the installed English voice archive, then runs the same mixer check
 with that voice. If that path is unavailable, the test samples up to 60 sorted
