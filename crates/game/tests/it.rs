@@ -948,6 +948,14 @@ mod sav_18_breaker_adversarial;
 mod sav_18_wait_deadlines;
 #[path = "sav_20_adversarial.rs"]
 mod sav_20_adversarial;
+#[path = "sav_32_adversarial.rs"]
+mod sav_32_adversarial;
+#[path = "sav_34_adversarial.rs"]
+mod sav_34_adversarial;
+#[path = "sav_36_adversarial.rs"]
+mod sav_36_adversarial;
+#[path = "sav_38_adversarial.rs"]
+mod sav_38_adversarial;
 #[path = "sav_40_adversarial.rs"]
 mod sav_40_adversarial;
 #[path = "sav_42_adversarial.rs"]
