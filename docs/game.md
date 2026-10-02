@@ -2571,9 +2571,7 @@ package over the base list, switch at once from a script's
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
-calling the `On Begin`, `On End` and `On Change` package fragments at
-package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
-driver does not yet call them, AI-04), idles and topics, once per day for
+idles and topics, once per day for
 packages that end without arriving, `Must Complete`, interrupt flags, combat
 interrupt overrides, door unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
