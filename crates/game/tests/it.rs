@@ -1266,6 +1266,8 @@ mod shm_19_adversarial;
 mod shm_19_events;
 #[path = "shm_20_live_bindings.rs"]
 mod shm_20_live_bindings;
+#[path = "shm_20_breaker_adversarial.rs"]
+mod shm_20_breaker_adversarial;
 #[path = "shm_23_adversarial.rs"]
 mod shm_23_adversarial;
 #[path = "shm_23_quest_start_stop.rs"]
