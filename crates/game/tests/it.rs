@@ -1307,6 +1307,8 @@ mod tst_15_legacy;
 mod tst_16_adversarial;
 #[path = "tst_16_test_binary.rs"]
 mod tst_16_test_binary;
+#[path = "tst_16_breaker_adversarial.rs"]
+mod tst_16_breaker_adversarial;
 #[path = "ui_03_magic_menu.rs"]
 mod ui_03_magic_menu;
 #[path = "ui_05_adversarial.rs"]
