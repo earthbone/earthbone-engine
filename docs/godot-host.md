@@ -182,8 +182,8 @@ recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
 `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
 The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
-record identity and winner metadata. The wrapper remains a view and does not edit records;
-typed record editing is provided by the editor document API. The inspector addition does not
+record identity and winner metadata. The wrapper remains a view and does not edit records.
+Typed record editing is provided by the editor document API. The inspector addition does not
 provide a custom field editor for record editing.
 
 `crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
