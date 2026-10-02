@@ -6,6 +6,7 @@
 use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{Entry, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::play::{self, Route};
+use soe_game::player_input::STEP_SECONDS;
 use soe_game::Game;
 
 fn id(object: u32) -> GlobalFormId {
@@ -66,6 +67,93 @@ fn insert_nav(groups: &mut [Group], cell: u32, index: usize) {
 
 fn game(disconnected: bool) -> Game {
     game_with(disconnected, |_| {})
+}
+
+fn ply_05_soak(seed: u64) -> String {
+    let mut game = game(false);
+    let mut state = if seed == 0 { 1 } else { seed };
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    let movement_rate = 80 + state % 41;
+    let route = format!(
+        "navigate Skyrim.esm:810 {movement_rate} 120\n\
+         activate Skyrim.esm:810\n\
+         activate Skyrim.esm:811\n\
+         navigate-marker Skyrim.esm:801 105 0 0 {movement_rate} 120\n\
+         navigate Skyrim.esm:820 {movement_rate} 120\n\
+         activate Skyrim.esm:820\n\
+         navigate Skyrim.esm:830 {movement_rate} 120\n\
+         talk Skyrim.esm:830 Skyrim.esm:841\n\
+         expect-item player Skyrim.esm:821 1\n\
+         expect-no-vm-error\n"
+    );
+    let report = run(&mut game, &route);
+    assert!(report.passed(), "{}", report.format());
+
+    // At timescale 20, 5,400 fixed steps are 30 minutes of game time.
+    let ticks = (30.0 * 60.0 / 20.0 / STEP_SECONDS) as usize;
+    let start_days = game.world().clock.game_days;
+    for _ in 0..ticks {
+        game.tick(STEP_SECONDS);
+        {
+            let world = game.world();
+            let player = world.reference_ref(id(0x14)).unwrap();
+            assert!(player.position.into_iter().all(f32::is_finite));
+            assert!(player.rotation.into_iter().all(f32::is_finite));
+            for actor in world.loaded_actors() {
+                let reference = world.reference_ref(actor).unwrap();
+                assert!(reference.position.into_iter().all(f32::is_finite));
+                assert!(reference.rotation.into_iter().all(f32::is_finite));
+                assert!(
+                    reference.position[2] >= 0.0,
+                    "actor {actor} fell below fixture NAVM"
+                );
+            }
+        }
+    }
+    let elapsed_game_seconds = (game.world().clock.game_days - start_days) * 86_400.0;
+    assert!((elapsed_game_seconds - 1_800.0).abs() < 0.02);
+    assert!(!game
+        .vm
+        .log
+        .entries
+        .iter()
+        .any(|entry| entry.message.starts_with("error:")));
+    format!("seed={seed}\n{}ticks={ticks}\n", report.format())
+}
+
+#[test]
+fn ply_05_seeded_bot_walks_interacts_checks_invariants_and_repeats_its_report() {
+    let seed = 0x5EED_0501;
+    let first = ply_05_soak(seed);
+    let second = ply_05_soak(seed);
+    assert_eq!(first, second);
+    assert!(first.contains("ticks=5400"));
+    assert!(first.contains("completed="));
+}
+
+#[test]
+fn ply_05_installed_city_cells_are_available_for_headless_soak() {
+    use crate::common::installed;
+
+    let Some(game) = installed::game(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ]) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    for cell_name in ["WhiterunExterior01", "Riverwood01"] {
+        let cell = game
+            .world_mut()
+            .cell_by_editor_id(cell_name)
+            .unwrap_or_else(|| panic!("installed Skyrim cell {cell_name} is missing"));
+        assert!(game.world().record(cell).is_some());
+    }
 }
 
 fn game_with(disconnected: bool, edit: impl FnOnce(&mut Plugin)) -> Game {

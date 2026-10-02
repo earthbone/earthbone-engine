@@ -315,6 +315,17 @@ mesh representation is not introduced. `ply_02_` tests cover grammar, navigation
 interaction steps, bounded waits, assertions, diagnostics and external corpus
 startup through the binary.
 
+`ply_05_seeded_bot_walks_interacts_checks_invariants_and_repeats_its_report`
+chooses a movement rate from its seed, runs the route through the PLY-02
+executor, and advances another 30 minutes of game time at 1/60-second steps.
+It checks finite actor and player transforms after every tick, rejects Papyrus
+VM errors and compares repeated reports for the same seed. Navigation checks
+the player's path against NAVM surfaces through the existing PLY-02 executor.
+`ply_05_installed_city_cells_are_available_for_headless_soak` is gated by
+`SKYRIM_DATA` and confirms the installed Whiterun and Riverwood exterior cells
+resolve. The current soak does not yet drive the installed city records or
+compare actor heights against exterior terrain.
+
 ### MCM script lifecycle, UI-05
 
 `Game::start` initializes enabled quests without registering MCM scripts.
