@@ -2569,8 +2569,15 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
-**Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
+AI-14 evaluates eligible simultaneous children in tree order. Wait children
+share one real-time deadline, using the longest active Wait unless a child
+marked to complete the package supplies an earlier deadline. UseMagic children
+cast through the actor's assigned spell path while that Wait group runs. A
+UseMagic child marked to complete the package ends the group after its cast.
+Async procedure children remain unsupported.
+
+**Not done.** Simultaneous groups with asynchronous children and stacked
+branches (AI-14 and AI-15), the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
 calling the `On Begin`, `On End` and `On Change` package fragments at
 package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
 driver does not yet call them, AI-04), idles and topics, once per day for
