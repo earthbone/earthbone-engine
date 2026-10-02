@@ -33,6 +33,9 @@ func _run() -> void:
 		quit(1)
 		return
 
+	var camera := Camera3D.new()
+	get_root().add_child(camera)
+	camera.make_current()
 	var bank := ClassDB.instantiate("SoundBank") as Node3D
 	get_root().add_child(bank)
 	await process_frame

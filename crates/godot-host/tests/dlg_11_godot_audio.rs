@@ -7,6 +7,8 @@
 use soe_audio::{fuz, SoundSource};
 use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
 use soe_esm::{FileHeader, Plugin};
+use soe_godot_host::data_source::vfs_from_loadout;
+use soe_profile::LoadoutInput;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,6 +42,11 @@ fn wave() -> Vec<u8> {
 
 fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
+    std::fs::write(
+        data.parent().unwrap().join("Skyrim_Default.ini"),
+        "[General]\nsLanguage=ENGLISH\n",
+    )
+    .unwrap();
     for master in [
         "Skyrim.esm",
         "Update.esm",
@@ -131,9 +138,10 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
     write_fixture_data(&data, None);
-    let mut vfs = Vfs::new();
-    vfs.add_archive_path(&data.join("Skyrim - Voices_en0.bsa"))
+    let loadout = LoadoutInput::vanilla(fixture.path(), None, None)
+        .resolve()
         .unwrap();
+    let vfs = vfs_from_loadout(&loadout).unwrap();
     let source = SoundSource::new(&vfs);
     for path in [FIRST, SECOND] {
         let sound = source.read(path).unwrap();
