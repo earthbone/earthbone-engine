@@ -14,13 +14,60 @@ fn registration(name: &str) -> String {
     format!("#[path = \"{name}.rs\"]\nmod {name};")
 }
 
+fn registration_count(source: &str, name: &str) -> usize {
+    let active = without_comments(source);
+    let lines: Vec<_> = active
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let path = format!("#[path = \"{name}.rs\"]");
+    let module = format!("mod {name};");
+    lines
+        .windows(2)
+        .filter(|pair| pair[0] == path && pair[1] == module)
+        .count()
+}
+
+fn without_comments(source: &str) -> String {
+    let mut in_block_comment = false;
+    let mut active = String::new();
+    for line in source.lines() {
+        let mut remaining = line;
+        let mut code = String::new();
+        while !remaining.is_empty() {
+            if in_block_comment {
+                if let Some(end) = remaining.find("*/") {
+                    remaining = &remaining[end + 2..];
+                    in_block_comment = false;
+                } else {
+                    break;
+                }
+            } else if let Some(start) = remaining.find("/*") {
+                code.push_str(&remaining[..start]);
+                remaining = &remaining[start + 2..];
+                in_block_comment = true;
+            } else if let Some(start) = remaining.find("//") {
+                code.push_str(&remaining[..start]);
+                break;
+            } else {
+                code.push_str(remaining);
+                break;
+            }
+        }
+        active.push_str(&code);
+        active.push('\n');
+    }
+    active
+}
+
 fn missing_registrations<'a>(
     names: impl IntoIterator<Item = &'a str>,
     source: &str,
 ) -> Vec<String> {
     names
         .into_iter()
-        .filter(|name| !source.contains(&registration(name)))
+        .filter(|name| registration_count(source, name) == 0)
         .map(registration)
         .collect()
 }
@@ -44,7 +91,7 @@ fn tst_16_every_test_file_is_registered() {
     );
     for name in names {
         assert_eq!(
-            source.matches(&registration(&name)).count(),
+            registration_count(&source, &name),
             1,
             "tests/it.rs must register {name}.rs exactly once"
         );
@@ -63,6 +110,22 @@ fn tst_16_missing_registration_names_the_declaration_to_add() {
         [registration("existing")],
         "a mismatched module name is not a registration"
     );
+    assert_eq!(
+        missing_registrations(
+            ["existing"],
+            "// #[path = \"existing.rs\"]\n// mod existing;"
+        ),
+        [registration("existing")],
+        "a commented-out registration is not active Rust code"
+    );
+    assert_eq!(
+        missing_registrations(
+            ["existing"],
+            "/* #[path = \"existing.rs\"]\nmod existing; */"
+        ),
+        [registration("existing")],
+        "a block-commented registration is not active Rust code"
+    );
 }
 
 #[test]
@@ -78,6 +141,26 @@ fn tst_16_child_test_names_keep_nested_modules_without_the_crate_prefix() {
     assert_eq!(
         crate::common::child_test_name("it::save_generations::failures", "child_writer"),
         "save_generations::failures::child_writer"
+    );
+}
+
+#[test]
+fn tst_16_test_names_match_the_pre_consolidation_inventory() {
+    let before: BTreeSet<_> = include_str!("data/tst_16_before_test_names.txt")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let after: BTreeSet<_> = include_str!("data/tst_16_after_test_names.txt")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(before.len(), 2_289, "pre-change inventory size changed");
+    assert_eq!(after.len(), 2_289, "post-change inventory size changed");
+    let missing: Vec<_> = before.difference(&after).cloned().collect();
+    let added: Vec<_> = after.difference(&before).cloned().collect();
+    assert!(
+        missing.is_empty() && added.is_empty(),
+        "before and after test-name inventories differ: missing {missing:?}, added {added:?}"
     );
 }
 

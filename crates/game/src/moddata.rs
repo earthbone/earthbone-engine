@@ -37,8 +37,9 @@
 //! base. SPID's trailing `!` requests a deterministic per-actor choice. Those
 //! rules are evaluated when an actor is built from its reference ID and are
 //! keyed from the entry value, save character ID and actor runtime ID. The
-//! host supplies the current save character ID through `World`; zero and 100
-//! percent remain exact.
+//! host supplies the current save character ID through `World`; fractional
+//! deterministic chances use SPID's seeded CLibUtil Xoshiro256** draw.
+//! Zero and 100 percent remain exact.
 //! KID chance uses its keyword editor ID and target FormID as a deterministic
 //! seed. Exclusive groups prevent adding a keyword when another group member
 //! is already present on the record.
@@ -251,18 +252,41 @@ fn deterministic_roll(line_seed: u64, player: u64, actor: u64, chance: f32) -> b
             .wrapping_add(seed << 6)
             .wrapping_add(seed >> 2);
     }
-    let mut value = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^= value >> 31;
-    if value == 0 {
-        value = 0x9E37_79B9_7F4A_7C15;
+    let mut random = SpidRng::new(seed);
+    let unit = (random.next() >> 11) as f64 / (1_u64 << 53) as f64;
+    unit * 100.0 <= f64::from(chance)
+}
+
+/// CLibUtil's `RNG(seed).generate()` uses Xoshiro256** seeded by SplitMix64.
+/// The generator is small enough to keep the source-defined deterministic path
+/// independent of platform RNG implementations.
+struct SpidRng([u64; 4]);
+
+impl SpidRng {
+    fn new(seed: u64) -> Self {
+        let mut state = seed;
+        let mut words = [0; 4];
+        for word in &mut words {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut value = state;
+            value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            *word = value ^ (value >> 31);
+        }
+        Self(words)
     }
-    value ^= value << 13;
-    value ^= value >> 7;
-    value ^= value << 17;
-    let unit = (value >> 11) as f64 / (1_u64 << 53) as f64;
-    unit * 100.0 < f64::from(chance)
+
+    fn next(&mut self) -> u64 {
+        let result = self.0[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+        let shifted = self.0[1] << 17;
+        self.0[2] ^= self.0[0];
+        self.0[3] ^= self.0[1];
+        self.0[1] ^= self.0[2];
+        self.0[0] ^= self.0[3];
+        self.0[2] ^= shifted;
+        self.0[3] = self.0[3].rotate_left(45);
+        result
+    }
 }
 
 fn in_range(value: u32, range: spid::Range) -> bool {
