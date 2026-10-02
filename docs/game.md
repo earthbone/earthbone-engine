@@ -1073,9 +1073,11 @@ and the equipped shout while retaining the actor's known spells and inventory.
 `Actor.RemoveAllSpells` clears known spells and spell hand assignments while
 leaving unrelated equipment in place. `StartVampireFeed` queues the documented
 `OnVampireFeed` event on the calling actor when its target resolves to a
-sleeping actor. `StartCannibal` remains a quiet stub because actor action state
-is not modeled. `ClearExtraArrows` needs
-attached-arrow state in the host renderer.
+sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
+calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
+queues a `ClearExtraArrows` graph event on the calling actor. The runtime does
+not model attached-arrow extra data, so clearing those meshes in the host
+renderer remains unsupported.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
