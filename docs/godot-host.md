@@ -408,6 +408,19 @@ winning LIGH record's 48-byte DATA, using its RGB color, radius and negative
 light flag. The light follows the runtime reference position and is freed
 when the effect reference expires, becomes hidden or the streamer is cleared.
 It adds no scene node. Other LIGH references are not uploaded by this path.
+Each positive `PlayerNode.advance` step ticks the shared `Game` before syncing
+reference changes, so timed effects expire in that host path and their light
+instances are released on the same synchronization pass.
+`CellStreamerNode.runtime_light_count` reports the currently owned light
+`PlayerNode.cast_spell_on_self` sends a self-delivered spell through the
+shared World. `mag_35_runtime_light_test.gd` casts vanilla Candlelight in a
+loaded cell. It checks that the RenderingServer instance appears and then
+disappears after the effect's authored duration. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_35_runtime_light_test.gd --resolution 640x360
+```
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial

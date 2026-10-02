@@ -252,6 +252,38 @@ fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
     })
 }
 
+#[cfg(test)]
+mod mag_35_tests {
+    use super::light_render_data;
+    use soe_esm::{Record, Tag};
+
+    #[test]
+    fn mag_35_light_reads_authored_radius_color_and_negative_flag() {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&700_u32.to_le_bytes());
+        data[8..11].copy_from_slice(&[255, 128, 0]);
+        data[12..16].copy_from_slice(&(1_u32 << 2).to_le_bytes());
+        let record = Record::new(Tag::new(b"LIGH"), 0x800).sub(Tag::new(b"DATA"), data);
+
+        let light = light_render_data(&record).expect("valid authored LIGH record");
+        assert!((light.radius - 700.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert_eq!(light.color, [1.0, 128.0 / 255.0, 0.0]);
+        assert!(light.negative);
+    }
+
+    #[test]
+    fn mag_35_light_rejects_other_records_short_data_and_zero_radius() {
+        let not_light = Record::new(Tag::new(b"ACTI"), 0x800);
+        assert!(light_render_data(&not_light).is_none());
+
+        let short = Record::new(Tag::new(b"LIGH"), 0x801).sub(Tag::new(b"DATA"), vec![0; 47]);
+        assert!(light_render_data(&short).is_none());
+
+        let zero = Record::new(Tag::new(b"LIGH"), 0x802).sub(Tag::new(b"DATA"), vec![0; 48]);
+        assert!(light_render_data(&zero).is_none());
+    }
+}
+
 impl Drop for CellStreamerNode {
     fn drop(&mut self) {
         // The worker executes extension code. Join before the node and library
@@ -1367,6 +1399,12 @@ impl CellStreamerNode {
     #[func]
     pub fn instance_count(&self) -> i32 {
         self.instances.len() as i32
+    }
+
+    /// Number of point lights currently owned for active magic effects.
+    #[func]
+    pub fn runtime_light_count(&self) -> i32 {
+        self.runtime_lights.len() as i32
     }
 
     /// Render handles grouped by owning cell, for residency diagnostics.
