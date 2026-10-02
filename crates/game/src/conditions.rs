@@ -2496,19 +2496,26 @@ fn function_value(
             if raw > 2 {
                 return Err(Error::Parameter(c.function, raw));
             }
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "ward animation state is not supplied by the host",
-            ));
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(
+                actor.ward_state.ok_or(Error::UnavailableContractReason(
+                    c.function,
+                    "ward animation state is not supplied by the host",
+                ))? == raw,
+            )
         }
         627 => {
             no_parameter(c)?;
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "dual-cast animation state is not tracked",
-            ));
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .dual_casting
+                    .ok_or(Error::UnavailableContractReason(
+                        c.function,
+                        "dual-cast animation state is not tracked",
+                    ))?,
+            )
         }
         632 => {
             no_parameter(c)?;
@@ -3051,11 +3058,15 @@ fn function_value(
         }
         676 => {
             no_parameter(c)?;
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "active voice variation is not tracked",
-            ));
+            world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .shout_variation
+                .map(|variation| variation as f32)
+                .ok_or(Error::UnavailableContractReason(
+                    c.function,
+                    "active voice variation is not tracked",
+                ))?
         }
         636 => {
             no_parameter(c)?;

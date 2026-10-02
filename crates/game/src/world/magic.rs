@@ -263,6 +263,41 @@ impl MagicExecution for AllocationExecution<'_> {
 }
 
 impl World {
+    /// Set the actor's current ward animation state from the host graph.
+    /// Values follow xEdit's ward state enum: 0 none, 1 absorb, 2 break.
+    /// Passing `None` clears the host signal.
+    pub fn set_ward_state(
+        &mut self,
+        actor: GlobalFormId,
+        state: Option<u32>,
+    ) -> Result<(), MagicError> {
+        if state.is_some_and(|value| value > 2) {
+            return Err(MagicError::Unsupported("unknown ward state"));
+        }
+        self.actor(actor).ok_or(MagicError::Target)?.ward_state = state;
+        Ok(())
+    }
+
+    /// Set or clear the actor's dual-casting signal from the host graph.
+    pub fn set_dual_casting(
+        &mut self,
+        actor: GlobalFormId,
+        dual_casting: Option<bool>,
+    ) -> Result<(), MagicError> {
+        self.actor(actor).ok_or(MagicError::Target)?.dual_casting = dual_casting;
+        Ok(())
+    }
+
+    /// Set or clear the shout voice variation currently reported by the host.
+    pub fn set_shout_variation(
+        &mut self,
+        actor: GlobalFormId,
+        variation: Option<i32>,
+    ) -> Result<(), MagicError> {
+        self.actor(actor).ok_or(MagicError::Target)?.shout_variation = variation;
+        Ok(())
+    }
+
     fn resolve_effect_perk(
         &self,
         effect: GlobalFormId,
