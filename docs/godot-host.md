@@ -1095,8 +1095,12 @@ the rendering path on Godot's existing mesh and material servers without adding 
 `rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
 `LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
 terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
-RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
-block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+RenderingServer instances and albedo resources, then renders a terrain instance in the main
+viewport and checks the captured frame for visible, varied, non-white terrain pixels. The
+inspection rows include each terrain instance's bounds center so the camera can frame that
+surface without using unrelated cell geometry.
+`godot/pan_capture.gd` orbits and pans that block through 25 shots for a quick visual sweep.
+Distant geometry is Bethesda's precomputed
 LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
