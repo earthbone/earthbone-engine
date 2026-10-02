@@ -1470,9 +1470,12 @@ would be silent, and 57 are not.
 
 `godot/dlg_11_audio_test.gd`, launched by
 `crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
-through `SoundBank::open_data`. The script starts a response at the speaker
+through `SoundBank::open_data`. The fixture sets `sLanguage=ENGLISH` in
+`Skyrim_Default.ini` to select its English voice archive.
+The script creates a current `AudioListener3D`, starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
-player, starts a replacement at a second position, and captures its output.
+player through the exposed `stop_voice` method, starts a replacement at a
+second position, and captures its output.
 Capture polls for signal until the stream duration plus half a second, since
 voice assets can start with silence. The generated WAV fixture includes a
 quarter second of leading silence. The capture buffer is cleared between
@@ -1483,6 +1486,10 @@ Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
+does not require an editor import or a cached extension list. This uses
+`GDExtensionManager.load_extension` from the local
+`engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
 line. Without installed data it uses a generated WAV with 250 milliseconds of

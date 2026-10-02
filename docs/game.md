@@ -2401,14 +2401,16 @@ actor section in SOEW version 37 saves the Follow procedure tag.
 
 `UseIdleMarker` selects an enabled IDLM reference in the procedure location's
 cell and radius, skips deleted and destroyed markers, walks the actor to it,
-and holds that marker. An actor with an active
+and holds that marker. When it arrives, the driver resolves the first valid
+`IDLA` link on the IDLM base to an `IDLE` record and queues that record's
+`ENAM` animation event. An actor with an active
 `UseIdleMarker` procedure reserves its selected marker. Other actors skip that
 reservation when choosing a marker. Changing or ending the package clears the
 reservation with the procedure state. This uses the PACK input layout from
 local xEdit `wbRecord(PACK)` and the CK wiki's `IsFurnitureMarkerInUse`
-reservation semantics. It does not play the marker's authored idle animation.
-The `AI-21` actor section in SOEW version 37 saves the selected marker and
-procedure tag.
+reservation semantics. IDLM and its idle animation list follow local xEdit
+`wbRecord(IDLM)` and `wbIdleAnimation`. The `AI-21` actor section in SOEW
+version 37 saves the selected marker and procedure tag.
 
 `HoldPosition` resolves the branch location and holds within the driver's four
 unit arrival tolerance of that position. Without a location input, it holds at
@@ -2451,9 +2453,13 @@ target's position while approaching it, so movement before the attempt does
 not leave the actor heading for an old position.
 
 `Find` reads the branch's target input through its package template chain.
-Object ID matches a placed reference's resolved base form. Object Type values
-1 to 15 match the base types in CommonLib's `PACKAGE_OBJECT_TYPE`. Values 14
-and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
+Object ID matches a placed reference's resolved base form. Specific Reference
+selects that placed reference, Ref Alias resolves through the actor's selected
+quest alias or the package's owning quest, and Linked Reference selects the
+actor's first link or the link matching the authored keyword. These selectors
+still require the selected reference to pass the search eligibility checks.
+Object Type values 1 to 15 match their corresponding base record types. Values
+14 and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
 Unknown Object Type values and other target selectors are unsupported. A
 negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
@@ -2461,11 +2467,12 @@ or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
 authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
-Find procedure page. The target layout and Object Type label follow xEdit's
-`wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
-weapon. CommonLib's `TESPackage.h` defines the remaining object types, and
-xEdit's `wbRecord(ALCH)` defines the Food Item flag. No reusable local runtime
-implementation covers Find.
+Find procedure page. Target kinds and Object Type labels follow xEdit's
+`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. The UESP
+PACK page documents value 11 as any weapon, and xEdit's `wbRecord(ALCH)`
+defines the Food Item flag. Package alias resolution uses the actor's selected
+quest alias or the package owner quest. Linked references use the actor's
+`XLKR` links. No reusable local runtime implementation covers Find.
 
 The `AI-21` actor section in SOEW version 37 saves the selected reference with
 the active Find procedure.
@@ -2482,12 +2489,16 @@ procedure contract page.
 
 `Orbit` resolves its `TargetLocation` input on every driver tick, then moves
 around that point at the authored `Height`. It keeps the actor between the
-authored `InnerRadius` and `OuterRadius`, and advances only when the arc
-stays inside both bounds and over a navmesh. Missing inputs, non-finite values,
-negative inner radii or an outer radius below the inner radius leave an
-unsupported procedure. The package input names and radius meanings follow the
-Creation Kit `Orbit (Procedure)` page. The `AI-21` actor section under SOEW
-version 37 saves the active Orbit height.
+authored `InnerRadius` and `OuterRadius`, and advances only when the sampled
+arc stays inside both bounds and over a navmesh. The arc and direct movement
+segment sample at intervals no longer than 0.05 world units, so a direct step
+cannot cut across an off-nav gap when a route exists around it.
+Missing inputs, non-finite values, negative inner radii or an outer radius
+below the inner radius leave an unsupported procedure. The local CK wiki dump
+has no Orbit procedure page. `CommonLibSSE-NG/include/RE/Offsets_RTTI.h`
+confirms the Orbit procedure and execution-state types but does not describe
+their behavior. The `AI-21` actor section under SOEW version 37 saves the
+active Orbit height.
 
 `Escort` resolves its assigned placed-reference target and the branch's
 authored location. The escorting actor routes to that location while keeping
@@ -6416,8 +6427,8 @@ reload. Object ID targets resolve in the package's defining plugin. A target
 that names a FormList searches its entries in authored order. Object Type 8,
 Miscellaneous, searches winning MISC bases in load-order order. Both paths save
 the selected reference identity with Patrol progress. Other Object Type values
-and Find-derived starts remain unsupported. AI-33's Find procedure, which owns
-that selected-reference result, is not present in this worktree.
+and Find-derived starts remain unsupported. AI-33's Find procedure owns its
+selected-reference result in the `AI-21` actor section.
 
 xEdit `wbDefinitionsTES5.pas` defines Object Type 8 as Miscellaneous and PTDA
 Object ID as a form link. The UESP PACK description confirms the target and
