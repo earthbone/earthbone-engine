@@ -264,11 +264,24 @@ impl PlayerNode {
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let detections = {
+                let mut world = game.world_mut();
+                match crate::detect_life::presentations(&mut world) {
+                    Ok(detections) => detections,
+                    Err(error) => {
+                        godot_error!("PlayerNode: Detect Life presentation failed: {error}");
+                        Vec::new()
+                    }
+                }
+            };
             let requests = game.world_mut().take_effect_shader_requests();
             let world = game.world();
-            streamer
-                .bind_mut()
-                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+            streamer.bind_mut().sync_effect_shaders(
+                &world,
+                requests,
+                &detections,
+                delta.max(0.0) as f32,
+            );
         }
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
