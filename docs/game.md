@@ -786,8 +786,8 @@ actor. `ClearExpressionOverride` removes it. `World::facial_expression`
 returns the active override, or maps the actor's record-backed AIDT mood to
 the corresponding mood expression at full strength after clearing. The
 override is an actor save section named `ANM-59` and participates in the
-determinism hash. The host maps expression ids to head blend shape names.
-Loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
+determinism hash. The host maps expression ids to head blend shape names and
+loads matching expression deltas from the head's companion `.tri` file.
 
 **Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
 instance, one selected soul gem stack, an ENCH form and the caller's learned

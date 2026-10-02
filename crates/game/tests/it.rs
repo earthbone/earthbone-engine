@@ -1337,3 +1337,5 @@ mod ui_17_adversarial;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
+#[path = "anm_59_breaker_adversarial.rs"]
+mod anm_59_breaker_adversarial;

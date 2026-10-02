@@ -41,3 +41,15 @@ fn anm_59_adversarial_weights_include_only_targets_present_on_this_head() {
     assert_eq!(weights["CombatShout"], 0.37);
     assert_eq!(weights["MoodSad"], 0.0);
 }
+
+#[test]
+fn anm_59_adversarial_expression_target_name_matches_ck_blend_shape() {
+    assert_eq!(
+        soe_godot_host::facial::expression_name_for_target("MoodHappy"),
+        Some("MoodHappy")
+    );
+    assert_eq!(
+        soe_godot_host::facial::expression_name_for_target("Blink"),
+        None
+    );
+}
