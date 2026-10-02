@@ -98,3 +98,27 @@ fn crf_06_create_object_bench_must_carry_the_recipe_bench_keyword() {
     assert_eq!(game.world_mut().item_count(id(PLAYER), id(INGREDIENT)), 1);
     assert_eq!(game.world_mut().item_count(id(PLAYER), id(OUTPUT)), 0);
 }
+
+#[test]
+fn crf_06_bench_detection_rejects_missing_or_truncated_workbench_data() {
+    for data in [None, Some(vec![]), Some(vec![1]), Some(vec![1, 0, 0])] {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), ACTOR));
+        let mut bench = Record::new(Tag(*b"FURN"), BENCH);
+        if let Some(data) = &data {
+            bench = bench.sub(Tag(*b"WBDT"), data.clone());
+        }
+        plugin.push_top(bench);
+        plugin.push_top(
+            Record::new(Tag(*b"REFR"), ACTOR + 10).sub(Tag(*b"NAME"), BENCH.to_le_bytes()),
+        );
+        let mut order = LoadOrder::new();
+        order.add("Crf06MalformedBench.esm", plugin).unwrap();
+        let game = Game::new(order);
+
+        assert!(
+            !crafting_menu::is_creation_bench(&game, id(ACTOR + 10)),
+            "malformed WBDT {data:?} must not open the creation menu"
+        );
+    }
+}
