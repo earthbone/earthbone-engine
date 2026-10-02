@@ -1461,7 +1461,13 @@ newer executable and the release extension exists at
 extension with `cargo build -p soe-godot-host --release` before running it.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
-line. Without installed data it uses a generated WAV. The capture proves
+line. Without installed data it uses a generated WAV with 250 milliseconds of
+leading silence. The capture polls for signal within the clip duration plus
+one second, since a voice's opening silence can exceed 150 milliseconds.
+It retains the 0.0001 peak threshold and clears captured samples after the
+interrupted player drains, before starting the replacement. The capture uses
+the ring-buffer API described in local
+`godot-docs/classes/class_audioeffectcapture.rst`. The capture proves
 Godot's mixer received both voice buffers. It does not prove that a physical
 speaker or headset produced audible output. That still needs a windowed run
 with installed data and a `SoundBank` in the tree.

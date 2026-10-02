@@ -2,6 +2,7 @@ extends SceneTree
 
 ## Runs SoundBank voice assets through Godot's 3D player and captures its mixer.
 var failures := 0
+const MIN_PEAK := 0.0001
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -18,6 +19,16 @@ func _captured_peak(capture: AudioEffectCapture) -> float:
 	var peak := 0.0
 	for sample: Vector2 in capture.get_buffer(frames):
 		peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
+	return peak
+
+func _wait_for_peak(capture: AudioEffectCapture, player: AudioStreamPlayer3D) -> float:
+	var deadline := Time.get_ticks_msec() + ceili((player.stream.get_length() + 1.0) * 1000.0)
+	var peak := 0.0
+	while Time.get_ticks_msec() < deadline:
+		await create_timer(0.05).timeout
+		peak = maxf(peak, _captured_peak(capture))
+		if peak > MIN_PEAK or not player.playing:
+			break
 	return peak
 
 func _run() -> void:
@@ -57,12 +68,13 @@ func _run() -> void:
 	var first_player := bank.get_child(first_slot) as AudioStreamPlayer3D
 	_check(first_player.playing, "first AudioStreamPlayer3D is not playing")
 	_check(first_player.position.is_equal_approx(first_position), "first voice is not at the speaker position")
-	await create_timer(0.15).timeout
-	var first_peak := _captured_peak(capture)
-	_check(first_peak > 0.0001, "first voice produced no Godot mixer output")
+	var first_peak: float = await _wait_for_peak(capture, first_player)
+	_check(first_peak > MIN_PEAK, "first voice produced no Godot mixer output")
 
 	_check(bank.call("stop_voice", first_slot), "interrupt did not stop the active voice")
 	_check(not first_player.playing, "interrupted AudioStreamPlayer3D kept playing")
+	await create_timer(0.05).timeout
+	capture.clear_buffer()
 	var second_slot: int = bank.call("play_voice", second_path, second_position)
 	_check(second_slot >= 0, "replacement resolved voice did not start: " + str(bank.call("last_error")))
 	if second_slot < 0:
@@ -71,9 +83,8 @@ func _run() -> void:
 	var second_player := bank.get_child(second_slot) as AudioStreamPlayer3D
 	_check(second_player.playing, "replacement AudioStreamPlayer3D is not playing")
 	_check(second_player.position.is_equal_approx(second_position), "replacement voice is not at the speaker position")
-	await create_timer(0.15).timeout
-	var second_peak := _captured_peak(capture)
-	_check(second_peak > 0.0001, "replacement voice produced no Godot mixer output")
+	var second_peak: float = await _wait_for_peak(capture, second_player)
+	_check(second_peak > MIN_PEAK, "replacement voice produced no Godot mixer output")
 	_check(bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
 	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
 	bank.queue_free()
