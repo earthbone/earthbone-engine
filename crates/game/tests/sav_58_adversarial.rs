@@ -132,38 +132,88 @@ fn sav_58_unavailable_identity_never_aliases_a_live_form_with_same_object() {
 }
 
 #[test]
-fn sav_58_native_game_load_reports_removed_plugins_without_mutation() {
-    let unresolved = UnresolvedRecord {
+fn sav_58_native_load_keeps_removed_regular_and_light_records_for_two_cycles() {
+    let regular = UnresolvedRecord {
         id: UnresolvedRecordId {
             plugin: "absentregular.esp".into(),
             light: false,
-            object: 0x812,
+            object: 0x800,
         },
         payload: vec![0x22, 0x40, 0xaa],
         links: vec![UnresolvedRecordId {
             plugin: "absentlight.esl".into(),
             light: true,
-            object: 0x810,
+            object: 0x800,
         }],
+    };
+    let light = UnresolvedRecord {
+        id: UnresolvedRecordId {
+            plugin: "absentlight.esl".into(),
+            light: true,
+            object: 0x800,
+        },
+        payload: vec![0xff, 0x10, 0, 0x80],
+        links: vec![regular.id.clone()],
     };
     let original = Game::new(pre_removal_order());
     original
         .world_mut()
-        .retain_unresolved_record(unresolved.clone())
+        .retain_unresolved_record(regular.clone())
+        .unwrap();
+    original
+        .world_mut()
+        .retain_unresolved_record(light.clone())
         .unwrap();
     let bytes = original.save_state().unwrap();
 
-    let mut restored = Game::new(live_order());
-    let report = restored.preflight_dependencies(&bytes).unwrap();
+    let mut after_removal = Game::new(live_order());
+    let report = after_removal.preflight_dependencies(&bytes).unwrap();
     assert_eq!(report.findings.len(), 2);
     assert!(report.findings.iter().all(|finding| {
         finding.kind == DependencyKind::Plugin && finding.change == DependencyChange::Missing
     }));
 
-    let before = restored.save_state().unwrap();
-    let error = restored.load_state(&bytes).unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("saved plugin absentlight.esl is missing"));
-    assert_eq!(restored.save_state().unwrap(), before);
+    after_removal.load_state(&bytes).unwrap();
+    assert_eq!(
+        after_removal.world().unresolved_records().get(&regular.id),
+        Some(&regular)
+    );
+    assert_eq!(
+        after_removal.world().unresolved_records().get(&light.id),
+        Some(&light)
+    );
+    assert_eq!(
+        after_removal
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800,
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+
+    let second = after_removal.save_state().unwrap();
+    let mut reloaded = Game::new(live_order());
+    reloaded.load_state(&second).unwrap();
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&regular.id),
+        Some(&regular)
+    );
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&light.id),
+        Some(&light)
+    );
+    assert_eq!(
+        reloaded
+            .world()
+            .record(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800,
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
 }

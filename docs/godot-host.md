@@ -171,13 +171,20 @@ and names the active plugin, then filters winning forms by an optional four-char
 signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
 FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
-ID and winning plugin. The resource is a view and does not expose record editing.
+ID and winning plugin. The same selection calls `override_chain`, which returns every record
+version with its source plugin, signature, Editor ID and winner flag. The dock displays those
+versions in its override-chain tree, with the last load-order version marked as the winner.
+The resource is a view and does not expose record editing.
 
-The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
-property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+The dock uses Godot's `EditorPlugin` dock API. Its registered `EditorInspectorPlugin`
+recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
+`winning_plugin` property. Local
+`engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The Godot project enables this dock alongside the cell dock. The dock does not implement
-record editing or an `EditorInspectorPlugin` custom field editor.
+The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
+record identity and winner metadata. The wrapper remains a view and does not edit records.
+Typed record editing is provided by the editor document API. The inspector addition does not
+provide a custom field editor for record editing.
 
 `crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
 synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`
@@ -250,6 +257,19 @@ before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
 `OnGrab` and `OnRelease` events.
+
+### Grab Actor, MAG-66
+
+After actor bodies sync from World, `PlayerNode` finds a resident actor with a
+live Grab Actor effect cast by the player. The existing RID-backed actor
+capsule changes to kinematic mode and follows a point 1.2 metres ahead of and
+0.9 metres below the camera eye. Each held pose is written back to the actor's
+existing World reference placement. When the effect ends, the body changes to
+rigid mode and receives a forward and upward central impulse. World follows the
+rigid body's Skyrim-space position until it settles, then the body returns to
+static contact-query mode. Clearing or replacing the cell releases its bodies
+and drops any hold state. This uses the actor body's existing RID and adds no
+scene node or saved field.
 
 ### Papyrus Debug host requests, SCR-20
 
@@ -453,7 +473,9 @@ Interiors appear under their own tree group. Selecting a row calls
 `CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
 the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
 host renderer. It clears the previous selection first, so the viewport contains one cell.
-The viewport camera frames the rendered bounds after selection.
+The viewport camera frames the rendered bounds after selection. The installed-data host
+check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
+checks that the second selection replaces the first cell's render instances.
 
 This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
 cell records, expose reference selection, or add transform gizmos. The Godot project opens
