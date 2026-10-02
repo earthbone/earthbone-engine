@@ -3735,3 +3735,34 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd`
 checks that this path writes a PNG under Godot headless with installed data.
+
+## Per-cell occluders, RND-07
+
+`CellStreamerNode.cell_occluders` optionally creates one RenderingServer
+occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
+selects at most four nonempty opaque surfaces by descending triangle count,
+keeps source order for equal counts, and applies a `MultiMesh` surface's
+instance transform before combining its vertices. Blend and cutout surfaces
+are excluded. Cell release and node cleanup free both occluder RIDs. The
+export defaults to off.
+
+The candidate is based on Godot's local `engine-refs/godot-docs` sources:
+`classes/class_arrayoccluder3d.rst` documents the procedural vertex and index
+mesh, and `tutorials/3d/occlusion_culling.rst` explains that Godot CPU
+rasterizes occluders and that scenes with few occlusion opportunities can
+lose performance.
+
+The 2026-10-02 comparison used the installed Whiterun Bannered Mare cell,
+Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
+1600 by 900 render target, and three 600-frame samples per mode. Both modes
+drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
+the p99 samples were 38.091, 38.093 and 37.668 ms, median 38.091 ms. With
+occluders on, they were 38.607, 41.555 and 38.750 ms, median 38.750 ms. The
+enabled median was 0.659 ms higher, so the export remains off. These results
+are specific to this scene, machine and renderer.
+
+`crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
+input, deterministic source ordering for ties, top-four opaque selection,
+valid combined indices and transformed `MultiMesh` placement. The frame-time
+comparison was run through `godot/bench.gd`; an exterior attempt was rejected
+because its large world coordinates produced zero rendered primitives.
