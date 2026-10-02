@@ -320,6 +320,11 @@ Queued messages and suspended stacks remain inert. Unsupported change-form
 types and the remaining world and VM state are not imported by this transaction.
 This is not a full ESS load or resumed game. See
 [save.md](save.md) for mapping rules, failure behavior and the remaining work.
+`Game::restore_vanilla_save_file` opens an ESS path and sets the SPID save
+character ID from field two of the standard nine-field filename before running
+those passes. For a nonstandard filename it retains the host supplied game
+player ID, which defaults to zero. The ID remains runtime metadata and is not
+written into SOEG or SOEW.
 
 Reference placement reserves created identities found in saved change forms,
 the FormID array and the four Created Objects tables before runtime placement
@@ -2801,9 +2806,13 @@ filename, regular/light kind and local object number. Link identities use the
 same fields. The SAV-58 world section preserves these values without resolving them
 through the current load order, so removed plugins and compacted slots cannot
 alias these retained records. This storage API does not populate itself from
-ESS change forms. Whole-game `Game::load_state` still requires matching plugin
-provenance, and ordinary world state does not yet remap identities for removed
-plugins.
+ESS change forms. Native `Game::load_state` accepts plugins missing only from
+the end of their regular or light slot sequence. Every remaining plugin must
+retain its kind, slot and fingerprint, and the current load order cannot add a
+plugin. Missing plugins before a still-loaded plugin remain an error, so saved
+numeric form slots cannot silently retarget. This permits opaque SAV-58 records
+to survive native save and reload while removed plugins remain absent. It does
+not remap ordinary world identities or import opaque records from ESS.
 
 The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
 `Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
@@ -4086,10 +4095,16 @@ ownership, dispel, and save/load. Equip abilities remain unsupported.
 Direct casts accept MGEF archetype 45 and retain the selected actor, caster and
 source in the active effect. `World::grab_actor_effect_on` exposes the live
 control relationship. Dispel, expiry and the existing death cleanup remove
-that relationship with the active effect. The CK Magic Effect page describes
-the archetype as picking up and throwing the selected NPC. This game-side
-relationship does not move the actor or apply a throw. The Godot host has no
-actor hold or throw controller yet.
+that relationship with the active effect. `World::set_host_actor_pose` records
+finite host poses in the actor's existing reference placement, which is already
+saved with the world. The Godot host follows the player's active Grab Actor
+target while its effect remains live, then releases it with a throw impulse.
+This host control is transient and adds no saved fields. The xEdit MGEF
+archetype table labels value 45 `Grab Actor`, and UESP's MGEF layout lists no
+extra archetype data. CommonLib's `GrabActorEffect` has a grabbed actor handle
+and `Start` and `Finish` callbacks. The named CK Magic Effect page is absent
+from the local `ck-wiki` corpus. Tests named `mag_66_` cover the live game
+relationship, interruption cleanup and host pose validation.
 
 ### Calm archetype, MAG-29
 
@@ -5517,9 +5532,10 @@ actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
 load pass resolves distributions by NPC base. Deterministic SPID rules are
 evaluated as each actor is built, with the seed combining the parsed entry
-value, save character ID and actor runtime FormID. A host can set this input
-with `World::set_player_character_id`. It is runtime metadata and is not
-serialized by the engine.
+value, save character ID and actor runtime FormID. The seeded Xoshiro256**
+draw follows CLibUtil `rng.hpp`, which SPID uses through `LookupFilters.cpp`.
+A host can set this input directly with `World::set_player_character_id`.
+It is runtime metadata and is not serialized by the engine.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.
