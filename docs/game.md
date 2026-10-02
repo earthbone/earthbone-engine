@@ -766,16 +766,15 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse 100
-Skyrim units behind the cart along its local Y axis, copies the cart rotation,
-and moves the horse into the cart's cell. It queues a transient host request
-for the cart and horse references using the CK page's chassis and horse
-connection pivots. The host resolves those forms to resident rigid body RIDs
-and connects them with a pin joint. The CK page names `HorseSpine2` as the
-horse connection and gives pivots in Havok units. This runtime connects the
-reference body as a whole and does not resolve that bone or build the cart's
-wheel and pole constraints. Replacing a tether or unloading its collision
-cell frees the old joint.
+**ObjectReference.TetherToHorse.** The native places the supplied horse at
+the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
+horse into the cart's cell. It queues a transient host request for the cart and
+horse references using the CK page's chassis and horse connection pivots. The
+host resolves those forms to resident rigid body RIDs and connects them with a
+pin joint. The CK page names `HorseSpine2` as the horse connection and gives
+pivots in Havok units. This runtime connects the reference body as a whole and
+does not resolve that bone or build the cart's wheel and pole constraints.
+Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure

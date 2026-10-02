@@ -2,11 +2,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{world::ReferencePhysicsRequest, Game};
+use soe_game::{Game, world::ReferencePhysicsRequest};
 use soe_papyrus::{
-    asm::{ident, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident},
 };
 
 const CART: u32 = 0x900;
@@ -74,7 +74,7 @@ fn hst_15_horse_position_uses_ck_authored_offsets() {
 
 #[test]
 fn hst_15_missing_horse_does_not_queue_a_host_constraint() {
-    let mut game = game_with_horse(false, [0.0; 3], 0.0);
+    let game = game_with_horse(false, [0.0; 3], 0.0);
     let requests = game.world_mut().take_reference_physics_requests();
 
     assert_eq!(requests, Vec::<ReferencePhysicsRequest>::new());
@@ -103,9 +103,13 @@ fn hst_15_self_reference_does_not_move_or_tether_the_cart() {
     game.vm.call(cart, "Run", &[Value::Object(cart)]).unwrap();
     assert!(game.run_until_idle(32));
 
-    assert_eq!(game.world().reference_ref(cart_id).unwrap().position, before);
-    assert!(game
-        .world_mut()
-        .take_reference_physics_requests()
-        .is_empty());
+    assert_eq!(
+        game.world().reference_ref(cart_id).unwrap().position,
+        before
+    );
+    assert!(
+        game.world_mut()
+            .take_reference_physics_requests()
+            .is_empty()
+    );
 }

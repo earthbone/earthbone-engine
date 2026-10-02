@@ -4,7 +4,12 @@
 //! ANM-58 adversarial checks for the host event delivery path.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
+use soe_game::{Game, Handle};
+use soe_papyrus::{
+    Opcode::{CallMethod, Return},
+    Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident},
+};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -20,6 +25,40 @@ fn game() -> Game {
     Game::new(order)
 }
 
+fn waiting_thread(game: &mut Game, source: GlobalFormId) -> soe_papyrus::ThreadId {
+    let object = game.object_of(Handle::Form(source));
+    let function = FunctionBuilder::new("Run", "Bool")
+        .global()
+        .param("target", "ObjectReference")
+        .param("event", "String")
+        .local("result", "Bool")
+        .ins(
+            CallMethod,
+            vec![
+                ident("WaitForAnimationEvent"),
+                ident("target"),
+                ident("result"),
+                ident("event"),
+            ],
+        )
+        .ins(Return, vec![ident("result")])
+        .build();
+    let bytes = ScriptBuilder::new("Anm58HostWait", "Form")
+        .function(function)
+        .bytes();
+    game.load_script(&bytes).unwrap();
+    let thread = game
+        .vm
+        .call_global(
+            "Anm58HostWait",
+            "Run",
+            &[Value::Object(object), Value::string("HitFrame")],
+        )
+        .unwrap();
+    game.run_until_idle(64);
+    thread
+}
+
 #[test]
 fn host_graph_event_reaches_game_once_across_signal_and_notice_paths() {
     let mut game = game();
@@ -32,4 +71,22 @@ fn host_graph_event_reaches_game_once_across_signal_and_notice_paths() {
     game.deliver_animation_reports();
 
     assert_eq!(game.world().animation_events, [(source, "HitFrame".into())]);
+}
+
+#[test]
+fn host_graph_signal_resumes_papyrus_wait_true_and_unload_resumes_false() {
+    let mut game = game();
+    let player = game.player();
+    let source = game.world_mut().place_at(id(0x100), player, false);
+
+    let event_wait = waiting_thread(&mut game, source);
+    game.world_mut().queue_animation_report(source, "HitFrame");
+    game.report_animation_event(source, "HitFrame");
+    game.deliver_animation_reports();
+    assert_eq!(game.vm.thread_result(event_wait), Some(Value::Bool(true)));
+
+    let unload_wait = waiting_thread(&mut game, source);
+    game.world_mut().queue_animation_unload(source);
+    game.deliver_animation_reports();
+    assert_eq!(game.vm.thread_result(unload_wait), Some(Value::Bool(false)));
 }
