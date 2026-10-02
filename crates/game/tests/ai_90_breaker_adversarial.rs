@@ -126,7 +126,6 @@ fn state(game: &Game) -> AiState {
     game.world().actor_ref(id(ACTOR)).unwrap().ai.clone()
 }
 
-
 #[test]
 fn ai_90_each_optional_position_can_be_omitted_independently() {
     let mut explicit = game(Settings::default());
@@ -173,5 +172,26 @@ fn ai_90_interior_optional_omissions_resume_after_save_load() {
         restored.tick(1.0);
         assert_eq!(position(&mut restored), expected);
         assert_eq!(state(&restored), state(&original));
+    }
+}
+
+#[test]
+fn ai_90_parser_preserves_authored_static_pathing_boolean() {
+    for (authored, expected) in [(false, false), (true, true)] {
+        let record = template(Settings {
+            static_path: authored,
+            ..Settings::default()
+        });
+        let parsed = package::Package::from_record(&record).unwrap();
+        let branch = parsed
+            .tree
+            .iter()
+            .find(|branch| branch.procedure.as_deref() == Some("Patrol"))
+            .unwrap();
+        let input_index = branch.inputs[5];
+        assert_eq!(
+            parsed.input(input_index as i8).unwrap().value,
+            package::DataValue::Bool(expected)
+        );
     }
 }

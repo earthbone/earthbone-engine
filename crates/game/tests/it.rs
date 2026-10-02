@@ -20,10 +20,12 @@ mod actor_templates;
 mod actor_values;
 #[path = "actor_values_live.rs"]
 mod actor_values_live;
-#[path = "ai_04_package_fragments.rs"]
-mod ai_04_package_fragments;
 #[path = "ai_04_adversarial.rs"]
 mod ai_04_adversarial;
+#[path = "ai_04_breaker_adversarial.rs"]
+mod ai_04_breaker_adversarial;
+#[path = "ai_04_package_fragments.rs"]
+mod ai_04_package_fragments;
 #[path = "ai_05_breaker_adversarial.rs"]
 mod ai_05_breaker_adversarial;
 #[path = "ai_05_package_flags.rs"]

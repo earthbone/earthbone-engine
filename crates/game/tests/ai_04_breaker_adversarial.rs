@@ -221,3 +221,55 @@ fn ai_04_end_fragment_runs_once_when_schedule_selects_no_replacement() {
         Some(Value::Object(actor))
     );
 }
+
+#[test]
+fn ai_04_installed_pack_fragment_survey() {
+    let Some(order) = crate::common::installed::load_order(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ]) else {
+        eprintln!("SKYRIM_DATA not set, skipping installed PACK fragment survey");
+        return;
+    };
+
+    let mut packs = 0;
+    let mut vmads = 0;
+    let mut fragments = [0; 3];
+    for (id, record) in order
+        .winners_of(Tag(*b"PACK"))
+        .filter(|(_, record)| !record.is_deleted())
+    {
+        packs += 1;
+        let Some(raw) = record.find(Tag(*b"VMAD")) else {
+            continue;
+        };
+        let parsed = Vmad::parse(raw, Tag(*b"PACK"))
+            .unwrap_or_else(|error| panic!("{id}: invalid PACK VMAD: {error}"));
+        vmads += 1;
+        if let Some(pack) = parsed.pack_fragments {
+            fragments[0] += usize::from(pack.begin.is_some());
+            fragments[1] += usize::from(pack.end.is_some());
+            fragments[2] += usize::from(pack.change.is_some());
+        }
+    }
+
+    // Thresholds are fixed before the installed-data survey.
+    assert!(
+        packs > 100,
+        "expected installed PACK records, found {packs}"
+    );
+    assert!(
+        vmads > 0,
+        "installed PACK records contain no VMAD subrecords"
+    );
+    assert!(
+        fragments.iter().sum::<usize>() > 0,
+        "no installed PACK fragments found"
+    );
+    eprintln!(
+        "installed PACK survey: {packs} PACK records, {vmads} VMADs, fragments {fragments:?}"
+    );
+}
