@@ -270,7 +270,7 @@ impl PlayerNode {
         }
     }
 
-    fn release_host_telekinesis(&mut self) {
+    pub(super) fn release_host_telekinesis(&mut self) {
         if let Some(target) = self.host_telekinesis_target.take() {
             if let Some(game) = &mut self.game {
                 let world = game.shared_world();
