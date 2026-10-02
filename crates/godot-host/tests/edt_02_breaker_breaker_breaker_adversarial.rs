@@ -104,5 +104,7 @@ fn edt_02_search_path_never_builds_resources_and_missing_selection_exits_before_
     assert!(!page.contains("selected_form("));
     assert!(selection.contains("form_table.selected_form("));
     assert!(selected.find("winner_ref(id)?").unwrap() < selected.find("from_init_fn").unwrap());
-    assert!(selected.find("from_init_fn").unwrap() < selected.find("resources_created += 1").unwrap());
+    assert!(
+        selected.find("from_init_fn").unwrap() < selected.find("resources_created += 1").unwrap()
+    );
 }
