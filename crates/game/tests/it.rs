@@ -606,8 +606,12 @@ mod hst_16_translation;
 mod hst_17_camera_controls;
 #[path = "hst_18_adversarial.rs"]
 mod hst_18_adversarial;
+#[path = "hst_18_breaker2_adversarial.rs"]
+mod hst_18_breaker2_adversarial;
 #[path = "hst_19_adversarial.rs"]
 mod hst_19_adversarial;
+#[path = "hst_19_breaker2_adversarial.rs"]
+mod hst_19_breaker2_adversarial;
 #[path = "hst_19_screenshot_request.rs"]
 mod hst_19_screenshot_request;
 #[path = "image_space.rs"]
@@ -872,6 +876,8 @@ mod prf_09_profiling;
 mod prf_10_adversarial;
 #[path = "prf_10_breaker_adversarial.rs"]
 mod prf_10_breaker_adversarial;
+#[path = "prf_10_breaker2_adversarial.rs"]
+mod prf_10_breaker2_adversarial;
 #[path = "prf_10_budgets.rs"]
 mod prf_10_budgets;
 #[path = "prg_01_adversarial.rs"]
