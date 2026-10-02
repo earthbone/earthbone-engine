@@ -904,9 +904,21 @@ other engine default here.
 
 No vanilla Papyrus event announces a stagger. A search of the local
 `ck-wiki` corpus, both `HTML_FALLBACK.txt` and `FAILED.txt`, found no
-stagger-related event anywhere. Host and render code reads
-`ActorState::stagger_end_time` or calls `World::is_staggered` directly
-instead of waiting on a fabricated event.
+stagger-related event anywhere. `SkinnedActorNode` reads the bound actor's
+stagger deadline and magnitude from the shared `World`, sends the graph's
+`staggerStart` event with that magnitude, and sends `staggerStop` when the
+real-time deadline expires. Its tracker sends each transition once and sends
+a new start when a later hit extends an active stagger. The local
+`activeragdoll/src/main.cpp::StaggerActor` follows the same graph contract by
+setting `staggerMagnitude` and notifying `staggerStart`; its direction
+calculation is not used by this host path.
+
+The CMB-27 installed-data check runs a shared `Game` melee hit, polls the same
+world handoff used by `SkinnedActorNode`, and feeds the resulting event to the
+vanilla human behavior graph. It checks that an authored stagger clip plays,
+that the graph returns to its moving state after the shared deadline, and that
+the hit damages health only once. The check requires `SKYRIM_DATA` and fails
+when the installed data is unavailable rather than reporting a pass.
 
 Stagger thresholds do not use perk membership. The evaluated combat modifier
 entries can change hit damage before stagger magnitude is calculated, but they

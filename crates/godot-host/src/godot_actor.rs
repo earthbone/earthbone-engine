@@ -79,8 +79,9 @@ struct AppearanceBinding {
     animation_cursor: AnimationEventCursor,
 }
 
+/// A graph event derived from the bound actor's shared stagger deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaggerGraphEvent {
+pub enum StaggerGraphEvent {
     Start,
     Stop,
 }
@@ -91,13 +92,28 @@ pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
     vm.send_event_named("staggerStart")
 }
 
+/// Tracks which stagger transition the actor graph has already received.
 #[derive(Default)]
-struct StaggerTracker {
+pub struct StaggerTracker {
     last_deadline: Option<f64>,
     active: bool,
 }
 
 impl StaggerTracker {
+    /// Read the bound actor's stagger state from the shared game world.
+    pub fn poll(
+        &mut self,
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+    ) -> Option<(StaggerGraphEvent, f32)> {
+        let state = world
+            .actor(actor)
+            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
+        let (deadline, magnitude) = state?;
+        self.observe(deadline, world.clock.real_seconds)
+            .map(|event| (event, magnitude as f32))
+    }
+
     fn observe(&mut self, deadline: Option<f64>, now: f64) -> Option<StaggerGraphEvent> {
         if self.last_deadline != deadline {
             self.last_deadline = deadline;
@@ -721,14 +737,7 @@ impl SkinnedActorNode {
             return None;
         };
         let mut world = binding.world.borrow_mut();
-        let state = world
-            .actor(binding.actor)
-            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
-        let (deadline, magnitude) = state?;
-        binding
-            .stagger
-            .observe(deadline, world.clock.real_seconds)
-            .map(|event| (event, magnitude as f32))
+        binding.stagger.poll(&mut world, binding.actor)
     }
 
     fn apply_queued_impulses(&mut self) {
