@@ -125,6 +125,10 @@ keyword. `RE::TESQuestStartStopEvent` matches CommonLib's 8-byte form id, starte
 flag and two-byte padding layout. The Rust shim event carries the resolved runtime form id and
 the quest's failed state. `soe-game` emits it after successful start and stop transitions through
 the MIT event sink API.
+The SHM-23 game integration test streams those emitted payloads to a compiled C++ event sink.
+The C++ sink checks successful start and failed-stop fields, plus the unsupported trampoline
+diagnostic. This test transport connects the live Rust world to the source-level C++ contract
+without adding a C ABI.
 
 The SHM-02 fixture models Papyrus Extender's startup shape cited from
 `engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
@@ -356,9 +360,10 @@ player and process-list reads against synthetic `World` state. SHM-20 compiles t
 payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
-rejection marker. A game integration test checks that live quest start and failed-stop transitions
-reach the MIT sink with current state. No surveyed plugin has been compiled against the headers or
-loaded, and the generated declarations are not linked to engine behavior or a C++ to Rust ABI.
+rejection marker. A game integration test streams live quest start and failed-stop events through
+the MIT sink into a compiled C++ consumer, which checks their payload fields. This test transport
+does not add a C++ to Rust ABI. No surveyed plugin has been compiled against the headers or loaded,
+and the generated declarations are not generally linked to engine behavior.
 The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
