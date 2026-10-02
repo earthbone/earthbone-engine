@@ -406,9 +406,13 @@ impl INode3D for PlayerNode {
         if let Some(game) = self.game.as_mut() {
             if let Some(view) = self.hud_view.as_mut() {
                 view.refresh(game, self.rig.yaw());
+                view.set_cart_mode(game.world().hud_cart_mode);
             }
         } else if let Some(view) = self.hud_view.as_mut() {
             view.hide();
+        }
+        if let Some(view) = self.hud_view.as_mut() {
+            view.tick_presentation(delta);
         }
     }
 

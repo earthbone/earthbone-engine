@@ -211,6 +211,9 @@ impl PlayerNode {
                         self.base_mut().emit_signal("race_menu_requested", &[]);
                     }
                     soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        if let Some(view) = self.hud_view.as_mut() {
+                            view.trigger_screen_blood(value);
+                        }
                         self.base_mut()
                             .emit_signal("screen_blood_requested", &[Variant::from(value)]);
                     }

@@ -488,8 +488,11 @@ Papyrus calls return void, rejected requests are recorded in
 `World::advance_skill`. Invalid use is recorded there as a native diagnostic.
 The signatures and short behavior descriptions come from the local
 `ck-wiki/Game_Script.wikitext`, since individual pages for these five
-functions are absent. Skill effects use the record-backed AVIF and GMST path
-documented in [progression](progression.md).
+functions are absent. The host displays cart mode, the race editor and a
+timed screen blood overlay. `PlayBink` reaches the host as a signal with all
+four options, but Bink decoding and playback are not implemented. Skill
+effects use the record-backed AVIF and GMST path documented in
+[progression](progression.md).
 
 **World reference placement.** `World::ref_placement` (in `world/refs.rs`) is
 the read-only view a host uses to keep rendering and collision resources in

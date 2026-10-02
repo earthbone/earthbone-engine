@@ -338,13 +338,25 @@ local reference corpus, which was unavailable from this worktree during conflict
 ### Game native presentation signals, SCR-29
 
 `PlayerNode` drains transient `GameUiRequest` values from the shared `World`
-after each gameplay tick. It emits `race_menu_requested`,
-`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
-mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
-native. A change to `World::hud_cart_mode` emits
-`hud_cart_mode_changed(enabled)`. These signals are the host presentation
-boundary. A connected UI or media presenter supplies the corresponding race
-editor, overlay and video playback.
+after each gameplay tick. It opens the native race editor for `ShowRaceMenu`,
+shows a red screen overlay for `TriggerScreenBlood`, and emits the matching
+`race_menu_requested` and `screen_blood_requested(value)` signals. Blood
+intensity is the absolute native value clamped to 100 percent, and the overlay
+lasts 450 milliseconds. The HUD shows a `CART` badge while the shared
+`World::hud_cart_mode` flag is set and emits `hud_cart_mode_changed(enabled)`
+when that value changes.
+
+`PlayBink` preserves its file name and four playback options in the host
+`bink_requested` signal. The Godot `VideoStreamPlayer` documented in local
+`engine-refs/godot-docs/classes/class_videostreamplayer.rst` supports Ogg
+Theora or a video GDExtension decoder. This host has no Bink decoder or video
+presenter, so `.bik` playback remains unsupported. The local CK
+`engine-refs/ck-wiki/Game_Script.wikitext` supplies the five Game native
+signatures and describes `PlayBink` as Bink playback.
+
+`godot/scr_29_game_ui_test.gd` checks the visible race menu and HUD presenter
+controls against installed Skyrim data. Rust host tests check cart-mode state
+and the screen blood overlay's intensity and lifetime.
 
 ## EffectShader playback, MAG-14
 
