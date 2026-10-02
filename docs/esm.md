@@ -57,11 +57,17 @@ does not inspect nested `VMAD` links.
 
 The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
 and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
-links must retain their target identity while a mod is reorganized. Spriggit's
+all matching FormLinks across records are traversed. Mutagen's Skyrim
+`Records/Common Subrecords/AVirtualMachineAdapter.cs` defines typed VMAD object
+and object-array links for both object formats. Spriggit's
 `docs/spriggit-file.md` describes stable plugin identity across text
-serialization. The Rust plugin model retains raw subrecords instead of
-Mutagen's complete typed record graph, so this implementation relocates its
-known typed links and preserves other fields unchanged.
+serialization, and its Skyrim `VirtualMachineAdapterCustomization` sorts script
+entries without changing their FormKeys. The Rust plugin model retains raw
+subrecords instead of Mutagen's complete typed record graph, so this operation
+relocates the recognized fields listed here and preserves other fields
+unchanged. `tests/fmt_15_renumber.rs` independently records VMAD object-link
+offsets in both formats and a QUST alias, then compares the entire payload
+after serialization and reload so non-link bytes must remain unchanged.
 
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
