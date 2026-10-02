@@ -21,7 +21,10 @@ fn declared_modules(path: &Path) -> Vec<String> {
         .unwrap()
         .lines()
         .filter_map(|line| {
-            let declaration = line.trim().strip_prefix("pub(crate) ").unwrap_or(line.trim());
+            let declaration = line
+                .trim()
+                .strip_prefix("pub(crate) ")
+                .unwrap_or(line.trim());
             declaration
                 .strip_prefix("mod ")
                 .and_then(|name| name.strip_suffix(';'))
