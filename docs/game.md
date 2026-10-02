@@ -4038,11 +4038,11 @@ has the required actor state, because CK's `WillIntimidateSucceed` points to
 the unimplemented "Mod Player Intimidation" perk entry point; subjects without
 the required confidence value return `Error::StateContract(655)`. Nonzero
 unused parameter slots and subjects without actor state return explicit
-errors for implemented predicates. `GetArrestingActor` (657) remains
-unsupported: CK's `IsArrestingTarget` describes a live guard arrest
-interaction, but the runtime has no arresting-target state to evaluate. Its
-condition reports `Error::Function(657)` instead of guessing from combat or
-alert state. Function IDs and parameter counts follow local xEdit
+errors for implemented predicates. `GetArrestingActor` (657) follows CK's
+`IsArrestingTarget`: it returns false for non-guards and non-alerted guards.
+The runtime does not track an alerted guard's active arrest interaction, so
+that context returns `Error::Unavailable(657)`. Function IDs and parameter
+counts follow local xEdit
 `wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
 contracts follow the local CK `SetBribed`, `SetIntimidated`, `IsIntimidated`,
 `IsArrested`, `IsArrestingTarget` and `WillIntimidateSucceed` pages.

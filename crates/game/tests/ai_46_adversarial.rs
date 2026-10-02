@@ -120,7 +120,7 @@ fn ai_46_intimidate_success_does_not_treat_missing_confidence_as_a_contract() {
 #[test]
 fn ai_46_all_implemented_functions_reject_both_parameter_slots() {
     let game = game();
-    for function in [654, 655, 656] {
+    for function in [654, 655, 656, 657] {
         for parameters in [[1, 0], [0, 1]] {
             let bad_slot = if parameters[0] != 0 {
                 parameters[0]
@@ -163,6 +163,6 @@ fn ai_46_arresting_actor_returns_a_contract_diagnostic_even_without_actor_contex
     let game = game();
     assert_eq!(
         evaluate(&game, id(0x999), &condition(657, 1.0, [0, 0])),
-        Err(conditions::Error::Function(657))
+        Err(conditions::Error::Form(id(0x999)))
     );
 }

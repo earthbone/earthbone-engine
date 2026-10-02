@@ -36,7 +36,11 @@ fn condition(function: u16, expected: f32) -> Condition {
     }
 }
 
-fn evaluate(game: &Game, subject: GlobalFormId, condition: &Condition) -> Result<bool, conditions::Error> {
+fn evaluate(
+    game: &Game,
+    subject: GlobalFormId,
+    condition: &Condition,
+) -> Result<bool, conditions::Error> {
     conditions::evaluate_one(
         &mut game.world_mut(),
         &game.vm,
@@ -65,4 +69,29 @@ fn ai_46_arresting_query_is_false_for_a_non_guard() {
     // CK IsArrestingTarget always returns false when called on a non-guard.
     assert_eq!(evaluate(&game, id(0x900), &condition(657, 0.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &condition(657, 1.0)), Ok(false));
+}
+
+#[test]
+fn ai_46_arresting_query_is_false_for_a_non_alerted_guard() {
+    let game = game();
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .factions
+        .insert(id(0x86eee), 0);
+    assert_eq!(evaluate(&game, id(0x900), &condition(657, 1.0)), Ok(false));
+}
+
+#[test]
+fn ai_46_alerted_guard_arresting_query_reports_unavailable_live_state() {
+    let game = game();
+    let mut world = game.world_mut();
+    let guard = world.actor(id(0x900)).unwrap();
+    guard.factions.insert(id(0x86eee), 0);
+    guard.alerted = true;
+    drop(world);
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(657, 1.0)),
+        Err(conditions::Error::Unavailable(657))
+    );
 }
