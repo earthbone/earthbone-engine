@@ -58,11 +58,11 @@ fn evaluate(game: &Game, subject: GlobalFormId, condition: &Condition) -> Result
     )
 }
 
-/// ai_46_get_arresting_actor_is_false_for_a_non_guard
+/// ai_46_arresting_query_is_false_for_a_non_guard
 #[test]
-fn ai_46_get_arresting_actor_is_false_for_a_non_guard() {
+fn ai_46_arresting_query_is_false_for_a_non_guard() {
     let game = game();
-    // CK IsArrestingTarget returns false when called on a non-guard.
+    // CK IsArrestingTarget always returns false when called on a non-guard.
     assert_eq!(evaluate(&game, id(0x900), &condition(657, 0.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &condition(657, 1.0)), Ok(false));
 }
