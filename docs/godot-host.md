@@ -2616,6 +2616,12 @@ uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
 approximation because the CK pages do not state the force unit expected by
 the physics solver.
 
+`godot/cmb_38_ragdoll_test.gd` loads a vanilla Bannered Mare actor, explicitly
+adds its ragdoll, queues `PushActorAway` through the shared `World`, and checks
+that Jolt changes the root body's velocity. It then removes the explicit
+ragdoll and checks that the bodies are freed and animated rendering resumes.
+The host bridge calls the same `World` methods used by the Papyrus natives.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears

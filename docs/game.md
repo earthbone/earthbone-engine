@@ -7615,6 +7615,12 @@ the actor's independent unconscious state. The CK pages do not define an impulse
 unit conversion or explosion game-setting evaluation, so those details remain
 outside this implementation.
 
+`cmb_38_area_magnitude_and_radius_follow_the_ck_argument_contract` checks the
+documented magnitude and radius inputs. `godot/cmb_38_ragdoll_test.gd` loads a
+vanilla actor, toggles its Jolt ragdoll through the host bridge, and checks
+that a queued push changes the root body's velocity before removal restores
+the animated representation.
+
 Source pages read: `engine-refs/ck-wiki/PushActorAway_-_ObjectReference.wikitext`,
 `KnockAreaEffect_-_ObjectReference.wikitext`,
 `ForceAddRagdollToWorld_-_ObjectReference.wikitext` and
