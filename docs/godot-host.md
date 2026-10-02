@@ -96,6 +96,10 @@ Releasing Activate returns its body to rigid mode. The grabbed reference is
 cleared when the cell is replaced. These values are transient and are not
 saved.
 
+The host also sends the active first-person POV to Game each camera-control
+sync. CTDA function 391 reads this value, and function 463 compares its REFR
+parameter with the current grabbed reference.
+
 The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.

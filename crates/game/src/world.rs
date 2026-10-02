@@ -798,6 +798,7 @@ pub struct World {
     /// Host interaction results for the current rendered frame.
     crosshair_reference: Option<GlobalFormId>,
     grabbed_reference: Option<GlobalFormId>,
+    player_first_person: bool,
     /// Save character ID used by deterministic SPID distribution rules.
     player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -1147,6 +1148,7 @@ impl World {
             player: None,
             crosshair_reference: None,
             grabbed_reference: None,
+            player_first_person: true,
             player_character_id: 0,
             player_level: 1,
             training_sessions_this_level: 0,

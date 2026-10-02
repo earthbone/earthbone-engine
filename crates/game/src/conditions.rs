@@ -2645,9 +2645,19 @@ fn function_value(
                     .is_some_and(|state| !state.deleted),
             )
         }
-        391 | 415 | 416 => {
+        391 => {
             no_parameter(c)?;
-            return Err(Error::Context(c.function));
+            boolean(world.player_first_person())
+        }
+        415 | 416 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            let (members, targets) = world.combat_group_counts(subject).unwrap_or_default();
+            if c.function == 415 {
+                members as f32
+            } else {
+                targets as f32
+            }
         }
         426 => {
             let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
@@ -2675,8 +2685,11 @@ fn function_value(
             boolean(world.type_code(base) == raw as i32)
         }
         463 => {
-            resolve_reference(world, context.owner, raw)?;
-            return Err(Error::Context(c.function));
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let reference = resolve_reference(world, context.owner, raw)?;
+            boolean(world.grabbed_reference() == Some(reference))
         }
         74 => {
             let global = resolve(world, context.owner, raw, Some(*b"GLOB"))?;

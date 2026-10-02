@@ -19,7 +19,7 @@ fn fixture() -> Game {
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x801).sub(Tag(*b"VTCK"), 0x831_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"VTYP"), 0x830));
     plugin.push_top(Record::new(Tag(*b"VTYP"), 0x831));
-    for object in [0x900, 0x901] {
+    for object in [0x900, 0x901, 0x902] {
         plugin.push_top(Record::new(Tag(*b"ACHR"), object).sub(
             Tag(*b"NAME"),
             if object == 0x900 { 0x800_u32 } else { 0x801 }.to_le_bytes(),
@@ -154,20 +154,96 @@ fn ai_75_functions_reject_wrong_forms_and_invalid_parameters() {
 }
 
 #[test]
-fn ai_75_camera_group_and_grab_queries_report_missing_context() {
+fn ai_75_first_person_condition_tracks_host_pov_and_rejects_parameters() {
     let game = fixture();
-    for function in [391, 415, 416, 463] {
-        assert!(conditions::supports_function(function));
-        let parameter = if function == 463 { 0x910 } else { 0 };
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, parameter, 1.0)),
-            Err(conditions::Error::Context(function)),
-            "{function}"
-        );
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, parameter, 0.0)),
-            Err(conditions::Error::Context(function)),
-            "{function}"
-        );
-    }
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(391, 0, 1.0)),
+        Ok(true)
+    );
+    game.world_mut().set_player_first_person(false);
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(391, 0, 0.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(391, 0, 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(391, 1, 1.0)),
+        Err(conditions::Error::Parameter(391, 1))
+    );
+}
+
+#[test]
+fn ai_75_combat_group_conditions_count_connected_members_and_targets() {
+    let game = fixture();
+    game.world_mut().actor(id(0x900)).unwrap().combat_target = Some(id(0x901));
+    game.world_mut().actor(id(0x901)).unwrap().combat_target = Some(id(0x902));
+
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(415, 0, 2.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(415, 0, 3.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(416, 0, 2.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(416, 0, 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x902), &condition(415, 0, 0.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(415, 1, 2.0)),
+        Err(conditions::Error::Parameter(415, 1))
+    );
+    assert!(matches!(
+        evaluate(&game, id(0x910), &condition(415, 0, 1.0)),
+        Err(conditions::Error::Form(_))
+    ));
+    assert!(matches!(
+        evaluate(&game, id(0x910), &condition(416, 0, 1.0)),
+        Err(conditions::Error::Form(_))
+    ));
+}
+
+#[test]
+fn ai_75_grabbed_reference_condition_matches_current_host_reference() {
+    let game = fixture();
+    game.world_mut().set_grabbed_reference(Some(id(0x910)));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(463, 0x910, 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(463, 0x900, 0.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(463, 0x900, 1.0)),
+        Ok(false)
+    );
+    assert!(matches!(
+        evaluate(&game, id(0x900), &condition(463, 0, 1.0)),
+        Err(conditions::Error::Form(_))
+    ));
+    assert_eq!(
+        evaluate(
+            &game,
+            id(0x900),
+            &Condition {
+                parameters: [0x910, 1],
+                ..condition(463, 0x910, 1.0)
+            }
+        ),
+        Err(conditions::Error::Parameter(463, 1))
+    );
 }
