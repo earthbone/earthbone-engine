@@ -21,6 +21,9 @@ const LOW: u32 = 0x400;
 const MID: u32 = 0x401;
 const HIGH: u32 = 0x402;
 const SHOUT: u32 = 0x403;
+const LOW_ALT: u32 = 0x404;
+const MID_ALT: u32 = 0x405;
+const HIGH_ALT: u32 = 0x406;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -72,7 +75,7 @@ fn plugin(records: Vec<Record>, spells: &[u32]) -> Plugin {
                 .sub(T(b"DATA"), vec![0; 24]),
         );
     }
-    for spell in [LOW, MID, HIGH] {
+    for spell in [LOW, MID, HIGH, LOW_ALT, MID_ALT, HIGH_ALT] {
         plugin.push_top(Record::new(T(b"SPEL"), spell));
     }
     plugin.push_top(Record::new(T(b"SHOU"), SHOUT));
@@ -122,6 +125,103 @@ fn use_all_respects_highest_level_or_all_levels_flag() {
         ids(&[LOW, MID])
     );
     assert!(world.select_leveled_spells(id(CHILD), 0).is_err());
+}
+
+#[test]
+fn prg_21_all_six_level_flags_select_their_expected_candidates() {
+    let flags = [0, 1, 4, 5, 6, 7];
+    let mut records = Vec::new();
+    for (index, flag) in flags.into_iter().enumerate() {
+        records.push(list(
+            ROOT + index as u32,
+            flag,
+            0,
+            &[(1, LOW, 1), (10, MID, 1), (20, HIGH, 1)],
+        ));
+    }
+    let mut world = world(records, &[]);
+
+    for level in [1, 10, 20] {
+        for (index, flag) in flags.iter().copied().enumerate() {
+            let selected = world
+                .select_leveled_spells(id(ROOT + index as u32), level)
+                .unwrap();
+            let eligible = match flag & 1 {
+                0 => match level {
+                    1 => ids(&[LOW]),
+                    10 => ids(&[MID]),
+                    20 => ids(&[HIGH]),
+                    _ => unreachable!(),
+                },
+                _ => match level {
+                    1 => ids(&[LOW]),
+                    10 => ids(&[LOW, MID]),
+                    20 => ids(&[LOW, MID, HIGH]),
+                    _ => unreachable!(),
+                },
+            };
+            if flag & 4 != 0 {
+                assert_eq!(selected, eligible, "flags {flag}, level {level}");
+            } else {
+                assert_eq!(selected.len(), 1, "flags {flag}, level {level}");
+                assert!(eligible.contains(selected.iter().next().unwrap()));
+            }
+        }
+    }
+}
+
+#[test]
+fn prg_21_nested_use_all_keeps_the_same_level_and_count_rolls() {
+    let mut world = world(
+        vec![
+            list(ROOT, 0, 0, &[(1, CHILD, 32)]),
+            list(
+                CHILD,
+                6,
+                0,
+                &[(1, ROOT + 2, 1), (10, ROOT + 3, 1), (20, ROOT + 4, 1)],
+            ),
+            list(ROOT + 2, 0, 0, &[(1, LOW, 1), (1, LOW_ALT, 1)]),
+            list(ROOT + 3, 0, 0, &[(1, MID, 1), (1, MID_ALT, 1)]),
+            list(ROOT + 4, 0, 0, &[(1, HIGH, 1), (1, HIGH_ALT, 1)]),
+        ],
+        &[],
+    );
+    for level in [1, 10, 20] {
+        let selected = world.select_leveled_spells(id(ROOT), level).unwrap();
+        let expected = match level {
+            1 => ids(&[LOW, LOW_ALT]),
+            10 => ids(&[MID, MID_ALT]),
+            20 => ids(&[HIGH, HIGH_ALT]),
+            _ => unreachable!(),
+        };
+        assert_eq!(selected, expected, "level {level}");
+    }
+
+    world.leveled_list(id(CHILD)).unwrap().flags = 7;
+    assert_eq!(
+        world.select_leveled_spells(id(ROOT), 20).unwrap(),
+        ids(&[LOW, LOW_ALT, MID, MID_ALT, HIGH, HIGH_ALT])
+    );
+}
+
+#[test]
+fn prg_21_chance_none_zero_and_one_hundred_bound_the_selection() {
+    let mut world = world(
+        vec![
+            list(ROOT, 5, 0, &[(1, LOW, 1), (10, MID, 1)]),
+            list(CHILD, 5, 100, &[(1, LOW, 1), (10, MID, 1)]),
+        ],
+        &[],
+    );
+    assert_eq!(
+        world.select_leveled_spells(id(ROOT), 10).unwrap(),
+        ids(&[LOW, MID])
+    );
+    assert!(world
+        .select_leveled_spells(id(CHILD), 10)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -304,7 +404,7 @@ fn excessive_depth_and_expansion_return_errors() {
 }
 
 #[test]
-fn installed_leveled_spell_lists_resolve_only_concrete_spells() {
+fn prg_21_installed_leveled_spell_lists_resolve_only_concrete_spells() {
     let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping leveled spell survey");
         return;
@@ -330,7 +430,7 @@ fn installed_leveled_spell_lists_resolve_only_concrete_spells() {
         *flags
             .entry(world.leveled_list(*list).unwrap().flags)
             .or_default() += 1;
-        for level in [1, 10, 50] {
+        for level in [1, 10, 20] {
             let spells = world
                 .select_leveled_spells(*list, level)
                 .unwrap_or_else(|error| panic!("{list} at level {level}: {error}"));
