@@ -138,7 +138,7 @@ impl World {
             }
             let mut value = RecordOverride::new(id, record.clone());
             if let Some((flags, _)) = extra.form_flags {
-                value.record.flags = flags;
+                value.record.flags ^= flags;
             }
             value.dialogue = Some(extra);
             overrides.insert(id, value);

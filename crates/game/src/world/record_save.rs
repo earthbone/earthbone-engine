@@ -364,7 +364,7 @@ impl World {
             }
             record.subrecords = subrecords;
             if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
-                record.flags = flags;
+                record.flags ^= flags;
             }
             if matches!(record.tag.as_bytes(), b"CELL" | b"LCTN" | b"ECZN") {
                 if (plain_full && record.tag != T(b"CELL"))

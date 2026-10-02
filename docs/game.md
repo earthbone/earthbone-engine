@@ -2747,10 +2747,13 @@ record flags on instantiated references. Version
 37 persists INFO said-once markers, SMQN last-run float bit patterns, and SCEN
 active markers and opaque active data in record overrides. The
 `World::restore_vanilla_dialogue_scene_changes` path validates all targets
-before applying them. INFO state updates dialogue history, SCEN state updates
-the playing-scene set, and the record accessors expose the saved values. INFO
-has no saved timestamp, so its said-once marker uses the current game day.
-Version 37 also retains PACK and NAVM change markers in record overrides.
+before applying them. Saved `CHANGE_FORM_FLAGS` bits toggle the matching live
+record flags. INFO state updates dialogue history, SCEN state updates the
+playing-scene set and starts active scenes at phase zero, and the record
+accessors expose the saved values. The SCEN active payload remains opaque and
+does not restore saved phase or action progress. INFO has no saved timestamp,
+so its said-once marker uses the current game day. Version 37 also retains
+PACK and NAVM change markers in record overrides.
 
 SAV-58 stores opaque unresolved record payloads and plugin-relative links in a
 world section. These records are not installed into the live form table.
