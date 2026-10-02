@@ -4,6 +4,7 @@
 //! AI-33 Find target identity edge cases.
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule, Target};
 use soe_game::Game;
@@ -93,27 +94,19 @@ fn make_game(target: Target) -> Game {
 }
 
 #[test]
-fn ai_33_find_self_target_returns_the_actor_reference() {
+fn ai_33_find_self_target_skips_the_searching_actor() {
     let game = make_game(Target::Itself);
-    assert_eq!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .found_reference,
-        Some(id(ACTOR))
-    );
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
+    assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
+    assert_eq!(ai.found_reference, None);
 }
 
 #[test]
-fn ai_33_find_specific_reference_can_select_the_actor_reference() {
+fn ai_33_find_specific_reference_skips_the_searching_actor() {
     let game = make_game(Target::Reference(ACTOR));
-    assert_eq!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .found_reference,
-        Some(id(ACTOR))
-    );
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
+    assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
+    assert_eq!(ai.found_reference, None);
 }
