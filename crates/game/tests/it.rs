@@ -316,6 +316,8 @@ mod ai_89_mounted_patrol;
 mod ai_90_adversarial;
 #[path = "ai_91_adversarial.rs"]
 mod ai_91_adversarial;
+#[path = "ai_91_breaker_adversarial.rs"]
+mod ai_91_breaker_adversarial;
 #[path = "anm_09_adversarial.rs"]
 mod anm_09_adversarial;
 #[path = "anm_09_oar_runtime.rs"]
