@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Runs the dialogue voice path in Godot and captures samples from its mixer.
-//! Build the release extension and set `SOE_GODOT_BIN` to enable this test.
+//! Set `SOE_GODOT_BIN` to enable this test, which builds the release extension.
 
 use soe_audio::{fuz, SoundSource};
 use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
@@ -161,15 +161,23 @@ fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
     let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
     let Some(godot) = godot_binary() else {
         eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
         return;
     };
-    if !extension.exists() {
-        eprintln!("skipping: build the release GDExtension before running this test");
-        return;
-    }
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");

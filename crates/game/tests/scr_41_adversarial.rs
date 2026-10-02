@@ -203,7 +203,11 @@ fn scr_41_tether_places_horse_at_cart_relative_position() {
     let horse = Value::Object(game.object_of_form(id(ORDINARY)));
     call_with_args(&mut game, id(TRIGGER), "TetherToHorse", &[horse]);
     let horse = game.world_mut().reference(id(ORDINARY)).unwrap().position;
-    assert_eq!(horse, [10.0, -80.0, 30.0]);
+    assert_eq!(
+        horse,
+        [82.0, 320.0, 30.0],
+        "CK TetherToHorse offsets the horse by [72, 300, 0] from the cart"
+    );
 }
 
 #[test]
