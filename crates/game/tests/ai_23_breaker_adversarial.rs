@@ -50,9 +50,7 @@ fn game() -> Game {
         )
         .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
-    plugin.push_top(
-        Record::new(T(b"IDLM"), MARKER_BASE).sub(T(b"IDLA"), IDLE.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(T(b"IDLM"), MARKER_BASE).sub(T(b"IDLA"), IDLE.to_le_bytes()));
     plugin.push_top(
         Record::new(T(b"IDLE"), IDLE)
             .zsub(T(b"EDID"), "IdleEditorId")

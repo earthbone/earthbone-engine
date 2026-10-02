@@ -68,12 +68,16 @@ mod ai_22_follow;
 mod ai_23_adversarial;
 #[path = "ai_23_breaker_adversarial.rs"]
 mod ai_23_breaker_adversarial;
+#[path = "ai_23_breaker_adversarial_2.rs"]
+mod ai_23_breaker_adversarial_2;
 #[path = "ai_24_adversarial.rs"]
 mod ai_24_adversarial;
 #[path = "ai_25_adversarial.rs"]
 mod ai_25_adversarial;
 #[path = "ai_25_breaker_adversarial.rs"]
 mod ai_25_breaker_adversarial;
+#[path = "ai_25_breaker_adversarial_2.rs"]
+mod ai_25_breaker_adversarial_2;
 #[path = "ai_25_orbit.rs"]
 mod ai_25_orbit;
 #[path = "ai_26_adversarial.rs"]
@@ -100,6 +104,8 @@ mod ai_31_adversarial;
 mod ai_32_adversarial;
 #[path = "ai_33_adversarial.rs"]
 mod ai_33_adversarial;
+#[path = "ai_33_breaker_adversarial.rs"]
+mod ai_33_breaker_adversarial;
 #[path = "ai_33_find.rs"]
 mod ai_33_find;
 #[path = "ai_35_adversarial.rs"]

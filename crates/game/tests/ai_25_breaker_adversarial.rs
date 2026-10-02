@@ -122,8 +122,14 @@ fn game() -> Game {
     );
     plugin.push_top(package::with_actions(package::finish(package)));
     plugin.push_top(
-        npc::build_record(BASE, "OrbitActor", "Orbit actor", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "OrbitActor",
+            "Orbit actor",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
 
     let cell = plugin.push_record(Record::new(T(b"CELL"), CELL).sub(T(b"DATA"), [1u8, 0]));
@@ -148,7 +154,9 @@ fn game() -> Game {
     plugin.groups.push(top);
 
     let mut order = LoadOrder::new();
-    order.add("OrbitGap.esm", Plugin::parse(&plugin.to_bytes()).unwrap()).unwrap();
+    order
+        .add("OrbitGap.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
     let mut game = Game::new(order);
     assert!(game.world_mut().drive_actor(id(ACTOR)));
     game.tick(0.1);
@@ -161,8 +169,15 @@ fn ai_25_high_speed_orbit_tracks_its_radius_around_a_navmesh_hole() {
     game.world_mut().actor(id(ACTOR)).unwrap().ai.speed = 1000.0;
     game.world_mut().reference(id(ACTOR)).unwrap().position = [200.03, 200.03, 0.0];
     let start = game.world_mut().reference(id(ACTOR)).unwrap().position;
-    assert_eq!(game.world().actor_ref(id(ACTOR)).unwrap().ai.procedure, Procedure::Orbit { height: 0.0 });
-    let route_end = [150.0 + 70.75 * 0.6f32.cos(), 150.0 + 70.75 * 0.6f32.sin(), 0.0];
+    assert_eq!(
+        game.world().actor_ref(id(ACTOR)).unwrap().ai.procedure,
+        Procedure::Orbit { height: 0.0 }
+    );
+    let route_end = [
+        150.0 + 70.75 * 0.6f32.cos(),
+        150.0 + 70.75 * 0.6f32.sin(),
+        0.0,
+    ];
     assert!(soe_game::ai::nav_graph(&mut game.world_mut())
         .find_path_between(start, route_end)
         .is_some());
@@ -171,13 +186,21 @@ fn ai_25_high_speed_orbit_tracks_its_radius_around_a_navmesh_hole() {
         let mut world = game.world_mut();
         let position = world.reference(id(ACTOR)).unwrap().position;
         let radius = (position[0] - 150.0).hypot(position[1] - 150.0);
-        assert!((70.7..=70.8).contains(&radius), "Orbit left its authored radius: {radius}");
-        assert!(soe_game::ai::nav_graph(&mut world).locate(position).is_some());
+        assert!(
+            (70.7..=70.8).contains(&radius),
+            "Orbit left its authored radius: {radius}"
+        );
+        assert!(soe_game::ai::nav_graph(&mut world)
+            .locate(position)
+            .is_some());
     }
     let mut world = game.world_mut();
     let end = world.reference(id(ACTOR)).unwrap().position;
     let radius = (end[0] - 150.0).hypot(end[1] - 150.0);
     assert!(start != end, "Orbit stalled at the navmesh-hole corner");
-    assert!((70.7..=70.8).contains(&radius), "Orbit left its authored radius: {radius}");
+    assert!(
+        (70.7..=70.8).contains(&radius),
+        "Orbit left its authored radius: {radius}"
+    );
     assert!(soe_game::ai::nav_graph(&mut world).locate(end).is_some());
 }
