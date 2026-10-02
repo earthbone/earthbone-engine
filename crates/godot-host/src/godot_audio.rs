@@ -310,6 +310,7 @@ impl SoundBank {
     }
 
     /// Stops a voice slot while leaving effect playback untouched.
+    #[func]
     pub(crate) fn stop_voice(&mut self, slot: i32) -> bool {
         let Ok(slot) = usize::try_from(slot) else {
             return false;
