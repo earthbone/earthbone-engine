@@ -607,6 +607,36 @@ impl PlayerNode {
             .is_ok()
     }
 
+    /// Queue the same area impulse used by ObjectReference.KnockAreaEffect.
+    ///
+    /// Returns false if the game, source form ID, or world request is invalid.
+    #[func]
+    pub fn knock_area_effect(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        magnitude: f32,
+        radius: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .knock_area_effect(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                magnitude,
+                radius,
+            )
+            .is_ok()
+    }
+
     /// Set an actor's explicit CMB-38 ragdoll mode in the shared world.
     ///
     /// Returns false if the game, form ID, or actor is invalid.

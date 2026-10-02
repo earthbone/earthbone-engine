@@ -85,3 +85,20 @@ fn hst_13_focus_transition_clears_old_cell_and_keeps_destination_loaded() {
     assert!(!game.world().is_reference_3d_loaded(old_reference));
     assert!(game.world().is_reference_3d_loaded(id(ROCK_B)));
 }
+
+#[test]
+fn hst_13_position_changes_do_not_clear_resident_3d() {
+    let game = game();
+    let reference = id(ROCK_B);
+    game.world_mut().attach_streaming_cells(&[id(CELL_B)]).unwrap();
+
+    let mut world = game.world_mut();
+    let rock = world.reference(reference).unwrap();
+    rock.position = [f32::MAX, -f32::MAX, 0.0];
+    drop(world);
+
+    assert!(
+        game.world().is_reference_3d_loaded(reference),
+        "CK Is3DLoaded remains true for resident 3D outside rendered room bounds"
+    );
+}

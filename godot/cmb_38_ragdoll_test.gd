@@ -71,6 +71,15 @@ func _run() -> void:
 		root_body, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
 	_check(after.distance_to(before) > 0.0001,
 		"queued actor impulse did not change Jolt ragdoll velocity")
+	before = after
+	_check(player.call("knock_area_effect", 0, PLAYER, 1.0, 10000.0),
+		"KnockAreaEffect did not queue area impulses")
+	for i in 5:
+		await physics_frame
+	after = PhysicsServer3D.body_get_state(
+		root_body, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+	_check(after.distance_to(before) > 0.0001,
+		"area impulse did not change Jolt ragdoll velocity")
 	_check(player.call("force_actor_ragdoll", actor_file, actor_object, false),
 		"ForceRemoveRagdollFromWorld state update failed")
 	for i in 5:

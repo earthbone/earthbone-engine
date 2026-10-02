@@ -91,3 +91,21 @@ fn hst_15_ck_horse_offsets_rotate_with_the_cart() {
     );
     assert_eq!(actual[2], 0.0);
 }
+
+#[test]
+fn hst_15_self_reference_does_not_move_or_tether_the_cart() {
+    let mut game = game_with_horse(true, [20.0, 40.0, 5.0], 0.0);
+    let cart_id = id(CART);
+    let cart = game.object_of_form(cart_id);
+    game.world_mut().take_reference_physics_requests();
+    let before = game.world().reference_ref(cart_id).unwrap().position;
+
+    game.vm.call(cart, "Run", &[Value::Object(cart)]).unwrap();
+    assert!(game.run_until_idle(32));
+
+    assert_eq!(game.world().reference_ref(cart_id).unwrap().position, before);
+    assert!(game
+        .world_mut()
+        .take_reference_physics_requests()
+        .is_empty());
+}
