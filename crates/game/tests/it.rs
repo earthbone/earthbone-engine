@@ -998,6 +998,8 @@ mod sav_57_breaker_adversarial;
 mod sav_57_preflight;
 #[path = "sav_58_adversarial.rs"]
 mod sav_58_adversarial;
+#[path = "sav_58_breaker_adversarial.rs"]
+mod sav_58_breaker_adversarial;
 #[path = "sav_60_breaker_adversarial.rs"]
 mod sav_60_breaker_adversarial;
 #[path = "sav_60_reconnect.rs"]
