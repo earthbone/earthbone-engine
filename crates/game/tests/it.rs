@@ -915,6 +915,8 @@ mod ply_01_player_input;
 mod ply_02_routes;
 #[path = "ply_03_main_quest_replay.rs"]
 mod ply_03_main_quest_replay;
+#[path = "ply_03_adversarial.rs"]
+mod ply_03_adversarial;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]
