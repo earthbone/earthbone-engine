@@ -9,6 +9,7 @@ mod extra;
 mod fields;
 mod leveled;
 mod npc;
+mod package;
 mod player;
 pub use contents::{Inventory, InventoryEntry, ReferenceContents};
 pub use extra::{Extra, ExtraData};
