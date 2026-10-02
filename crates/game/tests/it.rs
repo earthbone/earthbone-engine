@@ -324,6 +324,8 @@ mod anm_09_oar_runtime;
 mod anm_55_race_animation_models;
 #[path = "anm_58_adversarial.rs"]
 mod anm_58_adversarial;
+#[path = "anm_58_breaker_adversarial.rs"]
+mod anm_58_breaker_adversarial;
 #[path = "anm_59_expression.rs"]
 mod anm_59_expression;
 #[path = "atomic_save.rs"]
