@@ -2466,9 +2466,11 @@ impl World {
                 if caster.is_some_and(|actor| self.is_ethereal(actor)) {
                     return Err(MagicError::Unsupported("ethereal action"));
                 }
-                let actor = self.actor(target).ok_or(MagicError::Target)?;
-                if (actor.dead && data.archetype != REANIMATE_ARCHETYPE) || actor.ghost {
-                    return Err(MagicError::Target);
+                if definition.data.delivery != 4 {
+                    let actor = self.actor(target).ok_or(MagicError::Target)?;
+                    if (actor.dead && data.archetype != REANIMATE_ARCHETYPE) || actor.ghost {
+                        return Err(MagicError::Target);
+                    }
                 }
             }
             if !matches!(
@@ -2526,7 +2528,7 @@ impl World {
                 if entry.data.area != 0 || data.area != 0 {
                     return Err(MagicError::Unsupported("lock area"));
                 }
-            } else if self.actor(target).is_none() {
+            } else if definition.data.delivery != 4 && self.actor(target).is_none() {
                 return Err(MagicError::Target);
             }
             if data.archetype == REANIMATE_ARCHETYPE

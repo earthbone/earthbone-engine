@@ -223,6 +223,9 @@ impl PlayerNode {
             };
             let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
             game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
+            if delta.is_finite() && delta > 0.0 {
+                game.tick(delta);
+            }
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.

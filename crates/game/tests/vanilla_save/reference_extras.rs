@@ -586,6 +586,7 @@ fn later_unsupported_package_data_leaves_prepared_ownership_and_locks_unapplied(
     actor.change_flags = 1 << 31;
     actor.data = vec![4, 108, 18, 0];
     WString::from_text("Sequence").write(&mut actor.data);
+    WString::from_text("UnsupportedProcedure").write(&mut actor.data);
     actor.data.splice(..0, [0; 8]);
     save.change_forms = vec![change(0x400100, 0x400811, 25, 1, 0x400801), actor];
     let before = world.save_state();
@@ -593,7 +594,7 @@ fn later_unsupported_package_data_leaves_prepared_ownership_and_locks_unapplied(
         .restore_vanilla_reference_extras(&save)
         .unwrap_err()
         .to_string()
-        .contains("unsupported PackageData"));
+        .contains("unsupported Sequence child"));
     assert_eq!(world.save_state(), before);
     assert!(world.pending.is_empty());
 }

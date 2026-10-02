@@ -470,6 +470,7 @@ impl Game {
         let vm = &mut self.vm;
         let completions = {
             let mut world = self.world.borrow_mut();
+            world.consume_animation_report(source, name);
             world.animation_graph_event(source, name, &mut |object, class| {
                 vm.create_object_of(object, class)
             });

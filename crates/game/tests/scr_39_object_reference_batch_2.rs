@@ -84,6 +84,13 @@ fn scr_39_animation_and_wait_waits_for_the_named_graph_event() {
     game.run_until_idle(64);
     assert_eq!(game.vm.thread_result(thread), None);
     assert_eq!(
+        game.world().animation_requests,
+        vec![soe_game::world::AnimationRequest {
+            target: id(REFERENCE),
+            animation: "Open".to_owned(),
+        }]
+    );
+    assert_eq!(
         game.world().animation_events,
         Vec::<(GlobalFormId, String)>::new()
     );
@@ -120,7 +127,7 @@ fn scr_39_gamebryo_animation_does_not_report_a_graph_event() {
             Value::Float(0.5),
         ],
     );
-    assert_eq!(result, Value::Bool(true));
+    assert_eq!(result, Value::Bool(false));
     assert!(game.world().animation_events.is_empty());
     assert_eq!(
         call(&mut game, "PlayGamebryoAnimation", &[Value::string("")]),
