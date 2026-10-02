@@ -128,7 +128,9 @@ pub struct CellStreamerNode {
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
     /// cache, see `CellBodies::sync_placements` for why.
-    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso)>,
+    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso, Option<String>)>,
+    /// Replacement meshes for references with an active DEST model stage.
+    destruction_models: std::collections::HashMap<GlobalFormId, DestructionOverlay>,
     /// Distant-terrain LOD blocks standing in for full resolution terrain
     /// beyond the streamed cells. `None` until `stream_terrain_lod`.
     terrain_lod: Option<TerrainLodState>,
@@ -156,6 +158,20 @@ struct LodInstance {
     rid: Rid,
     mesh: Gd<ArrayMesh>,
     triangles: usize,
+}
+
+/// Stage-specific meshes drawn in place of a reference's base geometry.
+struct DestructionOverlay {
+    cell: GlobalFormId,
+    model: String,
+    instances: Vec<LodInstance>,
+}
+
+fn free_destruction_overlay(server: &mut Gd<RenderingServer>, overlay: DestructionOverlay) {
+    for instance in overlay.instances {
+        server.free_rid(instance.rid);
+        drop(instance.mesh);
+    }
 }
 
 /// What the last `stream_terrain_lod` or `update_terrain_lod` call did.
@@ -426,6 +442,7 @@ impl INode3D for CellStreamerNode {
             collision_cell: None,
             tethers: crate::godot_tether::TetherConstraints::default(),
             ref_cache: std::collections::HashMap::new(),
+            destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
             object_lod: None,
         }
@@ -437,12 +454,13 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.free_destruction_models();
         self.free_occluders();
         self.free_effect_shaders();
         self.free_runtime_lights();
         self.clear_terrain_lod();
-        self.collision.free();
         self.tethers.free();
+        self.collision.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.ref_cache.clear();
@@ -468,6 +486,79 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    fn sync_destruction_models(
+        &mut self,
+        world: &soe_game::World,
+        resident_refs: &std::collections::BTreeMap<GlobalFormId, GlobalFormId>,
+        changed: &std::collections::HashSet<GlobalFormId>,
+    ) {
+        let Some(source) = self.data_source.clone() else {
+            return;
+        };
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        let mut server = RenderingServer::singleton();
+        for (reference, cell) in resident_refs {
+            if !changed.contains(reference) {
+                continue;
+            }
+            let model = world.destruction_model(*reference);
+            if self
+                .destruction_models
+                .get(reference)
+                .is_some_and(|overlay| overlay.model == model.as_deref().unwrap_or_default())
+            {
+                continue;
+            }
+            if let Some(overlay) = self.destruction_models.remove(reference) {
+                free_destruction_overlay(&mut server, overlay);
+            }
+            let Some(model) = model else {
+                continue;
+            };
+            let loaded = match source.stream_destruction_model(*reference, &model) {
+                Ok(loaded) => loaded,
+                Err(error) => {
+                    godot_error!("destruction model {model} for {reference}: {error}");
+                    continue;
+                }
+            };
+            let mut instances = Vec::new();
+            for surface in &loaded.surfaces {
+                let material = material_for(
+                    &mut self.materials,
+                    &surface.arrays.material,
+                    &surface.textures,
+                );
+                let mesh = array_mesh_from(&surface.arrays);
+                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                server.instance_set_transform(rid, Transform3D::IDENTITY);
+                server.instance_geometry_set_material_override(rid, material.get_rid());
+                instances.push(LodInstance {
+                    rid,
+                    mesh,
+                    triangles: surface.arrays.triangle_count(),
+                });
+            }
+            self.destruction_models.insert(
+                *reference,
+                DestructionOverlay {
+                    cell: *cell,
+                    model,
+                    instances,
+                },
+            );
+        }
+    }
+
+    fn free_destruction_models(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, overlay) in self.destruction_models.drain() {
+            free_destruction_overlay(&mut server, overlay);
+        }
+    }
+
     pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
         self.collision.grab_movable_reference(reference)
     }
@@ -717,36 +808,44 @@ impl CellStreamerNode {
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
-            self.collision.apply_reference_physics_requests(world);
+            self.collision
+                .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
         }
         let mut changed = std::collections::HashSet::new();
+        let mut resident_refs = std::collections::BTreeMap::new();
         let mut track = |reference: GlobalFormId| {
             let Some(placement) = world.ref_placement(reference) else {
                 return;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
-            let visible =
-                placement.visible && !crate::godot_physics::is_opened_door(world, reference);
-            let key = (visible, iso);
-            if self.ref_cache.insert(reference, key) != Some(key) {
+            let model = world.destruction_model(reference);
+            let visible = placement.visible
+                && model.is_none()
+                && !crate::godot_physics::is_opened_door(world, reference);
+            let key = (visible, iso, model);
+            if self.ref_cache.get(&reference) != Some(&key) {
                 changed.insert(reference);
             }
+            self.ref_cache.insert(reference, key);
         };
         for instance in &self.instances {
             match &instance.table {
                 BatchTable::Triangles(members) => {
                     for member in members {
                         track(member.reference);
+                        resident_refs.insert(member.reference, instance.cell);
                     }
                 }
                 BatchTable::Instances(members) => {
                     for reference in members {
                         track(*reference);
+                        resident_refs.insert(*reference, instance.cell);
                     }
                 }
             }
         }
+        self.sync_destruction_models(world, &resident_refs, &changed);
         let mut server = RenderingServer::singleton();
         self.sync_runtime_lights(world, &mut server);
         for instance in &mut self.instances {
@@ -764,6 +863,7 @@ impl CellStreamerNode {
                             continue;
                         }
                         let visible = placement.visible
+                            && world.destruction_model(*reference).is_none()
                             && !crate::godot_physics::is_opened_door(world, *reference);
                         let scale = if visible { placement.scale } else { 0.0 };
                         let transform =
@@ -785,6 +885,7 @@ impl CellStreamerNode {
                     touched = true;
                 }
                 let visible = placement.visible
+                    && world.destruction_model(member.reference).is_none()
                     && !crate::godot_physics::is_opened_door(world, member.reference);
                 targets.push((index, visible, target_iso));
             }
@@ -1469,6 +1570,7 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
+            self.tethers.free();
             self.collision.free();
             self.collision_cell = None;
             self.collision_space = None;
@@ -1478,6 +1580,14 @@ impl CellStreamerNode {
             .partition(|i| i.cell == owner);
         self.instances = kept;
         let mut server = RenderingServer::singleton();
+        let (released_models, kept_models): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.destruction_models)
+                .into_iter()
+                .partition(|(_, overlay)| overlay.cell == owner);
+        self.destruction_models = kept_models.into_iter().collect();
+        for (_, overlay) in released_models {
+            free_destruction_overlay(&mut server, overlay);
+        }
         let count = released.len();
         for instance in released {
             server.free_rid(instance.rid);
@@ -1538,6 +1648,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
+        self.tethers.free();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
@@ -1581,7 +1692,7 @@ impl CellStreamerNode {
         let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
             return row;
         };
-        let Some((visible, pose)) = self.ref_cache.get(&GlobalFormId { file, object }) else {
+        let Some((visible, pose, _)) = self.ref_cache.get(&GlobalFormId { file, object }) else {
             return row;
         };
         row.set(
@@ -1600,7 +1711,7 @@ impl CellStreamerNode {
             return -1.0;
         };
         let reference = GlobalFormId { file, object };
-        let Some((visible, target)) = self.ref_cache.get(&reference) else {
+        let Some((visible, target, _)) = self.ref_cache.get(&reference) else {
             return -1.0;
         };
         let mut largest: f32 = 0.0;
@@ -1943,6 +2054,7 @@ impl CellStreamerNode {
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
+        self.free_destruction_models();
         self.free_occluders();
         self.free_effect_shaders();
         self.free_runtime_lights();

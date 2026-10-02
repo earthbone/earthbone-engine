@@ -73,7 +73,7 @@ pub struct CONDITION_ITEM_DATA {
     pub object: CONDITIONITEMOBJECT,
 }
 
-/// Unsupported condition operations are reported instead of silently succeeding.
+/// Errors for unsupported condition operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConditionError {
     /// The requested condition function has no game implementation.

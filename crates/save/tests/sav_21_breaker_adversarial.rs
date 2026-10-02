@@ -3,7 +3,7 @@
 
 //! Adversarial checks for saved Stacked package state.
 
-use soe_save::{ChangeForm, RefId, Save, WString};
+use soe_save::{reference::Field, ChangeForm, RefId, Save, WString};
 use std::path::{Path, PathBuf};
 
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
@@ -47,6 +47,17 @@ fn every_observed_stacked_entry_roundtrips_and_keeps_its_following_boundary() {
         for form in &save.change_forms {
             match form.reference_contents(save.form_version) {
                 Ok(Some(contents)) => {
+                    found += contents.extra.as_ref().map_or(0, |extra| {
+                        extra
+                            .entries
+                            .iter()
+                            .filter(|entry| {
+                                entry.kind == 108 && entry.fields.iter().any(|field| {
+                                matches!(field, Field::String(name) if name.bytes() == b"Stacked")
+                            })
+                            })
+                            .count()
+                    });
                     let bytes = contents.data_bytes().unwrap();
                     let payload = form.payload().unwrap();
                     assert_eq!(bytes, payload[contents.start..contents.end]);

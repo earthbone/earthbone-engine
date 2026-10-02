@@ -7,7 +7,7 @@ use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plug
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Location, Schedule, Target};
-use soe_game::Game;
+use soe_game::{quest, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x900;
@@ -19,6 +19,7 @@ const DECOY: u32 = 0x905;
 const OBJECT_BASE: u32 = 0x906;
 const DECOY_BASE: u32 = 0x907;
 const CELL: u32 = 0x910;
+const QUEST: u32 = 0x911;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -34,9 +35,13 @@ fn placed(tag: [u8; 4], form: u32, base: u32, x: f32) -> Record {
 
 fn with_target_input(record: Record, index: i8, target: Target) -> Record {
     let (kind, value) = match target {
+        Target::Reference(value) => (0i32, value),
         Target::ObjectId(value) => (1i32, value),
         Target::ObjectType(value) => (2i32, value),
-        _ => panic!("fixture uses object id and type inputs"),
+        Target::LinkedReference(value) => (3i32, value),
+        Target::Alias(value) => (4i32, value),
+        Target::Itself => (6i32, 0),
+        Target::Other(kind, value) => (kind, value),
     };
     let mut data = kind.to_le_bytes().to_vec();
     data.extend_from_slice(&value.to_le_bytes());
@@ -58,7 +63,8 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
     plugin.push_top(package::with_actions(template));
 
     let package_record = package::close_header(
-        package::build_record(PACKAGE, "FindPackage", 0, Schedule::default()),
+        package::build_record(PACKAGE, "FindPackage", 0, Schedule::default())
+            .sub(T(b"QNAM"), QUEST.to_le_bytes()),
         Some(TEMPLATE),
     );
     let mut package_record = with_target_input(package_record, 0, target);
@@ -66,6 +72,12 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
         package_record = package::with_location_input(package_record, 1, location, radius);
     }
     plugin.push_top(package::with_actions(package::finish(package_record)));
+    plugin.push_top(quest::with_alias(
+        quest::build_record(QUEST, "FindQuest", 0),
+        0,
+        "Target",
+        Some(OBJECT),
+    ));
     plugin.push_top(
         npc::build_record(
             ACTOR_BASE,
@@ -88,7 +100,7 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
     let mut deleted = placed(*b"REFR", 0x90B, OBJECT_BASE, 3.0);
     deleted.flags |= soe_esm::plugin::flags::DELETED;
     for record in [
-        placed(*b"ACHR", ACTOR, ACTOR_BASE, 0.0),
+        placed(*b"ACHR", ACTOR, ACTOR_BASE, 0.0).sub(T(b"XLKR"), OBJECT.to_le_bytes()),
         initially_disabled,
         deleted,
         placed(*b"REFR", OBJECT, OBJECT_BASE, 12.0),
@@ -118,6 +130,7 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
         .add("Find.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
         .unwrap();
     let mut game = Game::new(order);
+    assert!(game.start_quest(id(QUEST)));
     assert!(game.world_mut().drive_actor(id(ACTOR)));
     game.tick(0.1);
     game
@@ -168,6 +181,51 @@ fn ai_33_find_distinguishes_authored_food_and_potion_types() {
             .ai
             .found_reference,
         Some(id(0x90D))
+    );
+}
+
+#[test]
+fn ai_33_find_reference_selector_returns_the_authored_placed_identity() {
+    let game = make_game(Target::Reference(OBJECT), None);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .found_reference,
+        Some(id(OBJECT))
+    );
+}
+
+#[test]
+fn ai_33_find_reference_selector_obeys_the_authored_search_radius() {
+    let game = make_game(Target::Reference(0x909), Some((Location::NearSelf, 35)));
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
+    assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
+    assert_eq!(ai.found_reference, None);
+}
+
+#[test]
+fn ai_33_find_alias_selector_returns_the_package_quest_alias_identity() {
+    let game = make_game(Target::Alias(0), None);
+    let world = game.world();
+    assert_eq!(
+        world.actor_ref(id(ACTOR)).unwrap().ai.found_reference,
+        Some(id(OBJECT))
+    );
+}
+
+#[test]
+fn ai_33_find_linked_selector_returns_the_actors_linked_reference_identity() {
+    let game = make_game(Target::LinkedReference(0), None);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .found_reference,
+        Some(id(OBJECT))
     );
 }
 
