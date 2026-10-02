@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "shm_13_adversarial.rs"]
+mod shm_13_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
