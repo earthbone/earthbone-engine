@@ -771,6 +771,10 @@ pub struct World {
     /// does not fire for the first cells after loading a save, which is the
     /// behaviour an empty set gives.
     streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// Instructions executed by the most recent Papyrus scheduler slice.
+    pub(crate) papyrus_instructions_last_slice: usize,
+    /// Exterior cells loaded by the most recent host streaming update.
+    pub(crate) exterior_cell_loads_last_update: usize,
     /// References whose host cell has loaded 3D. Rebuilt from cell streaming
     /// transitions and not saved, like `streamed_cells`.
     loaded_3d_references: std::collections::HashSet<GlobalFormId>,
@@ -1130,6 +1134,8 @@ impl World {
             encounter_zone_visits: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
+            papyrus_instructions_last_slice: 0,
+            exterior_cell_loads_last_update: 0,
             loaded_3d_references: std::collections::HashSet::new(),
             attached_cells: std::collections::HashSet::new(),
             pending_cell_resets: std::collections::BTreeSet::new(),

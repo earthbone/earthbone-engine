@@ -1224,17 +1224,19 @@ Their CK contracts are described by
 
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
 Without available capture data, they return `None` and log that beta capture is
-unavailable. `GetCurrentMemory`,
-`GetBudgetCount` and `GetBudgetName` require memory tracking, and no game or
-host memory-tracking provider exists. Calls return `None` and add an explicit
-error to the Papyrus log. `GetBudgetName` also requires exactly one integer
-index. The capture lifecycle and average query remain available. The scheduler
-budget methods `GetCurrentBudget` and `OverBudget` report two engine limits:
-`Papyrus instructions per slice` and `Exterior cell loads per update`.
-`GetCurrentBudget` returns each configured limit, and `OverBudget` is false
-because these are scheduling caps, not measured usage counters. The CK Utility
-page documents these signatures, and SKSE's vanilla `Utility.psc` declares
-them as global natives.
+unavailable. `GetCurrentMemory` requires a memory-tracking provider, which the
+game and host do not have, so it returns `None` and logs an error. The capture
+lifecycle and average query remain available.
+`GetBudgetCount` returns two engine categories, `Papyrus instructions per slice`
+and `Exterior cell loads per update`. `GetBudgetName` returns those names by
+index. `GetCurrentBudget` reads the instruction count returned by the most
+recent VM scheduler slice or the number of exterior cells committed by the
+most recent host streaming update. Before a measurement, each value is zero.
+`OverBudget` compares the measured value with that category's configured cap.
+Invalid indices return zero, false or `None` for integer, boolean and name
+queries. `GetCurrentMemory` remains unavailable and is not needed to read these
+engine-owned counters. The CK Utility page documents the signatures, and
+SKSE's vanilla `Utility.psc` declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
