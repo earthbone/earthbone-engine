@@ -909,6 +909,8 @@ mod perk_dispatch;
 mod perks;
 #[path = "ply_01_player_input.rs"]
 mod ply_01_player_input;
+#[path = "ply_01_adversarial.rs"]
+mod ply_01_adversarial;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]

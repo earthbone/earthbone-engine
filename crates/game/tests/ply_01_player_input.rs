@@ -24,12 +24,12 @@ const LOAD_DOOR: u32 = 0x811;
 const FAR_DOOR: u32 = 0x812;
 const ITEM_REF: u32 = 0x820;
 const ITEM: u32 = 0x821;
-const SPEAKER: u32 = 0x830;
+pub(super) const SPEAKER: u32 = 0x830;
 const QUEST: u32 = 0x840;
 const TOPIC: u32 = 0x841;
 const INFO: u32 = 0x842;
-const WEAPON: u32 = 0x850;
-const SPELL: u32 = 0x860;
+pub(super) const WEAPON: u32 = 0x850;
+pub(super) const SPELL: u32 = 0x860;
 const EFFECT: u32 = 0x861;
 
 fn id(object: u32) -> GlobalFormId {
@@ -292,7 +292,7 @@ fn scripts() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
-fn game() -> Game {
+pub(super) fn game() -> Game {
     let mut order = LoadOrder::new();
     order
         .add("Skyrim.esm", Plugin::parse(&plugin().to_bytes()).unwrap())
@@ -356,6 +356,33 @@ fn run(game: &mut Game, commands: Vec<Command>) -> Driver {
     driver
 }
 
+pub(super) fn export_window_fixture(path: &std::path::Path) {
+    let mut game = game();
+    let driver = run(&mut game, sequence());
+    std::fs::create_dir_all(path.join("scripts")).unwrap();
+    std::fs::write(path.join("Skyrim.esm"), plugin().to_bytes()).unwrap();
+    for name in [
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        std::fs::write(
+            path.join(name),
+            Plugin::new(FileHeader::default()).to_bytes(),
+        )
+        .unwrap();
+    }
+    for (name, bytes) in scripts() {
+        std::fs::write(path.join("scripts").join(format!("{name}.pex")), bytes).unwrap();
+    }
+    let mut log = String::new();
+    for event in driver.events() {
+        writeln!(&mut log, "{event:?}").unwrap();
+    }
+    std::fs::write(path.join("expected.log"), log).unwrap();
+}
+
 #[test]
 fn ply_01_sequence_opens_door_picks_up_item_and_starts_conversation_with_ordered_events() {
     let mut game = game();
@@ -386,29 +413,7 @@ fn ply_01_sequence_opens_door_picks_up_item_and_starts_conversation_with_ordered
     );
     assert_eq!(driver.events(), run(&mut self::game(), sequence()).events());
     if let Some(path) = std::env::var_os("SOE_PLY_01_FIXTURE") {
-        let path = std::path::PathBuf::from(path);
-        std::fs::create_dir_all(path.join("scripts")).unwrap();
-        std::fs::write(path.join("Skyrim.esm"), plugin().to_bytes()).unwrap();
-        for name in [
-            "Update.esm",
-            "Dawnguard.esm",
-            "HearthFires.esm",
-            "Dragonborn.esm",
-        ] {
-            std::fs::write(
-                path.join(name),
-                Plugin::new(FileHeader::default()).to_bytes(),
-            )
-            .unwrap();
-        }
-        for (name, bytes) in scripts() {
-            std::fs::write(path.join("scripts").join(format!("{name}.pex")), bytes).unwrap();
-        }
-        let mut log = String::new();
-        for event in driver.events() {
-            writeln!(&mut log, "{event:?}").unwrap();
-        }
-        std::fs::write(path.join("expected.log"), log).unwrap();
+        export_window_fixture(&std::path::PathBuf::from(path));
     }
 }
 
