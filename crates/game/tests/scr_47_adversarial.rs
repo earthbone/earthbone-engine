@@ -80,3 +80,30 @@ fn scr_47_invalid_spell_art_requests_log_errors_without_queueing() {
         "{traces:?}"
     );
 }
+
+#[test]
+fn scr_47_spell_art_methods_reject_non_spell_records() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"MGEF"), 0x800).sub(Tag(*b"SPIT"), vec![0; 36]));
+    let mut order = LoadOrder::new();
+    order.add("WrongType.esm", p).unwrap();
+    let mut g = Game::new(order);
+
+    assert!(g.world_mut().preload_spell_art(id(0x800)).is_err());
+    assert!(g.world_mut().unload_spell_art(id(0x800)).is_err());
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
+}
+
+#[test]
+fn scr_47_spell_art_methods_reject_missing_spell_forms() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"GMST"), 0x800));
+    let mut order = LoadOrder::new();
+    order.add("NoSpell.esm", p).unwrap();
+    let mut g = Game::new(order);
+
+    assert!(g.world_mut().preload_spell_art(id(0x801)).is_err());
+    assert!(g.world_mut().unload_spell_art(id(0x801)).is_err());
+
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
+}
