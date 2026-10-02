@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Loads the soe-godot-host extension from ../target once Godot is installed.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -14,11 +19,4 @@ enabled=PackedStringArray("res://addons/soe_cell_editor/plugin.cfg", "res://addo
 
 [physics]
 
-; Jolt ships inside Godot from 4.4, so the engine links no physics library of
-; its own. See docs/physics.md for why the headless simulation keeps a separate
-; world rather than running here.
 3d/physics_engine="Jolt Physics"
-
-[rendering]
-
-renderer/rendering_method="forward_plus"
