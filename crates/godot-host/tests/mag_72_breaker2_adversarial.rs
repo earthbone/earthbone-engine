@@ -44,7 +44,10 @@ fn image_space_world(cell_link: u32, weather_links: [u32; 4]) -> World {
 }
 
 fn floats(values: &[f32]) -> Vec<u8> {
-    values.iter().flat_map(|value| value.to_le_bytes()).collect()
+    values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
 }
 
 #[test]
