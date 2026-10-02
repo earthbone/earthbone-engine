@@ -1124,6 +1124,22 @@ impl PlayerNode {
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
     }
 
+    /// Animation graph events that reached the active Game, for host diagnostics.
+    #[func]
+    pub fn gameplay_animation_events(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        if let Some(game) = &self.game {
+            for (source, name) in &game.world().animation_events {
+                let mut row = VarDictionary::new();
+                row.set("source_file", i64::from(source.file));
+                row.set("source_object", i64::from(source.object));
+                row.set("name", &GString::from(name));
+                result.push(&row);
+            }
+        }
+        result
+    }
+
     /// Resident exterior cells and their physics handles for integration diagnostics.
     #[func]
     pub fn exterior_resources(&self) -> VarDictionary {
