@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use godot::classes::{INode3D, MeshInstance3D, Node3D};
+use godot::classes::{AnimatableBody3D, CollisionShape3D, INode3D, MeshInstance3D, Node3D};
 use godot::prelude::*;
 
 use crate::animated_static::{self, AnimatedController};
@@ -161,7 +161,14 @@ impl AnimatedStaticNode {
             instance.set_mesh(&array_mesh);
             self.base_mut().add_child(&instance);
             if self.collision_enabled {
-                instance.create_trimesh_collision();
+                if let Some(shape) = array_mesh.create_trimesh_shape() {
+                    let mut body = AnimatableBody3D::new_alloc();
+                    body.set_sync_to_physics(true);
+                    let mut collision = CollisionShape3D::new_alloc();
+                    collision.set_shape(&shape);
+                    body.add_child(&collision);
+                    instance.add_child(&body);
+                }
             }
             self.children.push(instance);
         }
@@ -215,7 +222,14 @@ impl AnimatedStaticNode {
             instance.set_mesh(&array_mesh);
             self.base_mut().add_child(&instance);
             if self.collision_enabled {
-                instance.create_trimesh_collision();
+                if let Some(shape) = array_mesh.create_trimesh_shape() {
+                    let mut body = AnimatableBody3D::new_alloc();
+                    body.set_sync_to_physics(true);
+                    let mut collision = CollisionShape3D::new_alloc();
+                    collision.set_shape(&shape);
+                    body.add_child(&collision);
+                    instance.add_child(&body);
+                }
             }
             self.children.push(instance);
         }
