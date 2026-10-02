@@ -1176,6 +1176,8 @@ mod scr_52_visual_effects;
 mod scr_53_adversarial;
 #[path = "scr_53_weapon_fire.rs"]
 mod scr_53_weapon_fire;
+#[path = "scr_53_breaker_adversarial.rs"]
+mod scr_53_breaker_adversarial;
 #[path = "scr_54_adversarial.rs"]
 mod scr_54_adversarial;
 #[path = "scr_54_weather_set_active.rs"]
