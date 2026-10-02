@@ -1054,6 +1054,8 @@ mod scr_14_adversarial;
 mod scr_15_adversarial;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
+#[path = "scr_16_breaker_adversarial.rs"]
+mod scr_16_breaker_adversarial;
 #[path = "scr_17_adversarial.rs"]
 mod scr_17_adversarial;
 #[path = "scr_18_actor_base_gift_filter.rs"]
