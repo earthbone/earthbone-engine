@@ -2796,9 +2796,13 @@ filename, regular/light kind and local object number. Link identities use the
 same fields. The SAV-58 world section preserves these values without resolving them
 through the current load order, so removed plugins and compacted slots cannot
 alias these retained records. This storage API does not populate itself from
-ESS change forms. Whole-game `Game::load_state` still requires matching plugin
-provenance, and ordinary world state does not yet remap identities for removed
-plugins.
+ESS change forms. Native `Game::load_state` accepts plugins missing only from
+the end of their regular or light slot sequence. Every remaining plugin must
+retain its kind, slot and fingerprint, and the current load order cannot add a
+plugin. Missing plugins before a still-loaded plugin remain an error, so saved
+numeric form slots cannot silently retarget. This permits opaque SAV-58 records
+to survive native save and reload while removed plugins remain absent. It does
+not remap ordinary world identities or import opaque records from ESS.
 
 The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
 `Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
