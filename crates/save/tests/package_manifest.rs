@@ -67,6 +67,10 @@ fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stac
         assert_eq!(save.form_version, 78);
         let (mut file_references, mut file_failures) = (0, 0);
         for form in &save.change_forms {
+            // CONTEXT: The version-1 ledger predates projectile placement decoding.
+            if !matches!(form.type_index(), 0 | 1) {
+                continue;
+            }
             match form.reference_contents(save.form_version) {
                 Ok(None) => continue,
                 Ok(Some(contents)) => {

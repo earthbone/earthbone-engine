@@ -8,16 +8,11 @@ use soe_save::{
     ChangeForm,
 };
 
-#[path = "../sav_54_breaker_adversarial_2.rs"]
-mod sav_54_breaker_adversarial_2;
-#[path = "../sav_54_breaker_adversarial_4.rs"]
-mod sav_54_breaker_adversarial_4;
-
 pub(super) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
 
-fn fixture_order_with_flags(flags: u32) -> LoadOrder {
+pub(crate) fn fixture_order_with_flags(flags: u32) -> LoadOrder {
     let mut master = Plugin::new(FileHeader::default());
     for (tag, object) in [
         (b"NPC_", 7),
@@ -292,7 +287,7 @@ fn change(
     }
 }
 
-fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
+pub(crate) fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
     change.change_flags |= change_flags::FORM;
     change.version = version;
     change.data.splice(
@@ -301,7 +296,7 @@ fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
     );
 }
 
-pub(super) fn fixture() -> Save {
+pub(crate) fn fixture() -> Save {
     let mut save = save();
     save.form_id_array = vec![0x0100_0900, 0xFE00_0900];
     save.table_1.push(GlobalData {

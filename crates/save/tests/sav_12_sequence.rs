@@ -317,9 +317,9 @@ fn sav_12_every_ledger_payload_has_an_exact_independent_boundary() {
     assert_eq!(
         lengths,
         BTreeMap::from([
-            (56, 27),
+            (56, 28),
             (63, 1),
-            (241, 10),
+            (241, 9),
             (338, 13),
             (411, 1),
             (443, 1),

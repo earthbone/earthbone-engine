@@ -10,7 +10,10 @@ const LEDGER: &str = include_str!("../../../docs/save-package-variants-v1.tsv");
 
 #[test]
 fn sav_12_every_observed_sequence_reencodes_and_keeps_its_successor() {
-    let root = std::env::var_os("SOE_TEST_SAVES").expect("SOE_TEST_SAVES must name the corpus");
+    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
+        eprintln!("SOE_TEST_SAVES unset, skipping Sequence corpus");
+        return;
+    };
     let mut checked = 0;
     for row in LEDGER
         .lines()
