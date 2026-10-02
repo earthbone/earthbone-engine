@@ -719,6 +719,11 @@ pub enum HostRequest {
     },
     CameraFirstPerson,
     CameraThirdPerson,
+    ControllerShake {
+        left_strength: f32,
+        right_strength: f32,
+        duration: f32,
+    },
 }
 
 pub struct World {
@@ -932,6 +937,8 @@ pub struct World {
         BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
     pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) sun_gaze_modifier: Option<GlobalFormId>,
+    pub(crate) sun_gazing_last_tick: bool,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Active shader particle geometries derived from winning SPGD records.
     pub(crate) shader_particles: shader_particles::ShaderParticleState,
@@ -1232,6 +1239,8 @@ impl World {
             telekinesis_grab: None,
             next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            sun_gaze_modifier: None,
+            sun_gazing_last_tick: false,
             weather_image_space: None,
             shader_particles: shader_particles::ShaderParticleState::default(),
             effect_shaders: effect_shader::EffectShaderState::default(),

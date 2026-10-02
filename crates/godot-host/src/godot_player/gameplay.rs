@@ -368,6 +368,19 @@ impl PlayerNode {
                     self.rig.mode = CameraMode::Third;
                     self.update_camera();
                 }
+                soe_game::HostRequest::ControllerShake {
+                    left_strength,
+                    right_strength,
+                    duration,
+                } => {
+                    let mut input = godot::classes::Input::singleton();
+                    for device in input.get_connected_joypads().iter_shared() {
+                        input
+                            .start_joy_vibration_ex(device as i32, left_strength, right_strength)
+                            .duration(duration)
+                            .done();
+                    }
+                }
                 soe_game::HostRequest::FadeOutGame {
                     fading_out,
                     black,

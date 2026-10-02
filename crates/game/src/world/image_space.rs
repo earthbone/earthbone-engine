@@ -108,6 +108,22 @@ impl BaseImageSpace {
 }
 
 impl World {
+    /// Configure the modifier triggered when the player first looks at the sun.
+    ///
+    /// # Errors
+    /// Returns an error for a missing or invalid image-space modifier.
+    pub fn set_sun_gaze_image_space_modifier(
+        &mut self,
+        modifier: Option<GlobalFormId>,
+    ) -> Result<(), VmError> {
+        if let Some(id) = modifier {
+            self.image_space_duration(id)?;
+        }
+        self.sun_gaze_modifier = modifier;
+        self.sun_gazing_last_tick = false;
+        Ok(())
+    }
+
     /// Select one authored weather and two of its four time entries.
     ///
     /// # Errors
@@ -628,6 +644,36 @@ impl World {
         for modifier in expired {
             self.image_space.remove(modifier);
         }
+        let sungazing = self.player_is_sungazing();
+        if sungazing && !self.sun_gazing_last_tick {
+            if let Some(modifier) = self.sun_gaze_modifier {
+                self.image_space.remove(modifier);
+                self.image_space.ordinary.push(ImageSpaceLayer {
+                    modifier,
+                    strength: 1.0,
+                    age: 0.0,
+                });
+            }
+        }
+        self.sun_gazing_last_tick = sungazing;
+    }
+
+    pub(crate) fn write_sun_gaze_modifier(&self, writer: &mut Writer) {
+        super::save::write_opt_form_id(writer, self.sun_gaze_modifier);
+        writer.bool(self.sun_gazing_last_tick);
+    }
+
+    pub(crate) fn read_sun_gaze_modifier(
+        &mut self,
+        reader: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let modifier = super::save::read_opt_form_id(reader)?;
+        if let Some(id) = modifier {
+            self.image_space_duration(id)?;
+        }
+        self.sun_gaze_modifier = modifier;
+        self.sun_gazing_last_tick = reader.bool()?;
+        Ok(())
     }
 
     pub(crate) fn write_image_space(&self, writer: &mut Writer) {

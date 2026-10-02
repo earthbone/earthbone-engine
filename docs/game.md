@@ -724,11 +724,15 @@ and forced movement state are not implemented.
 **Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
 `ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
 cleared by `Actor.ClearArrested`. It also resets the player's cumulative
-served-day counter. `Game.ServeTime` applies the remaining jail time. The
-engine does not yet select a high-process witness for werewolf crime, trigger
-a sun-gaze modifier, or send controller rumble to Godot.
-`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
-`ShakeController` remain stubs until those owning systems exist.
+served-day counter. `Game.ServeTime` applies the remaining jail time.
+`Game.SendWereWolfTransformation` records the werewolf crime with the first
+sorted loaded high-process actor whose shared detection state marks the player
+Alert or in Combat. `Game.SetSunGazeImageSpaceModifier` validates and saves an
+optional IMAD form, then applies it when the player starts looking at the sun.
+`Game.ShakeController` queues finite strengths and a non-negative duration for
+the Godot host, clamping strengths to the host's 0 to 1 range. Invalid
+controller-shake values are appended to the world's native error collection
+without queuing a request.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -985,10 +989,10 @@ an SKSE member.
 | ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu, SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, ShakeController, ShakeCamera | FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC sky functions: GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell | |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, ShakeController, SendWereWolfTransformation, SetSunGazeImageSpaceModifier, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, `SetINI*` and `GetINI*` (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetCurrentBudget, OverBudget | GetCurrentMemory, GetBudgetCount, GetBudgetName. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -1561,12 +1565,12 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
 | `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
 | `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
-| `Game.ShakeCamera` | Quiet stub. CK takes a source reference and strength. |
-| `Game.SendWereWolfTransformation` | Quiet stub for the CK crime-reporting operation. |
-| `Game.ServeTime` | Quiet stub for the CK jail-time operation. |
-| `Game.ClearPrison` | Quiet stub for clearing player prison state. |
-| `Game.SetSunGazeImageSpaceModifier` | Quiet stub for setting the sun-gaze image modifier. |
-| `Game.ShakeController` | Quiet stub. CK takes two strengths and a duration. |
+| `Game.ShakeCamera` | Queues a source reference, strength and duration for the host camera. |
+| `Game.SendWereWolfTransformation` | Reports werewolf crime through a loaded high-process actor with current Alert or Combat detection. |
+| `Game.ServeTime` | Serves jail time against the player's crime faction when one is set. |
+| `Game.ClearPrison` | Clears the player's arrested flag and cumulative served-day counter. |
+| `Game.SetSunGazeImageSpaceModifier` | Sets the saved IMAD modifier triggered when sungazing begins. |
+| `Game.ShakeController` | Queues left and right rumble strengths plus duration for the Godot host. |
 | `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
 | `Game.RequestSave` | Quiet stub for a normal save request. |
 | `Game.RequestAutoSave` | Quiet stub for an autosave request. |
