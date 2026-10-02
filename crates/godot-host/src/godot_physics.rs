@@ -15,7 +15,7 @@
 //! that. So this is the collision the renderer and the player see, while
 //! [`soe_physics::SimpleWorld`] is what the simulation and the tests step.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use godot::classes::physics_server_3d::{BodyMode, BodyParameter, BodyState};
 use godot::classes::PhysicsServer3D;
@@ -928,17 +928,19 @@ struct ActorBody {
 /// frees the rest, which is how a cell change drops the leaving cell's
 /// actors.
 ///
-/// The bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
+/// Contact bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
 /// kinematic body's new transform and applies it with `MoveKinematic` on the
 /// next physics step, so a HitFrame query in the same tick would see the
 /// previous pose, and a body created that tick would still sit at the
-/// origin. A static body is repositioned at once. Nothing simulates against
-/// these bodies, they exist for contact queries.
+/// origin. Held actors become KINEMATIC and thrown actors become RIGID until
+/// their motion settles. Static bodies are repositioned at once.
 #[derive(Debug, Default)]
 pub struct ActorBodies {
     space: Option<Rid>,
     bodies: HashMap<GlobalFormId, ActorBody>,
     owners: HashMap<Rid, GlobalFormId>,
+    grabbed_actor: Option<GlobalFormId>,
+    thrown_actors: HashSet<GlobalFormId>,
 }
 
 impl ActorBodies {
@@ -961,6 +963,10 @@ impl ActorBodies {
                 self.owners.remove(&body.body);
                 release(&mut server, body);
             }
+            self.thrown_actors.remove(form);
+            if self.grabbed_actor == Some(*form) {
+                self.grabbed_actor = None;
+            }
         }
         for actor in &plan.create {
             let body = create_actor_body(&mut server, space, actor);
@@ -968,8 +974,11 @@ impl ActorBodies {
             self.bodies.insert(actor.actor, body);
         }
         for actor in &plan.moved {
-            if let Some(body) = self.bodies.get(&actor.actor) {
-                place(&mut server, body.body, actor);
+            if self.grabbed_actor != Some(actor.actor) && !self.thrown_actors.contains(&actor.actor)
+            {
+                if let Some(body) = self.bodies.get(&actor.actor) {
+                    place(&mut server, body.body, actor);
+                }
             }
         }
         plan
@@ -985,6 +994,102 @@ impl ActorBodies {
     #[must_use]
     pub fn body(&self, actor: GlobalFormId) -> Option<Rid> {
         self.bodies.get(&actor).map(|body| body.body)
+    }
+
+    /// Put one resident actor body under host control for Grab Actor.
+    pub fn grab_actor(&mut self, actor: GlobalFormId) -> bool {
+        if self.grabbed_actor.is_some() || self.thrown_actors.contains(&actor) {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor).filter(|body| body.body.is_valid()) else {
+            return false;
+        };
+        PhysicsServer3D::singleton().body_set_mode(body.body, BodyMode::KINEMATIC);
+        self.grabbed_actor = Some(actor);
+        true
+    }
+
+    /// Move the held actor's feet to a finite Skyrim-space position.
+    pub fn move_grabbed_actor(&mut self, actor: GlobalFormId, position: [f32; 3]) -> bool {
+        if self.grabbed_actor != Some(actor) || !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor) else {
+            self.grabbed_actor = None;
+            return false;
+        };
+        let point = crate::units::SkyrimPos::new(position[0], position[1], position[2]).to_godot();
+        let transform = Transform3D::new(Basis::IDENTITY, Vector3::new(point.x, point.y, point.z));
+        PhysicsServer3D::singleton().body_set_state(
+            body.body,
+            BodyState::TRANSFORM,
+            &transform.to_variant(),
+        );
+        true
+    }
+
+    /// Release the held actor with a host-space throw impulse.
+    pub fn throw_grabbed_actor(&mut self, actor: GlobalFormId, impulse: Vector3) -> bool {
+        if self.grabbed_actor != Some(actor) || !impulse.is_finite() {
+            return false;
+        }
+        let Some(body) = self.bodies.get(&actor) else {
+            self.grabbed_actor = None;
+            return false;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        server.body_set_mode(body.body, BodyMode::RIGID);
+        server.body_apply_central_impulse(body.body, impulse);
+        self.grabbed_actor = None;
+        self.thrown_actors.insert(actor);
+        true
+    }
+
+    /// Current host poses for thrown actors, updating shared World placement
+    /// until a throw settles and its body returns to contact-only mode.
+    pub fn thrown_actor_poses(&mut self) -> Vec<(GlobalFormId, [f32; 3])> {
+        let mut server = PhysicsServer3D::singleton();
+        let mut poses = Vec::with_capacity(self.thrown_actors.len());
+        let mut settled = Vec::new();
+        for actor in &self.thrown_actors {
+            let Some(body) = self.bodies.get(actor) else {
+                settled.push(*actor);
+                continue;
+            };
+            let Ok(transform) = server
+                .body_get_state(body.body, BodyState::TRANSFORM)
+                .try_to::<Transform3D>()
+            else {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+                continue;
+            };
+            if !transform.origin.is_finite() {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+                continue;
+            }
+            let point = crate::units::GodotPos::new(
+                transform.origin.x,
+                transform.origin.y,
+                transform.origin.z,
+            )
+            .to_skyrim();
+            poses.push((*actor, [point.x, point.y, point.z]));
+            let velocity = server
+                .body_get_state(body.body, BodyState::LINEAR_VELOCITY)
+                .try_to::<Vector3>()
+                .unwrap_or(Vector3::ZERO);
+            if velocity.length_squared() < 0.01 {
+                server.body_set_mode(body.body, BodyMode::STATIC);
+                settled.push(*actor);
+            }
+        }
+        for actor in settled {
+            self.thrown_actors.remove(&actor);
+        }
+        poses.sort_unstable_by_key(|(actor, _)| *actor);
+        poses
     }
 
     /// Number of actor bodies held.
@@ -1006,6 +1111,8 @@ impl ActorBodies {
             release(&mut server, body);
         }
         self.owners.clear();
+        self.grabbed_actor = None;
+        self.thrown_actors.clear();
         self.space = None;
     }
 }

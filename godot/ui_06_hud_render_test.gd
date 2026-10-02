@@ -73,6 +73,31 @@ func _run() -> void:
 	_check(compass != null and _region_has_ink(frame, compass),
 		"compass produced no viewport pixels")
 
+	var initial_labels: Array[String] = []
+	var initial_fills: Array[float] = []
+	for index in range(expected.size()):
+		var label := meters.get_child(index * 2) as Label
+		var bar := meters.get_child(index * 2 + 1) as ProgressBar
+		initial_labels.append(label.text)
+		initial_fills.append(bar.value)
+	for value_name in ["health", "magicka", "stamina"]:
+		_check(player.call("damage_player_actor_value", value_name, 20.0),
+			"could not change live %s actor value" % value_name)
+	await process_frame
+	await process_frame
+	var updated_frame := get_root().get_texture().get_image()
+	for index in range(expected.size()):
+		var label := meters.get_child(index * 2) as Label
+		var bar := meters.get_child(index * 2 + 1) as ProgressBar
+		_check(label.text != initial_labels[index],
+			"%s HUD label did not update after its actor value changed" % expected[index])
+		_check(bar.value < initial_fills[index],
+			"%s HUD fill did not update after its actor value changed" % expected[index])
+		_check(_region_has_ink(updated_frame, label),
+			"updated %s label produced no viewport pixels" % expected[index])
+		_check(_region_has_ink(updated_frame, bar),
+			"updated %s meter produced no viewport pixels" % expected[index])
+
 	player.free()
 	streamer.free()
 	await process_frame

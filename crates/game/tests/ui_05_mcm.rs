@@ -184,8 +184,8 @@ fn variable(game: &mut Game, name: &str) -> Value {
 #[test]
 fn ui_05_initializes_and_registers_modeled_config_once() {
     let mut game = fixture();
-    assert_eq!(variable(&mut game, "register_count"), Value::Int(1));
     let configs = game.mcm_configs();
+    assert_eq!(variable(&mut game, "register_count"), Value::Int(1));
     assert_eq!(configs.len(), 1);
     assert_eq!(configs[0].name, "Example Mod");
     assert_eq!(variable(&mut game, "init_count"), Value::Int(1));
@@ -264,4 +264,83 @@ fn ui_05_original_skyui_source_defines_lifecycle_order() {
     )
     .unwrap();
     assert!(set_page.contains("onpagereset(a_page)"));
+}
+
+#[test]
+fn ui_05_executes_unmodified_skyui_base_when_pex_is_available() {
+    let Some(path) = std::env::var_os("SOE_SKYUI_CONFIG_BASE_PEX") else {
+        eprintln!("skipping SkyUI PEX execution check: SOE_SKYUI_CONFIG_BASE_PEX is unset");
+        return;
+    };
+
+    let base = std::fs::read(path).unwrap();
+    let vmad = Vmad {
+        scripts: vec![ScriptEntry::new("Ui05ExecutableChild")],
+        ..Default::default()
+    };
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
+    plugin.push_top(
+        quest::build_record(
+            QUEST,
+            "Ui05ExecutableConfig",
+            quest_flags::START_GAME_ENABLED,
+        )
+        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
+    );
+    let mut order = LoadOrder::new();
+    order.add("Config.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+
+    let child = ScriptBuilder::new("Ui05ExecutableChild", "SKI_ConfigBase")
+        .variable("init_count", "Int", i(0))
+        .variable("register_count", "Int", i(0))
+        .variable("reset_count", "Int", i(0))
+        .function(
+            FunctionBuilder::new("OnConfigInit", "None")
+                .local("pages", "String[]")
+                .ins(IAdd, vec![ident("init_count"), ident("init_count"), i(1)])
+                .ins(PropSet, vec![s("ModName"), ident("self"), s("Example Mod")])
+                .ins(ArrayCreate, vec![ident("pages"), i(2)])
+                .ins(ArraySetElement, vec![ident("pages"), i(0), s("General")])
+                .ins(ArraySetElement, vec![ident("pages"), i(1), s("Advanced")])
+                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnConfigRegister", "None")
+                .ins(
+                    IAdd,
+                    vec![ident("register_count"), ident("register_count"), i(1)],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnPageReset", "None")
+                .param("page", "String")
+                .ins(IAdd, vec![ident("reset_count"), ident("reset_count"), i(1)])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&base).unwrap();
+    game.load_script(&child).unwrap();
+    game.start();
+
+    let object = game.object_of_form(form());
+    let variable = |game: &Game, name: &str| {
+        game.vm
+            .vars_on(object, "Ui05ExecutableChild")
+            .into_iter()
+            .find(|(variable, _)| variable.eq_ignore_ascii_case(name))
+            .unwrap()
+            .1
+    };
+    assert_eq!(variable(&game, "init_count"), Value::Int(1));
+    assert_eq!(game.mcm_configs()[0].pages, ["General", "Advanced"]);
+    assert_eq!(variable(&game, "register_count"), Value::Int(1));
+    assert!(game.mcm_open(form()));
+    assert!(game.mcm_select_page(1));
+    assert_eq!(variable(&game, "reset_count"), Value::Int(2));
 }

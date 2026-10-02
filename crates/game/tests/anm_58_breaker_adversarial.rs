@@ -6,9 +6,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Handle};
 use soe_papyrus::{
+    asm::{ident, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, Return},
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

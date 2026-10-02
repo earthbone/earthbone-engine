@@ -90,7 +90,9 @@ fn hst_13_focus_transition_clears_old_cell_and_keeps_destination_loaded() {
 fn hst_13_position_changes_do_not_clear_resident_3d() {
     let game = game();
     let reference = id(ROCK_B);
-    game.world_mut().attach_streaming_cells(&[id(CELL_B)]).unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(CELL_B)])
+        .unwrap();
 
     let mut world = game.world_mut();
     let rock = world.reference(reference).unwrap();
