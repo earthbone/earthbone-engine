@@ -945,6 +945,8 @@ mod prg_12_adversarial;
 mod prg_12_arrest_choices;
 #[path = "prg_13_adversarial.rs"]
 mod prg_13_adversarial;
+#[path = "prg_13_breaker_adversarial.rs"]
+mod prg_13_breaker_adversarial;
 #[path = "prg_13_jail.rs"]
 mod prg_13_jail;
 #[path = "prg_14_adversarial.rs"]
