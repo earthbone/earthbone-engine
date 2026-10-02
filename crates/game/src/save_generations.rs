@@ -215,7 +215,15 @@ fn read_verified(game: &Game, id: u64, path: &Path) -> Result<Vec<u8>, Rejection
 struct Session {
     directory: PathBuf,
     directory_file: File,
-    _lock: File,
+    lock: File,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        // CONTEXT: A concurrent process launch can inherit the descriptor until
+        // exec. Closing our copy alone would keep the shared file lock held.
+        let _ = self.lock.unlock();
+    }
 }
 
 impl GenerationStore {
@@ -269,7 +277,7 @@ impl GenerationStore {
         Ok(Session {
             directory,
             directory_file,
-            _lock: lock,
+            lock,
         })
     }
 }
@@ -480,5 +488,30 @@ pub mod fault {
             Some(hook) => hook(step, after),
             None => Ok(()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_releases_lock_while_duplicate_descriptor_remains_open() {
+        let directory =
+            std::env::temp_dir().join(format!("soe-generation-session-{}", std::process::id()));
+        fs::create_dir(&directory).unwrap();
+        let store = GenerationStore::new(&directory, 2).unwrap();
+        let session = store.session().unwrap();
+        let inherited = session.lock.try_clone().unwrap();
+        assert!(matches!(
+            store.session(),
+            Err(Error::Io { step: Step::Lock, source })
+                if source.kind() == io::ErrorKind::WouldBlock
+        ));
+        drop(session);
+        let next = store.session().map(drop);
+        drop(inherited);
+        fs::remove_dir_all(&directory).unwrap();
+        assert!(next.is_ok(), "session lock was retained: {next:?}");
     }
 }
