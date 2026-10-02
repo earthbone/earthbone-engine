@@ -572,12 +572,13 @@ after that target reports the named graph event. The host fails the wait if
 the bound visual unloads first. The host does not dispatch the requested
 animation on arbitrary references, and neither native fabricates a graph
 event.
-`PlayGamebryoAnimation` validates its animation name and reference but legacy
-NIF playback is not implemented.
+`PlayGamebryoAnimation` returns false because legacy NIF playback is not
+implemented. It does not report success without starting an animation.
 `SetMotionType` validates the documented motion range and queues the motion
 request for the host. Motion type 7 maps to a kinematic host body.
 `ApplyHavokImpulse` rejects zero-length or non-finite direction data,
-normalizes finite directions without intermediate float overflow, and queues
+logging the Creation Kit Papyrus warning for a zero-length vector. It
+normalizes finite directions without intermediate float overflow and queues
 the magnitude and direction for the host. Placed-reference Havok behavior
 remains a stub. These contracts follow the local
 `GetCurrentScene_-_ObjectReference.wikitext`,
