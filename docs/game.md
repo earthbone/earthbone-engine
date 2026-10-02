@@ -315,6 +315,11 @@ Queued messages and suspended stacks remain inert. Unsupported change-form
 types and the remaining world and VM state are not imported by this transaction.
 This is not a full ESS load or resumed game. See
 [save.md](save.md) for mapping rules, failure behavior and the remaining work.
+`Game::restore_vanilla_save_file` opens an ESS path and sets the SPID save
+character ID from field two of the standard nine-field filename before running
+those passes. For a nonstandard filename it retains the host supplied game
+player ID, which defaults to zero. The ID remains runtime metadata and is not
+written into SOEG or SOEW.
 
 Reference placement reserves created identities found in saved change forms,
 the FormID array and the four Created Objects tables before runtime placement
@@ -1680,6 +1685,12 @@ concurrent modules do not overwrite each other's inputs.
 the module declarations and reports the declaration to add for a missing
 file. The registration file uses Git's union merge driver. New test files
 need their module declaration in `tests/it.rs`.
+
+`tst_16_test_names_match_the_pre_consolidation_inventory` compares committed
+before and after test-name inventories from the consolidation run. It removes
+the `unit::` prefix and TST-16's added guard tests before comparing the 2,289
+remaining names. This checks historical name preservation, but does not compare
+installed test results.
 
 Installed integration tests use `tests/common/installed.rs`. Each test
 process caches parsed plugin files and load orders by their installed master
@@ -5506,9 +5517,10 @@ actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
 its armor addons enter the same body-part selection as an authored skin. The
 load pass resolves distributions by NPC base. Deterministic SPID rules are
 evaluated as each actor is built, with the seed combining the parsed entry
-value, save character ID and actor runtime FormID. A host can set this input
-with `World::set_player_character_id`. It is runtime metadata and is not
-serialized by the engine.
+value, save character ID and actor runtime FormID. The seeded Xoshiro256**
+draw follows CLibUtil `rng.hpp`, which SPID uses through `LookupFilters.cpp`.
+A host can set this input directly with `World::set_player_character_id`.
+It is runtime metadata and is not serialized by the engine.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.
