@@ -45,3 +45,23 @@ fn tst_12_breaker_bad_archive_is_reported_under_its_own_mod() {
     assert_eq!(reports[0].parser_failures.len(), 1);
     assert!(reports[0].parser_failures[0].contains("broken.bsa"));
 }
+
+#[test]
+fn tst_12_breaker_reports_missing_assets_with_leading_data_separator() {
+    let temp = TempDir::new("leading-data-separator");
+    let mod_dir = temp.0.join("RootedAssetPack");
+    std::fs::create_dir_all(&mod_dir).unwrap();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag::new(b"STAT"), 0x800)
+            .zsub(Tag::new(b"MODL"), "\\meshes/custom/missing.nif"),
+    );
+    std::fs::write(mod_dir.join("RootedAssetPack.esp"), plugin.to_bytes()).unwrap();
+
+    let reports = run_corpus(&temp.0);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].name, "RootedAssetPack");
+    assert_eq!(reports[0].missing_assets.len(), 1);
+    assert!(reports[0].missing_assets[0].contains("meshes/custom/missing.nif"));
+}

@@ -30,6 +30,8 @@ mod ai_05_package_flags;
 mod ai_09_adversarial;
 #[path = "ai_88_adversarial.rs"]
 mod ai_88_adversarial;
+#[path = "ai_88_breaker_adversarial.rs"]
+mod ai_88_breaker_adversarial;
 #[path = "ai_09_door_links.rs"]
 mod ai_09_door_links;
 #[path = "ai_12_adversarial.rs"]

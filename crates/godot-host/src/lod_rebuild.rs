@@ -149,6 +149,13 @@ pub fn select_far_level(projected_error_pixels: [f32; 4], pixel_limit: f32) -> L
 /// pixels. Each array is `[left, top, right, bottom]`.
 #[must_use]
 pub fn silhouette_error_pixels(reference: [f32; 4], candidate: [f32; 4]) -> f32 {
+    if reference
+        .iter()
+        .chain(candidate.iter())
+        .any(|edge| !edge.is_finite())
+    {
+        return f32::NAN;
+    }
     reference
         .into_iter()
         .zip(candidate)

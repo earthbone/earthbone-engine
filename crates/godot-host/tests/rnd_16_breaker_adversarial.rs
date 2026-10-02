@@ -44,7 +44,10 @@ fn rnd_16_does_not_select_a_far_level_when_every_level_exceeds_the_pixel_limit()
 fn rnd_16_non_finite_silhouette_bounds_do_not_look_like_zero_error() {
     let invalid = silhouette_error_pixels([f32::NAN, 0.0, 10.0, 10.0], [0.0, 0.0, 10.0, 10.0]);
     assert!(!invalid.is_finite());
-    assert_eq!(select_far_level([invalid, 0.5, 0.75, 0.9], 1.0), LodLevel::L32);
+    assert_eq!(
+        select_far_level([invalid, 0.5, 0.75, 0.9], 1.0),
+        LodLevel::L32
+    );
 }
 
 #[test]
