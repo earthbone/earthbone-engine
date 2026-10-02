@@ -238,3 +238,66 @@ fn ai_25_orbit_re_resolves_a_moving_target_each_tick() {
         assert!(soe_game::ai::nav_graph(&mut world).locate(actor).is_some());
     }
 }
+
+#[test]
+fn ai_25_installed_navmesh_adjacent_steps_stay_navigable() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping AI-25 installed-data survey");
+        return;
+    };
+    let bytes = std::fs::read(std::path::Path::new(&data).join("Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+
+    let mut candidates = Vec::new();
+    for (_, record) in order.winners_of(T(b"NAVM")) {
+        let Some(raw) = record.find(T(b"NVNM")) else {
+            continue;
+        };
+        let Ok(geometry) = Geometry::parse(T(b"NVNM"), raw) else {
+            continue;
+        };
+        for (index, triangle) in geometry.triangles.iter().enumerate() {
+            let center = |triangle: &Triangle| {
+                let vertices = triangle
+                    .vertices
+                    .map(|vertex| geometry.vertices[vertex as usize]);
+                std::array::from_fn(|axis| {
+                    (vertices[0][axis] + vertices[1][axis] + vertices[2][axis]) / 3.0
+                })
+            };
+            for neighbor in triangle.edges.into_iter().filter(|neighbor| *neighbor >= 0) {
+                let neighbor = neighbor as usize;
+                if neighbor > index && neighbor < geometry.triangles.len() {
+                    candidates.push((center(triangle), center(&geometry.triangles[neighbor])));
+                }
+            }
+        }
+    }
+
+    let game = Game::new(order);
+    let mut world = game.world_mut();
+    let graph = soe_game::ai::nav_graph(&mut world);
+    let mut clear_steps = 0;
+    for (from, to) in candidates {
+        if graph.find_path_between(from, to).is_none() {
+            continue;
+        }
+        if (0..=10).all(|step| {
+            let t = step as f32 / 10.0;
+            let point = std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * t);
+            graph.locate(point).is_some()
+        }) {
+            clear_steps += 1;
+            if clear_steps == 100 {
+                break;
+            }
+        }
+    }
+    assert!(
+        clear_steps >= 100,
+        "only {clear_steps} installed NAVM triangle transitions were navigable"
+    );
+}
