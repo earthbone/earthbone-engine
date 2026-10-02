@@ -325,8 +325,11 @@ conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
 and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
-the resolved identity, record signature, editor ID and winning plugin. It does not own or
-edit a copy of the record.
+the resolved identity, record signature, editor ID and winning plugin. The forms plugin's
+`EditorInspectorPlugin` adds a `Winning source` row for selected `SoeFormResource` objects,
+using that wrapper's `winning_plugin` property. The wrapper does not own or edit a copy of
+the record. `godot/edt_13_inspector_test.gd` selects a wrapper through Godot's editor API
+and checks that the Inspector dock displays its winning plugin name.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records

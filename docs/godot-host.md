@@ -173,12 +173,14 @@ FormIDs only, with at most 200 results per page. Selecting a row calls `selected
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
 ID and winning plugin. The resource is a view and does not expose record editing.
 
-The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
-property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+The dock uses Godot's `EditorPlugin` dock API. Its registered `EditorInspectorPlugin`
+recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
+`winning_plugin` property. Local
+`engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The plugin must be enabled in the Godot project's Plugins settings after building the
-extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
-field editor.
+The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
+record identity and winner metadata, while typed record editing remains in the editor
+document API.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
