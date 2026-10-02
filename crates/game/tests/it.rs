@@ -1319,6 +1319,8 @@ mod ui_07_character_traits;
 mod ui_08_adversarial;
 #[path = "ui_08_breaker_adversarial.rs"]
 mod ui_08_breaker_adversarial;
+#[path = "ui_08_breaker2_adversarial.rs"]
+mod ui_08_breaker2_adversarial;
 #[path = "ui_08_lockpicking.rs"]
 mod ui_08_lockpicking;
 #[path = "ui_09_adversarial.rs"]
