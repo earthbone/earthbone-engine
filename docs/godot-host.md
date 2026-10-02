@@ -176,9 +176,15 @@ ID and winning plugin. The resource is a view and does not expose record editing
 The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
 property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The plugin must be enabled in the Godot project's Plugins settings after building the
-extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
-field editor.
+The Godot project enables this dock alongside the cell dock. The dock does not implement
+record editing or an `EditorInspectorPlugin` custom field editor.
+
+`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
+synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`
+matches from the winning records, that searching created zero `SoeFormResource` values, and
+that selecting one row creates one resource. Run it after building the release extension
+with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner uses a 640 by 360 editor window
+and the plugin exits the editor when the check finishes.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
