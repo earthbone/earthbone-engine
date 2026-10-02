@@ -794,6 +794,8 @@ pub struct World {
     rng_streams: [u64; rng::STREAM_COUNT],
     pub clock: GameClock,
     pub(crate) menu_mode: bool,
+    /// Actor pairs visible during the latest successful host perception step.
+    pub(crate) line_of_sight: BTreeSet<(GlobalFormId, GlobalFormId)>,
     pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
@@ -1137,6 +1139,7 @@ impl World {
             rng_streams: rng::derive_streams(0x9E37_79B9_7F4A_7C15),
             clock: GameClock::default(),
             menu_mode: false,
+            line_of_sight: BTreeSet::new(),
             frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),

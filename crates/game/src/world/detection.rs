@@ -154,6 +154,11 @@ impl World {
                 .or_default()
                 .push((o.observer, value));
         }
+        let line_of_sight = observations
+            .iter()
+            .filter(|observation| observation.line_of_sight)
+            .map(|observation| (observation.observer, observation.target))
+            .collect();
 
         let mut next = self.detection.clone();
         for (target, values) in &by_target {
@@ -171,6 +176,7 @@ impl World {
             return Err(Error::Number);
         }
         self.detection = next;
+        self.line_of_sight = line_of_sight;
         Ok(())
     }
 

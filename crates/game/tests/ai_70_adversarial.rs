@@ -197,16 +197,14 @@ fn ai_70_random_percent_compares_a_bounded_roll() {
 }
 
 #[test]
-fn ai_70_unavailable_contracts_report_explicit_diagnostics() {
+fn ai_70_indexed_menu_mode_reports_missing_menu_identity() {
     let game = fixture();
-    for function in [27, 36, 39] {
-        assert!(!conditions::supports_function(function));
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, 0, 1.0)),
-            Err(conditions::Error::UnavailableContractReason(
-                function,
-                "the local CK corpus does not define a runtime contract",
-            ))
-        );
-    }
+    assert!(conditions::supports_function(36));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(36, 1, 1.0)),
+        Err(conditions::Error::UnavailableContractReason(
+            36,
+            "the runtime tracks menu mode without individual menu identities",
+        ))
+    );
 }
