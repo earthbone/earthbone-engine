@@ -3383,7 +3383,28 @@ match the cell streamer's own `load_radius` so the two never disagree about
 which cells are near. One streamer covers one LOD level, a caller that wants
 more than one level resident at once runs one streamer per level with
 disjoint radius bands, finer levels nearer the focus. Picking a level by
-distance automatically is left to that caller, unstarted here.
+distance can use `lod_rebuild::select_far_level`, which chooses the coarsest
+level whose measured projected silhouette edge error is below its pixel
+limit. The host does not yet feed rendered reference measurements into this
+selector.
+
+### Background LOD products, RND-16
+
+`lod_rebuild::LoadOrderHash` keys generated output by ordered profile plugin
+names, enabled state and slot assignment. Callers mix in
+`soe_esm::LoadOrder::fingerprint()` so edits to plugin contents also
+invalidate the cache. `LodBuildCache::request` returns a cached product when
+the key matches, or starts a worker for a cache miss. `GeneratedLod` carries
+object and terrain output together, and `finish` publishes only after the
+complete worker result is available. A failed worker leaves the cache
+unchanged.
+
+`silhouette_error_pixels` measures the maximum displacement of the four
+projected bounds edges in pixels. `select_far_level` chooses the coarsest
+candidate below the configured error limit and ignores non-finite
+measurements. The cache and selector are host APIs; the cell streamer does
+not yet schedule rebuilds when a profile is reloaded or apply selected levels
+to rendered references.
 
 The residency budget is recorded, not estimated ahead of the read.
 `Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
