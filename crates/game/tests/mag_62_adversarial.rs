@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "common/mag_adversarial.rs"]
-mod common;
+use crate::common::mag_adversarial as common;
 use common::{cast, effect, game, id, spell, ACTOR, OTHER, SPELL};
 
 #[test]

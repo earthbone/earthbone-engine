@@ -9,10 +9,10 @@ use std::collections::BTreeSet;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::Value;
 
-use super::{le_u32, Alloc, Pending, World};
+use super::{le_u32, Alloc, Pending, World, T};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
-    Difficulty, Error, Hand, HitResult, MeleeHit,
+    Difficulty, Error, FireError, Hand, HitResult, MeleeHit,
 };
 use crate::crime::CrimeType;
 use crate::inventory::{Extra, Field, StackSource};
@@ -24,8 +24,7 @@ const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 /// UESP's Combat and Damage pages give power attack stamina cost as an
 /// unnamed formula, no GMST is named on either page: "power attack stamina
 /// cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk
-/// effect)". `validate_combat_actor` already rejects an attacker carrying
-/// any perk entry, so the perk term is always 1 here. "Attack cost
+/// effect)". Stamina-cost perk effects are not applied here. "Attack cost
 /// multiplier" is the race's Attacks entry Stamina Mult field, read through
 /// `PowerAttack`. See docs/combat.md CMB-21.
 const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
@@ -56,6 +55,67 @@ struct EnchantmentCharge {
 }
 
 impl World {
+    /// Validate a Papyrus `Weapon.Fire` request against the shared form table.
+    ///
+    /// # Errors
+    /// Missing or mistyped forms, malformed weapon records, or unavailable
+    /// ranged projectile execution.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn fire_weapon(
+        &mut self,
+        weapon: GlobalFormId,
+        source: GlobalFormId,
+        ammo: Option<GlobalFormId>,
+    ) -> Result<(), FireError> {
+        if !matches!(self.tag_of(source), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR")) {
+            return Err(FireError::Source);
+        }
+        let record = self
+            .record(weapon)
+            .filter(|record| record.tag == T(b"WEAP"))
+            .ok_or(FireError::Weapon(weapon))?;
+        Weapon::from_record(record)?;
+        if let Some(ammo) = ammo {
+            if self
+                .record(ammo)
+                .is_none_or(|record| record.tag != T(b"AMMO"))
+            {
+                return Err(FireError::Ammo(ammo));
+            }
+        }
+        Err(FireError::Unsupported("ranged projectile execution"))
+    }
+
+    /// Notify listeners that the caller's combat path confirmed a critical hit.
+    /// This reports an outcome, it does not calculate critical chance or
+    /// damage modifiers.
+    ///
+    /// # Errors
+    /// Missing aggressor or a weapon form that is not a winning WEAP record.
+    pub fn report_critical_hit(
+        &mut self,
+        aggressor: GlobalFormId,
+        weapon: GlobalFormId,
+        sneak_hit: bool,
+    ) -> Result<(), Error> {
+        self.actor(aggressor).ok_or(Error::Actor(aggressor))?;
+        if self
+            .record(weapon)
+            .is_none_or(|record| record.tag != Tag(*b"WEAP"))
+        {
+            return Err(Error::Unsupported("critical hit requires a WEAP form"));
+        }
+        let event = soe_commonlib_shim::events::CriticalHit {
+            aggressor: World::event_form_id(aggressor),
+            weapon: World::event_form_id(weapon),
+            sneak_hit,
+        };
+        self.critical_hit_events.send(&event);
+        Ok(())
+    }
+
     /// Return the selected difficulty tier.
     #[must_use]
     pub const fn difficulty(&self) -> Difficulty {
@@ -123,6 +183,37 @@ impl World {
             .retain(|equipped| !conflicts.contains(equipped));
         state.equipped.insert(item);
         Ok(())
+    }
+
+    /// Return the actor's equipped shield, if its worn armor occupies the
+    /// shield biped slot (BOD2 bit 9).
+    ///
+    /// # Errors
+    /// Missing actor or malformed equipped armor record.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn equipped_shield(&mut self, actor: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let equipped = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for item in equipped {
+            if self.item_count(actor, item) <= 0
+                || self
+                    .record(item)
+                    .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
+                continue;
+            }
+            if self.combat_armor_record(item)?.slots & (1 << 9) != 0 {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
     }
 
     /// Set whether an actor currently holds a block stance, matching the
@@ -585,6 +676,13 @@ impl World {
             self.validate_weapon_enchantment_after_hit(prepared, &values)?;
         }
         let lethal = values.get("health").current() <= 0.0;
+        let attacked_factions = if self.player == Some(hit.attacker) {
+            self.actor(hit.target)
+                .map(|actor| actor.factions.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![
@@ -635,6 +733,11 @@ impl World {
         if let Some(values) = attacker_stamina {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values = values;
+            }
+        }
+        for faction in attacked_factions {
+            if let Some(state) = self.faction(faction) {
+                state.player_attacked = true;
             }
         }
         // Poison (CMB-25) applies and clears last, after every other part of
@@ -830,22 +933,6 @@ impl World {
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
-        }
-        for name in [
-            "onehandedmodifier",
-            "twohandedmodifier",
-            "marksmanmodifier",
-            "onehandedpowermodifier",
-            "twohandedpowermodifier",
-            "marksmanpowermodifier",
-            "lightarmormodifier",
-            "heavyarmormodifier",
-            "lightarmorpowermodifier",
-            "heavyarmorpowermodifier",
-        ] {
-            if actor.values.entries.contains_key(name) {
-                return Err(Error::Unsupported("combat actor-value multipliers"));
-            }
         }
         Ok(())
     }

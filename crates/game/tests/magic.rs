@@ -5,11 +5,9 @@
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -35,7 +33,11 @@ const KEYWORD: u32 = 0x400;
 const DISEASE_KEYWORD: u32 = 0x401;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
+const FILTER_LIST: u32 = 0x602;
+const NESTED_FILTER_LIST: u32 = 0x603;
+const LIST_ONLY_ITEM: u32 = 0x604;
 const SUMMON_BASE: u32 = 0x501;
+const GRANTED_PERK: u32 = 0x700;
 const CELL: u32 = 0x800;
 const NAVM: u32 = 0x810;
 const LIGHT_BASE: u32 = 0x502;
@@ -75,6 +77,9 @@ mod scroll;
 #[path = "magic/worn_enchantment.rs"]
 mod worn_enchantment;
 
+#[path = "magic/cure_addiction.rs"]
+mod cure_addiction;
+
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
         .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
@@ -97,6 +102,10 @@ fn put(data: &mut [u8], at: usize, value: u32) {
 
 fn effect(flags: u32, archetype: u32, av: u32, constant: bool) -> Record {
     effect_with_associated_item(flags, archetype, av, constant, 0)
+}
+
+fn scroll_effect() -> Record {
+    effect(2, 0, 24, false)
 }
 
 fn effect_with_associated_item(
@@ -160,6 +169,20 @@ fn effect_with_id(
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
 }
 
+fn effect_with_perk() -> Record {
+    let mut data = vec![0; 152];
+    put(&mut data, 0, 1 << 1);
+    put(&mut data, 16, u32::MAX);
+    put(&mut data, 64, 0);
+    put(&mut data, 68, 24);
+    put(&mut data, 80, 1);
+    put(&mut data, 84, 3);
+    put(&mut data, 136, GRANTED_PERK);
+    Record::new(T(b"MGEF"), EFFECT)
+        .zsub(T(b"EDID"), "PerkEffect")
+        .sub(T(b"DATA"), data)
+}
+
 fn effect_with_resistance(resistance: i32) -> Record {
     let mut effect = effect(1 | (1 << 2), 0, 24, false);
     effect.subrecords[1].data[16..20].copy_from_slice(&resistance.to_le_bytes());
@@ -174,6 +197,12 @@ fn location_effect() -> Record {
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+fn scroll_spell(form: u32, magnitude: f32, duration: u32) -> Record {
+    let mut scroll = spell(form, 0, false, magnitude, duration);
+    put(&mut scroll.subrecords[0].data, 16, 3);
+    scroll
 }
 
 fn spell_for_effect(form: u32, effect_form: u32, magnitude: f32, duration: u32) -> Record {
@@ -200,7 +229,22 @@ fn spell_with_area(
     duration: u32,
     area: u32,
 ) -> Record {
-    spell_with_base_effect(form, kind, constant, magnitude, duration, area, EFFECT)
+    spell_with_settings(form, kind, constant, magnitude, duration, area, 0, 0)
+}
+
+fn spell_with_settings(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+    flags: u32,
+    cost: u32,
+) -> Record {
+    spell_record(
+        form, kind, constant, magnitude, duration, area, EFFECT, flags, cost,
+    )
 }
 
 fn spell_with_base_effect(
@@ -212,7 +256,26 @@ fn spell_with_base_effect(
     area: u32,
     effect: u32,
 ) -> Record {
+    spell_record(
+        form, kind, constant, magnitude, duration, area, effect, 0, 0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spell_record(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+    effect: u32,
+    flags: u32,
+    cost: u32,
+) -> Record {
     let mut data = vec![0; 36];
+    put(&mut data, 0, cost);
+    put(&mut data, 4, flags);
     put(&mut data, 8, kind);
     put(&mut data, 16, u32::from(!constant));
     put(&mut data, 20, 3);
@@ -222,6 +285,15 @@ fn spell_with_base_effect(
     Record::new(T(b"SPEL"), form)
         .sub(T(b"SPIT"), data)
         .sub(T(b"EFID"), effect.to_le_bytes())
+        .sub(T(b"EFIT"), efit)
+}
+
+fn duplicate_spell_effect(spell: Record, magnitude: f32, duration: u32) -> Record {
+    let mut efit = magnitude.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&duration.to_le_bytes());
+    spell
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
         .sub(T(b"EFIT"), efit)
 }
 
@@ -324,8 +396,17 @@ fn plugin_with_positions(
     plugin.push_top(Record::new(T(b"ACTI"), 0x700));
     plugin.push_top(Record::new(T(b"REFR"), 0x701).sub(T(b"NAME"), 0x700u32.to_le_bytes()));
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
+    plugin.push_top(Record::new(T(b"PERK"), GRANTED_PERK).zsub(T(b"EDID"), "GrantedPerk"));
     plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
     plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));
+    plugin.push_top(Record::new(T(b"MISC"), LIST_ONLY_ITEM).zsub(T(b"EDID"), "ListItem"));
+    plugin.push_top(
+        Record::new(T(b"FLST"), FILTER_LIST)
+            .sub(T(b"LNAM"), LIST_ONLY_ITEM.to_le_bytes())
+            .sub(T(b"LNAM"), NESTED_FILTER_LIST.to_le_bytes()),
+    );
+    plugin
+        .push_top(Record::new(T(b"FLST"), NESTED_FILTER_LIST).sub(T(b"LNAM"), ITEM.to_le_bytes()));
     plugin.push_top(effect);
     for spell in spells {
         plugin.push_top(spell);
@@ -350,6 +431,7 @@ fn game(plugin: Plugin) -> Game {
         .variable("finished", "Int", i(0))
         .variable("added", "Int", i(0))
         .variable("removed", "Int", i(0))
+        .variable("lastAddedItem", "Form", soe_papyrus::asm::none())
         .variable("target", "Actor", soe_papyrus::asm::none())
         .variable("caster", "Actor", soe_papyrus::asm::none())
         .function(
@@ -378,6 +460,7 @@ fn game(plugin: Plugin) -> Game {
                     IAdd,
                     vec![ident("added"), ident("added"), ident("aiItemCount")],
                 )
+                .ins(Assign, vec![ident("lastAddedItem"), ident("akBaseItem")])
                 .build(),
         )
         .function(
@@ -403,6 +486,24 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
         effect(flags, archetype, 24, false),
         vec![spell(SPELL, 0, false, magnitude, duration)],
     ))
+}
+
+fn conditional_int_script(
+    name: &str,
+    class: &str,
+    variable: &str,
+    value: i32,
+) -> soe_papyrus::pex::Script {
+    let mut script = ScriptBuilder::new(name, class)
+        .variable(variable, "Int", i(value))
+        .build();
+    script.user_flags.push(soe_papyrus::pex::UserFlag {
+        name: "conditional".into(),
+        bit: 3,
+    });
+    script.objects[0].user_flags = 8;
+    script.objects[0].variables[0].user_flags = 8;
+    script
 }
 
 fn summon_and_banish_game(banish_magnitude: f32) -> Game {
@@ -465,6 +566,39 @@ fn mag_30_navmesh() -> Geometry {
             cells: vec![vec![0, 1]],
         },
     }
+}
+
+#[test]
+fn scr_71_spell_is_hostile_reports_hostile_effect_flags() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_without_hostile_effects() {
+    let mut game = fixture(0, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn scr_71_spell_is_hostile_returns_false_for_missing_spell_records() {
+    let mut game = fixture(1, 0, 20.0, 0);
+    let spell = Value::Object(game.object_of_form(id(0x777)));
+
+    assert_eq!(
+        native(&mut game, spell, "IsHostile", &[]),
+        Value::Bool(false)
+    );
 }
 
 #[test]
@@ -1385,6 +1519,133 @@ fn mag_58_menu_pause_preserves_slow_time_state_and_advances_real_time_waits() {
 }
 
 #[test]
+fn mag_23_absorbed_cast_suppresses_hostile_effects_and_restores_base_cost_once() {
+    let spell = duplicate_spell_effect(
+        spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15),
+        10.0,
+        5,
+    );
+    let mut game = game(plugin(effect(1, 0, 24, false), vec![spell]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert!(cast(&mut game, SPELL, ACTOR).unwrap().is_empty());
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 85.0);
+}
+
+#[test]
+fn mag_23_disallow_absorb_reflect_keeps_the_effect_and_magicka() {
+    let spell = spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 1 << 21, 15);
+    let mut game = game(plugin(effect(1, 0, 24, false), vec![spell]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world().active_effects().count(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
+}
+
+#[test]
+fn mag_23_zero_absorb_chance_keeps_the_effect_and_magicka() {
+    let mut game = game(plugin(
+        effect(1, 0, 24, false),
+        vec![spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 0.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
+}
+
+#[test]
+fn mag_23_nonhostile_effect_is_not_absorbed() {
+    let mut game = game(plugin(
+        effect(0, 0, 24, false),
+        vec![spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
+}
+
+#[test]
+fn mag_21_effect_granted_perk_expires_without_removing_owned_copy() {
+    let mut game = game(plugin(
+        effect_with_perk(),
+        vec![spell(SPELL, 0, false, 1.0, 5)],
+    ));
+    game.world_mut()
+        .actor(id(ACTOR))
+        .unwrap()
+        .perks
+        .insert(id(GRANTED_PERK));
+
+    let first_actor_effect = cast(&mut game, SPELL, ACTOR).unwrap()[0];
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    cast(&mut game, SPELL, OTHER).unwrap();
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    assert!(game.world_mut().has_perk(id(OTHER), id(GRANTED_PERK)));
+    let other_object = Value::Object(game.object_of_form(id(OTHER)));
+    let perk_object = Value::Object(game.object_of_form(id(GRANTED_PERK)));
+    assert_eq!(
+        native(&mut game, other_object, "HasPerk", &[perk_object]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        game.world()
+            .active_effects()
+            .filter(|e| e.granted_perk == Some(id(GRANTED_PERK)))
+            .count(),
+        3
+    );
+    assert!(dispel(&mut game, first_actor_effect));
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+
+    game.tick(5.0);
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    assert!(!game.world_mut().has_perk(id(OTHER), id(GRANTED_PERK)));
+}
+
+#[test]
+fn mag_21_saved_effect_keeps_its_perk_until_dispelled() {
+    let fixture = || plugin(effect_with_perk(), vec![spell(SPELL, 0, false, 1.0, 5)]);
+    let mut original = game(fixture());
+    cast(&mut original, SPELL, ACTOR).unwrap();
+    let saved = original.save_state().unwrap();
+
+    let mut restored = game(fixture());
+    restored.load_state(&saved).unwrap();
+    assert!(restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    let shared = restored.shared_world();
+    assert!(shared
+        .borrow_mut()
+        .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
+            .vm
+            .create_object_of(name, class),));
+    assert!(!restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+}
+
+#[test]
 fn mag_39_summon_creature_spawns_associated_actor_owned_by_caster() {
     let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
     let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 10)]));
@@ -1720,6 +1981,157 @@ fn magic_conditions_use_credited_caster_and_delivery_target() {
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
 }
 
+#[test]
+fn mag_69_cast_evaluates_live_quest_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(629, 0x900, 2.0, 0))
+        .zsub(T(b"CIS2"), "::gate");
+    let mut plugin = plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]);
+    plugin.push_top(Record::new(T(b"QUST"), 0x900));
+    let mut game = game(plugin);
+    game.vm
+        .load(conditional_int_script("QuestGate", "Quest", "::gate", 2));
+    let quest = game.object_of_form(id(0x900));
+    game.vm.attach(quest, "QuestGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+
+    native(
+        &mut game,
+        spell.clone(),
+        "Cast",
+        &[source.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(quest, "QuestGate", "::gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "Cast", &[source, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_remote_cast_evaluates_live_script_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("ReferenceGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "ReferenceGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(target_object);
+
+    native(
+        &mut game,
+        spell.clone(),
+        "RemoteCast",
+        &[source.clone(), caster.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(target_object, "ReferenceGate", "gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_cast_evaluates_live_reference_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("ReferenceGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "ReferenceGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let target = Value::Object(target_object);
+
+    native(
+        &mut game,
+        spell.clone(),
+        "Cast",
+        &[source.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(target_object, "ReferenceGate", "gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "Cast", &[source, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_remote_cast_evaluates_live_quest_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(629, 0x900, 2.0, 0))
+        .zsub(T(b"CIS2"), "::gate");
+    let mut plugin = plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]);
+    plugin.push_top(Record::new(T(b"QUST"), 0x900));
+    let mut game = game(plugin);
+    game.vm
+        .load(conditional_int_script("QuestGate", "Quest", "::gate", 2));
+    let quest = game.object_of_form(id(0x900));
+    game.vm.attach(quest, "QuestGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+
+    native(
+        &mut game,
+        spell.clone(),
+        "RemoteCast",
+        &[source.clone(), caster.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(quest, "QuestGate", "::gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_ambiguous_live_variable_rejects_cast_before_effects() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("FirstGate", "Actor", "gate", 2));
+    game.vm
+        .load(conditional_int_script("SecondGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "FirstGate").unwrap();
+    game.vm.attach(target_object, "SecondGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(target_object);
+
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert!(game.world().active_effects().next().is_none());
+    assert!(game.world().pending.is_empty());
+    assert!(game.vm.log.contains("condition variable gate"));
+}
+
 /// mag_06: an area hit selects each eligible actor once using the spell
 /// effect's authored radius, and an actor outside that radius takes no
 /// effect. OTHER shares the explicit target's default position (distance
@@ -2037,6 +2449,73 @@ fn native(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
+fn scr_45_scroll_cast_uses_source_target_and_applies_the_scroll_effect() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+    let target = Value::Object(g.object_of_form(id(ACTOR)));
+
+    assert_eq!(
+        native(&mut g, scroll, "Cast", &[source, target.clone()]),
+        Value::None
+    );
+    assert_eq!(
+        g.world().spell_casts,
+        vec![(id(SPELL), id(SOURCE), Some(id(ACTOR)))]
+    );
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 120.0);
+    let world = g.world();
+    let active = world.active_effects().next().unwrap();
+    assert_eq!(active.spell, id(SPELL));
+    assert_eq!(active.source, id(SOURCE));
+    assert_eq!(active.caster, Some(id(SOURCE)));
+    assert_eq!(active.target, id(ACTOR));
+    drop(world);
+    assert!(g.vm.log.messages().is_empty());
+}
+
+#[test]
+fn scr_45_scroll_cast_logs_missing_target_and_rejects_non_scroll_records() {
+    let scroll = scroll_spell(SPELL, 20.0, 10);
+    let mut g = game(plugin(scroll_effect(), vec![scroll]));
+    let scroll_object = Value::Object(g.object_of_form(id(SPELL)));
+    let source = Value::Object(g.object_of_form(id(SOURCE)));
+
+    native(&mut g, scroll_object, "Cast", &[source, Value::None]);
+    assert!(
+        g.vm.log
+            .contains("Scroll.Cast: spell requires an actor target"),
+        "{:?}",
+        g.vm.log.messages()
+    );
+    assert_eq!(g.world().active_effects().count(), 0);
+    assert_eq!(g.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+
+    let ordinary = spell(SPELL + 1, 1, false, 20.0, 10);
+    let mut ordinary_game = self::game(plugin(effect(2, 0, 24, false), vec![ordinary]));
+    let shared = ordinary_game.shared_world();
+    let error = shared
+        .borrow_mut()
+        .cast_scroll_from_record(
+            id(SPELL + 1),
+            id(SOURCE),
+            Some(id(ACTOR)),
+            &mut |name, class| ordinary_game.vm.create_object_of(name, class),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        MagicError::Unsupported("not a scroll cast")
+    ));
+    assert_eq!(ordinary_game.world().active_effects().count(), 0);
+    assert_eq!(
+        ordinary_game.world_mut().actor_value(id(ACTOR), "health"),
+        100.0
+    );
+}
+
+#[test]
 fn recover_instances_reverse_only_their_own_delta() {
     let mut game = fixture(2, 0, 20.0, 10);
     let first = cast(&mut game, SPELL, OTHER).unwrap()[0];
@@ -2336,15 +2815,13 @@ fn mag_68_unnamed_archetypes_reject_without_changes() {
 }
 
 #[test]
-fn mag_61_spawn_hazard_requires_owned_lifecycle_without_changes() {
+fn mag_61_spawn_hazard_rejects_missing_base_without_changes() {
     let mut game = fixture(0, 40, 20.0, 5);
     let before = game.save_state().unwrap();
 
     assert!(matches!(
         cast(&mut game, SPELL, OTHER),
-        Err(MagicError::Unsupported(
-            "spawn hazard requires hazard ownership and expiry"
-        ))
+        Err(MagicError::Unsupported("spawn hazard base"))
     ));
     assert_eq!(game.save_state().unwrap(), before);
     assert_eq!(game.world().active_effects().count(), 0);
@@ -2512,6 +2989,184 @@ fn active_effect_inventory_filters_forward_matching_events_until_expiry() {
 }
 
 #[test]
+fn scr_01_active_effect_inventory_filter_bindings_control_events() {
+    let mut game = fixture(0, 1, 0.0, 10);
+    let application = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    assert!(game.run_until_idle(64));
+
+    let effect = Value::Object(game.object_of(Handle::ActiveEffect(application)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+    let unrelated = Value::Object(game.object_of_form(id(ACTOR)));
+    let item = Value::Object(game.object_of_form(id(ITEM)));
+    let other_item = Value::Object(game.object_of_form(id(OTHER_ITEM)));
+    let filter_list = Value::Object(game.object_of_form(id(FILTER_LIST)));
+    let list_only_item = Value::Object(game.object_of_form(id(LIST_ONLY_ITEM)));
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "AddInventoryEventFilter",
+            std::slice::from_ref(&item),
+        ),
+        Value::None
+    );
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "AddInventoryEventFilter",
+            std::slice::from_ref(&other_item),
+        ),
+        Value::None
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            target.clone(),
+            "AddItem",
+            &[item.clone(), Value::Int(2)],
+        ),
+        Value::None
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(ITEM))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        native(
+            &mut game,
+            target.clone(),
+            "AddItem",
+            &[other_item.clone(), Value::Int(3)],
+        ),
+        Value::None
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(5))
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(OTHER_ITEM))
+    );
+
+    native(
+        &mut game,
+        effect.clone(),
+        "AddInventoryEventFilter",
+        std::slice::from_ref(&filter_list),
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "RemoveInventoryEventFilter",
+            std::slice::from_ref(&item),
+        ),
+        Value::None
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[item.clone(), Value::Int(7)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[list_only_item.clone(), Value::Int(11)],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(16))
+    );
+    assert_eq!(
+        game.world().form_of(
+            game.vm
+                .get_var(effect.as_object().unwrap(), "EffectProbe", "lastAddedItem")
+                .and_then(|value| value.as_object())
+                .expect("event base item object")
+        ),
+        Some(id(LIST_ONLY_ITEM))
+    );
+    native(
+        &mut game,
+        effect.clone(),
+        "RemoveInventoryEventFilter",
+        std::slice::from_ref(&other_item),
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[other_item, Value::Int(13)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[list_only_item.clone(), Value::Int(17)],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(33))
+    );
+
+    assert_eq!(
+        native(
+            &mut game,
+            effect.clone(),
+            "RemoveAllInventoryEventFilters",
+            &[],
+        ),
+        Value::None
+    );
+    native(
+        &mut game,
+        target,
+        "AddItem",
+        &[item.clone(), Value::Int(19)],
+    );
+    native(&mut game, unrelated, "AddItem", &[item, Value::Int(23)]);
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(52))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "removed"),
+        Some(Value::Int(0))
+    );
+}
+
+#[test]
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
@@ -2647,12 +3302,15 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
                     examples.push(game.world().editor_id(*spell).unwrap_or_default());
                 }
                 for id in ids {
-                    let effect = game
+                    let Some(effect) = game
                         .world()
                         .active_effects()
                         .find(|effect| effect.id == id)
-                        .unwrap()
-                        .effect;
+                        .map(|effect| effect.effect)
+                    else {
+                        // CONTEXT: Later spell entries can dispel earlier applications.
+                        continue;
+                    };
                     if game.world().magic_effect(effect).unwrap().data.flags & 1 != 0 {
                         hostile_applications += 1;
                     }
@@ -2984,6 +3642,66 @@ fn each_hostile_effect_emits_a_hit_to_existing_effect_and_alias_listeners() {
                 .count(),
             2
         );
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_consumes_a_dead_actor_corpse_once() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+
+    assert!(cast(&mut game, SPELL, OTHER).unwrap().is_empty());
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_living_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(reference.enabled);
+        assert!(!world.actor_ref(id(OTHER)).unwrap().dead);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_disabled_dead_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+    game.world_mut().reference(id(OTHER)).unwrap().enabled = false;
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(!reference.enabled);
     }
 }
 

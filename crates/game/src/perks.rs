@@ -158,10 +158,7 @@ pub fn entry_point_invocations(
     entry_point: u8,
     context: &EntryPointContext,
 ) -> Result<Vec<EntryPointInvocation>, DispatchError> {
-    let owned = world
-        .actor(actor)
-        .map(|state| state.perks.clone())
-        .unwrap_or_default();
+    let owned = world.perks_for_actor(actor);
     let entries = world
         .order()
         .winners_of(Tag(*b"PERK"))

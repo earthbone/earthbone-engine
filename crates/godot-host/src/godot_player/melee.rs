@@ -266,6 +266,21 @@ impl PlayerNode {
 }
 
 impl PlayerNode {
+    /// Route the control-map press edge into the shared player's swing latch.
+    /// A held frame is ignored after the initial press.
+    pub(super) fn begin_melee_swing_from_input(&mut self, pressed: bool) {
+        if !pressed {
+            return;
+        }
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
+        let Some(game) = &mut self.game else { return };
+        if let Err(error) = Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed)
+        {
+            godot_error!("PlayerNode: {error}");
+        }
+    }
+
     /// Follow the shared World: one body per resident actor, moved to its
     /// current placement, and none for actors that left or were disabled.
     pub(super) fn sync_actor_bodies(&mut self) -> bool {

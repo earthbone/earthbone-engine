@@ -132,10 +132,7 @@ impl PlayerNode {
                 }
             }
         }
-        if let Err(error) = game
-            .world_mut()
-            .update_streaming_cells(cell, &entered, &departed)
-        {
+        if let Err(error) = game.update_streaming_cells(cell, &entered, &departed) {
             godot_error!("PlayerNode: exterior state failed: {error}");
             return false;
         }

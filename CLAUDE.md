@@ -95,6 +95,12 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - Real-file tests are gated on
   `SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`
   and skip cleanly when unset. Synthetic fixtures are written by the tests.
+- The game crate has one integration-test binary, `it`. For each new
+  `crates/game/tests/<name>.rs`, add `#[path = "<name>.rs"]` and
+  `mod <name>;` to `crates/game/tests/it.rs`. Keep the file in place and
+  import shared helpers through `crate::common` or `crate::support`.
+  `tst_16_every_test_file_is_registered` reports missing declarations.
+  The registration file uses `merge=union` to combine branch additions.
 - Sixty real Special Edition saves sit under `../engine-refs/saves/`, supplied by
   the user on 2026-09-18. `Clean Saves/` holds nineteen main quest stages,
   `Main Quest + Dawnguard(Vampire) + Dragonborn/` holds forty-one numbered 01 to

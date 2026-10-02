@@ -278,7 +278,7 @@ fn restored_npc_fields_reach_records_actors_and_native_queries() {
 }
 
 #[test]
-fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them() {
+fn sav_46_npc_version_13_migration_preserves_overrides_and_old_saves_clear_them() {
     let mut world = World::new(fixture_order());
     let empty = world.save_state();
     let saved = fixture();

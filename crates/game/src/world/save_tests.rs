@@ -380,8 +380,13 @@ fn rich_world(namespace: u16) -> World {
             target: other,
             magnitude: 1.0,
             duration: Some(60.0),
+            taper_weight: 1.0,
+            taper_curve: 0.0,
+            taper_duration: 0.0,
             elapsed: 1.0,
             summoned: None,
+            granted_perk: None,
+            reanimated_previous_owner: None,
             restore_owner: None,
             recover: false,
             changes: vec![],
@@ -503,12 +508,18 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.file.to_le_bytes());
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
+    let owner_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xE300_0000,
+    };
     world
         .active_effects
         .get_mut(&EffectId(1))
         .unwrap()
-        .restore_owner = None;
+        .reanimated_previous_owner = Some(Some(owner_sentinel));
     let mut bytes = world.save_state();
+    let mut world_sections = Writer::new();
+    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     // Every actor and reference record now ends with its save-section table,
     // which a pre-version-37 writer never emitted. The actor table includes
     // the PRG-01 skill-experience section. Locate each record's own tail by
@@ -532,42 +543,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         bytes.drain(table_start..at + probe.out.len());
     }
 
-    for id in &ids {
-        let actor = world.actors.get(id).unwrap();
-        let mut with_movement = actor.clone();
-        with_movement.swimming = true;
-        with_movement.riding_mount = true;
-        let mut sentinel = Writer::new();
-        write_actor_state(&mut sentinel, &with_movement);
-        let mut baseline = Writer::new();
-        write_actor_state(&mut baseline, actor);
-        let movement_offset = sentinel
-            .out
-            .iter()
-            .zip(&baseline.out)
-            .take_while(|(left, right)| left == right)
-            .count();
-        assert_eq!(
-            &sentinel.out[movement_offset..movement_offset + 3],
-            &[1, 0, 1]
-        );
-        let mut exclusive_marker = vec![1];
-        let exclusive = actor.exclusive_branch.unwrap();
-        exclusive_marker.extend_from_slice(&exclusive.file.to_le_bytes());
-        exclusive_marker.extend_from_slice(&exclusive.object.to_le_bytes());
-        let marker_at = bytes
-            .windows(exclusive_marker.len())
-            .position(|window| window == exclusive_marker)
-            .expect("exclusive branch sentinel is serialized");
-        let exclusive_offset = baseline
-            .out
-            .windows(exclusive_marker.len())
-            .position(|window| window == exclusive_marker)
-            .expect("exclusive branch sentinel is in actor state");
-        let actor_start = marker_at - exclusive_offset - 6;
-        bytes.drain(actor_start + 6 + movement_offset..actor_start + 6 + movement_offset + 3);
-    }
-
     for id in world.refs.keys().copied().collect::<Vec<_>>() {
         let reference = world.refs.get(&id).unwrap();
         let mut probe = Writer::new();
@@ -583,6 +558,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .reanimated_previous_owner = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
@@ -613,8 +593,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     // CONTEXT: Version 23 predates list and projectile fields. Remove its list marker.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
-    let mut world_sections = Writer::new();
-    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
     bytes.truncate(bytes.len() - world_sections.out.len());
     // Remove the current detection pool count after dropping the trailing
     // version 37 section table, so this fixture has the version 29 layout.
@@ -768,6 +746,7 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
 fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
+
     let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
         (18, "created namespace in a legacy world state".to_string()),
@@ -925,23 +904,6 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
         .expect("exclusive branch is serialized");
     writer.out.drain(offset..offset + marker.len());
     actor.exclusive_branch = None;
-    let mut baseline_actor = actor.clone();
-    baseline_actor.swimming = false;
-    baseline_actor.running = false;
-    baseline_actor.riding_mount = false;
-    let mut baseline = Writer::new();
-    write_actor_state(&mut baseline, &baseline_actor);
-    let movement_offset = writer
-        .out
-        .iter()
-        .zip(&baseline.out)
-        .take_while(|(left, right)| left == right)
-        .count();
-    assert_eq!(
-        &writer.out[movement_offset..movement_offset + 3],
-        &[1, 0, 1]
-    );
-    writer.out.drain(movement_offset..movement_offset + 3);
     actor.swimming = false;
     actor.running = false;
     actor.riding_mount = false;
@@ -1119,4 +1081,68 @@ fn an_actor_saved_at_version_36_loads_without_its_absent_section_table() {
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
     let restored = read_actor_state(&mut reader, 36).unwrap();
     assert_eq!(restored, actor);
+}
+
+#[test]
+fn named_reference_bindings_preserve_order_with_script_calls_and_events() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    world.pending.clear();
+    for index in 0..2 {
+        world.pending.push(Pending::BindReference {
+            object: ObjectId(index + 1),
+            base: id(0, 0x820),
+        });
+        world.pending.push(Pending::CallScript {
+            object: ObjectId(index + 1),
+            script: "Fragments".into(),
+            function: "OnBegin".into(),
+            args: vec![],
+        });
+        world.pending.push(Pending::Event {
+            object: ObjectId(index + 1),
+            name: "OnInit".into(),
+            args: vec![],
+        });
+    }
+    let bytes = world.save_state();
+    let mut loaded = World::new(legacy_order());
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(
+        format!("{:?}", loaded.pending),
+        format!("{:?}", world.pending)
+    );
+    assert_eq!(loaded.save_state(), bytes);
+}
+
+#[test]
+fn ai_80_faction_section_rejection_preserves_live_world() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    world.factions.insert(
+        id(0, 0x901),
+        super::super::FactionState {
+            player_attacked: true,
+            ..Default::default()
+        },
+    );
+    let before = world.save_state();
+    let mut corrupt = before.clone();
+    let marker = [
+        vec![5],
+        b"AI-80".to_vec(),
+        10_u32.to_le_bytes().to_vec(),
+        1_u32.to_le_bytes().to_vec(),
+    ]
+    .concat();
+    let start = corrupt
+        .windows(marker.len())
+        .position(|bytes| bytes == marker)
+        .unwrap()
+        + marker.len();
+    corrupt[start..start + 6].copy_from_slice(&[0, 0, 0xFF, 0xFF, 0, 0]);
+    assert!(world
+        .load_state(&corrupt)
+        .unwrap_err()
+        .to_string()
+        .contains("AI-80 missing faction"));
+    assert_eq!(world.save_state(), before);
 }

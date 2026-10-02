@@ -47,7 +47,7 @@ fn mag_71_active_stack_retains_color_blur_depth_and_hdr_samples_at_layer_weights
     game.world_mut().apply_image_space(id(2), 0.75).unwrap();
     game.tick(1.0);
     let mut stack = ImageSpaceStack::default();
-    stack.sync(&game.world());
+    stack.sync(&game.world()).unwrap();
     let frame = stack.render_layers(&game.world()).unwrap();
     assert_eq!(frame.len(), 2);
     assert_eq!((frame[0].strength, frame[1].strength), (0.25, 0.75));
@@ -86,6 +86,6 @@ fn mag_71_duplicate_authored_channel_rejects_the_frame() {
     let game = Game::new(order);
     game.world_mut().apply_image_space(id(1), 1.0).unwrap();
     let mut stack = ImageSpaceStack::default();
-    stack.sync(&game.world());
+    stack.sync(&game.world()).unwrap();
     assert!(stack.render_layers(&game.world()).is_err());
 }

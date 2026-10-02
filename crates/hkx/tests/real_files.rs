@@ -22,37 +22,10 @@ use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
-const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("BSDirectAtModifier", 23, "ANM-25"),
-    ("BSEventEveryNEventsModifier", 85, "ANM-26"),
-    ("BSEventOnDeactivateModifier", 98, "ANM-27"),
-    ("BSIStateManagerModifier", 3, "ANM-29"),
-    ("BSLimbIKModifier", 1, "ANM-31"),
-    ("BSInterpValueModifier", 36, "ANM-30"),
-    ("BSLookAtModifier", 128, "ANM-32"),
-    ("BSModifyOnceModifier", 26, "ANM-33"),
-    ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
-    ("BSRagdollContactListenerModifier", 50, "ANM-35"),
-    ("BSSpeedSamplerModifier", 42, "ANM-36"),
-    ("BSTimerModifier", 1, "ANM-37"),
-    ("BSTweenerModifier", 5, "ANM-38"),
-    ("hkbDampingModifier", 41, "ANM-39"),
-    ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
-    ("hkbEventDrivenModifier", 158, "ANM-17"),
-    ("hkbEventsFromRangeModifier", 3, "ANM-15"),
-    ("hkbFootIkControlsModifier", 25, "ANM-41"),
-    ("hkbFootIkModifier", 2, "ANM-42"),
-    ("hkbGetUpModifier", 46, "ANM-43"),
-    ("hkbKeyframeBonesModifier", 91, "ANM-44"),
-    ("hkbModifierGenerator", 1909, "ANM-52"),
-    ("hkbModifierList", 708, "ANM-51"),
-    ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
-    ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
-    ("hkbRotateCharacterModifier", 6, "ANM-14"),
-    ("hkbTransformVectorModifier", 1, "ANM-47"),
-    ("hkbTimerModifier", 59, "ANM-16"),
-    ("hkbTwistModifier", 17, "ANM-48"),
-];
+// Every modifier class in the installed behavior graphs has a typed node
+// since the ANM groups of 2026-10-01. A class that falls back to the
+// generic passthrough again needs an entry here and a follow-up row.
+const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[];
 
 fn animations_archive() -> Option<Archive> {
     let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
@@ -398,14 +371,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
                             .or_insert(0usize) += 1;
                     }
                 }
-                if matches!(
-                    node.kind,
-                    NodeKind::Modifier { .. }
-                        | NodeKind::ModifierGenerator { .. }
-                        | NodeKind::ModifierList { .. }
-                        | NodeKind::EventDrivenModifier { .. }
-                        | NodeKind::TimerModifier { .. }
-                ) {
+                if matches!(node.kind, NodeKind::Modifier { .. }) {
                     *classes.entry(node.class.clone()).or_insert(0usize) += 1;
                 }
             }
@@ -413,6 +379,7 @@ fn installed_behavior_passthrough_modifier_inventory() {
     }
     println!("{behavior_files} behavior graphs, passthrough modifiers {classes:?}");
     println!("modifier-list children {list_children:?}");
+    assert_eq!(behavior_files, 428, "installed behavior corpus changed");
     let expected = PASSTHROUGH_MODIFIERS
         .iter()
         .map(|(class, count, _)| ((*class).to_string(), *count))
@@ -428,6 +395,52 @@ fn installed_behavior_passthrough_modifier_inventory() {
             "{class} has no follow-up row {row} named for that class"
         );
     }
+}
+
+#[test]
+fn anm_48_installed_twist_modifiers_decode_authored_bone_spans() {
+    let Some(archive) = animations_archive() else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut graphs = 0usize;
+    let mut twists = 0usize;
+    for name in archive
+        .files()
+        .iter()
+        .filter(|name| name.to_ascii_lowercase().ends_with(".hkx"))
+    {
+        let bytes = archive.read(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let pack = Packfile::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for object in pack.objects_of("hkbBehaviorGraph") {
+            let graph = BehaviorGraph::from_obj(object)
+                .unwrap_or_else(|e| panic!("{name}: behavior graph: {e}"));
+            graphs += 1;
+            for node in graph.nodes_of_class("hkbTwistModifier") {
+                let NodeKind::TwistModifier(twist) = &node.kind else {
+                    panic!("{} in {name} did not decode as a twist modifier", node.name);
+                };
+                assert!(twist.start_bone_index >= 0, "{} in {name}", node.name);
+                assert!(twist.end_bone_index >= 0, "{} in {name}", node.name);
+                assert!(
+                    matches!(twist.set_angle_method, 0 | 1),
+                    "{} in {name}",
+                    node.name
+                );
+                assert!(
+                    matches!(twist.rotation_axis_coordinates, 0 | 1),
+                    "{} in {name}",
+                    node.name
+                );
+                twists += 1;
+            }
+        }
+    }
+    assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
+    assert_eq!(
+        twists, 19,
+        "the installed vanilla archive's twist inventory changed"
+    );
 }
 
 #[test]
@@ -579,8 +592,7 @@ fn anm_01_shipped_transition_expressions_are_decoded_and_diagnosed() {
     assert_eq!(failures, [
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled < 5.0: UnknownSymbol(\"SpeedSampled\")",
         "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled >= 5.0: UnknownSymbol(\"SpeedSampled\")",
-        "meshes/actors/troll/behaviors/trollbehavior.hkx: (staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7): Syntax(79)",
-    ], "undeclared draugr variable and ANM-50 comma comparison stay closed");
+    ], "undeclared draugr variable stays closed and the troll comma guard compiles");
 }
 
 #[test]

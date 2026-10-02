@@ -5,6 +5,10 @@ at `meshes/x.nif`" the way the shipped engine does. It is a port of
 linux-mod-organizer's `src/bsa/parser.rs` (Dr. Baklava, GPL-3.0-or-later),
 kept under the same licence, with three additions: the TES4 name hash from
 LMO's BSA writer, an in-memory read API, and Windows-1252 name decoding.
+The BA2 record and DX10 chunk layouts were checked against the local BSArch
+FO4 implementation in `engine-refs/bsa/src/bsa/fo4.cpp` and its FO4 archive
+tests. Its DX10 layout agrees with the 24-byte record and chunk headers read
+here, including the chunk-header size and trailing sentinel fields.
 
 ## Formats
 
@@ -105,6 +109,9 @@ invalid BSA path hashes, a name
 with a non-ASCII byte, a truncated payload, absurd header counts, a DX10
 texture rebuilt into a DDS file, concurrent disk reads, a sparse 64 MiB
 payload that stays off heap at open time, and the override rules of the view.
+The structure-aware `fuzz-bsa-grammar` target builds BSA, BA2 GNRL and BA2
+DX10 archives. It reads BA2 records through the archive API and checks that
+DX10 reads rebuild the DDS header and recover each chunk's bytes.
 
 `tests/real_data.rs` runs when `SKYRIM_DATA` points at a Skyrim SE `Data/`
 folder: it indexes every vanilla archive, reads a record from each, and pulls

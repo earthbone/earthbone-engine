@@ -34,6 +34,11 @@ impl World {
                 Pending::BindEffect { object, .. } | Pending::BindReference { object, .. } => {
                     roots.push(Value::Object(*object));
                 }
+                Pending::ReferenceEvent { reference, .. } => {
+                    if let Some(object) = self.objects.get(&Handle::Form(*reference)) {
+                        roots.push(Value::Object(*object));
+                    }
+                }
                 Pending::ActorDeath { recipients, .. } => roots.extend(
                     recipients
                         .iter()

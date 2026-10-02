@@ -246,7 +246,6 @@ impl ChangeForm {
         if self.record_type() != "BOOK" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, book_note_key_flags::BOOK_KNOWN)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "BOOK change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -256,6 +255,7 @@ impl ChangeForm {
             full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
             teaches_skill: self.change_flags & book_note_key_flags::BOOK_TEACHES != 0,
             read: self.change_flags & book_note_key_flags::BOOK_READ != 0,
+            unnamed_flags: self.change_flags & !book_note_key_flags::BOOK_KNOWN,
             opaque_suffix: cursor.rest().to_vec(),
         }))
     }
@@ -268,7 +268,6 @@ impl ChangeForm {
         if self.record_type() != "KEYM" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, book_note_key_flags::KEY_KNOWN)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "KEYM change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -276,6 +275,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & book_note_key_flags::VALUE != 0,
             full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
+            unnamed_flags: self.change_flags & !book_note_key_flags::KEY_KNOWN,
             opaque_suffix: cursor.rest().to_vec(),
         }))
     }
@@ -288,13 +288,13 @@ impl ChangeForm {
         if self.record_type() != "NOTE" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, book_note_key_flags::NOTE_KNOWN)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "NOTE change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
         Ok(Some(NoteChange {
             form_flags,
             read: self.change_flags & book_note_key_flags::NOTE_READ != 0,
+            unnamed_flags: self.change_flags & !book_note_key_flags::NOTE_KNOWN,
             opaque_suffix: cursor.rest().to_vec(),
         }))
     }
@@ -483,13 +483,11 @@ impl ChangeForm {
     /// Decode the saved package flags and their zero-byte markers.
     ///
     /// # Errors
-    /// Rejects unknown flag bits, truncated form flags and trailing payload
-    /// bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn pack_change(&self) -> Result<Option<PackChange>> {
         if self.record_type() != "PACK" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, 0xC000_0001)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "PACK change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -498,19 +496,18 @@ impl ChangeForm {
             form_flags,
             waiting: self.change_flags & (1 << 30) != 0,
             never_run: self.change_flags & (1 << 31) != 0,
+            unnamed_flags: self.change_flags & 0x3FFF_FFFE,
         }))
     }
 
     /// Decode the saved navigation-mesh base-object fields.
     ///
     /// # Errors
-    /// Rejects unknown flag bits, truncated form flags and trailing payload
-    /// bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn navmesh_change(&self) -> Result<Option<NavmeshChange>> {
         if self.record_type() != "NAVM" {
             return Ok(None);
         }
-        check_record_flags(self.change_flags, 0b111)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "NAVM change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -519,6 +516,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
+            unnamed_flags: self.change_flags & 0xFFFF_FFF8,
         }))
     }
     /// Decode the source-defined WOOP payload sections.
@@ -691,6 +689,8 @@ pub struct BookChange {
     pub full_name_changed: bool,
     pub teaches_skill: bool,
     pub read: bool,
+    /// Change flag bits xEdit names as unnamed, retained without interpretation.
+    pub unnamed_flags: u32,
     /// Bytes after the xEdit-defined fields, retained without interpretation.
     pub opaque_suffix: Vec<u8>,
 }
@@ -703,6 +703,7 @@ impl BookChange {
             | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
             | optional_flag(self.teaches_skill, book_note_key_flags::BOOK_TEACHES)
             | optional_flag(self.read, book_note_key_flags::BOOK_READ)
+            | self.unnamed_flags
     }
 
     /// Rebuild the BOOK payload.
@@ -720,6 +721,8 @@ pub struct KeyChange {
     pub form_flags: Option<FormFlags>,
     pub value_changed: bool,
     pub full_name_changed: bool,
+    /// Change flag bits xEdit names as unnamed, retained without interpretation.
+    pub unnamed_flags: u32,
     /// Bytes after the xEdit-defined fields, retained without interpretation.
     pub opaque_suffix: Vec<u8>,
 }
@@ -730,6 +733,7 @@ impl KeyChange {
         optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
             | optional_flag(self.value_changed, book_note_key_flags::VALUE)
             | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
+            | self.unnamed_flags
     }
 
     /// Rebuild the KEYM payload.
@@ -746,6 +750,8 @@ impl KeyChange {
 pub struct NoteChange {
     pub form_flags: Option<FormFlags>,
     pub read: bool,
+    /// Change flag bits xEdit names as unnamed, retained without interpretation.
+    pub unnamed_flags: u32,
     /// Bytes after the xEdit-defined fields, retained without interpretation.
     pub opaque_suffix: Vec<u8>,
 }
@@ -755,6 +761,7 @@ impl NoteChange {
     pub fn change_flags(&self) -> u32 {
         optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
             | optional_flag(self.read, book_note_key_flags::NOTE_READ)
+            | self.unnamed_flags
     }
 
     /// Rebuild the NOTE payload.
@@ -792,6 +799,19 @@ pub struct ActivatorChange {
 impl ActivatorChange {
     /// Rebuild the record's change flag word.
     pub fn change_flags(self, record_type: &str) -> Result<u32> {
+        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
+            return Err(invalid_record("unsupported activator change type"));
+        }
+        let source_flags = if record_type == "TACT" {
+            0x0080_0007
+        } else {
+            0b111
+        };
+        if self.other_flags & source_flags != 0 {
+            return Err(invalid_record(
+                "unnamed flags overlap source-defined activator markers",
+            ));
+        }
         let speaker = if self.speaker_changed {
             if record_type != "TACT" {
                 return Err(invalid_record("speaker marker belongs only to TACT"));
@@ -800,9 +820,6 @@ impl ActivatorChange {
         } else {
             0
         };
-        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
-            return Err(invalid_record("unsupported activator change type"));
-        }
         Ok(u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
@@ -1401,6 +1418,8 @@ pub struct PackChange {
     pub form_flags: Option<FormFlags>,
     pub waiting: bool,
     pub never_run: bool,
+    /// xEdit-defined flag bits with no assigned meaning, bits 1 through 29.
+    pub unnamed_flags: u32,
 }
 
 impl PackChange {
@@ -1409,6 +1428,7 @@ impl PackChange {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.waiting) << 30)
             | (u32::from(self.never_run) << 31)
+            | self.unnamed_flags
     }
 
     /// Rebuild the source-defined PACK payload.
@@ -1425,6 +1445,8 @@ pub struct NavmeshChange {
     pub form_flags: Option<FormFlags>,
     pub value_changed: bool,
     pub full_name_changed: bool,
+    /// xEdit-defined flag bits with no assigned meaning, bits 3 through 31.
+    pub unnamed_flags: u32,
 }
 
 impl NavmeshChange {
@@ -1433,6 +1455,7 @@ impl NavmeshChange {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags
     }
 
     /// Rebuild the source-defined NAVM payload.

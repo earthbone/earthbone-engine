@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Shared hostile magic fixtures from the game integration-test record builders.
+
 #![allow(dead_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 

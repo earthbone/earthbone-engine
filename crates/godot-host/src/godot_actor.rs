@@ -85,6 +85,12 @@ enum StaggerGraphEvent {
     Stop,
 }
 
+/// Send the shared actor's stagger magnitude and start event to its graph.
+pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
+    vm.variables.set_by_name("staggerMagnitude", magnitude);
+    vm.send_event_named("staggerStart")
+}
+
 #[derive(Default)]
 struct StaggerTracker {
     last_deadline: Option<f64>,
@@ -164,7 +170,12 @@ impl INode3D for SkinnedActorNode {
     }
 
     fn exit_tree(&mut self) {
-        if self.vm.is_some() {
+        if let Some(binding) = &self.appearance {
+            binding
+                .world
+                .borrow_mut()
+                .queue_animation_unload(binding.actor);
+        } else if self.vm.is_some() {
             self.signals().animation_graph_unloaded().emit();
         }
         if let Some(mut ragdoll) = self.ragdoll.take() {
@@ -397,11 +408,10 @@ impl SkinnedActorNode {
             return;
         };
         match stagger_event {
-            Some(StaggerGraphEvent::Start) => {
-                vm.variables.set_by_name("staggerMagnitude", 1.0);
-                vm.send_event_named("staggerStart");
+            Some((StaggerGraphEvent::Start, magnitude)) => {
+                send_stagger_start(vm, magnitude);
             }
-            Some(StaggerGraphEvent::Stop) => {
+            Some((StaggerGraphEvent::Stop, _)) => {
                 vm.send_event_named("staggerStop");
             }
             None => {}
@@ -425,7 +435,14 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
+        let report_target = self
+            .appearance
+            .as_ref()
+            .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
+            if let Some((world, target)) = &report_target {
+                world.borrow_mut().queue_animation_report(*target, event);
+            }
             self.signals().animation_event().emit(&GString::from(event));
         });
     }
@@ -699,15 +716,19 @@ impl SkinnedActorNode {
         }
     }
 
-    fn take_stagger_event(&mut self) -> Option<StaggerGraphEvent> {
+    fn take_stagger_event(&mut self) -> Option<(StaggerGraphEvent, f32)> {
         let Some(binding) = &mut self.appearance else {
             return None;
         };
         let mut world = binding.world.borrow_mut();
-        let deadline = world
+        let state = world
             .actor(binding.actor)
-            .and_then(|actor| actor.stagger_end_time);
-        binding.stagger.observe(deadline, world.clock.real_seconds)
+            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
+        let (deadline, magnitude) = state?;
+        binding
+            .stagger
+            .observe(deadline, world.clock.real_seconds)
+            .map(|event| (event, magnitude as f32))
     }
 
     fn apply_queued_impulses(&mut self) {
@@ -752,6 +773,7 @@ impl SkinnedActorNode {
 
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
+    /// The first upload uses the actor's current invisibility state.
     pub(crate) fn bind_appearance(
         &mut self,
         world: Rc<RefCell<soe_game::World>>,
@@ -771,10 +793,11 @@ impl SkinnedActorNode {
             )
             .map_err(|error| error.to_string())?
             .ok_or("initial appearance was not prepared")?;
+        self.invisible = world.borrow().is_invisible(actor);
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
             let world = world.borrow();
-            AnimationEventCursor::at_end(&world.animation_events)
+            AnimationEventCursor::at_end(&world.animation_requests)
         };
         self.appearance = Some(AppearanceBinding {
             world,
@@ -863,7 +886,7 @@ impl SkinnedActorNode {
         let world = binding.world.borrow();
         binding
             .animation_cursor
-            .take_for(&world.animation_events, binding.actor)
+            .take_for(&world.animation_requests, binding.actor)
     }
 
     fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {

@@ -3,11 +3,9 @@
 
 //! CK death/deferred-kill behavior through shared state, Papyrus and engine saves.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest, Game, Handle, Pending};
@@ -328,7 +326,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     let game = fresh();
     game.world_mut().start_deferred_kill(id(0x900));
     game.world_mut().kill_actor(id(0x900), None);
-    let mut bytes = legacy::without_exclusive_branches(
+    let mut queued = legacy::without_exclusive_branches(
         &mut game.world_mut(),
         &[id(0x900), id(0x901), id(0x902)],
     );
@@ -342,11 +340,9 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
         fresh().world_mut().load_state(candidate).is_ok()
     });
     // CONTEXT: The valid counterpart measures the tail before rejecting the new pending tag.
-    bytes.truncate(bytes.len() - tail);
-    bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
+    queued.truncate(queued.len() - tail);
+    queued[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
-    assert!(game.world_mut().load_state(&bytes).is_err());
-    assert_eq!(game.world().save_state(), before);
     // Version 14 held only the boolean and health, without a queued request.
     game.world_mut().pending.clear();
     let mut bytes = legacy::without_exclusive_branches(
@@ -355,6 +351,15 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     );
     bytes.truncate(bytes.len() - tail);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
+    game.world_mut().load_state(&before).unwrap();
+    assert_eq!(
+        game.world_mut()
+            .load_state(&queued)
+            .unwrap_err()
+            .to_string(),
+        "saved state: unknown pending kind 3"
+    );
+    assert_eq!(game.world().save_state(), before);
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));
     assert!(game.world().actor_ref(id(0x900)).unwrap().dead);

@@ -12,7 +12,7 @@ use soe_esm::{
     records::refr::Refr,
     GlobalFormId, Tag,
 };
-use soe_papyrus::{Value, Vm};
+use soe_papyrus::{ObjectId, Value, Vm};
 use std::collections::BTreeSet;
 
 mod actor_values;
@@ -120,13 +120,20 @@ pub fn evaluate(
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
-    evaluate_with_vm(world, Some(vm), context, conditions)
+    let lookup = |object, name: String| vm.conditional_vars(object, &name);
+    evaluate_with_vm(world, Some(&lookup), context, conditions)
 }
 
-/// Evaluate conditions that do not require a Papyrus variable lookup.
-///
-/// Direct world actions have no VM borrow while they queue their later script
-/// events. Variable-backed predicates return [`Error::Variable`] in this mode.
+/// Evaluate conditions using a callback-safe view of the VM's conditional variables.
+pub(crate) fn evaluate_with_lookup(
+    world: &mut World,
+    context: Context,
+    conditions: &[Condition],
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
+) -> Result<bool, Error> {
+    evaluate_with_vm(world, Some(lookup), context, conditions)
+}
+
 pub(crate) fn evaluate_without_vm(
     world: &mut World,
     context: Context,
@@ -137,14 +144,14 @@ pub(crate) fn evaluate_without_vm(
 
 fn evaluate_with_vm(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
     let mut any = false;
     for (index, condition) in conditions.iter().enumerate() {
         if !any {
-            any = evaluate_one_with_vm(world, vm, context, condition)?;
+            any = evaluate_one_with_vm(world, lookup, context, condition)?;
         }
         if !condition.or_with_next() || index + 1 == conditions.len() {
             if !any {
@@ -209,6 +216,11 @@ pub fn supports_function(function: u16) -> bool {
             | 152
             | 225
             | 315
+            | 237
+            | 242
+            | 278
+            | 300
+            | 304
             | 403
             | 520
             | 566
@@ -216,6 +228,7 @@ pub fn supports_function(function: u16) -> bool {
             | 84
             | 136
             | 182
+            | 244
             | 264
             | 289
             | 323
@@ -251,7 +264,12 @@ pub fn supports_function(function: u16) -> bool {
             | 246
             | 247
             | 639
+            | 619
+            | 623
+            | 633
+            | 654
             | 655
+            | 656
             | 659
             | 254
             | 258
@@ -259,10 +277,34 @@ pub fn supports_function(function: u16) -> bool {
             | 261
             | 365
             | 410
+            | 42
+            | 43
+            | 44
+            | 60
+            | 68
+            | 129
+            | 130
+            | 131
+            | 132
+            | 133
+            | 134
+            | 135
+            | 577
+            | 197
+            | 199
+            | 453
+            | 615
+            | 616
+            | 617
+            | 618
+            | 641
+            | 170
+            | 716
             | 683
             | 698
             | 704
             | 675
+            | 714
             | 636
             | 660
             | 723
@@ -281,6 +323,12 @@ pub fn supports_function(function: u16) -> bool {
             | 724
             | 447
             | 568
+            | 358
+            | 450
+            | 584
+            | 589
+            | 594
+            | 613
             | 640
             | 691
             | 692
@@ -403,12 +451,13 @@ pub fn evaluate_one(
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
-    evaluate_one_with_vm(world, Some(vm), context, c)
+    let lookup = |object, name: String| vm.conditional_vars(object, &name);
+    evaluate_one_with_vm(world, Some(&lookup), context, c)
 }
 
 fn evaluate_one_with_vm(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
@@ -451,7 +500,7 @@ fn evaluate_one_with_vm(
         target => return Err(Error::Target(target)),
     }
     .ok_or(Error::Target(c.run_on))?;
-    let actual = function_value(world, vm, context, subject, c)?;
+    let actual = function_value(world, lookup, context, subject, c)?;
     let expected = expected_value(world, context.owner, c)?;
     if !actual.is_finite() || !expected.is_finite() {
         return Err(Error::NonFinite);
@@ -490,6 +539,13 @@ fn boolean(value: bool) -> f32 {
     } else {
         0.0
     }
+}
+
+fn actor_context(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<&mut crate::world::ActorState, Error> {
+    world.actor(subject).ok_or(Error::Form(subject))
 }
 
 fn location_ref_type_count(
@@ -774,7 +830,7 @@ pub(crate) fn resolve(
 
 fn function_value(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     subject: GlobalFormId,
     c: &Condition,
@@ -995,10 +1051,23 @@ fn function_value(
             let values = &world.actor(subject).ok_or(Error::Form(subject))?.values;
             boolean(values.get("inventoryweight").current() > values.get("carryweight").current())
         }
-        735 => return Err(Error::UnavailableContract(c.function)),
+        735 | 358 | 450 | 584 | 589 | 613 => {
+            return Err(Error::UnavailableContract(c.function));
+        }
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
+        }
+        577 => {
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let first = resolve_reference(world, context.owner, raw)?;
+            let second = resolve_reference(world, context.owner, c.parameters[1])?;
+            boolean(world.distance(subject, first) < world.distance(subject, second))
         }
         99 => {
             if c.parameters[1] != 0 {
@@ -1211,8 +1280,18 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             let form = resolve(world, context.owner, raw, None)?;
-            if world.tag_of(form) == Some(Tag(*b"MGEF")) {
-                boolean(false)
+            if matches!(
+                world.tag_of(form),
+                Some(Tag(tag)) if [*b"MGEF", *b"ENCH", *b"WOOP"].contains(&tag)
+            ) {
+                let player = world.player();
+                boolean(
+                    world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .known_forms
+                        .contains(&form),
+                )
             } else if world.tag_of(form) != Some(Tag(*b"SPEL")) {
                 return Err(Error::StateContract(c.function));
             } else {
@@ -1240,6 +1319,28 @@ fn function_value(
         }
         726 => 0.0,
         18 => world.calendar().hour as f32,
+        170 => {
+            no_parameter(c)?;
+            let calendar = world.calendar();
+            let month = usize::try_from(calendar.month).map_err(|_| Error::Form(subject))?;
+            if month >= crate::clock::DAYS_IN_MONTH.len() || calendar.day == 0 {
+                return Err(Error::Form(subject));
+            }
+            let days_before_year = i64::from(calendar.year).saturating_sub(201) * 365;
+            let days_before_month = crate::clock::DAYS_IN_MONTH[..month]
+                .iter()
+                .map(|days| i64::from(*days))
+                .sum::<i64>()
+                - crate::clock::DAYS_IN_MONTH[..7]
+                    .iter()
+                    .map(|days| i64::from(*days))
+                    .sum::<i64>();
+            let days = days_before_year
+                .saturating_add(days_before_month)
+                .saturating_add(i64::from(calendar.day))
+                .saturating_sub(17);
+            days.rem_euclid(7) as f32
+        }
         41 => {
             no_parameter(c)?;
             let items: Vec<_> = world
@@ -1277,6 +1378,239 @@ fn function_value(
             inventory_count(world, subject, gold, &mut Vec::new())? as f32
         }
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        42 | 43 | 44 | 60 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            match c.function {
+                42..=44 => {
+                    let other = resolve_reference(world, context.owner, raw)?;
+                    if world.actor(other).is_none() {
+                        return Err(Error::Form(other));
+                    }
+                    match c.function {
+                        42 => {
+                            let first = world
+                                .actor(subject)
+                                .ok_or(Error::Form(subject))?
+                                .factions
+                                .clone();
+                            let second = world
+                                .actor(other)
+                                .ok_or(Error::Form(other))?
+                                .factions
+                                .clone();
+                            boolean(first.keys().any(|faction| second.contains_key(faction)))
+                        }
+                        43 => {
+                            let first = world.actor(subject).and_then(|actor| actor.race);
+                            let second = world.actor(other).and_then(|actor| actor.race);
+                            boolean(first.is_some() && first == second)
+                        }
+                        _ => {
+                            let (_, first) = world
+                                .actor_npc_part(subject, crate::npc::template::TRAITS)
+                                .map_err(|_| Error::Form(subject))?;
+                            let (_, second) = world
+                                .actor_npc_part(other, crate::npc::template::TRAITS)
+                                .map_err(|_| Error::Form(other))?;
+                            boolean(first.is_female() == second.is_female())
+                        }
+                    }
+                }
+                _ => {
+                    let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+                    let actor = resolve_reference(world, context.owner, c.parameters[1])?;
+                    if world.actor(actor).is_none() {
+                        return Err(Error::Form(actor));
+                    }
+                    let subject_rank = world
+                        .actor(subject)
+                        .and_then(|state| state.factions.get(&faction).copied())
+                        .unwrap_or(-2);
+                    let other_rank = world
+                        .actor(actor)
+                        .and_then(|state| state.factions.get(&faction).copied())
+                        .unwrap_or(-2);
+                    (i64::from(subject_rank) - i64::from(other_rank)) as f32
+                }
+            }
+        }
+        12 | 62 | 75 | 148 | 153 | 154 => {
+            no_parameter(c)?;
+            return Err(Error::Function(c.function));
+        }
+        149 => {
+            resolve(world, context.owner, raw, Some(*b"WTHR"))?;
+            return Err(Error::Function(c.function));
+        }
+        64 | 143 | 150 | 228 | 226 | 227 | 449 | 454 | 637 | 703 | 715 => {
+            return Err(Error::Function(c.function));
+        }
+        641 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).ok_or(Error::Form(base))?.unique)
+        }
+        68 => {
+            let class = resolve(world, context.owner, raw, Some(*b"CLAS"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).and_then(|data| data.class) == Some(class))
+        }
+        129 | 130 => {
+            let expected_tag = if c.function == 129 {
+                *b"CLAS"
+            } else {
+                *b"RACE"
+            };
+            let expected = resolve(world, context.owner, raw, Some(expected_tag))?;
+            let player = world.player();
+            if world.actor(player).is_none() {
+                return Err(Error::Form(player));
+            }
+            let base = world.base_of(player).ok_or(Error::Form(player))?;
+            let actual = world.actor_base(base).and_then(|data| {
+                if c.function == 129 {
+                    data.class
+                } else {
+                    data.race
+                }
+            });
+            boolean(actual == Some(expected))
+        }
+        131 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if raw > 1 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let player = world.player();
+            let (_, traits) = world
+                .actor_npc_part(player, crate::npc::template::TRAITS)
+                .map_err(|_| Error::Form(player))?;
+            boolean(traits.is_female() == (raw == 1))
+        }
+        132 | 197 | 199 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            match c.function {
+                132 => {
+                    let player = world.player();
+                    if world.actor(player).is_none() {
+                        return Err(Error::Form(player));
+                    }
+                    boolean(
+                        world
+                            .actor(player)
+                            .is_some_and(|actor| actor.factions.contains_key(&faction)),
+                    )
+                }
+                197 => boolean(
+                    world
+                        .faction(faction)
+                        .ok_or(Error::Form(faction))?
+                        .player_enemy,
+                ),
+                _ => boolean(
+                    world
+                        .faction(faction)
+                        .ok_or(Error::Form(faction))?
+                        .player_attacked,
+                ),
+            }
+        }
+        133..=135 => {
+            no_parameter(c)?;
+            let player = world.player();
+            if world.actor(subject).is_none() || world.actor(player).is_none() {
+                return Err(Error::Form(if world.actor(subject).is_none() {
+                    subject
+                } else {
+                    player
+                }));
+            }
+            match c.function {
+                133 => {
+                    let subject_factions = world
+                        .actor(subject)
+                        .ok_or(Error::Form(subject))?
+                        .factions
+                        .clone();
+                    let player_factions = world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .factions
+                        .clone();
+                    boolean(
+                        subject_factions
+                            .keys()
+                            .any(|faction| player_factions.contains_key(faction)),
+                    )
+                }
+                134 => {
+                    let subject_race = world.actor(subject).and_then(|actor| actor.race);
+                    let player_race = world.actor(player).and_then(|actor| actor.race);
+                    boolean(subject_race.is_some() && subject_race == player_race)
+                }
+                _ => {
+                    let (_, subject_traits) = world
+                        .actor_npc_part(subject, crate::npc::template::TRAITS)
+                        .map_err(|_| Error::Form(subject))?;
+                    let (_, player_traits) = world
+                        .actor_npc_part(player, crate::npc::template::TRAITS)
+                        .map_err(|_| Error::Form(player))?;
+                    boolean(subject_traits.is_female() == player_traits.is_female())
+                }
+            }
+        }
+        237 | 242 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(if c.function == 237 {
+                actor.ghost
+            } else {
+                actor.unconscious
+            })
+        }
+        278 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if world.reference(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let expected_owner = if raw == 0 {
+                let player = world.player();
+                world.base_of(player).ok_or(Error::Form(player))?
+            } else {
+                let owner = resolve(world, context.owner, raw, None)?;
+                if !matches!(world.tag_of(owner), Some(Tag(tag)) if tag == *b"NPC_" || tag == *b"FACT")
+                {
+                    return Err(Error::Form(owner));
+                }
+                owner
+            };
+            boolean(
+                world
+                    .reference(subject)
+                    .and_then(|reference| reference.owner)
+                    == Some(expected_owner),
+            )
+        }
+        300 => {
+            no_parameter(c)?;
+            let cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            boolean(cell.is_some_and(|cell| world.cell_is_interior(cell)))
+        }
         84 => {
             if c.parameters[1] != 0 {
                 return Err(Error::Parameter(c.function, c.parameters[1]));
@@ -1767,7 +2101,7 @@ fn function_value(
         550 => {
             let scene = resolve(world, context.owner, raw, Some(*b"SCEN"))?;
             let slot = c.parameters[1];
-            let Some(completed) = world.scene_action_complete(scene, slot) else {
+            let Some(completed) = world.scene_action_slot_complete(scene, slot) else {
                 return Err(Error::Parameter(c.function, slot));
             };
             boolean(completed)
@@ -1796,6 +2130,22 @@ fn function_value(
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
         }
+        654 => {
+            // GetBribeSuccess observes the player's bribe outcome. The CK
+            // SetBribed/IsBribed contract stores bribed and intimidated
+            // outcomes in LastBribedIntimidated, which is also used by
+            // IsIntimidatedbyPlayer (function 116).
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
         309 => {
             // CONTEXT: xEdit declares no parameters. The CK corpus has no page
             // for this legacy platform predicate. This runtime targets PC, so
@@ -1818,6 +2168,17 @@ fn function_value(
                 .values
                 .get("speechcraft")
                 .current()
+        }
+        244 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.restrained && !actor.unconscious)
+        }
+        304 => {
+            // IsWaterObject asks whether the tested reference's base is WATR.
+            no_parameter(c)?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.tag_of(base) == Some(Tag(*b"WATR")))
         }
         248 => {
             if c.parameters[1] != 0 {
@@ -2050,6 +2411,41 @@ fn function_value(
                 .copied()
                 .unwrap_or(crate::world::reaction::NEUTRAL) as f32
         }
+        453 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.teammate)
+        }
+        615 | 616 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let ranks = world.authored_relationship_ranks(base);
+            (match c.function {
+                615 => ranks.into_iter().max().unwrap_or(0),
+                _ => ranks.into_iter().min().unwrap_or(0),
+            }) as f32
+        }
+        617 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let association = resolve(world, context.owner, raw, Some(*b"ASTP"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_has_association_type(base, association))
+        }
+        618 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actors_have_family_relationship(base, None))
+        }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;
             boolean(world.alias_ref(quest, raw) == Some(subject))
@@ -2158,7 +2554,8 @@ fn function_value(
             let values = world
                 .object_id(Handle::Form(form))
                 .map(|object| {
-                    vm.map(|vm| vm.conditional_vars(object, name))
+                    lookup
+                        .map(|lookup| lookup(object, name.to_string()))
                         .unwrap_or_default()
                 })
                 .unwrap_or_default();
@@ -2252,12 +2649,6 @@ fn function_value(
             world.global_value(global)
         }
         136 => boolean(subject == resolve_reference(world, context.owner, raw)?),
-        143 | 150 | 226 | 227 => {
-            // xEdit and the UESP raw function table name these conditions but
-            // do not define their result encoding or state contract. The CK
-            // pages describe starting feed actions, not query semantics.
-            return Err(Error::Function(c.function));
-        }
         157 => {
             no_parameter(c)?;
             let (base, opened) = world
@@ -2505,13 +2896,10 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             let perk = resolve(world, context.owner, raw, Some(*b"PERK"))?;
-            boolean(
-                world
-                    .actor(subject)
-                    .is_some_and(|actor| actor.perks.contains(&perk)),
-            )
+            boolean(world.has_perk(subject, perk))
         }
         447 => {
+            no_parameter_second(c)?;
             let name = c.strings[0]
                 .as_deref()
                 .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
@@ -2536,6 +2924,10 @@ fn function_value(
             no_parameter(c)?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(actor.sprinting)
+        }
+        594 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.flying)
         }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
@@ -2566,6 +2958,31 @@ fn function_value(
             }
             boolean(world.distance(subject, other) <= maximum_distance)
         }
+        619 => {
+            let axis = raw
+                .checked_sub(88)
+                .and_then(|axis| usize::try_from(axis).ok())
+                .ok_or(Error::Parameter(c.function, raw))?;
+            if axis >= 3 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            actor_context(world, subject)?;
+            Err(Error::Contract(c.function))?
+        }
+        623 => {
+            no_parameter(c)?;
+            actor_context(world, subject)?;
+            Err(Error::Contract(c.function))?
+        }
+        633 => {
+            no_parameter(c)?;
+            let actor = actor_context(world, subject)?;
+            match actor.flying_state {
+                Some(state @ 0..=4) => f32::from(state),
+                Some(_) => return Err(Error::StateContract(c.function)),
+                None => return Err(Error::Unavailable(c.function)),
+            }
+        }
         444 => {
             one_parameter(c)?;
             let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
@@ -2588,7 +3005,8 @@ fn function_value(
             let values = world
                 .object_id(Handle::Form(form))
                 .map(|object| {
-                    vm.map(|vm| vm.conditional_vars(object, name))
+                    lookup
+                        .map(|lookup| lookup(object, name.to_string()))
                         .unwrap_or_default()
                 })
                 .unwrap_or_default();
@@ -2604,33 +3022,29 @@ fn function_value(
             // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
             // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
             // perk entry point for the real formula, which this engine does not run
-            // yet (the native is still a stub in natives.rs). This approximates the
-            // same shape without the entry point: the player's Speechcraft against
-            // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
-            // the 0 to 100 skill range.
+            // yet (the native is still a stub in natives.rs). Do not approximate
+            // the authored perk formula with a Speechcraft and Confidence threshold.
             no_parameter(c)?;
-            let player = world.player();
-            let speechcraft = world
-                .actor(player)
-                .ok_or(Error::Form(player))?
-                .values
-                .get("speechcraft")
-                .current();
             let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-            if subject_actor.values.contains("confidence") {
-                let confidence = subject_actor.values.get("confidence").current();
-                boolean(speechcraft >= confidence * 25.0)
-            } else {
-                // No AIDT subrecord on the speaker's NPC_ record: the
-                // source has made no claim about Confidence at all, so
-                // reading the unset default (0.0, Cowardly) would treat a
-                // record silent on the point as the easiest possible
-                // target to intimidate. Fail closed instead (see
-                // dlg_07_missing_aidt_adversarial.rs).
-                boolean(false)
+            if !subject_actor.values.contains("confidence") {
+                // No AIDT subrecord on the speaker's NPC_ record means the
+                // condition has no usable actor-value contract for this form.
+                return Err(Error::StateContract(c.function));
             }
+            return Err(Error::Unavailable(c.function));
+        }
+        656 => {
+            // CK Actor.IsArrested reports the actor's current arrest state.
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+
+        716 => {
+            no_parameter(c)?;
+            (world.clock.real_seconds / 3600.0) as f32
+        }
+
         580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,
         672 | 673 | 674 | 678 | 697 | 701 => {
             unavailable_combat_query(world, context.owner, subject, c)?
@@ -2785,7 +3199,16 @@ fn function_value(
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
         }
-        644 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
+        714 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .being_ridden,
+            )
+        }
+        644 | 684 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }
@@ -2960,6 +3383,29 @@ fn furniture_marker_type(
         .nth(usize::from(marker))
         .and_then(|data| data.get(..2))
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
+}
+
+/// Approximate the player's intimidation result using Speechcraft and target
+/// Confidence. The perk entry point that supplies the complete formula is
+/// not implemented yet.
+pub(crate) fn will_intimidate_succeed(
+    world: &mut World,
+    subject: GlobalFormId,
+) -> Result<bool, Error> {
+    let player = world.player();
+    let speechcraft = world
+        .actor(player)
+        .ok_or(Error::Form(player))?
+        .values
+        .get("speechcraft")
+        .current();
+    let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+    if subject_actor.values.contains("confidence") {
+        let confidence = subject_actor.values.get("confidence").current();
+        Ok(speechcraft >= confidence * 25.0)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.
@@ -3400,8 +3846,66 @@ mod ai_condition_tests {
             evaluate(&game, id(0x902), &condition_full(682, 0x820, 0, 0.0)),
             Err(Error::Form(id(0x902)))
         );
-        assert!(matches!(
+        assert_eq!(
             evaluate(&game, id(0x900), &condition_full(682, 0x910, 0, 1.0)),
+            Err(Error::Form(id(0x910)))
+        );
+    }
+
+    #[test]
+    fn ai_65_graph_float_sprint_and_flight_conditions_match_runtime_state() {
+        let game = fixture();
+        let actor = id(0x900);
+        let mut graph = condition(447, 0);
+        graph.strings[0] = Some("SpeedBlend".into());
+        game.world_mut()
+            .actor(actor)
+            .unwrap()
+            .graph_floats
+            .insert("speedblend".into(), 1.25);
+        graph.comparison = Comparison::Number(1.25);
+        assert!(supports_function(447));
+        assert_eq!(evaluate(&game, actor, &graph), Ok(true));
+        graph.comparison = Comparison::Number(0.75);
+        assert_eq!(evaluate(&game, actor, &graph), Ok(false));
+        let mut malformed = graph.clone();
+        malformed.parameters[1] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &malformed),
+            Err(Error::Parameter(447, 1))
+        );
+        let mut missing_graph = graph;
+        missing_graph.strings[0] = Some("Missing".into());
+        assert!(matches!(
+            evaluate(&game, actor, &missing_graph),
+            Err(Error::Variable(_))
+        ));
+
+        let mut sprint = condition(568, 0);
+        game.world_mut().actor(actor).unwrap().sprinting = true;
+        assert!(supports_function(568));
+        assert_eq!(evaluate(&game, actor, &sprint), Ok(true));
+        game.world_mut().actor(actor).unwrap().sprinting = false;
+        assert_eq!(evaluate(&game, actor, &sprint), Ok(false));
+        sprint.parameters[0] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &sprint),
+            Err(Error::Parameter(568, 1))
+        );
+
+        let mut flying = condition(594, 0);
+        game.world_mut().actor(actor).unwrap().flying = true;
+        assert!(supports_function(594));
+        assert_eq!(evaluate(&game, actor, &flying), Ok(true));
+        game.world_mut().actor(actor).unwrap().flying = false;
+        assert_eq!(evaluate(&game, actor, &flying), Ok(false));
+        flying.parameters[0] = 1;
+        assert_eq!(
+            evaluate(&game, actor, &flying),
+            Err(Error::Parameter(594, 1))
+        );
+        assert!(matches!(
+            evaluate(&game, id(0x910), &condition(594, 0)),
             Err(Error::Form(_))
         ));
     }
@@ -3464,5 +3968,33 @@ mod ai_condition_tests {
         let mut invalid = missing;
         invalid.parameter_3 = 99;
         assert_eq!(evaluate(&game, id(0x900), &invalid), Err(Error::Target(5)));
+    }
+
+    #[test]
+    fn ai_65_undocumented_motion_conditions_return_explicit_contract_diagnostics() {
+        let game = fixture();
+        for function in [358, 450, 584, 589, 613] {
+            assert!(supports_function(function), "recognized CTDA {function}");
+            assert_eq!(
+                evaluate(&game, id(0x900), &condition(function, 0)),
+                Err(Error::UnavailableContract(function)),
+                "function {function}"
+            );
+            assert_eq!(
+                evaluate(&game, id(0x910), &condition(function, 0)),
+                Err(Error::UnavailableContract(function)),
+                "function {function} diagnostic does not assume a context"
+            );
+        }
+        for function in [447, 568] {
+            let mut predicate = condition(function, 0);
+            if function == 447 {
+                predicate.strings[0] = Some("SpeedBlend".into());
+            }
+            assert!(
+                matches!(evaluate(&game, id(0x910), &predicate), Err(Error::Form(_))),
+                "function {function} requires an actor"
+            );
+        }
     }
 }

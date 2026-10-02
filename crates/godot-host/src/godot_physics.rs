@@ -23,11 +23,22 @@ use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
 use soe_game::world::ContactActor;
+use soe_game::world::ReferencePhysicsRequest;
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
 use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
+
+/// Map valid Skyrim Havok motion types to the host body mode they require.
+pub fn motion_type_to_body_mode(motion_type: u32) -> Option<BodyMode> {
+    match motion_type {
+        1 | 2 | 3 | 6 => Some(BodyMode::RIGID),
+        4 | 7 => Some(BodyMode::KINEMATIC),
+        5 => Some(BodyMode::STATIC),
+        _ => None,
+    }
+}
 
 /// What went into the space, so a caller can report it the way the cell
 /// streamer reports its surfaces.
@@ -40,6 +51,15 @@ pub struct GodotCollisionStats {
     /// flattened rather than skipped, so this counts only genuinely unknown
     /// geometry.
     pub skipped: usize,
+}
+
+pub(crate) fn is_opened_door(world: &soe_game::World, reference: GlobalFormId) -> bool {
+    world.reference_ref(reference).is_some_and(|state| {
+        state.opened
+            && state
+                .base
+                .is_some_and(|base| world.tag_of(base) == Some(soe_esm::Tag::new(b"DOOR")))
+    })
 }
 
 /// One collider's live server state, grouped so a reference's body and
@@ -123,6 +143,68 @@ impl CellBodies {
         transform.origin = offset;
         server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
         true
+    }
+
+    /// Apply queued Papyrus motion and impulse operations to resident bodies.
+    pub fn apply_reference_physics_requests(&mut self, world: &mut soe_game::World) -> usize {
+        let requests = world.take_reference_physics_requests();
+        let mut applied = 0;
+        let mut server = PhysicsServer3D::singleton();
+        for request in requests {
+            match request {
+                ReferencePhysicsRequest::MotionType {
+                    reference,
+                    motion_type,
+                    allow_activate,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter_mut()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let Some(mode) = motion_type_to_body_mode(motion_type) else {
+                        continue;
+                    };
+                    server.body_set_mode(entry.body, mode);
+                    if motion_type == 1 && !allow_activate {
+                        server.body_set_state(entry.body, BodyState::SLEEPING, &true.to_variant());
+                    }
+                    applied += 1;
+                }
+                ReferencePhysicsRequest::Impulse {
+                    reference,
+                    direction,
+                    magnitude,
+                } => {
+                    let Some(entry) = self
+                        .movable
+                        .iter()
+                        .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    else {
+                        continue;
+                    };
+                    let direction = crate::units::SkyrimPos::new(
+                        direction[0] * magnitude,
+                        direction[1] * magnitude,
+                        direction[2] * magnitude,
+                    )
+                    .to_godot();
+                    server.body_apply_central_impulse(
+                        entry.body,
+                        Vector3::new(direction.x, direction.y, direction.z),
+                    );
+                    applied += 1;
+                }
+            }
+        }
+        applied
+    }
+
+    #[must_use]
+    pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
+        self.grabbed_reference
     }
 
     /// Every live body's RID, in insertion order. Diagnostic callers may
@@ -289,12 +371,13 @@ impl CellBodies {
                 continue;
             };
             let target_iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, target_iso);
+            let visible = target.visible && !is_opened_door(world, reference);
+            let key = (visible, target_iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if !target.visible {
+            if !visible {
                 server.body_set_space(entry.body, Rid::Invalid);
                 continue;
             }
@@ -335,12 +418,13 @@ impl CellBodies {
                 continue;
             };
             let iso = Iso::placement(target.position, target.rotation, target.scale);
-            let key = (target.visible, iso);
+            let visible = target.visible && !is_opened_door(world, entry.reference);
+            let key = (visible, iso);
             if entry.synced == Some(key) {
                 continue;
             }
             entry.synced = Some(key);
-            if target.visible {
+            if visible {
                 if entry.body.is_valid() && entry.shape_scale != iso.scale {
                     server.free_rid(entry.body);
                     for shape in entry.shapes.drain(..) {
