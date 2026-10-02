@@ -70,7 +70,7 @@ fn cmb_38_knockdown_and_ragdoll_override_survive_world_save_load() {
     game.world_mut().force_ragdoll(actor, true).unwrap();
     let saved = game.world_mut().save_state();
 
-    let mut loaded = make_game();
+    let loaded = make_game();
     loaded.world_mut().load_state(&saved).unwrap();
     let mut world = loaded.world_mut();
     assert_eq!(world.actor(actor).unwrap().ragdoll_forced, Some(true));
@@ -79,7 +79,7 @@ fn cmb_38_knockdown_and_ragdoll_override_survive_world_save_load() {
     world.push_actor_away(marker, actor, 10.0).unwrap();
     let saved = world.save_state();
     drop(world);
-    let mut reloaded = make_game();
+    let reloaded = make_game();
     reloaded.world_mut().load_state(&saved).unwrap();
     let mut world = reloaded.world_mut();
     assert_eq!(world.actor(actor).unwrap().ragdoll_forced, Some(false));
