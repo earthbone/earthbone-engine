@@ -12,6 +12,7 @@ use std::process::Command;
 
 const FIRST: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/First_00000A00_3.fuz";
 const SECOND: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/Second_00000B00_3.fuz";
+static GODOT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn wave() -> Vec<u8> {
     let sample_rate = 22_050_u32;
@@ -40,6 +41,11 @@ fn wave() -> Vec<u8> {
 
 fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
+    std::fs::write(
+        data.parent().unwrap().join("Skyrim_Default.ini"),
+        "[General]\nsLanguage=English\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
+    )
+    .unwrap();
     for master in [
         "Skyrim.esm",
         "Update.esm",
@@ -77,9 +83,8 @@ fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
 /// Use a real PC voice when the game data is available so the mixer test also
 /// exercises the default xWMA decoder. The generated WAV keeps the test usable
 /// on machines without an installed game.
-fn installed_voice_pair() -> Option<(Vec<u8>, Vec<u8>)> {
+fn installed_voice_pair(data: &Path) -> Option<(Vec<u8>, Vec<u8>)> {
     use soe_audio::wma::Native;
-    let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
     let archive = data.join("Skyrim - Voices_en0.bsa");
     if !archive.exists() {
         return None;
@@ -87,30 +92,19 @@ fn installed_voice_pair() -> Option<(Vec<u8>, Vec<u8>)> {
     let mut vfs = Vfs::new();
     vfs.add_archive_path(&archive).ok()?;
     let source = SoundSource::new(&vfs).with_wma_decoder(&Native);
-    let mut names: Vec<_> = vfs
-        .paths()
-        .filter(|name| {
-            name.contains("sound/voice/skyrim.esm/")
-                && Path::new(name)
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("fuz"))
-        })
-        .collect();
-    names.sort_unstable();
-    let stride = (names.len() / 60).max(1);
-    let mut loudest: Option<(f32, Vec<u8>)> = None;
-    for name in names.iter().step_by(stride).take(60) {
-        let Ok(sound) = source.read(name) else {
-            continue;
-        };
-        let peak = sound.pcm.peak();
-        if loudest.as_ref().is_none_or(|(best, _)| peak > *best) {
-            let Ok(bytes) = vfs.read(name) else { continue };
-            loudest = Some((peak, bytes));
-        }
+    let name = vfs.paths().find(|name| {
+        name.contains("sound/voice/skyrim.esm/maleelfhaughty/voicepowers_shout01b")
+            && Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("fuz"))
+    })?;
+    let voice = vfs.read(name).ok()?;
+    if !matches!(soe_audio::Fuz::split(&voice), Ok(fuz) if fuz.audio_kind() == soe_audio::AudioKind::Xwma)
+    {
+        return None;
     }
-    let (peak, voice) = loudest?;
-    (peak > 0.01).then(|| (voice.clone(), voice))
+    let sound = source.read(name).ok()?;
+    (sound.pcm.peak() > 0.01).then(|| (voice.clone(), voice))
 }
 
 fn godot_binary() -> Option<PathBuf> {
@@ -124,6 +118,44 @@ fn godot_binary() -> Option<PathBuf> {
                 .filter(|output| output.status.success())
                 .map(|_| PathBuf::from("godot"))
         })
+}
+
+fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>) {
+    let _lock = GODOT_TEST_LOCK.lock().unwrap();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest.join("../..");
+    let project = workspace.join("godot");
+    let extension = workspace.join("target/release/libsoe_godot_host.so");
+    let Some(godot) = godot_binary() else {
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+        return;
+    };
+    if !extension.exists() {
+        eprintln!("skipping: build the release GDExtension before running this test");
+        return;
+    }
+
+    let fixture = tempfile::tempdir().unwrap();
+    let data = fixture.path().join("Data");
+    write_fixture_data(&data, voices);
+    let script = project.join("dlg_11_audio_test.gd");
+    let output = Command::new(godot)
+        .args(["--path"])
+        .arg(&project)
+        .args(["--script"])
+        .arg(script)
+        .args(["--resolution", "640x360"])
+        .env("DLG_11_TEST_DATA", &data)
+        .env("DLG_11_FIRST_VOICE", FIRST)
+        .env("DLG_11_SECOND_VOICE", SECOND)
+        .output()
+        .expect("Godot process starts");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("RESULT: PASS"),
+        "Godot dialogue audio test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[test]
@@ -145,37 +177,16 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
 
 #[test]
 fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let extension = workspace.join("target/release/libsoe_godot_host.so");
-    let Some(godot) = godot_binary() else {
-        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+    run_godot_audio_test(None);
+}
+
+#[test]
+fn dlg_11_installed_xwma_voice_plays_in_windowed_godot_mixer() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is unset");
         return;
     };
-    if !extension.exists() {
-        eprintln!("skipping: build the release GDExtension before running this test");
-        return;
-    }
-
-    let fixture = tempfile::tempdir().unwrap();
-    let data = fixture.path().join("Data");
-    write_fixture_data(&data, installed_voice_pair());
-    let script = project.join("dlg_11_audio_test.gd");
-    let output = Command::new(godot)
-        .args(["--headless", "--path"])
-        .arg(&project)
-        .args(["--script"])
-        .arg(script)
-        .env("DLG_11_TEST_DATA", &data)
-        .env("DLG_11_FIRST_VOICE", FIRST)
-        .env("DLG_11_SECOND_VOICE", SECOND)
-        .output()
-        .expect("Godot process starts");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success() && stdout.contains("RESULT: PASS"),
-        "Godot dialogue audio test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    let voices = installed_voice_pair(&data)
+        .expect("installed Skyrim voice archive must provide a decodable xWMA voice");
+    run_godot_audio_test(Some(voices));
 }
