@@ -3,21 +3,30 @@
 
 //! CMB-27: combine one shared-world hit with the authored reaction graph.
 
+#[cfg(feature = "godot")]
 use std::path::Path;
 
+#[cfg(feature = "godot")]
 use soe_bsa::Vfs;
+#[cfg(feature = "godot")]
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+#[cfg(feature = "godot")]
 use soe_game::{combat::Hand, Game};
+#[cfg(feature = "godot")]
 use soe_godot_host::{
     actor::{ActorAssets, MASTER_BEHAVIOR},
     combat::MeleeContact,
+    godot_actor::{StaggerGraphEvent, StaggerTracker},
 };
+#[cfg(feature = "godot")]
 use soe_hkx::interp::Interpreter;
 
+#[cfg(feature = "godot")]
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
+#[cfg(feature = "godot")]
 fn game_with_stagger_weapon() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
@@ -70,6 +79,7 @@ fn game_with_stagger_weapon() -> Game {
 }
 
 #[test]
+#[cfg(feature = "godot")]
 fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     let attacker = id(0x14);
     let target = id(0x900);
@@ -98,9 +108,7 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
         .unwrap()
         .is_none());
 
-    let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
-        return;
-    };
+    let data_dir = std::env::var("SKYRIM_DATA").expect("SKYRIM_DATA is required for this check");
     let mut vfs = Vfs::new();
     for archive in [
         "Skyrim - Meshes0.bsa",
@@ -129,8 +137,14 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     }
     let locomotion = vm.active_states();
     assert!(!locomotion.is_empty());
-    vm.variables.set_by_name("staggerMagnitude", 1.0);
-    assert!(vm.send_event_named("staggerStart"));
+    let shared_world = game.shared_world();
+    let mut stagger = StaggerTracker::default();
+    let start = stagger.poll(&mut shared_world.borrow_mut(), target);
+    assert!(matches!(start, Some((StaggerGraphEvent::Start, magnitude)) if magnitude > 1.0));
+    let (_, magnitude) = start.expect("the shared hit must begin a stagger");
+    assert!(soe_godot_host::godot_actor::send_stagger_start(
+        &mut vm, magnitude
+    ));
     let played_reaction = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
         vm.active_clips().iter().any(|(node, _)| {
@@ -145,6 +159,11 @@ fn cmb_27_shared_hit_reacts_once_and_preserves_the_current_locomotion_state() {
     assert!(played_reaction, "authored stagger clip should play");
     assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
 
+    game.tick(10.0);
+    assert_eq!(
+        stagger.poll(&mut shared_world.borrow_mut(), target),
+        Some((StaggerGraphEvent::Stop, magnitude))
+    );
     assert!(vm.send_event_named("staggerStop"));
     for _ in 0..180 {
         vm.update(1.0 / 60.0);
