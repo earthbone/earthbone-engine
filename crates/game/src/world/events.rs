@@ -120,6 +120,13 @@ pub enum ReferencePhysicsRequest {
         direction: [f32; 3],
         magnitude: f32,
     },
+    /// Join a placed cart and horse at their CK Havok pivots.
+    Tether {
+        cart: GlobalFormId,
+        horse: GlobalFormId,
+        cart_pivot: [f32; 3],
+        horse_pivot: [f32; 3],
+    },
 }
 
 impl World {

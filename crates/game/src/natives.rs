@@ -1256,6 +1256,14 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             else {
                 return none();
             };
+            if me != horse {
+                world.request_reference_physics(ReferencePhysicsRequest::Tether {
+                    cart: me,
+                    horse,
+                    cart_pivot: [0.0, 3.5, -0.2],
+                    horse_pivot: [0.0, 0.0, -0.5],
+                });
+            }
             if let Some(horse) = world.reference(horse) {
                 let yaw = rotation[2];
                 horse.position = [

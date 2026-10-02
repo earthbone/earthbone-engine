@@ -114,6 +114,12 @@ impl CellBodies {
             .iter()
             .find(|entry| entry.reference == Some(reference))
             .map(|entry| entry.body)
+            .or_else(|| {
+                self.movable
+                    .iter()
+                    .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    .map(|entry| entry.body)
+            })
     }
 
     /// Put a reference body into kinematic mode while the player holds it.
@@ -146,7 +152,11 @@ impl CellBodies {
     }
 
     /// Apply queued Papyrus motion and impulse operations to resident bodies.
-    pub fn apply_reference_physics_requests(&mut self, world: &mut soe_game::World) -> usize {
+    pub fn apply_reference_physics_requests(
+        &mut self,
+        world: &mut soe_game::World,
+        tethers: &mut crate::godot_tether::TetherConstraints,
+    ) -> usize {
         let requests = world.take_reference_physics_requests();
         let mut applied = 0;
         let mut server = PhysicsServer3D::singleton();
@@ -196,6 +206,31 @@ impl CellBodies {
                         Vector3::new(direction.x, direction.y, direction.z),
                     );
                     applied += 1;
+                }
+                ReferencePhysicsRequest::Tether {
+                    cart,
+                    horse,
+                    cart_pivot,
+                    horse_pivot,
+                } => {
+                    let (Some(cart_body), Some(horse_body)) = (
+                        self.body_for_reference(cart),
+                        self.body_for_reference(horse),
+                    ) else {
+                        continue;
+                    };
+                    let cart_pivot = crate::units::direction_to_godot(cart_pivot);
+                    let horse_pivot = crate::units::direction_to_godot(horse_pivot);
+                    if tethers.tether(
+                        cart,
+                        horse,
+                        cart_body,
+                        horse_body,
+                        Vector3::new(cart_pivot[0], cart_pivot[1], cart_pivot[2]),
+                        Vector3::new(horse_pivot[0], horse_pivot[1], horse_pivot[2]),
+                    ) {
+                        applied += 1;
+                    }
                 }
             }
         }
