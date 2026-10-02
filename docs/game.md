@@ -1685,6 +1685,12 @@ the module declarations and reports the declaration to add for a missing
 file. The registration file uses Git's union merge driver. New test files
 need their module declaration in `tests/it.rs`.
 
+`tst_16_test_names_match_the_pre_consolidation_inventory` compares committed
+before and after test-name inventories from the consolidation run. It removes
+the `unit::` prefix and TST-16's added guard tests before comparing the 2,289
+remaining names. This checks historical name preservation, but does not compare
+installed test results.
+
 Installed integration tests use `tests/common/installed.rs`. Each test
 process caches parsed plugin files and load orders by their installed master
 set, then gives each `Game` its own mutable world over the shared immutable
