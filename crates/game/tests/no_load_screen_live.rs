@@ -194,7 +194,8 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
         pair
     };
 
-    // CONTEXT: The host uses Game transitions to resolve lazy reference events.
+    // The host goes through the Game transitions, which bind the references
+    // they attach, so both paths queue the same events.
     let mut cold = real_game(&data);
     cold.bind();
     let (_, target) = setup(&mut cold);
