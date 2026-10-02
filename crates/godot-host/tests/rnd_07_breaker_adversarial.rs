@@ -64,7 +64,11 @@ fn rnd_07_combined_mesh_indices_remain_in_range_at_selection_boundary() {
     let (vertices, indices) = cell_occluder_mesh(&surfaces);
 
     assert_eq!(vertices.len(), 12, "only four source surfaces are selected");
-    assert_eq!(indices.len(), 42, "all triangles from the selected sources remain");
+    assert_eq!(
+        indices.len(),
+        42,
+        "all triangles from the selected sources remain"
+    );
     assert!(indices
         .iter()
         .all(|index| usize::try_from(*index).is_ok_and(|index| index < vertices.len())));

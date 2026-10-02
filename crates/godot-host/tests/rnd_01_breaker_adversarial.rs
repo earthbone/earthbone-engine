@@ -44,7 +44,8 @@ fn rnd_01_installed_whiterun_painted_surfaces_are_blended_and_nonwhite() {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let source = DataSource::open(&data).unwrap_or_else(|error| panic!("DataSource::open: {error}"));
+    let source =
+        DataSource::open(&data).unwrap_or_else(|error| panic!("DataSource::open: {error}"));
     let order = source.shared_order();
     let exterior = source
         .stream_exterior("WhiterunOrigin", 1)
@@ -77,7 +78,10 @@ fn rnd_01_installed_whiterun_painted_surfaces_are_blended_and_nonwhite() {
                 continue;
             }
             let Some(TextureData::Rgba8(image)) = surface.textures.diffuse.as_deref() else {
-                panic!("painted LAND {} has no baked RGBA8 texture", surface.reference);
+                panic!(
+                    "painted LAND {} has no baked RGBA8 texture",
+                    surface.reference
+                );
             };
             let colors: HashSet<[u8; 3]> = image
                 .rgba
@@ -86,10 +90,15 @@ fn rnd_01_installed_whiterun_painted_surfaces_are_blended_and_nonwhite() {
                 .iter()
                 .map(|pixel| [pixel[0], pixel[1], pixel[2]])
                 .collect();
-            assert!(colors.len() > 1, "painted LAND {} has no blend", surface.reference);
+            assert!(
+                colors.len() > 1,
+                "painted LAND {} has no blend",
+                surface.reference
+            );
             assert!(
                 colors.iter().any(|color| *color != [255, 255, 255]),
-                "painted LAND {} is all white", surface.reference
+                "painted LAND {} is all white",
+                surface.reference
             );
         }
     }
@@ -122,7 +131,10 @@ fn rnd_01_vtxt_adjacent_points_interpolate_between_textures() {
     });
 
     let blended = pixel(&baked, 4, 255);
-    assert!((126..=130).contains(&blended[0]), "unexpected blend: {blended:?}");
+    assert!(
+        (126..=130).contains(&blended[0]),
+        "unexpected blend: {blended:?}"
+    );
     assert_eq!(&blended[1..], &[0, 0, 255]);
 }
 

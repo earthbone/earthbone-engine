@@ -61,24 +61,49 @@ fn rnd_05_each_authored_body_diffuse_has_its_own_colored_image_data() {
         assert!(image.width() > 0 && image.height() > 0);
         paths.insert(path.to_ascii_lowercase(), image);
     }
-    assert!(paths.len() >= 2, "vanilla body uses multiple diffuse materials");
+    assert!(
+        paths.len() >= 2,
+        "vanilla body uses multiple diffuse materials"
+    );
 
     for (path, upload) in paths {
-        let bytes = vfs.read(&path).expect("the material's own texture path resolves");
+        let bytes = vfs
+            .read(&path)
+            .expect("the material's own texture path resolves");
         let dds = Dds::parse(&bytes).expect("resolved texture parses as DDS");
         let decoded = dds.decode(0, 0).expect("authored diffuse mip decodes");
-        assert_eq!(upload.width(), decoded.width, "texture dimensions for {path}");
-        assert_eq!(upload.height(), decoded.height, "texture dimensions for {path}");
-        assert!(decoded.rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+        assert_eq!(
+            upload.width(),
+            decoded.width,
+            "texture dimensions for {path}"
+        );
+        assert_eq!(
+            upload.height(),
+            decoded.height,
+            "texture dimensions for {path}"
+        );
+        assert!(decoded
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0));
         let colors: std::collections::BTreeSet<_> = decoded
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| (pixel[0] / 16, pixel[1] / 16, pixel[2] / 16))
             .collect();
-        assert!(colors.len() > 4, "{path} must retain authored color variation");
+        assert!(
+            colors.len() > 4,
+            "{path} must retain authored color variation"
+        );
 
         match upload.as_ref() {
-            TextureData::Compressed { bytes, mip0_len, .. } => {
+            TextureData::Compressed {
+                bytes, mip0_len, ..
+            } => {
                 assert!(*mip0_len > 0);
                 assert!(bytes.len() >= *mip0_len);
                 assert_eq!(

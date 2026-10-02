@@ -3806,11 +3806,16 @@ checks that this path writes a PNG under Godot headless with installed data.
 
 `CellStreamerNode.cell_occluders` optionally creates one RenderingServer
 occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
-selects at most four nonempty opaque surfaces by descending triangle count,
-keeps source order for equal counts, and applies a `MultiMesh` surface's
-instance transform before combining its vertices. Blend and cutout surfaces
-are excluded. Cell release and node cleanup free both occluder RIDs. The
-export defaults to off.
+selects at most four nonempty opaque static surfaces by descending triangle
+count, keeps source order for equal counts, and applies a `MultiMesh` surface's
+instance transform before combining its vertices. Skinned, blend and cutout
+surfaces are excluded. Cell release and node cleanup free both occluder RIDs.
+The export defaults to off.
+
+Godot 4.4's `tutorials/3d/occlusion_culling.rst` requires a simplified
+occluder representation made from static objects. Skinned actor surfaces
+change with their skeleton, so including them in the generated stationary
+mesh would leave stale occlusion as the actor moves.
 
 The candidate is based on Godot's local `engine-refs/godot-docs` sources:
 `classes/class_arrayoccluder3d.rst` documents the procedural vertex and index
@@ -3822,9 +3827,9 @@ The 2026-10-02 comparison used the installed Whiterun Bannered Mare cell,
 Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
 1600 by 900 render target, and three 600-frame samples per mode. Both modes
 drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
-the p99 samples were 38.091, 38.093 and 37.668 ms, median 38.091 ms. With
-occluders on, they were 38.607, 41.555 and 38.750 ms, median 38.750 ms. The
-enabled median was 0.659 ms higher, so the export remains off. These results
+the p99 samples were 40.514, 40.018 and 44.655 ms, median 40.514 ms. With
+occluders on, they were 39.019, 41.130 and 46.134 ms, median 41.130 ms. The
+enabled median was 0.616 ms higher, so the export remains off. These results
 are specific to this scene, machine and renderer.
 
 `crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
