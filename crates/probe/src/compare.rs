@@ -193,7 +193,38 @@ pub fn compare(
         observed_version,
         differences: Vec::new(),
     };
+    let forms = probe.all_forms();
     for (index, e) in engine.iter().enumerate() {
+        diff(
+            &mut report,
+            e,
+            "authored.load_order",
+            serde_json::to_value(&probe.load_order)?,
+            serde_json::to_value(&e.load_order)?,
+            0.0,
+        );
+        diff(
+            &mut report,
+            e,
+            "authored.forms.aliases",
+            serde_json::to_value(forms.keys().collect::<Vec<_>>())?,
+            serde_json::to_value(e.forms.keys().collect::<Vec<_>>())?,
+            0.0,
+        );
+        for (alias, form) in &forms {
+            let object = e.forms.get(alias).map(|id| {
+                let raw = *id as u32;
+                raw & if raw >> 24 == 0xfe { 0xfff } else { 0xff_ffff }
+            });
+            diff(
+                &mut report,
+                e,
+                &format!("authored.forms.{alias}.object"),
+                serde_json::json!(form.object),
+                serde_json::to_value(object)?,
+                0.0,
+            );
+        }
         let Some(o) = observed.get(index) else {
             diff(
                 &mut report,
@@ -279,7 +310,7 @@ pub fn compare(
 fn kind_matches(kind: FormKind, tag: Tag) -> bool {
     match kind {
         FormKind::Quest => tag == Tag(*b"QUST"),
-        FormKind::Actor => tag == Tag(*b"ACHR"),
+        FormKind::Actor | FormKind::Player => tag == Tag(*b"ACHR"),
         FormKind::ObjectReference => [Tag(*b"REFR"), Tag(*b"ACHR")].contains(&tag),
         FormKind::Spell => tag == Tag(*b"SPEL"),
         FormKind::MagicEffect => tag == Tag(*b"MGEF"),
@@ -293,7 +324,20 @@ fn kind_matches(kind: FormKind, tag: Tag) -> bool {
 ///
 /// # Errors
 /// Rejects a different load order, missing/mistyped forms, VM faults or unfinished runs.
-pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Error> {
+pub fn run(probe: &Probe, order: LoadOrder) -> Result<Vec<Observation>, Error> {
+    if probe.animation_graph.is_some() {
+        return Err(Error::Execution(
+            "animation comparison requires installed assets".into(),
+        ));
+    }
+    run_with_assets(probe, order, None)
+}
+
+fn run_with_assets(
+    probe: &Probe,
+    mut order: LoadOrder,
+    assets: Option<&crate::animation::Assets>,
+) -> Result<Vec<Observation>, Error> {
     probe.validate()?;
     if !order.files().iter().map(|file| file.name.as_str()).eq(probe
         .load_order
@@ -309,7 +353,12 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         .add("SoeProbe.esp", crate::plugin(probe)?)
         .map_err(|e| Error::Execution(e.to_string()))?;
     let mut game = Game::new(order);
+    let mut resolved = BTreeMap::new();
     for (name, form) in probe.all_forms() {
+        if form.kind == FormKind::Player {
+            resolved.insert(name, game.world_mut().player());
+            continue;
+        }
         let id = game
             .world()
             .form_from_file(form.object, &form.plugin)
@@ -321,12 +370,23 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         {
             return Err(Error::Execution(format!("mistyped form {name}")));
         }
+        resolved.insert(name, id);
     }
     let timescale = game
         .world()
         .form_from_file(0x3a, "Skyrim.esm")
         .ok_or_else(|| Error::Execution("missing TimeScale".into()))?;
     game.world_mut().set_global(timescale, probe.timescale);
+    let mut animation = match (&probe.animation_graph, assets) {
+        (Some(config), Some(assets)) => {
+            let actor = resolved[&config.actor];
+            Some(crate::animation::Host::new(assets, actor))
+        }
+        _ => None,
+    };
+    if let Some(host) = &mut animation {
+        host.update(&mut game, 0.0)?;
+    }
     let version = format!("soe-game/{}", env!("CARGO_PKG_VERSION"));
     if !game.vm.natives.register_global(
         "Debug",
@@ -396,6 +456,11 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         if dt <= 0.0 {
             return Err(Error::Execution("clock made no progress".into()));
         }
+        if !paused {
+            if let Some(host) = &mut animation {
+                host.update(&mut game, dt as f32)?;
+            }
+        }
         game.tick_menu_mode(dt, paused);
         elapsed += dt;
     }
@@ -423,5 +488,6 @@ pub(crate) fn installed_order(probe: &Probe, data: &Path) -> Result<LoadOrder, E
 /// Reports missing plugins, malformed records or execution errors.
 pub fn run_installed(probe: &Probe, data: &Path) -> Result<Vec<Observation>, Error> {
     probe.validate()?;
-    run(probe, installed_order(probe, data)?)
+    let assets = crate::animation::Assets::load(probe, data)?;
+    run_with_assets(probe, installed_order(probe, data)?, assets.as_ref())
 }

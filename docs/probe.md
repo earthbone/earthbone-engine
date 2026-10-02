@@ -237,3 +237,65 @@ official records and checks CLI matching and differing comparisons.
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.
+
+## Transition tie capture, ANM-54
+
+`crates/probe/probes/anm_54.toml` observes the player's vanilla third-person
+`1HM_Behavior` through `i1HMState`. It labels the local/wildcard
+`streamingQuery_attackStart` tie, equal-priority `blockStart` interrupted by
+`recoilStart`, and both orders of delayed `blockStop` and `attackStart`.
+Each delayed batch writes `iBlockState = 1`, closes `InitiateWinEnd`, issues
+both requests, samples the pending state and opens `InitiateWinBegin`.
+Build and install with the commands above, selecting this sequence. From the
+main-menu console use `coc qasmoke` for a disposable default male player,
+without equipping items. Keep gameplay unpaused and leave the controls alone.
+The runner waits five seconds, selects third person and draws the player's
+hands. Allow roughly 10 to 15 seconds and wait for `delayed_last_stop_result`
+before closing Skyrim to flush the log. The sequence names only the five
+masters, Fish, AdvDSGS and its generated quest. The official light plugins in
+`quest_wait.toml` have no aliases or mutations in this sequence. The checked
+`anm_54.expected.json` contains engine predictions, not a vanilla capture.
+
+```text
+rtk cargo run -p soe-probe -- build ./probe-out crates/probe/probes/anm_54.toml
+rtk cargo run -p soe-probe -- compare crates/probe/probes/anm_54.toml /path/to/Papyrus.0.log crates/probe/probes/anm_54.expected.json
+rtk cargo run -p soe-probe -- replay crates/probe/probes/anm_54.toml
+```
+
+An optional final `expected.json` argument makes `compare` read reviewed
+observations instead of executing the sequence. That mode needs no
+`SKYRIM_DATA`. `replay` writes the engine observations as JSON and requires
+installed data. Missing, extra and reordered boundaries still fail, as do
+state differences. The comparator checks the authored load order, alias names
+and local object IDs even when the two supplied traces agree with each other.
+`animation_batch` accepts 1 to 16 ordered event tokens
+and an optional `ints` table of at most eight integer variable setters. It
+runs setters before events without trace calls or waits between them.
+`animation_int` reads `GetAnimationVariableInt`, `set_animation_int` writes
+`SetAnimationVariableInt`, `third_person` calls `Game.ForceThirdPerson` and
+`draw_weapon` calls `Actor.DrawWeapon`. A form of kind `player` must name
+Skyrim.esm object `0x14` and resolves through `Game.GetPlayer`.
+
+The optional `[animation_graph]` table selects an actor alias and an archive
+HKX path for the comparison host. It loads the graph, referenced behaviors,
+readable clips and the actor skeleton through the existing BSA/HKX readers.
+An absent clip fails if activated. Relative shared-clip paths resolve parent
+components within the archive. The host forwards ordered script events,
+reads changed script variables and publishes graph variables to the same
+world reference maps read by Papyrus. Graph reports are delivered to listeners
+without reinjection as script requests. This replay selects the unmodified
+`1hm_behavior.hkx` graph as its root. It does not reproduce the surrounding
+master graph, character control inputs or physical contacts from Skyrim.
+The capture comparison includes ready, pending and reset samples to expose
+state or timing disagreement. It does not infer success from event issuance.
+
+Sources are the local CK `GetAnimationVariableInt`, `SetAnimationVariableInt`,
+`DrawWeapon` and `Game_Script` pages, the serde-hkx state-machine/transition
+class descriptions and the Havok state-machine declaration already linked in
+[hkx.md](hkx.md). No executable disassembly or Havok implementation was used.
+The probe adds the existing `soe-hkx` and `soe-bsa` workspace dependencies,
+with no new external runtime dependency. `hkx/tests/anm_54.rs` covers provisional
+ties, state-ID output and an installed replay of the checked predictions.
+Its `SOE_PROBE_CAPTURE` case reads `Papyrus.0.log` from the named directory and
+compares it against the installed HKX replay. It skips without capture data.
+ANM-54 remains partial until the user's original-runtime capture is compared.

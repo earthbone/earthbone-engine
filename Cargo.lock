@@ -2346,7 +2346,9 @@ dependencies = [
 name = "soe-hkx"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "soe-bsa",
+ "soe-probe",
 ]
 
 [[package]]
@@ -2410,8 +2412,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "soe-bsa",
  "soe-esm",
  "soe-game",
+ "soe-hkx",
  "soe-papyrus",
  "tempfile",
  "thiserror 2.0.20",

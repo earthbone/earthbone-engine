@@ -16,7 +16,7 @@ use soe_papyrus::{
     pex::{Function, Instruction, Opcode, Operand, Script},
 };
 
-use crate::{Error, Probe, Step};
+use crate::{Error, FormKind, Probe, Step};
 
 pub(crate) const SCRIPT: &str = "SoeProbeRunner";
 pub(crate) const QUEST_ID: u32 = 0x05000800;
@@ -256,6 +256,65 @@ fn step_function(step: &Step, index: usize) -> Function {
             "discard",
             vec![ident(&format!("f_{actor}")), s(event)],
         ),
+        Step::AnimationBatch {
+            actor,
+            events,
+            ints,
+            ..
+        } => {
+            for (variable, value) in ints {
+                method(
+                    &mut fun,
+                    &format!("f_{actor}"),
+                    "SetAnimationVariableInt",
+                    "discard",
+                    vec![s(variable), i(*value)],
+                );
+            }
+            for event in events {
+                global(
+                    &mut fun,
+                    "Debug",
+                    "SendAnimationEvent",
+                    "discard",
+                    vec![ident(&format!("f_{actor}")), s(event)],
+                );
+            }
+        }
+        Step::AnimationInt {
+            actor, variable, ..
+        } => {
+            method(
+                &mut fun,
+                &format!("f_{actor}"),
+                "GetAnimationVariableInt",
+                "integer",
+                vec![s(variable)],
+            );
+            result_number(&mut fun, "value", "integer");
+        }
+        Step::SetAnimationInt {
+            actor,
+            variable,
+            value,
+            ..
+        } => {
+            method(
+                &mut fun,
+                &format!("f_{actor}"),
+                "SetAnimationVariableInt",
+                "discard",
+                vec![s(variable), i(*value)],
+            );
+        }
+        Step::DrawWeapon { actor, .. } => method(
+            &mut fun,
+            &format!("f_{actor}"),
+            "DrawWeapon",
+            "discard",
+            vec![],
+        ),
+        Step::ThirdPerson { .. } => global(&mut fun, "Game", "ForceThirdPerson", "discard", vec![]),
         Step::WaitAnimation { actor, event, .. } => {
             method(
                 &mut fun,
@@ -349,6 +408,8 @@ pub fn script(probe: &Probe) -> Result<Script, Error> {
         builder = builder.variable(&var, form.kind.papyrus(), none());
         if name == "runner" {
             ins(&mut run, Opcode::Assign, vec![ident(&var), ident("self")]);
+        } else if form.kind == FormKind::Player {
+            global(&mut run, "Game", "GetPlayer", &var, vec![]);
         } else {
             global(
                 &mut run,

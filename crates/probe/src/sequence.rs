@@ -22,7 +22,17 @@ pub struct Probe {
     pub forms: BTreeMap<String, Form>,
     #[serde(default)]
     pub menus: Vec<Menu>,
+    #[serde(default)]
+    pub animation_graph: Option<AnimationGraph>,
     pub steps: Vec<Step>,
+}
+
+/// An installed graph used by the headless animation host during comparison.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnimationGraph {
+    pub actor: String,
+    pub path: String,
 }
 
 /// Absolute tolerances, established in the authored file before execution.
@@ -51,6 +61,7 @@ pub struct Form {
 pub enum FormKind {
     Quest,
     Actor,
+    Player,
     ObjectReference,
     Spell,
     MagicEffect,
@@ -62,7 +73,7 @@ impl FormKind {
     pub(crate) fn papyrus(self) -> &'static str {
         match self {
             Self::Quest => "Quest",
-            Self::Actor => "Actor",
+            Self::Actor | Self::Player => "Actor",
             Self::ObjectReference => "ObjectReference",
             Self::Spell => "Spell",
             Self::MagicEffect => "MagicEffect",
@@ -115,6 +126,31 @@ pub enum Step {
         actor: String,
         event: String,
     },
+    AnimationBatch {
+        id: String,
+        actor: String,
+        events: Vec<String>,
+        #[serde(default)]
+        ints: BTreeMap<String, i32>,
+    },
+    AnimationInt {
+        id: String,
+        actor: String,
+        variable: String,
+    },
+    SetAnimationInt {
+        id: String,
+        actor: String,
+        variable: String,
+        value: i32,
+    },
+    DrawWeapon {
+        id: String,
+        actor: String,
+    },
+    ThirdPerson {
+        id: String,
+    },
     WaitAnimation {
         id: String,
         actor: String,
@@ -156,6 +192,11 @@ impl Step {
             | Self::WaitMenu { id, .. }
             | Self::WaitGame { id, .. }
             | Self::Animation { id, .. }
+            | Self::AnimationBatch { id, .. }
+            | Self::AnimationInt { id, .. }
+            | Self::SetAnimationInt { id, .. }
+            | Self::DrawWeapon { id, .. }
+            | Self::ThirdPerson { id }
             | Self::WaitAnimation { id, .. }
             | Self::Cast { id, .. }
             | Self::ActorValue { id, .. }
@@ -315,18 +356,38 @@ impl Probe {
             {
                 return Err(invalid("form name, plugin or local object ID"));
             }
+            if form.kind == FormKind::Player && (form.plugin != "Skyrim.esm" || form.object != 0x14)
+            {
+                return Err(invalid("player must name Skyrim.esm object 0x14"));
+            }
         }
         let check = |name: &str, kinds: &[FormKind]| -> Result<(), Error> {
-            if forms
-                .get(name)
-                .is_some_and(|form| kinds.is_empty() || kinds.contains(&form.kind))
-            {
+            if forms.get(name).is_some_and(|form| {
+                kinds.is_empty()
+                    || kinds.contains(&form.kind)
+                    || (form.kind == FormKind::Player && kinds.contains(&FormKind::Actor))
+            }) {
                 Ok(())
             } else {
                 Err(Error::Invalid(format!("unknown or mistyped form {name}")))
             }
         };
         let reference = [FormKind::Actor, FormKind::ObjectReference];
+        if let Some(graph) = &self.animation_graph {
+            check(&graph.actor, &reference)?;
+            if !graph.path.starts_with("meshes/actors/")
+                || !std::path::Path::new(&graph.path)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("hkx"))
+                || graph.path.contains(['\\', ':'])
+                || graph
+                    .path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == ".." || part == ".")
+            {
+                return Err(invalid("animation graph must name an archive HKX path"));
+            }
+        }
         let mut ids = BTreeSet::new();
         for step in &self.steps {
             if !token(step.id()) || !ids.insert(step.id()) {
@@ -354,6 +415,34 @@ impl Probe {
                         return Err(invalid("animation event"));
                     }
                 }
+                Step::AnimationBatch {
+                    actor,
+                    events,
+                    ints,
+                    ..
+                } => {
+                    check(actor, &reference)?;
+                    if events.is_empty()
+                        || events.len() > 16
+                        || events.iter().any(|event| !token(event))
+                    {
+                        return Err(invalid("animation batch needs 1 to 16 event tokens"));
+                    }
+                    if ints.len() > 8 || ints.keys().any(|name| !token(name)) {
+                        return Err(invalid("animation batch variable names or count"));
+                    }
+                }
+                Step::AnimationInt {
+                    actor, variable, ..
+                }
+                | Step::SetAnimationInt {
+                    actor, variable, ..
+                } => {
+                    check(actor, &reference)?;
+                    if !token(variable) {
+                        return Err(invalid("animation variable"));
+                    }
+                }
                 Step::Cast {
                     spell,
                     source,
@@ -374,6 +463,7 @@ impl Probe {
                     check(actor, &[FormKind::Actor])?;
                     check(effect, &[FormKind::MagicEffect])?;
                 }
+                Step::DrawWeapon { actor, .. } => check(actor, &[FormKind::Actor])?,
                 Step::FormProperty { form, property, .. } => {
                     check(form, &[])?;
                     if !["type", "form_id", "global_value"].contains(&property.as_str()) {
@@ -383,7 +473,7 @@ impl Probe {
                         check(form, &[FormKind::GlobalVariable])?;
                     }
                 }
-                Step::Save { .. } => {}
+                Step::Save { .. } | Step::ThirdPerson { .. } => {}
             }
         }
         let mut last = -1.0;

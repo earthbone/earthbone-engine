@@ -1518,3 +1518,26 @@ updates do not repeat either lifecycle edge. Synthetic `anm_33` tests cover
 the decoded children, activation, stable repeated updates and deactivation.
 The available class metadata defines layout and fields, but does not establish
 more detailed behavior from an original-runtime capture.
+
+### Transition tie probe preparation, ANM-54
+
+A state-machine binding to `currentStateId` now publishes the entered state
+ID after each graph update, including while its transition effect plays.
+The source is serde-hkx's `hkbStateMachine` declaration and the Havok
+state-machine declaration linked above. The `anm_54` tests cover this readback,
+local-before-wildcard candidate ties, equal-priority active interruption,
+authored-first same-event delayed candidates and last-request replacement in
+both delayed event orders. Those tie rules remain provisional.
+
+The installed test executes `probe/probes/anm_54.toml` through the probe's
+Papyrus runner and an unmodified vanilla `1hm_behavior.hkx` root with its
+readable clips and skeleton. The checked predictions observe `i1HMState`
+values 10 for the local/wildcard tie and 8 for equal-priority interruption.
+Both delayed cases remain in state 1 while pending. Releasing the window
+selects state 10 when `attackStart` was last and state 0 when `blockStop`
+was last. The test checks resets to state 0 between cases. The capture test
+compares these cases to `SOE_PROBE_CAPTURE/Papyrus.0.log` when both
+`SOE_PROBE_CAPTURE` and `SKYRIM_DATA` are set. Without either variable it
+skips. The probe does not import Skyrim's master-graph state, character
+inputs or contacts. No original-runtime capture has established these rules.
+See [probe.md](probe.md#transition-tie-capture-anm-54) for capture instructions.
