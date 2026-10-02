@@ -4169,8 +4169,12 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "ActiveMagicEffect",
         "AddInventoryEventFilter",
         |world, call, me| {
-            if let Some(filter) = world.form_arg(&call.arg(0)) {
-                world.add_inventory_event_filter(me, filter);
+            match world.form_arg(&call.arg(0)) {
+                Some(filter) => world.add_inventory_event_filter(me, filter),
+                None => call.log.push(
+                    call.time,
+                    "ActiveMagicEffect.AddInventoryEventFilter: filter must be a non-None Form",
+                ),
             }
             none()
         }

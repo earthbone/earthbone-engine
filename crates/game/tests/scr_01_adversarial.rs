@@ -54,6 +54,29 @@ fn invoke(game: &mut Game, listener: ObjectId, method: &str, filter: Option<Glob
 }
 
 #[test]
+fn scr_01_add_inventory_event_filter_none_logs_error_without_changing_filters() {
+    let filter = id(1);
+    let mut game = fixture();
+    game.load_script(&filter_probe()).unwrap();
+    let listener = game.vm.create_object("listener");
+    game.vm.attach(listener, "Scr01FilterProbe").unwrap();
+
+    invoke(&mut game, listener, "Add", Some(filter));
+    assert_eq!(game.world().inventory_filters[&listener], vec![filter]);
+    assert!(!game
+        .vm
+        .log
+        .contains("AddInventoryEventFilter: filter must be"));
+
+    invoke(&mut game, listener, "Add", None);
+    assert_eq!(game.world().inventory_filters[&listener], vec![filter]);
+    assert!(game
+        .vm
+        .log
+        .contains("ActiveMagicEffect.AddInventoryEventFilter: filter must be a non-None Form"));
+}
+
+#[test]
 fn scr_01_filter_remove_and_save_load_preserve_listener_scoping() {
     let first = id(1);
     let second = id(2);
