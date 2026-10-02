@@ -3484,15 +3484,19 @@ batch.
 resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
 deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
 with a resolved VTYP. `GetIsObjectType` compares the subject base record's
-CommonLib form-type code. First-person camera state, shared combat-group counts
-and the grabbed reference are unavailable runtime contexts, so functions 391,
-415, 416 and 463 return explicit condition errors. They do not silently match
-either boolean result. Local xEdit `wbDefinitionsTES5.pas` and UESP
+CommonLib form-type code. `IsPC1stPerson` reads the host POV state, while
+`IsPlayerGrabbedRef` compares its resolved REFR parameter with the grabbed
+reference. Group member and target counts walk live actor combat-target links:
+actors are grouped when they target the same combatant or target another member.
+An actor without a combat target has zero group counts. These transient values
+are not saved. Local xEdit `wbDefinitionsTES5.pas` and UESP
 `Raw_Function_Data.wikitext` supply the function indices and parameter types.
 Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
-VTYP and form-type links. The CK corpus does not document the four unavailable
-runtime states, and CMB-17 currently stores actor combat targets without a
-shared combat-group identity.
+VTYP and form-type links. The CK corpus has no individual condition pages for
+these functions. UESP describes 391 as the active player POV query. CK's
+`OnGrab_-_ObjectReference.wikitext` describes the player-grab event, but not
+the condition result. The runtime reads its POV and grab state and derives
+group counts from shared combat-target state.
 
 AI-44 implements crime CTDA functions 193, 375, 376 and 402. `GetPCExpelled`
 reads the referenced faction's player-expelled flag. The crime-gold functions

@@ -152,22 +152,3 @@ fn ai_75_functions_reject_wrong_forms_and_invalid_parameters() {
         Err(conditions::Error::Form(_))
     ));
 }
-
-#[test]
-fn ai_75_camera_group_and_grab_queries_report_missing_context() {
-    let game = fixture();
-    for function in [391, 415, 416, 463] {
-        assert!(conditions::supports_function(function));
-        let parameter = if function == 463 { 0x910 } else { 0 };
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, parameter, 1.0)),
-            Err(conditions::Error::Context(function)),
-            "{function}"
-        );
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, parameter, 0.0)),
-            Err(conditions::Error::Context(function)),
-            "{function}"
-        );
-    }
-}
