@@ -988,8 +988,12 @@ mod sav_52_adversarial;
 mod sav_54_adversarial;
 #[path = "sav_54_breaker_adversarial.rs"]
 mod sav_54_breaker_adversarial;
+#[path = "sav_54_breaker_adversarial_2.rs"]
+mod sav_54_breaker_adversarial_2;
 #[path = "sav_54_breaker_adversarial_3.rs"]
 mod sav_54_breaker_adversarial_3;
+#[path = "sav_54_breaker_adversarial_4.rs"]
+mod sav_54_breaker_adversarial_4;
 #[path = "sav_56_adversarial.rs"]
 mod sav_56_adversarial;
 #[path = "sav_56_breaker_adversarial.rs"]
