@@ -7,6 +7,9 @@ use super::*;
 use soe_game::combat::Hand;
 use soe_game::world::DYNAMIC_FILE;
 
+#[path = "../shm_19_breaker_adversarial.rs"]
+mod shm_19_breaker_adversarial;
+
 const WEAPON: u32 = 0x700;
 const RIGHT_SLOT: u32 = 0x701;
 const LEFT_SLOT: u32 = 0x703;
