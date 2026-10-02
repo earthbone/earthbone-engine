@@ -213,3 +213,35 @@ Neither supplies the missing Stacked schema, and this audit establishes no
 prerequisite code dependency between the two decoders. SAV-13's package
 restoration still requires both. The zero-failure corpus acceptance criterion
 remains unchanged.
+
+## Stacked boundary correction, 2026-10-02
+
+This follow-up supersedes the earlier Stacked rejection reports above. The
+local source review reread UESP `Extra_data.wikitext` and `PACK.wikitext`,
+xEdit `wbDefinitionsTES5Saves.pas`, FallrimTools
+`ChangeFormExtraDataData.java`, and the alandtse CommonLib execution-state
+interface, custom actor package data and RTTI declarations. They define the
+outer tag and tree identities, but provide no reusable saved-state reader.
+The RTTI table gives Sequence and Stacked the same one-child base. It does
+not establish serialized field widths.
+
+The nine external Stacked entries share the existing Sandbox child framing.
+Their empty nested procedure has a zero path-request token and an eight-byte
+suffix. The existing Sandbox reader used the populated request's nine-byte
+suffix for both cases, consuming the first byte of the branch index. The
+Stacked frame then carries a four-byte child index, as Sequence does. Each
+observed index is eight. All nine package frames occupy exactly 170 bytes,
+including the outer tag, with no search for a following extra or terminator.
+These widths are corpus observations, not a public serialization schema.
+Unidentified fixed-width child fields retain their bytes and runtime meaning
+remains outside this decoder.
+
+The corpus regression decodes each frame alone and places it before a new
+AshPileRef, inventory entry and actor suffix. Exact re-encoding and explicit
+boundary checks therefore do not depend on the original surrounding bytes.
+Synthetic Sequence and Stacked fixtures exercise absent requests, child-index
+preservation, embedded terminator bytes and every truncated prefix. Unknown
+children, malformed names and nesting beyond the existing limit remain errors.
+The strict 60-save reference-content survey now re-encodes all 1,154,736
+sections without errors. The version-1 manifest stays a historical ledger,
+while its test accounts for both decoded named variants.

@@ -44,7 +44,7 @@ fn classify(error: Error, payload: &[u8]) -> (&'static str, usize) {
 }
 
 #[test]
-fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stacked() {
+fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_stacked() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping package manifest corpus");
         return;
@@ -79,14 +79,23 @@ fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stac
                         contents.data_bytes().unwrap(),
                         payload[contents.start..contents.end]
                     );
-                    let is_sequence = contents.extra.as_ref().is_some_and(|extras| {
-                        extras.entries.iter().any(|extra| {
-                            extra.kind == 108 && extra.fields.iter().any(|field| {
-                                matches!(field, Field::String(name) if name.bytes() == b"Sequence")
+                    let variant = contents.extra.as_ref().and_then(|extras| {
+                        extras.entries.iter().find_map(|extra| {
+                            if extra.kind != 108 {
+                                return None;
+                            }
+                            extra.fields.iter().find_map(|field| match field {
+                                Field::String(name) if name.bytes() == b"Sequence" => {
+                                    Some("PD18-SEQUENCE")
+                                }
+                                Field::String(name) if name.bytes() == b"Stacked" => {
+                                    Some("PD18-STACKED")
+                                }
+                                _ => None,
                             })
                         })
                     });
-                    if is_sequence {
+                    if let Some(variant) = variant {
                         let occurrence = MANIFEST
                             .lines()
                             .find(|row| {
@@ -95,17 +104,22 @@ fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stac
                                     && columns[0] == "occurrence"
                                     && columns[1] == name
                                     && columns[2] == format!("{:06x}", form.form.raw())
-                                    && columns[7] == "PD18-SEQUENCE"
+                                    && columns[7] == variant
                             })
                             .unwrap();
                         let offset = occurrence.split('\t').nth(5).unwrap();
                         let at: usize = offset.parse().unwrap();
-                        assert_eq!(&payload[at..at + 13], b"\x6c\x12\0\x08\0Sequence");
+                        if variant == "PD18-SEQUENCE" {
+                            assert_eq!(&payload[at..at + 13], b"\x6c\x12\0\x08\0Sequence");
+                            sequence += 1;
+                        } else {
+                            assert_eq!(&payload[at..at + 12], b"\x6c\x12\0\x07\0Stacked");
+                            stacked += 1;
+                        }
                         rows.push(format!(
-                            "occurrence\t{name}\t{:06x}\t{:08x}\t{:08x}\t{offset}\t{}\tPD18-SEQUENCE\tOPAQUE-CONTINUATION",
+                            "occurrence\t{name}\t{:06x}\t{:08x}\t{:08x}\t{offset}\t{}\t{variant}\tOPAQUE-CONTINUATION",
                             form.form.raw(), save.resolve(form.form).unwrap(), form.change_flags, payload.len(),
                         ));
-                        sequence += 1;
                         file_failures += 1;
                     } else {
                         decoded += 1;
@@ -143,7 +157,7 @@ fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stac
         eprintln!("PACKAGE-MANIFEST-BEGIN\n{actual}PACKAGE-MANIFEST-END");
     }
     assert_eq!(actual, MANIFEST, "versioned package coverage changed");
-    eprintln!("SAV-22 baseline accounted: 60 saves, {references} reference sections, {} current exact reencodings, {sequence} decoded Sequence and {stacked} unsupported Stacked entries", decoded + sequence);
+    eprintln!("SAV-22 baseline accounted: 60 saves, {references} reference sections, {} current exact reencodings, {sequence} decoded Sequence and {stacked} decoded Stacked entries", decoded + sequence + stacked);
 }
 
 #[test]

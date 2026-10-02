@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Observed kind-18 Sequence frames from the external 60-save corpus.
+//! Observed kind-18 Sequence and Stacked frames from the external 60-save corpus.
 //! PACK tree names follow xEdit and UESP PACK. Unnamed child fields remain raw.
-//! Public save readers do not define these bodies. See docs/save.md, SAV-12.
+//! Public save readers do not define these bodies. See docs/save-package-data.md.
 
 use super::fields::{array, fields, invalid, Field};
 use crate::cursor::Cursor;
@@ -140,9 +140,10 @@ fn sandbox(r: &mut Cursor<'_>) -> Result<Vec<Field>> {
     v.push(Field::String(child));
     if empty {
         v.push(raw(r, 5)?);
-        let (request, _) = path(r)?;
+        let (request, kind) = path(r)?;
         v.push(Field::Group(request));
-        v.push(raw(r, 9)?);
+        // CONTEXT: An absent request has no populated-request suffix byte.
+        v.push(raw(r, if kind == 0 { 8 } else { 9 })?);
     } else {
         v.push(Field::Group(wander(r)?));
         v.push(raw(r, 17)?);
@@ -171,6 +172,7 @@ pub(super) fn child(r: &mut Cursor<'_>, depth: usize) -> Result<Vec<Field>> {
             Ok(v)
         })?)],
         b"Sequence" => sequence(r, depth + 1)?,
+        b"Stacked" => stacked(r, depth + 1)?,
         b"SitSleep" => vec![raw(r, 3)?],
         b"Wait" => vec![raw(r, 4)?],
         _ => return Err(invalid(format!("unsupported Sequence child {name:?}"))),
@@ -182,4 +184,8 @@ pub(super) fn sequence(r: &mut Cursor<'_>, depth: usize) -> Result<Vec<Field>> {
     let mut v = vec![Field::Group(child(r, depth)?)];
     v.extend(fields(r, "w")?);
     Ok(v)
+}
+
+pub(super) fn stacked(r: &mut Cursor<'_>, depth: usize) -> Result<Vec<Field>> {
+    sequence(r, depth).map_err(|error| invalid(format!("Stacked state: {error}")))
 }

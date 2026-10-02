@@ -776,10 +776,13 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
-The nine observed kind-18 `Stacked` payloads remain rejected. The local public
-save readers name the variant but do not define its fields or termination, so
-the decoder does not guess where following extra data begins. The SAV-21
-regression test keeps this unsupported case explicit.
+The nine observed kind-18 `Stacked` payloads now decode as one named child
+followed by a four-byte child index. The Sandbox child with no path request
+has an eight-byte suffix, compared with nine bytes for a populated request.
+All nine 170-byte frames re-encode exactly in isolation and before replacement
+extras and inventory. The strict 60-save contents survey now passes with zero
+decoder errors. See [the Stacked follow-up](save-package-data.md#stacked-boundary-correction-2026-10-02)
+for the observed layout and source limits.
 
 ## Reference mask semantics, SAV-15
 
