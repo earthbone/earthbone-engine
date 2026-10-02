@@ -18,6 +18,10 @@ path = "tests/it.rs"
 name = "hst_15_breaker_adversarial"
 path = "tests/hst_15_breaker_adversarial.rs"
 
+[[test]]
+name = "hst_13_breaker_adversarial"
+path = "tests/hst_13_breaker_adversarial.rs"
+
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
 
