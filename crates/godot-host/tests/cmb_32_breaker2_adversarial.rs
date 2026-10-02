@@ -12,13 +12,16 @@ fn id(object: u32) -> GlobalFormId {
 #[test]
 fn off_by_default_placed_light_does_not_add_light_until_enabled() {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+    let mut cell_light = vec![0_u8; 92];
+    cell_light[..3].copy_from_slice(&[60, 60, 60]);
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
 
     let mut data = Vec::new();
     data.extend_from_slice(&(-1_i32).to_le_bytes());
     data.extend_from_slice(&100_u32.to_le_bytes());
     data.extend_from_slice(&[255, 255, 255, 0]);
     data.extend_from_slice(&(1_u32 << 5).to_le_bytes());
+    data.resize(48, 0);
     plugin.push_top(Record::new(Tag(*b"LIGH"), 2).sub(b"DATA", data));
 
     let mut reference = Record::new(Tag(*b"REFR"), 3)

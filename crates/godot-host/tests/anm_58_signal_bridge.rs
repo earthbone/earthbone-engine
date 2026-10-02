@@ -20,15 +20,23 @@ fn anm_58_godot_animation_signal_reaches_game_world() {
     };
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.join("../..");
-    let target = configured_path("CARGO_TARGET_DIR").unwrap_or_else(|| workspace.join("target"));
-    let extension = target.join("release/libsoe_godot_host.so");
-    if !extension.exists() {
-        eprintln!("skipping: build the release GDExtension before running this test");
-        return;
-    }
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
 
     let output = Command::new(godot)
         .args([
+            "--headless",
             "--path",
             workspace
                 .join("godot")
@@ -37,7 +45,6 @@ fn anm_58_godot_animation_signal_reaches_game_world() {
             "--script",
         ])
         .arg(workspace.join("godot/anm_58_signal_test.gd"))
-        .args(["--resolution", "640x360"])
         .env("SKYRIM_DATA", data)
         .output()
         .expect("Godot process starts");

@@ -18,6 +18,10 @@ value, sight, motion and queued detection sounds to
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
+`PlayerNode::detection_light_references` returns enabled placed LIGH FormIDs and
+their Godot positions in the active cell for the live observation check. The
+check toggles those references through the shared World and samples the same
+actor pair to verify a placed light changes detection.
 
 The estimate does not yet select a live WTHR from climate or apply WTHR
 ambient, sunlight and image-space sunlight scale. The current sound path
@@ -25,11 +29,20 @@ covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
 
+The light reader requires the full 92-byte CELL/XCLL structure and 48-byte
+LIGH/DATA structure before using those fields. Inherited LGTM/DATA reads its
+ambient prefix from the 24-byte layout recorded in TES5Edit, including the
+legacy 24-byte template noted in `wbDefinitionsTES5.pas`. The layouts come
+from `uesp-modfileformat/CELL.wikitext`,
+`uesp-modfileformat/LIGH.wikitext`, and `TES5Edit/Core/wbDefinitionsTES5.pas`
+in the local `engine-refs` corpus.
+
 `godot/cmb_32_live_detection_test.gd` samples live resident actors in the
-Bannered Mare, adds a PhysicsServer box between the nearest pair, and checks
-that the shared detection value drops. It then emits an actor-owned sound and
-checks the value rises. The same pair's awareness is checked after an unlocked
-door changes cells. The test reports actor and ordered-pair counts, elapsed
+Bannered Mare, toggles enabled placed lights until one changes the shared
+detection value, adds a PhysicsServer box between the nearest pair and checks
+that sight lowers the value. It then emits an actor-owned sound and checks the
+value rises. The same pair's awareness is checked after an unlocked door
+changes cells. The test reports actor and ordered-pair counts, elapsed
 time for 40 sync and detection samples, time per pair sample, and scene-node
 count before and after. Actor body sync and those samples add zero scene nodes.
 Run it with installed data and the host extension loaded:
@@ -47,6 +60,11 @@ sample. The active scene had a node delta of zero through sampling and the
 door transition. This times the shared host path in that loaded scene. It
 does not estimate the memory or frame cost of a hypothetical node-per-actor
 design.
+The same check passed on Godot 4.4.1 with installed data: 7 actors and 42
+ordered pairs, visible detection 40.985, blocked detection -12.832, and heard
+detection 38.581. Forty samples took 21,529 microseconds, or 12.815
+microseconds per pair sample. Awareness for the same FormIDs remained present
+after the door changed cells, and scene-node count stayed unchanged.
 Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID.
 The CMB-32 query maps that RID to the actor FormID or treats it as an
 obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
