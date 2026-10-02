@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 const LAYER: &str = include_str!("../src/godot_layer.rs");
 const SCENE_CHECK: &str = include_str!("../../../godot/edt_03_cell_scene_test.gd");
