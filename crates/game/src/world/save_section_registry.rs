@@ -32,12 +32,13 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
-    Section { name: "SAV-58", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
-    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-58", write: write_empty_section, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
+    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
+    Section { name: "TST-01", write: write_rng_streams, read: read_rng_streams },
     super::magic::REANIMATE_SECTION,
     Section { name: "DLG-09", write: write_scene_runtime, read: read_scene_runtime },
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
@@ -778,6 +779,27 @@ fn read_saved_form_flags(
             .ok_or_else(|| soe_papyrus::VmError::State("SAV-46 missing record override".into()))?;
         value.saved_form_flags = Some((flags, unknown));
         value.record.flags = flags;
+    }
+    Ok(())
+}
+
+fn write_rng_streams(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    for state in world.rng_streams {
+        writer.u64(state);
+    }
+}
+
+fn read_rng_streams(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    for state in &mut world.rng_streams {
+        *state = reader.u64()?;
     }
     Ok(())
 }

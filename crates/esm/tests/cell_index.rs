@@ -342,3 +342,41 @@ fn concurrent_readers_share_one_cached_cell_index() {
     let pointers: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
     assert!(pointers.iter().all(|p| *p == pointers[0]));
 }
+
+#[test]
+fn tst_03_cell_index_counts_deletions_and_prefers_the_lowest_tied_cell_id() {
+    let order = order_of(&[("Master.esm", master()), ("Patch.esp", patch())]);
+    let index = order.build_cell_index();
+    assert_eq!(index.deleted_count(), 1);
+    assert_eq!(index.world_count(), 1);
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(tag::CELL, 0x600)
+            .zsub(tag::EDID, "InteriorBeatsExterior")
+            .sub(b"DATA", [0u8, 0]),
+    );
+    plugin.push_top(
+        Record::new(tag::CELL, 0x601)
+            .zsub(tag::EDID, "InteriorBeatsExterior")
+            .sub(b"DATA", [1u8, 0]),
+    );
+    for form_id in [0x700, 0x701] {
+        plugin.push_top(
+            Record::new(tag::CELL, form_id)
+                .zsub(tag::EDID, "DuplicateInterior")
+                .sub(b"DATA", [1u8, 0]),
+        );
+    }
+    let tied = order_of(&[("Tied.esm", plugin)]);
+    assert_eq!(
+        tied.build_cell_index()
+            .cell_by_editor_id("DuplicateInterior"),
+        Some(id(0x700))
+    );
+    assert_eq!(
+        tied.build_cell_index()
+            .cell_by_editor_id("InteriorBeatsExterior"),
+        Some(id(0x601))
+    );
+}

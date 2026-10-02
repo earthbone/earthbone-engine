@@ -115,6 +115,7 @@ pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceR
 pub use refs::RefPlacement;
 mod leveled_items;
 mod rng;
+pub use rng::RngStream;
 pub(crate) mod save;
 mod save_section_registry;
 mod save_sections;
@@ -784,6 +785,7 @@ pub struct World {
     pub(crate) training_session_level: u32,
     pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
+    rng_streams: [u64; rng::STREAM_COUNT],
     pub clock: GameClock,
     pub(crate) menu_mode: bool,
     pub(crate) frame_rate: performance::FrameRateState,
@@ -1052,6 +1054,14 @@ impl World {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
 
+    /// Construct a world with reproducible, seed-derived random streams.
+    pub fn new_with_seed(order: LoadOrder, seed: u64) -> World {
+        let mut world = Self::new(order);
+        world.rng = if seed == 0 { 1 } else { seed };
+        world.rng_streams = rng::derive_streams(seed);
+        world
+    }
+
     /// Use the immutable form table already opened by the host.
     pub fn from_shared_order(order: Arc<LoadOrder>) -> World {
         let mut editor_ids = HashMap::new();
@@ -1114,6 +1124,7 @@ impl World {
             training_session_level: 1,
             pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
+            rng_streams: rng::derive_streams(0x9E37_79B9_7F4A_7C15),
             clock: GameClock::default(),
             menu_mode: false,
             frame_rate: performance::FrameRateState::default(),

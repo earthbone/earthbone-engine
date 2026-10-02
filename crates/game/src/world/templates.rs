@@ -172,14 +172,15 @@ impl World {
         }
         if entries.is_empty()
             || chance == 100.0
-            || (chance > 0.0 && self.random_int(0, 99) < chance as i32)
+            || (chance > 0.0
+                && self.random_int_for(super::RngStream::ActorTemplates, 0, 99) < chance as i32)
         {
             return Ok(None);
         }
         let index = if entries.len() == 1 {
             0
         } else {
-            (self.random_u64() % entries.len() as u64) as usize
+            (self.random_u64_for(super::RngStream::ActorTemplates) % entries.len() as u64) as usize
         };
         Ok(Some(entries[index].form))
     }

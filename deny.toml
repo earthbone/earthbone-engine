@@ -1,0 +1,35 @@
+[graph]
+all-features = true
+
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 is a transitive dependency of image-dds and has no safe upgrade available" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is a transitive dev dependency of iai-callgrind and has no safe upgrade available" },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 2.0.1 is a transitive dev dependency of iai-callgrind and has no safe upgrade available" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-3.0-or-later",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

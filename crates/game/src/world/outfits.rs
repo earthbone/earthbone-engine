@@ -18,10 +18,10 @@ impl World {
         base: GlobalFormId,
         inventory: &Inventory,
     ) -> Result<Inventory, Error> {
-        let previous_rng = self.rng;
+        let previous_rng = self.rng_streams;
         let result = self.prepare_default_outfit(reference, base, inventory);
         if result.is_err() {
-            self.rng = previous_rng;
+            self.rng_streams = previous_rng;
         }
         result
     }

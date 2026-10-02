@@ -25,7 +25,7 @@ use soe_esm::{
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
-use soe_game::HostRequest;
+use soe_game::{world::RngStream, HostRequest};
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -2583,6 +2583,8 @@ fn add_item_expands_mixed_form_list_with_leveled_metadata() {
     let mut g = game();
     let guard = obj(&mut g, "GuardRef");
     let list = obj(&mut g, "NestedLeveledAddList");
+    let loot = g.form("LootList").unwrap();
+    g.world_mut().leveled_list(loot).unwrap().chance_none = 0;
     let guard_id = g.form("GuardRef").unwrap();
     let gold = g.form("Gold001").unwrap();
     let sword = g.form("IronSword").unwrap();
@@ -2619,7 +2621,7 @@ fn add_item_preflights_mixed_base_leveled_and_reference_atomically() {
     world.add_item(guard, sword, i32::MAX - 1);
     world.leveled_list(loot_list).unwrap();
     let saved = world.save_state();
-    let expected_rng = world.random_u64();
+    let expected_rng = world.random_u64_for(RngStream::LeveledItems);
     world.load_state(&saved).unwrap();
     let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
     assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
@@ -2627,7 +2629,7 @@ fn add_item_preflights_mixed_base_leveled_and_reference_atomically() {
     assert_eq!(world.item_count(guard, sword), i32::MAX - 1);
     assert!(world.reference_ref(loose).unwrap().item.is_some());
     assert!(world.pending.is_empty());
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 /// A later overflowing member rejects the complete list before the preceding

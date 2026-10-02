@@ -128,7 +128,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// World sections include AI-80 faction attack history, MAG-64 pending
 /// reference bindings, CRF-03 learned enchantment effects and MAG-33 command
 /// owners. AI-64 actor sections retain swimming, running and mounted flags.
-/// AI-15 retains stacked package tree frames. AI-21 retains the driver record.
+/// AI-15 retains stacked package tree frames. The TST-01 world section retains each
+/// subsystem's independent random stream. AI-21 retains the driver record.
 /// World sections also include SAV-53 base-object fields, SAV-42 static-object
 /// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
 /// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
@@ -139,10 +140,6 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// actor's reserved furniture marker, and AI-36 retains the UseWeapon
 /// package procedure. Reference sections retain persistence, world record
 /// flags and the current destruction stage through CMB-37.
-/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
-/// records and native game-save dependency provenance. Actor sections retain
-/// expression overrides, furniture markers, procedure state, voice recovery
-/// deadlines and progression. The `DLG-14` actor section retains active
 /// ForceGreet package procedures. The `DLG-17` world and actor sections retain
 /// follower service ownership and favor permission. AI-88 retains each actor's
 /// reserved furniture marker, AI-36 retains the UseWeapon procedure, and AI-29
@@ -1187,8 +1184,23 @@ impl World {
         let previous_created_bases = std::mem::take(&mut self.created_base_records);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let previous_follower_services = std::mem::take(&mut self.follower_services);
+        // Streams come from the TST-01 section. A save without it derives
+        // them from the shared generator, as saves did before TST-01.
+        let mut rng_streams = super::rng::derive_streams(rng);
         let section_result = if version >= 37 {
-            save_sections::read_sections_with_table(&mut r, "world", self, WORLD_SECTIONS, &table)
+            let previous_rng_streams = std::mem::replace(&mut self.rng_streams, rng_streams);
+            let result = save_sections::read_sections_with_table(
+                &mut r,
+                "world",
+                self,
+                WORLD_SECTIONS,
+                &table,
+            );
+            let loaded_rng_streams = std::mem::replace(&mut self.rng_streams, previous_rng_streams);
+            if result.is_ok() {
+                rng_streams = loaded_rng_streams;
+            }
+            result
         } else {
             Ok(())
         };
@@ -1448,6 +1460,7 @@ impl World {
         self.loaded_3d_references.clear();
         self.attached_cells.clear();
         self.rng = rng;
+        self.rng_streams = rng_streams;
         self.clock = GameClock {
             real_seconds,
             game_days,

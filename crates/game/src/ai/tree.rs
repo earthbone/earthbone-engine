@@ -652,7 +652,8 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
                 }
                 tree.after(index, &mut state);
             } else {
-                let pick = (world.random_u64() % eligible.len() as u64) as usize;
+                let pick = (world.random_u64_for(crate::world::RngStream::BehaviorTree)
+                    % eligible.len() as u64) as usize;
                 let child = eligible[pick];
                 state.branch = child as u32;
                 // CONTEXT: RandomPercent conditions must not roll again on entry.

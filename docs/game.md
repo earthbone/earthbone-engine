@@ -155,13 +155,15 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   IDs or localized display strings. An empty corpus directory has no mod roots.
   Field selection follows xEdit's `TES5Edit/Core/wbDefinitionsTES5.pas`,
   which defines `EDID` as Editor ID, `FULL` as Name and model fields as
-  filenames. Wabbajack's local `README.md` says modlists do not bundle assets,
-  so the sweep reads installed files in place.
+  filenames. Wabbajack's local `README.md` says modlists are reproduced without
+  bundling assets, so the sweep reads installed files in place.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
-  WAV containers. Wabbajack's local README describes modlists as reproduced
-  without bundling assets, so the sweep reads the installed files in place.
-  Synthetic tests check each finding category and verify findings stay scoped
-  to their owning mod. The external sweep skips when `SOE_MOD_CORPUS` is unset.
+  WAV containers. Synthetic tests check each finding category and verify
+  findings stay scoped to their owning mod. The external sweep skips when
+  `SOE_MOD_CORPUS` is unset.
+- `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
+  trace lines as one expectation. Differential reports list every missing
+  expected trace and allow extra runtime output.
 - `wasm`: the Wasmtime component host. `wit/mod-api.wit` defines the versioned
   `soe:mod-api` interface with `subscribe-on-activate` and `set-stage` imports
   plus the initialization and activation exports.
@@ -2842,6 +2844,12 @@ including read-back validation, file and directory synchronization, a prior
 link during replacement and explicit error paths. Validation executes no
 callbacks and does not mutate the running game.
 
+The `tst_06_process_termination_at_every_boundary_preserves_a_readable_generation`
+test in `tests/atomic_save.rs` kills separate native and ESS writers at each
+fault-injection boundary. The destination and any retained prior link must
+remain readable as a complete generation. Run it with
+`cargo test -p soe-game --features save-fault-tests --test atomic_save`.
+
 `GenerationStore` adds [verified native generations](save-resilience.md#sav-63-verified-generations).
 `Game::write_generation` validates a new file before bounded rotation.
 `select_generation` reports damaged or incompatible candidates and returns the
@@ -3012,6 +3020,14 @@ because it describes that same set. `tests/determinism.rs` walks out and back
 twice from one seed and compares every tick, in one process and across two.
 The save carries the resident cell as well, so a loaded game knows what it is
 holding.
+
+`World::new_with_seed` derives independent xorshift streams for AI, behavior
+trees, dialogue, mod data, actor templates, leveled items and leveled spells.
+Those callers use `random_*_for`, so adding a draw in one system does not move
+another system's sequence. `random_*` remains the general Papyrus stream.
+SOEW version 37 stores the subsystem stream states, and `world.rng` hashes all
+of them. Older world saves derive the new streams from their saved general RNG
+state.
 
 `TickHash::with_host_builder_hash` adds or replaces a `host.builders` part
 and recomputes the total. A host caller can attach its per-tick builder result
