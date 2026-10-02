@@ -126,6 +126,13 @@ flag and two-byte padding layout. The Rust shim event carries the resolved runti
 the quest's failed state. `soe-game` emits it after successful start and stop transitions through
 the MIT event sink API.
 
+The SHM-15 `RuntimeStateCallbacks` table defines the C++ callback boundary for the supported
+`TES` world view. `RE::CallbackTES` converts those callbacks into C++ `Setting`, `Sky` and
+`ReanimateEffect` values. Unsupported sit or sleep animation state and binary hooks return named
+diagnostics. The game fixture calls the C++ adapter, and its callback requests are answered by
+the test host through a pipe using the live `World` on each request. The MIT shim remains free
+of game crate dependencies. This callback table is not a Skyrim executable ABI.
+
 The SHM-02 fixture models Papyrus Extender's startup shape cited from
 `engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
 exports, compiles as a shared library against the shim headers, and runs through
@@ -179,9 +186,9 @@ runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
 values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
 source-level API. The C++ save fixture also changes live payload state, loads
-the saved bytes, and verifies the payload is restored. The shim has no C ABI,
-so C++ declarations alone cannot call into the Rust engine from a compiled
-binary.
+the saved bytes, and verifies the payload is restored. C++ declarations alone
+do not call into the Rust engine; the SHM-15 callback table supplies the
+selected world view.
 
 ## SHM-07 world contracts
 
