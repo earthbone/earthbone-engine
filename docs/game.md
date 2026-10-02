@@ -571,7 +571,8 @@ implemented. It does not report success without starting an animation.
 `SetMotionType` validates the documented motion range and queues the motion
 request for the host. Motion type 7 maps to a kinematic host body.
 `ApplyHavokImpulse` rejects zero-length or non-finite direction data,
-normalizes finite directions without intermediate float overflow, and queues
+logging the Creation Kit Papyrus warning for a zero-length vector. It
+normalizes finite directions without intermediate float overflow and queues
 the magnitude and direction for the host. Placed-reference Havok behavior
 remains a stub. These contracts follow the local
 `GetCurrentScene_-_ObjectReference.wikitext`,

@@ -595,6 +595,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 || !length.is_finite()
                 || length == 0.0
             {
+                if length == 0.0 {
+                    call.log.push(
+                        call.time,
+                        "Warning: ApplyHavokImpulse called with a zero-length direction",
+                    );
+                }
                 return none();
             }
             for value in &mut direction {

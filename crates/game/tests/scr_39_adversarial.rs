@@ -50,7 +50,10 @@ fn start_call(
     name: &str,
     args: &[Value],
 ) -> soe_papyrus::vm::ThreadId {
-    let script_name = format!("Scr39AdversarialProbe{}", PROBE_ID.fetch_add(1, Ordering::Relaxed));
+    let script_name = format!(
+        "Scr39AdversarialProbe{}",
+        PROBE_ID.fetch_add(1, Ordering::Relaxed)
+    );
     let mut function = FunctionBuilder::new("Run", "Var")
         .global()
         .param("reference", "ObjectReference")
@@ -85,13 +88,34 @@ fn call(game: &mut Game, reference: GlobalFormId, name: &str, args: &[Value]) ->
 fn impulse_rejects_nonfinite_components_and_magnitude_without_partial_requests() {
     let mut game = game();
     for args in [
-        [Value::Float(f32::NAN), Value::Float(0.0), Value::Float(1.0), Value::Float(2.0)],
-        [Value::Float(0.0), Value::Float(f32::INFINITY), Value::Float(1.0), Value::Float(2.0)],
-        [Value::Float(0.0), Value::Float(0.0), Value::Float(1.0), Value::Float(f32::NAN)],
+        [
+            Value::Float(f32::NAN),
+            Value::Float(0.0),
+            Value::Float(1.0),
+            Value::Float(2.0),
+        ],
+        [
+            Value::Float(0.0),
+            Value::Float(f32::INFINITY),
+            Value::Float(1.0),
+            Value::Float(2.0),
+        ],
+        [
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(1.0),
+            Value::Float(f32::NAN),
+        ],
     ] {
-        assert_eq!(call(&mut game, id(REFERENCE), "ApplyHavokImpulse", &args), Some(Value::None));
+        assert_eq!(
+            call(&mut game, id(REFERENCE), "ApplyHavokImpulse", &args),
+            Some(Value::None)
+        );
     }
-    assert!(game.world_mut().take_reference_physics_requests().is_empty());
+    assert!(game
+        .world_mut()
+        .take_reference_physics_requests()
+        .is_empty());
 }
 
 #[test]
@@ -103,7 +127,12 @@ fn zero_magnitude_impulse_is_permitted_and_each_call_queues_once() {
                 &mut game,
                 id(REFERENCE),
                 "ApplyHavokImpulse",
-                &[Value::Float(0.0), Value::Float(0.0), Value::Float(1.0), Value::Float(0.0)],
+                &[
+                    Value::Float(0.0),
+                    Value::Float(0.0),
+                    Value::Float(1.0),
+                    Value::Float(0.0)
+                ],
             ),
             Some(Value::None)
         );
@@ -122,18 +151,30 @@ fn zero_magnitude_impulse_is_permitted_and_each_call_queues_once() {
 }
 
 #[test]
-fn impulse_on_reference_without_resident_three_d_has_no_physics_effect() {
+fn impulse_on_reference_without_resident_three_d_is_queued_for_host_filtering() {
     let mut game = game();
     assert_eq!(
         call(
             &mut game,
             id(REFERENCE),
             "ApplyHavokImpulse",
-            &[Value::Float(1.0), Value::Float(0.0), Value::Float(0.0), Value::Float(5.0)],
+            &[
+                Value::Float(1.0),
+                Value::Float(0.0),
+                Value::Float(0.0),
+                Value::Float(5.0)
+            ],
         ),
         Some(Value::None)
     );
-    assert!(game.world_mut().take_reference_physics_requests().is_empty());
+    assert_eq!(
+        game.world_mut().take_reference_physics_requests(),
+        vec![ReferencePhysicsRequest::Impulse {
+            reference: id(REFERENCE),
+            direction: [1.0, 0.0, 0.0],
+            magnitude: 5.0,
+        }]
+    );
 }
 
 #[test]

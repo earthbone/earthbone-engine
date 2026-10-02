@@ -33,23 +33,25 @@ fn zero_length_impulse_reports_the_documented_papyrus_warning() {
     let mut game = impulse_game();
     let script = ScriptBuilder::new("Scr39ImpulseWarningProbe", "Form")
         .function(
-            FunctionBuilder::new("Run", "None")
+            FunctionBuilder::new("Run", "Var")
                 .global()
                 .param("reference", "ObjectReference")
                 .param("zero", "Float")
                 .param("magnitude", "Float")
+                .local("result", "Var")
                 .ins(
                     CallMethod,
                     vec![
                         s("ApplyHavokImpulse"),
                         ident("reference"),
+                        ident("result"),
                         ident("zero"),
                         ident("zero"),
                         ident("zero"),
                         ident("magnitude"),
                     ],
                 )
-                .ins(Return, vec![])
+                .ins(Return, vec![ident("result")])
                 .build(),
         )
         .bytes();
@@ -68,7 +70,8 @@ fn zero_length_impulse_reports_the_documented_papyrus_warning() {
     assert_eq!(game.vm.thread_result(thread), Some(Value::None));
     assert!(
         game.vm.log.contains("zero-length"),
-        "CK documents a Papyrus warning for zero-length impulse vectors"
+        "CK documents a Papyrus warning for zero-length impulse vectors: {:?}",
+        game.vm.log.messages()
     );
     assert!(game
         .world_mut()
