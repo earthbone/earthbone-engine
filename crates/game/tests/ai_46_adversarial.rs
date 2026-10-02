@@ -152,6 +152,10 @@ fn ai_46_arrested_state_is_actor_local_and_tracks_clear_state() {
         evaluate(&game, id(0x900), &condition(656, 1.0, [0, 0])),
         Ok(false)
     );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(656, 0.0, [0, 0])),
+        Ok(true)
+    );
 }
 
 #[test]

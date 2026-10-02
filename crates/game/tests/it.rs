@@ -152,6 +152,8 @@ mod ai_45_adversarial;
 mod ai_45_crime_conditions;
 #[path = "ai_46_adversarial.rs"]
 mod ai_46_adversarial;
+#[path = "ai_46_breaker_adversarial.rs"]
+mod ai_46_breaker_adversarial;
 #[path = "ai_46_crime_conditions.rs"]
 mod ai_46_crime_conditions;
 #[path = "ai_47_adversarial.rs"]
