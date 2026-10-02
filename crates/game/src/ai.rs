@@ -15,7 +15,8 @@
 //! another package replaces it. `Follow` tracks a resolved target, stopping
 //! within its authored follow radius and running beyond its catch-up radius.
 //! `Orbit` circles a resolved package location at its authored height and
-//! stays between its inner and outer radii on the navmesh.
+//! stays between its inner and outer radii on the navmesh, checking both its
+//! arc and each direct movement segment at intervals no longer than 0.25 units.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
 //! `DialogueActivate` starts a conversation with its resolved actor target
@@ -2970,6 +2971,7 @@ fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f3
             return;
         };
         if graph.find_path_between(position, destination).is_none()
+            || !orbit_segment_on_navmesh(graph, position, destination)
             || !orbit_arc_valid(graph, center, radius, angle, next_angle, inner, outer)
         {
             continue;
@@ -3000,8 +3002,10 @@ fn orbit_arc_valid(
     inner: f32,
     outer: f32,
 ) -> bool {
-    (0..=8).all(|step| {
-        let t = step as f32 / 8.0;
+    let arc_length = radius * (end_angle - start_angle).abs();
+    let steps = orbit_sample_count(arc_length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
         let angle = start_angle + (end_angle - start_angle) * t;
         let point = [
             center[0] + radius * angle.cos(),
@@ -3011,6 +3015,23 @@ fn orbit_arc_valid(
         let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
         (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
     })
+}
+
+fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> bool {
+    let length = distance(from, to);
+    if !length.is_finite() {
+        return false;
+    }
+    let steps = orbit_sample_count(length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
+        let point = std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * t);
+        graph.locate(point).is_some()
+    })
+}
+
+fn orbit_sample_count(length: f32) -> usize {
+    (length / 0.25).ceil().max(1.0) as usize
 }
 
 // ----- save and load -----
@@ -3477,6 +3498,37 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_25_orbit_step_rejects_nav_gap_with_reachable_detour() {
+        let mut graph = NavGraph::new();
+        let mut vertices = Vec::new();
+        for y in 0..=3 {
+            for x in 0..=3 {
+                vertices.push([x as f32 * 100.0, y as f32 * 100.0, 0.0]);
+            }
+        }
+        let mut triangles = Vec::new();
+        for y in 0..3 {
+            for x in 0..3 {
+                if x == 1 && y == 1 {
+                    continue;
+                }
+                let bottom_left = y * 4 + x;
+                let bottom_right = bottom_left + 1;
+                let top_left = bottom_left + 4;
+                let top_right = top_left + 1;
+                triangles.push([bottom_left, bottom_right, top_right]);
+                triangles.push([bottom_left, top_right, top_left]);
+            }
+        }
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [50.0, 50.0, 0.0];
+        let to = [250.0, 250.0, 0.0];
+        assert!(graph.find_path_between(from, to).is_some());
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
 
     #[test]
     fn planned_cells_follow_portal_ownership_including_gap_departures() {

@@ -2435,12 +2435,16 @@ procedure contract page.
 
 `Orbit` resolves its `TargetLocation` input on every driver tick, then moves
 around that point at the authored `Height`. It keeps the actor between the
-authored `InnerRadius` and `OuterRadius`, and advances only when the arc
-stays inside both bounds and over a navmesh. Missing inputs, non-finite values,
-negative inner radii or an outer radius below the inner radius leave an
-unsupported procedure. The package input names and radius meanings follow the
-Creation Kit `Orbit (Procedure)` page. The `AI-21` actor section under SOEW
-version 37 saves the active Orbit height.
+authored `InnerRadius` and `OuterRadius`, and advances only when the sampled
+arc stays inside both bounds and over a navmesh. The arc and direct movement
+segment sample at intervals no longer than 0.25 world units, so a direct step
+cannot cut across an off-nav gap when a route exists around it.
+Missing inputs, non-finite values, negative inner radii or an outer radius
+below the inner radius leave an unsupported procedure. The local CK wiki dump
+has no Orbit procedure page. `CommonLibSSE-NG/include/RE/Offsets_RTTI.h`
+confirms the Orbit procedure and execution-state types but does not describe
+their behavior. The `AI-21` actor section under SOEW version 37 saves the
+active Orbit height.
 
 `Escort` resolves its assigned placed-reference target and the branch's
 authored location. The escorting actor routes to that location while keeping
