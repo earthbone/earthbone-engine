@@ -57,9 +57,8 @@ fn edt_11_selecting_a_result_populates_the_chain_for_that_form_id() {
     let select = dock.split("func _select_form() -> void:").nth(1).unwrap();
 
     assert!(select.contains("var item := results.get_selected()"));
-    assert!(select.contains(
-        "override_chain.show_chain(form_table.override_chain(item.get_metadata(0)))"
-    ));
+    assert!(select
+        .contains("override_chain.show_chain(form_table.override_chain(item.get_metadata(0)))"));
 }
 
 #[test]
@@ -78,7 +77,7 @@ fn edt_11_chain_tree_renders_all_versions_in_input_order_with_source_and_winner(
     assert!(view.contains("row.set_text(0, version.get(\"plugin_name\", \"\"))"));
     assert!(view.contains("row.set_text(1, version.get(\"signature\", \"\"))"));
     assert!(view.contains("row.set_text(2, version.get(\"editor_id\", \"\"))"));
-    assert!(view.contains(
-        "row.set_text(3, \"Yes\" if version.get(\"is_winner\", false) else \"No\")"
-    ));
+    assert!(
+        view.contains("row.set_text(3, \"Yes\" if version.get(\"is_winner\", false) else \"No\")")
+    );
 }
