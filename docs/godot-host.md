@@ -1563,6 +1563,11 @@ the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
 the third-person camera yaw and position respond to the sitting offset.
+`SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
+change to every shape instance in its rig. The windowed
+`godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla
+body, hides its shape instances, then shows them and compares rendered pixel
+counts.
 
 ### Mouse and gamepad bindings
 
