@@ -551,6 +551,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         Some(false) => h.u32(1),
         Some(true) => h.u32(2),
     }
+    opt_form(h, a.script_look_at);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

@@ -443,6 +443,8 @@ pub struct ActorState {
     pub days_in_jail: u32,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
+    /// Script-forced look-at target, cleared by `Actor.ClearLookAt`.
+    pub script_look_at: Option<GlobalFormId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

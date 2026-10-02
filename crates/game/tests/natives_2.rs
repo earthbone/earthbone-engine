@@ -2361,10 +2361,9 @@ fn scr_12_expression_and_head_tracking_actor_natives() {
         &[Value::Int(17), Value::Int(45)],
     );
     assert!(g
-        .world_mut()
-        .set_expression_override(id, 17, 45)
-        .unwrap_err()
-        .contains("expression mood 17"));
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("expression mood 17")));
     assert_eq!(g.world_mut().facial_expression(id), cleared);
 
     let saved = g.world_mut().save_state();
@@ -2372,6 +2371,70 @@ fn scr_12_expression_and_head_tracking_actor_natives() {
     loaded.world_mut().load_state(&saved).unwrap();
     let loaded_id = loaded.form("GuardRef").unwrap();
     assert_eq!(loaded.world_mut().head_tracking(loaded_id), Some(false));
+}
+
+/// SCR-12: ClearLookAt clears the target held by the actor's shared state API.
+#[test]
+fn scr_12_clear_look_at_clears_script_forced_target() {
+    let mut g = game();
+    let actor = obj(&mut g, "GuardRef");
+    let target = g.form("MarkerRef").unwrap();
+    let actor_id = g.form("GuardRef").unwrap();
+    g.world_mut().set_actor_look_at(actor_id, target).unwrap();
+    assert_eq!(g.world_mut().actor_look_at(actor_id), Some(target));
+
+    assert_eq!(call(&mut g, &actor, "ClearLookAt", &[]), Value::None);
+    assert_eq!(g.world_mut().actor_look_at(actor_id), None);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-12: A script-forced look-at target is retained by its actor section.
+#[test]
+fn scr_12_script_forced_look_at_survives_save_load() {
+    let g = game();
+    let actor = g.form("GuardRef").unwrap();
+    let target = g.form("MarkerRef").unwrap();
+    g.world_mut().set_actor_look_at(actor, target).unwrap();
+    let saved = g.world_mut().save_state();
+
+    let loaded = game();
+    loaded.world_mut().load_state(&saved).unwrap();
+    let loaded_actor = loaded.form("GuardRef").unwrap();
+    assert_eq!(loaded.world_mut().actor_look_at(loaded_actor), Some(target));
+}
+
+/// SCR-12: ShowGiftMenu forwards its direction and display options to the UI request.
+#[test]
+fn scr_12_show_gift_menu_native_forwards_arguments() {
+    let mut g = game();
+    let actor = obj(&mut g, "GuardRef");
+    let filter = obj(&mut g, "LootList");
+    let giver = g.form("GuardRef").unwrap();
+    let filter_id = g.form("LootList").unwrap();
+    let player = g.world_mut().player();
+
+    assert_eq!(
+        call(
+            &mut g,
+            &actor,
+            "ShowGiftMenu",
+            &[
+                Value::Bool(false),
+                filter,
+                Value::Bool(true),
+                Value::Bool(false),
+            ],
+        ),
+        Value::None
+    );
+    let request = g.gift_menu_request().unwrap();
+    assert_eq!(request.giver, giver);
+    assert_eq!(request.source, giver);
+    assert_eq!(request.target, player);
+    assert_eq!(request.filter, Some(filter_id));
+    assert!(request.show_stolen);
+    assert!(!request.use_favor_points);
+    assert!(g.close_gift_menu());
 }
 
 // ----- references, cells, ownership -----

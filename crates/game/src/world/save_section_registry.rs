@@ -157,6 +157,18 @@ fn read_scr_12(
     World::read_scr_12(actor, reader)
 }
 
+fn write_scr_12_look_at(actor: &ActorState, writer: &mut Writer, pool: &mut ArrayPool) {
+    World::write_scr_12_look_at(actor, writer, pool);
+}
+
+fn read_scr_12_look_at(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_12_look_at(actor, reader, table)
+}
+
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::super::progression::write_character_progression(actor, writer);
 }
@@ -258,6 +270,7 @@ fn read_woop_mgef_section(
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "SCR-12.look_at", write: write_scr_12_look_at, read: read_scr_12_look_at },
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     Section { name: "MAG-54", write: write_stagger_metadata, read: read_stagger_metadata },

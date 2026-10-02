@@ -839,9 +839,12 @@ parameter type but provide no usable evaluation contract.
 boolean on an actor. `World::head_tracking` returns that value, or `true` when
 no script has set it. The explicit value is persisted in the actor section
 `SCR-12` and included in the determinism hash. The host does not yet apply the
-flag to authored head-tracking bones. `ClearLookAt` has no target state to
-clear because `SetLookAt` remains a stub. `ShowGiftMenu` remains a stub until
-UI-15 supplies the gift menu and inventory transaction path.
+flag to authored head-tracking bones. The world stores a script-forced look-at
+target on the actor, and `Actor.ClearLookAt` clears it. Its
+`SCR-12.look_at` actor section stores the target form link and contributes it
+to the determinism hash. `Actor.SetLookAt` remains a stub. `Actor.ShowGiftMenu`
+creates a latent gift-menu request; the transfer behavior is described under
+UI-15.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the
 given faction, defaulting an absent reaction to neutral and saturating at the

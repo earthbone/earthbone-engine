@@ -1530,6 +1530,12 @@ fn actor(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Actor", "ClearLookAt", |world, call, me| {
+        if let Err(error) = world.clear_look_at(me) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -4858,7 +4864,6 @@ fn stubs(vm: &mut Vm) -> usize {
     let methods_none: &[(&str, &str)] = &[
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
-        ("Actor", "ClearLookAt"),
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),

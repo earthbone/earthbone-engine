@@ -46,6 +46,41 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Set the actor's script-forced look-at target.
+    ///
+    /// # Errors
+    /// Returns an error when the actor or target reference is missing.
+    pub fn set_actor_look_at(
+        &mut self,
+        actor_id: GlobalFormId,
+        target_id: GlobalFormId,
+    ) -> Result<(), String> {
+        if self.reference(target_id).is_none() {
+            return Err(format!("{target_id} is not a reference"));
+        }
+        self.actor(actor_id)
+            .ok_or_else(|| format!("{actor_id} is not an actor"))?
+            .script_look_at = Some(target_id);
+        Ok(())
+    }
+
+    /// Clear the actor's script-forced look-at target.
+    ///
+    /// # Errors
+    /// Returns an error when the form is not an actor.
+    pub fn clear_look_at(&mut self, id: GlobalFormId) -> Result<(), String> {
+        self.actor(id)
+            .ok_or_else(|| format!("{id} is not an actor"))?
+            .script_look_at = None;
+        Ok(())
+    }
+
+    /// Return the actor's script-forced look-at target.
+    #[must_use]
+    pub fn actor_look_at(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
+        self.actor(id).and_then(|actor| actor.script_look_at)
+    }
+
     /// Set the actor's head-tracking flag.
     ///
     /// # Errors
@@ -96,6 +131,23 @@ impl World {
                 ))
             }
         };
+        Ok(())
+    }
+
+    pub(crate) fn write_scr_12_look_at(
+        actor: &ActorState,
+        writer: &mut soe_papyrus::vm::state::Writer,
+        _pool: &mut soe_papyrus::vm::state::ArrayPool,
+    ) {
+        super::save::write_opt_form_id(writer, actor.script_look_at);
+    }
+
+    pub(crate) fn read_scr_12_look_at(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+        _table: &soe_papyrus::vm::state::ArrayTable,
+    ) -> Result<(), soe_papyrus::VmError> {
+        actor.script_look_at = super::save::read_opt_form_id(reader)?;
         Ok(())
     }
 
