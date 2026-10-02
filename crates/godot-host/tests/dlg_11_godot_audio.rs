@@ -40,6 +40,11 @@ fn wave() -> Vec<u8> {
 
 fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
+    std::fs::write(
+        data.parent().unwrap().join("Skyrim_Default.ini"),
+        "[General]\nsLanguage=ENGLISH\n",
+    )
+    .unwrap();
     for master in [
         "Skyrim.esm",
         "Update.esm",

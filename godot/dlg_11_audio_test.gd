@@ -21,6 +21,9 @@ func _captured_peak(capture: AudioEffectCapture) -> float:
 	return peak
 
 func _run() -> void:
+	# CONTEXT: A fresh checkout has no editor-generated extension discovery cache.
+	if not GDExtensionManager.is_extension_loaded("res://soe.gdextension"):
+		GDExtensionManager.load_extension("res://soe.gdextension")
 	if not ClassDB.class_exists("SoundBank"):
 		printerr("FAIL: SoundBank is not registered, the extension did not load")
 		quit(1)
@@ -33,10 +36,13 @@ func _run() -> void:
 		quit(1)
 		return
 
+	var listener := AudioListener3D.new()
+	get_root().add_child(listener)
+	listener.make_current()
 	var bank := ClassDB.instantiate("SoundBank") as Node3D
 	get_root().add_child(bank)
 	await process_frame
-	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive")
+	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive: " + str(bank.call("last_error")))
 	if failures != 0:
 		quit(1)
 		return
