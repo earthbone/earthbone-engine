@@ -41,6 +41,7 @@ impl PlayerNode {
         ) else {
             return true;
         };
+        game.record_exterior_cell_loads(0);
         let coord = CellCoord::containing(focus);
         let Some(cell) = source
             .cell_index()
@@ -136,6 +137,7 @@ impl PlayerNode {
             godot_error!("PlayerNode: exterior state failed: {error}");
             return false;
         }
+        game.record_exterior_cell_loads(entered.len());
         exterior.planner = planner;
         self.loaded_cell = Some(cell);
         godot_print!(
