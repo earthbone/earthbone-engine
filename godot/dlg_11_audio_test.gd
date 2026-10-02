@@ -33,6 +33,9 @@ func _run() -> void:
 		quit(1)
 		return
 
+	var camera := Camera3D.new()
+	get_root().add_child(camera)
+	camera.make_current()
 	var bank := ClassDB.instantiate("SoundBank") as Node3D
 	get_root().add_child(bank)
 	await process_frame
@@ -74,6 +77,7 @@ func _run() -> void:
 	_check(bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
 	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
 	bank.queue_free()
+	camera.queue_free()
 	print("DLG-11 mixer peaks: first=", first_peak, " replacement=", second_peak)
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " dialogue audio playback")
 	quit(0 if failures == 0 else 1)
