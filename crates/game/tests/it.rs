@@ -1321,3 +1321,5 @@ mod ui_17_adversarial;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
+#[path = "prg_21_adversarial.rs"]
+mod prg_21_adversarial;
