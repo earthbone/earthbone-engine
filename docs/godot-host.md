@@ -1249,6 +1249,11 @@ and false if the graph unloads first. This bridge only drives visuals
 explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
 animation graphs are not instantiated by this bridge.
 
+`PlayerNode.gameplay_animation_events` returns the source file and object IDs
+and event name for each graph event delivered to the active Game. The ANM-58
+Godot integration test emits the rig signal after binding and checks that the
+event reaches this world log.
+
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
 `godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
