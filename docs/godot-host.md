@@ -82,6 +82,17 @@ The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.
 
+### Destruction-stage models, CMB-37
+
+When a resident reference has a selected destruction-stage model in the
+shared `World`, `CellStreamerNode` hides its base geometry and loads the
+selected DMDL through the same VFS, NIF, mesh and material path as streamed
+cell geometry. The replacement uses RenderingServer instances and adds no
+reference node. Advancing to a model-less stage retains the latest selected
+DMDL through `World::destruction_model`. Clearing destruction removes the
+replacement and reveals the base model. Releasing the owning cell or clearing
+the streamer frees its replacement mesh and instance RIDs.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
@@ -154,15 +165,18 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
-supplied cart and horse body RIDs and keys ownership by both resolved
-reference IDs, each encoded as `(file << 32) | object`. Creating another link
-for either endpoint first frees the old one. `untether_reference` frees links
-for explicit untethering. The player
-sync path also releases a link when either endpoint is missing or disabled,
-and `clear` or node teardown frees every remaining joint. The caller supplies
-the rigid bodies and local pivots. The host API does not infer cart bones or
-build the wheel, pole, chassis or horse rig from NIF collision data.
+`CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and
+horse body RIDs and keys ownership by both resolved reference IDs, each
+encoded as `(file << 32) | object`. Papyrus queues the two references and the
+CK Havok pivots. The cell host resolves each reference to its resident body,
+maps the pivots into Godot's axis basis and creates the joint. Creating
+another link for either endpoint first frees the old one. `untether_reference`
+frees links for explicit untethering. The player sync path releases a link
+when either endpoint is missing or disabled. Releasing the collision cell,
+calling `clear`, or tearing down the node frees its joints before its bodies.
+The CK page names `HorseSpine2` and describes the chassis and horse connection
+pivots. The host connects whole reference bodies and does not infer that bone
+or build wheel, pole and chassis rig constraints from NIF collision data.
 
 ### Editor forms dock, EDT-02
 
@@ -1278,6 +1292,11 @@ and false if the graph unloads first. This bridge only drives visuals
 explicitly bound through `PlayerNode.bind_actor_appearance`. General reference
 animation graphs are not instantiated by this bridge.
 
+`PlayerNode.gameplay_animation_events` returns the source file and object IDs
+and event name for each graph event delivered to the active Game. The ANM-58
+Godot integration test emits the rig signal after binding and checks that the
+event reaches this world log.
+
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local
 `godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
@@ -1452,9 +1471,12 @@ would be silent, and 57 are not.
 
 `godot/dlg_11_audio_test.gd`, launched by
 `crates/godot-host/tests/dlg_11_godot_audio.rs`, opens a generated voice BSA
-through `SoundBank::open_data`. The script starts a response at the speaker
+through `SoundBank::open_data`. The fixture sets `sLanguage=ENGLISH` in
+`Skyrim_Default.ini` to select its English voice archive.
+The script creates a current `AudioListener3D`, starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
-player, starts a replacement at a second position, and captures its output.
+player through the exposed `stop_voice` method, starts a replacement at a
+second position, and captures its output.
 Capture polls for signal until the stream duration plus half a second, since
 voice assets can start with silence. The generated WAV fixture includes a
 quarter second of leading silence. The capture buffer is cleared between
@@ -1465,6 +1487,10 @@ windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
 names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
+does not require an editor import or a cached extension list. This uses
+`GDExtensionManager.load_extension` from the local
+`engine-refs/godot-docs/classes/class_gdextensionmanager.rst` reference.
 
 `dlg_11_installed_xwma_voice_plays_in_windowed_godot_mixer`, gated on
 `SKYRIM_DATA`, reads the surveyed `maleelfhaughty/voicepowers_shout01b` xWMA
@@ -2669,6 +2695,12 @@ uses Jolt. `SimpleWorld` has no ragdoll solver. The conversion is a host
 approximation because the CK pages do not state the force unit expected by
 the physics solver.
 
+`godot/cmb_38_ragdoll_test.gd` loads a vanilla Bannered Mare actor, explicitly
+adds its ragdoll, queues `PushActorAway` through the shared `World`, and checks
+that Jolt changes the root body's velocity. It then removes the explicit
+ragdoll and checks that the bodies are freed and animated rendering resumes.
+The host bridge calls the same `World` methods used by the Papyrus natives.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears
@@ -3081,6 +3113,14 @@ snapshot. The host maps the listed subset to stock Godot controls. Its
 when the loaded cell changes. A Godot pixel readback is not part of that test.
 MAG-71 retains animated curves, active-stack composition, all authored blur
 modes and modifier renderer cleanup. Both rows require rendered evidence.
+
+`mag_72_windowed_fixture_reads_hdr_color_and_depth_pixels` launches Godot with
+a 640 by 360 window and captures a checkerboard SubViewport. Its Rust runner
+resolves synthetic CELL/XCIM and selected WTHR/IMSP records through World and
+ImageSpaceStack, then passes their render values to the Godot script. The script
+applies those values to Environment, CameraAttributesPractical and a tint
+overlay. It compares rendered pixels for the clear, cell, weather and
+restored-cell states, and compares depth-of-field enabled and disabled output.
 
 Sources read under `engine-refs`:
 

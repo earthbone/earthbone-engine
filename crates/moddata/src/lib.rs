@@ -130,17 +130,28 @@ impl ConfigKind {
 ///
 /// [`Error::Io`] when the directory cannot be listed.
 pub fn discover(data_dir: impl AsRef<Path>) -> Result<Vec<(ConfigKind, PathBuf)>> {
+    fn visit(dir: &Path, out: &mut Vec<(ConfigKind, PathBuf)>) -> Result<()> {
+        let entries = std::fs::read_dir(dir).map_err(|e| Error::io(dir, e))?;
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                visit(&path, out)?;
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(kind) = ConfigKind::of(name) else {
+                continue;
+            };
+            out.push((kind, path));
+        }
+        Ok(())
+    }
+
     let dir = data_dir.as_ref();
-    let entries = std::fs::read_dir(dir).map_err(|e| Error::io(dir, e))?;
-    let mut out: Vec<(ConfigKind, PathBuf)> = entries
-        .filter_map(std::result::Result::ok)
-        .filter_map(|e| {
-            let path = e.path();
-            let name = path.file_name()?.to_str()?;
-            let kind = ConfigKind::of(name)?;
-            Some((kind, path))
-        })
-        .collect();
+    let mut out = Vec::new();
+    visit(dir, &mut out)?;
     out.sort_by(|a, b| a.1.cmp(&b.1));
     Ok(out)
 }

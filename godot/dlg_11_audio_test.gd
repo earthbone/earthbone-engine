@@ -32,6 +32,9 @@ func _wait_for_peak(capture: AudioEffectCapture, player: AudioStreamPlayer3D) ->
 	return peak
 
 func _run() -> void:
+	# CONTEXT: A fresh checkout has no editor-generated extension discovery cache.
+	if not GDExtensionManager.is_extension_loaded("res://soe.gdextension"):
+		GDExtensionManager.load_extension("res://soe.gdextension")
 	if not ClassDB.class_exists("SoundBank"):
 		printerr("FAIL: SoundBank is not registered, the extension did not load")
 		quit(1)
@@ -44,6 +47,9 @@ func _run() -> void:
 		quit(1)
 		return
 
+	var listener := AudioListener3D.new()
+	get_root().add_child(listener)
+	listener.make_current()
 	var camera := Camera3D.new()
 	get_root().add_child(camera)
 	camera.make_current()
@@ -61,11 +67,6 @@ func _run() -> void:
 	await process_frame
 	var first_position := Vector3(1.25, 0.0, -1.0)
 	var second_position := Vector3(2.0, 0.0, -1.0)
-	var listener := Camera3D.new()
-	get_root().add_child(listener)
-	listener.make_current()
-	listener.global_position = Vector3.ZERO
-	await process_frame
 	var first_slot: int = bank.call("play_voice", first_path, first_position)
 	_check(first_slot >= 0, "first resolved voice did not start: " + str(bank.call("last_error")))
 	if first_slot < 0:

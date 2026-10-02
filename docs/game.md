@@ -359,11 +359,12 @@ so a form with no script still answers its class's natives. The VM gained
 **Destructible references.** `ObjectReference.DamageObject` reads the base
 record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
-`OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
+`OnDestructionStageChanged` with the prior and current stage numbers. DSTD flags can cap damage,
 disable the reference, mark it destroyed, or ignore external damage. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
-current stage, so later stages without a replacement keep the last model. A
-host can use that path in place of the base model.
+current stage, so later stages without a replacement keep the last model. The
+Godot host hides the base model and draws that stage model through its
+RenderingServer path while the reference is resident.
 `GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1` without queuing a
@@ -776,13 +777,15 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse 100
-Skyrim units behind the cart along its local Y axis, copies the cart rotation,
-and moves the horse into the cart's cell. The CK page specifies positioning
-relative to the cart but no offset, so this is the runtime's simple placement
-rule. `CellStreamerNode` owns pin joints between supplied rigid body RIDs, but
-the Papyrus runtime does not yet connect cart and horse references to those
-host bodies or pivots.
+**ObjectReference.TetherToHorse.** The native places the supplied horse at
+the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
+horse into the cart's cell. It queues a transient host request for the cart and
+horse references using the CK page's chassis and horse connection pivots. The
+host resolves those forms to resident rigid body RIDs and connects them with a
+pin joint. The CK page names `HorseSpine2` as the horse connection and gives
+pivots in Havok units. This runtime connects the reference body as a whole and
+does not resolve that bone or build the cart's wheel and pole constraints.
+Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure
@@ -2399,14 +2402,16 @@ actor section in SOEW version 37 saves the Follow procedure tag.
 
 `UseIdleMarker` selects an enabled IDLM reference in the procedure location's
 cell and radius, skips deleted and destroyed markers, walks the actor to it,
-and holds that marker. An actor with an active
+and holds that marker. When it arrives, the driver resolves the first valid
+`IDLA` link on the IDLM base to an `IDLE` record and queues that record's
+`ENAM` animation event. An actor with an active
 `UseIdleMarker` procedure reserves its selected marker. Other actors skip that
 reservation when choosing a marker. Changing or ending the package clears the
 reservation with the procedure state. This uses the PACK input layout from
 local xEdit `wbRecord(PACK)` and the CK wiki's `IsFurnitureMarkerInUse`
-reservation semantics. It does not play the marker's authored idle animation.
-The `AI-21` actor section in SOEW version 37 saves the selected marker and
-procedure tag.
+reservation semantics. IDLM and its idle animation list follow local xEdit
+`wbRecord(IDLM)` and `wbIdleAnimation`. The `AI-21` actor section in SOEW
+version 37 saves the selected marker and procedure tag.
 
 `HoldPosition` resolves the branch location and holds within the driver's four
 unit arrival tolerance of that position. Without a location input, it holds at
@@ -2449,9 +2454,13 @@ target's position while approaching it, so movement before the attempt does
 not leave the actor heading for an old position.
 
 `Find` reads the branch's target input through its package template chain.
-Object ID matches a placed reference's resolved base form. Object Type values
-1 to 15 match the base types in CommonLib's `PACKAGE_OBJECT_TYPE`. Values 14
-and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
+Object ID matches a placed reference's resolved base form. Specific Reference
+selects that placed reference, Ref Alias resolves through the actor's selected
+quest alias or the package's owning quest, and Linked Reference selects the
+actor's first link or the link matching the authored keyword. These selectors
+still require the selected reference to pass the search eligibility checks.
+Object Type values 1 to 15 match their corresponding base record types. Values
+14 and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
 Unknown Object Type values and other target selectors are unsupported. A
 negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
@@ -2459,11 +2468,12 @@ or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
 authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
-Find procedure page. The target layout and Object Type label follow xEdit's
-`wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
-weapon. CommonLib's `TESPackage.h` defines the remaining object types, and
-xEdit's `wbRecord(ALCH)` defines the Food Item flag. No reusable local runtime
-implementation covers Find.
+Find procedure page. Target kinds and Object Type labels follow xEdit's
+`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. The UESP
+PACK page documents value 11 as any weapon, and xEdit's `wbRecord(ALCH)`
+defines the Food Item flag. Package alias resolution uses the actor's selected
+quest alias or the package owner quest. Linked references use the actor's
+`XLKR` links. No reusable local runtime implementation covers Find.
 
 The `AI-21` actor section in SOEW version 37 saves the selected reference with
 the active Find procedure.
@@ -2480,12 +2490,16 @@ procedure contract page.
 
 `Orbit` resolves its `TargetLocation` input on every driver tick, then moves
 around that point at the authored `Height`. It keeps the actor between the
-authored `InnerRadius` and `OuterRadius`, and advances only when the arc
-stays inside both bounds and over a navmesh. Missing inputs, non-finite values,
-negative inner radii or an outer radius below the inner radius leave an
-unsupported procedure. The package input names and radius meanings follow the
-Creation Kit `Orbit (Procedure)` page. The `AI-21` actor section under SOEW
-version 37 saves the active Orbit height.
+authored `InnerRadius` and `OuterRadius`, and advances only when the sampled
+arc stays inside both bounds and over a navmesh. The arc and direct movement
+segment sample at intervals no longer than 0.05 world units, so a direct step
+cannot cut across an off-nav gap when a route exists around it.
+Missing inputs, non-finite values, negative inner radii or an outer radius
+below the inner radius leave an unsupported procedure. The local CK wiki dump
+has no Orbit procedure page. `CommonLibSSE-NG/include/RE/Offsets_RTTI.h`
+confirms the Orbit procedure and execution-state types but does not describe
+their behavior. The `AI-21` actor section under SOEW version 37 saves the
+active Orbit height.
 
 `Escort` resolves its assigned placed-reference target and the branch's
 authored location. The escorting actor routes to that location while keeping
@@ -3188,9 +3202,9 @@ that resolves a form builds that one reference, so an unrelated
 `ObjectReference.Is3DLoaded` uses that host-fed cell set for an instantiated
 reference. It returns false for disabled references and after their cell
 streams out, and does not depend on room-bound rendering culling.
-Cell prefetch adds its reference IDs to a derived loaded-3D set, and cell
-release removes those IDs. The set is rebuilt from streaming events and is
-not saved.
+Cell attachment adds its reference IDs to a derived loaded-3D set, and cell
+release removes those IDs. Prefetch alone does not mark 3D loaded. The set is
+rebuilt from streaming events and is not saved.
 
 `GetTriggerObjectCount` reads the actor occupants tracked for supported XPRM
 box and sphere references. It returns zero for an empty supported trigger,
@@ -5721,18 +5735,20 @@ existing record-override table in SOEW. CELL ownership queries use the mapped
 override link after reload.
 
 For reference headers with the generic form-flags bit, the pass retains both
-mask words in its report and leaves enable and persistence derived from the
-winning record. It accepts only ESS header version 12, form version 78
-and change-form version 78 when that mask is present. The second 16-bit word
-does not affect these runtime properties.
+mask words in its report and XORs the first word with winning-record flags
+before deriving enable and persistence. xEdit names the first word `Mask
+Invert Flags`; the second word is `Mask Set unk010` and remains opaque. The
+pass accepts Special Edition ESS header versions from 12 and matching file and
+change-form versions from 77. Tests compare authored reference state before
+and after restore for header versions 12 and 13, form versions 77 and 78, all
+four authored enable/persistence combinations, and varied values in both saved
+words.
 Deleted winning records remain disabled regardless of this mask.
 The effective persistence value feeds cell-unload retention and
 encounter-zone reset decisions. SOEW version 37 stores it with each reference.
 Older SOEW states derive persistence from the current winning record.
-The test `sav_54_reference_mask_words_leave_enable_and_persistence_authored`
-checks all four authored combinations, several values in both mask words, the
-persistence query and engine save/load. It describes this loader's current
-behavior, not an independently verified Skyrim save operation.
+The test `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+checks those before-and-after cases, the persistence query and engine save/load.
 
 ## Inventory instances and ESS application, work in progress
 
@@ -6414,8 +6430,8 @@ reload. Object ID targets resolve in the package's defining plugin. A target
 that names a FormList searches its entries in authored order. Object Type 8,
 Miscellaneous, searches winning MISC bases in load-order order. Both paths save
 the selected reference identity with Patrol progress. Other Object Type values
-and Find-derived starts remain unsupported. AI-33's Find procedure, which owns
-that selected-reference result, is not present in this worktree.
+and Find-derived starts remain unsupported. AI-33's Find procedure owns its
+selected-reference result in the `AI-21` actor section.
 
 xEdit `wbDefinitionsTES5.pas` defines Object Type 8 as Miscellaneous and PTDA
 Object ID as a form link. The UESP PACK description confirms the target and
@@ -7642,6 +7658,12 @@ continues to follow death or unconscious state. Removing a ragdoll preserves
 the actor's independent unconscious state. The CK pages do not define an impulse
 unit conversion or explosion game-setting evaluation, so those details remain
 outside this implementation.
+
+`cmb_38_area_magnitude_and_radius_follow_the_ck_argument_contract` checks the
+documented magnitude and radius inputs. `godot/cmb_38_ragdoll_test.gd` loads a
+vanilla actor, toggles its Jolt ragdoll through the host bridge, and checks
+that queued push and area impulses change the root body's velocity before
+removal restores the animated representation.
 
 Source pages read: `engine-refs/ck-wiki/PushActorAway_-_ObjectReference.wikitext`,
 `KnockAreaEffect_-_ObjectReference.wikitext`,

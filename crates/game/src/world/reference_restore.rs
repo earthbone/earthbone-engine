@@ -212,6 +212,13 @@ fn apply_header(
         }
         state.scale = scale.factor();
     }
+    if let Some((mask_invert, _mask_set_unknown)) = header.form_flags {
+        let initially_disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+        let persistent = soe_esm::plugin::flags::PERSISTENT;
+        state.enabled = (state.record_flags ^ mask_invert) & initially_disabled == 0
+            && state.record_flags & soe_esm::plugin::flags::DELETED == 0;
+        state.persistent = (state.record_flags ^ mask_invert) & persistent != 0;
+    }
     if let Some(base) = state.base {
         if world
             .order
@@ -325,11 +332,13 @@ impl World {
                 continue;
             };
             if header.form_flags.is_some()
-                && (save.header.version != 12 || save.form_version != 78 || form.version != 78)
+                && (save.header.version < 12
+                    || save.form_version < 77
+                    || form.version != save.form_version)
             {
                 return Err(invalid(
                     GlobalFormId { file: 0, object: PLAYER_OBJECT },
-                    "reference mask semantics are only validated for save version 12 and form versions 78",
+                    "reference mask requires a Special Edition save and matching supported form versions",
                 ));
             }
             let id = mapping

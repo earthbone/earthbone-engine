@@ -13,6 +13,22 @@ const CELL_B: u32 = 0x811;
 const ROCK_B: u32 = 0x840;
 
 #[test]
+fn hst_13_prefetch_becomes_3d_resident_when_the_cell_attaches() {
+    let mut game = game();
+    let cell = id(CELL_B);
+    let reference = id(ROCK_B);
+
+    game.world_mut().prefetch_cell(cell);
+    assert!(!game.world().is_reference_3d_loaded(reference));
+
+    game.change_cell(Some(cell));
+    assert!(game.world().is_reference_3d_loaded(reference));
+
+    game.change_cell(None);
+    assert!(!game.world().is_reference_3d_loaded(reference));
+}
+
+#[test]
 fn hst_13_reference_3d_tracks_cell_streaming_and_enabled_state() {
     let game = game();
     let cell = id(CELL_B);
