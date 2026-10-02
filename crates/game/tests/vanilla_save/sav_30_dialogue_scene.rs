@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
+
+#[path = "../sav_30_adversarial.rs"]
+mod adversarial;
 use soe_save::ChangeForm;
 
 const INFO: u32 = 0x800;
