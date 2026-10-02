@@ -131,7 +131,7 @@ fn sav_36_book_note_key_changes_are_atomic_and_visible_after_engine_save_load() 
 #[test]
 fn sav_36_late_invalid_change_does_not_install_earlier_record_overrides() {
     let mut saved = changed_save();
-    saved.change_forms[2].change_flags |= 1 << 7;
+    saved.change_forms[2].data.pop();
     let mut world = World::new(book_note_key_order());
     let before = world.save_state();
     assert!(world.restore_vanilla_book_note_keys(&saved).is_err());
