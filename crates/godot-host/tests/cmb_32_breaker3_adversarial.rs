@@ -44,7 +44,9 @@ fn cmb_32_truncated_cell_lighting_is_not_used_as_ambient() {
 #[test]
 fn cmb_32_truncated_light_data_does_not_emit_a_placed_light() {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+    let mut cell_light = vec![0_u8; 92];
+    cell_light[..3].copy_from_slice(&[60, 60, 60]);
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
     let mut data = Vec::new();
     data.extend_from_slice(&(-1_i32).to_le_bytes());
     data.extend_from_slice(&100_u32.to_le_bytes());
@@ -66,16 +68,8 @@ fn cmb_32_truncated_light_data_does_not_emit_a_placed_light() {
 #[test]
 fn cmb_32_actor_identity_includes_plugin_file_for_same_object_number() {
     let cell = id(1);
-    let first = actor(
-        GlobalFormId { file: 1, object: 9 },
-        cell,
-        [0.0, 0.0, 0.0],
-    );
-    let second = actor(
-        GlobalFormId { file: 2, object: 9 },
-        cell,
-        [10.0, 0.0, 0.0],
-    );
+    let first = actor(GlobalFormId { file: 1, object: 9 }, cell, [0.0, 0.0, 0.0]);
+    let second = actor(GlobalFormId { file: 2, object: 9 }, cell, [10.0, 0.0, 0.0]);
     let sampled = observations(
         &[first, second],
         &[],
@@ -85,7 +79,10 @@ fn cmb_32_actor_identity_includes_plugin_file_for_same_object_number() {
     );
 
     assert_eq!(sampled.len(), 2);
-    assert_eq!((sampled[0].observer, sampled[0].target), (first.actor, second.actor));
+    assert_eq!(
+        (sampled[0].observer, sampled[0].target),
+        (first.actor, second.actor)
+    );
     assert_eq!(sampled[0].motion, Motion::Running);
 }
 

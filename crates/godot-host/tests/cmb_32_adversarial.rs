@@ -14,12 +14,14 @@ fn id(object: u32) -> GlobalFormId {
 
 fn light_world(reference_flags: u32, light_flags: u32) -> World {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [0, 0, 0]));
+    let cell_light = vec![0_u8; 92];
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
     let mut data = Vec::new();
     data.extend_from_slice(&(-1_i32).to_le_bytes());
     data.extend_from_slice(&100_u32.to_le_bytes());
     data.extend_from_slice(&[255, 255, 255, 0]);
     data.extend_from_slice(&light_flags.to_le_bytes());
+    data.resize(48, 0);
     plugin.push_top(Record::new(Tag(*b"LIGH"), 2).sub(b"DATA", data));
     let mut reference = Record::new(Tag(*b"REFR"), 3)
         .with_flags(reference_flags)
@@ -52,12 +54,14 @@ fn cmb_32_off_by_default_light_does_not_emit_until_enabled() {
 #[test]
 fn cmb_32_runtime_placed_light_changes_detection_light() {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [0, 0, 0]));
+    let cell_light = vec![0_u8; 92];
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
     let mut data = Vec::new();
     data.extend_from_slice(&(-1_i32).to_le_bytes());
     data.extend_from_slice(&100_u32.to_le_bytes());
     data.extend_from_slice(&[255, 255, 255, 0]);
     data.extend_from_slice(&0_u32.to_le_bytes());
+    data.resize(48, 0);
     plugin.push_top(Record::new(Tag(*b"LIGH"), 2).sub(b"DATA", data));
     plugin.push_top(Record::new(Tag(*b"STAT"), 3));
     let mut anchor = Record::new(Tag(*b"REFR"), 4)

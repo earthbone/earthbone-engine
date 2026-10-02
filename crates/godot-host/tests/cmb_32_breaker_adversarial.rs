@@ -10,12 +10,14 @@ fn id(object: u32) -> GlobalFormId {
 
 fn light_world(reference_flags: u32) -> World {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [0, 0, 0]));
+    let cell_light = vec![0_u8; 92];
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
     let mut light_data = Vec::new();
     light_data.extend_from_slice(&(-1_i32).to_le_bytes());
     light_data.extend_from_slice(&100_u32.to_le_bytes());
     light_data.extend_from_slice(&[255, 255, 255, 0]);
     light_data.extend_from_slice(&0_u32.to_le_bytes());
+    light_data.resize(48, 0);
     plugin.push_top(Record::new(Tag(*b"LIGH"), 2).sub(b"DATA", light_data));
     let mut placement = Vec::new();
     for _ in 0..6 {

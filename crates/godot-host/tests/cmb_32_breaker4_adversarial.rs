@@ -24,7 +24,9 @@ fn cmb_32_truncated_xcll_does_not_supply_ambient_light() {
 #[test]
 fn cmb_32_truncated_light_data_does_not_emit_placed_light() {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+    let mut cell_light = vec![0_u8; 92];
+    cell_light[..3].copy_from_slice(&[60, 60, 60]);
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", cell_light));
     // LIGH/DATA is a 48-byte structure. Its first 16 bytes alone are malformed.
     let mut data = Vec::new();
     data.extend_from_slice(&(-1_i32).to_le_bytes());

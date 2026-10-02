@@ -29,6 +29,14 @@ covers `CreateDetectionEvent` and played player footsteps. The focused tests
 exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior.
 
+The light reader requires the full 92-byte CELL/XCLL structure and 48-byte
+LIGH/DATA structure before using those fields. Inherited LGTM/DATA reads its
+ambient prefix from the 24-byte layout recorded in TES5Edit, including the
+legacy 24-byte template noted in `wbDefinitionsTES5.pas`. The layouts come
+from `uesp-modfileformat/CELL.wikitext`,
+`uesp-modfileformat/LIGH.wikitext`, and `TES5Edit/Core/wbDefinitionsTES5.pas`
+in the local `engine-refs` corpus.
+
 `godot/cmb_32_live_detection_test.gd` samples live resident actors in the
 Bannered Mare, toggles enabled placed lights until one changes the shared
 detection value, adds a PhysicsServer box between the nearest pair and checks
