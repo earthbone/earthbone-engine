@@ -464,6 +464,17 @@ function diagnostic because the local CK corpus provides no usable condition
 semantics and the required alias keyword, package or actor-process state is
 not represented. The reference conditions are covered by
 `ai_73_reference_conditions.rs` and `ai_77_reference_conditions.rs`.
+`ai_70_reference_state_conditions.rs` covers condition 27 `GetLineOfSight` by
+reading the latest successful actor perception step, condition 36 `MenuMode`
+from the host's generic menu-mode flag for parameter 0, and condition 39
+`GetDisease` by checking active effects for the winning `MagicDisease` keyword.
+xEdit supplies function names and parameter types. The local CK corpus has no
+CTDA pages for these functions. The LOS behavior follows the CK `Actor.HasLOS`
+description, menu state follows `Utility.IsInMenuMode`, and disease matching
+follows the CK `HasMagicEffectWithKeyword` disease example. The runtime does
+not retain menu identities, so nonzero menu IDs return an explicit diagnostic.
+`World::evaluate_detection` replaces the transient LOS pairs only after the
+whole observation batch succeeds. LOS and menu state are not saved.
 `ai_79_relationship_conditions.rs` covers condition functions 42 `SameFaction`,
 43 `SameRace`, 44 `SameSex`, 60 `GetFactionRankDifference`, 68 `GetIsClass`,
 129 `GetPCIsClass` and 130 `GetPCIsRace`. These read actor factions, race,

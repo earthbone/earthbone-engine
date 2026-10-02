@@ -172,6 +172,9 @@ pub fn supports_function(function: u16) -> bool {
             | 10
             | 11
             | 14
+            | 27
+            | 36
+            | 39
             | 25
             | 26
             | 49
@@ -853,11 +856,35 @@ fn function_value(
             }
             reference.scale * actor_scale
         }
-        27 | 36 | 39 => {
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "the local CK corpus does not define a runtime contract",
-            ));
+        27 => {
+            let target = resolve_reference(world, context.owner, raw)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            if world
+                .reference(target)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(target));
+            }
+            boolean(world.line_of_sight.contains(&(subject, target)))
+        }
+        36 => {
+            if raw != 0 {
+                return Err(Error::UnavailableContractReason(
+                    c.function,
+                    "the runtime tracks menu mode without individual menu identities",
+                ));
+            }
+            boolean(world.menu_mode)
+        }
+        39 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let keyword = world.form("MagicDisease").ok_or(Error::Form(subject))?;
+            boolean(world.has_magic_effect_with_keyword(subject, keyword))
         }
         35 => {
             no_parameter(c)?;
