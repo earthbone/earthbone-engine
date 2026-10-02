@@ -16,6 +16,9 @@ mod references;
 #[path = "vanilla_save/projectiles.rs"]
 mod projectiles;
 
+#[path = "sav_26_adversarial.rs"]
+mod sav_26_adversarial;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 
