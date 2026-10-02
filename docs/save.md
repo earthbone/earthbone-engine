@@ -868,7 +868,7 @@ checks all four authored combinations, varied saved words, ESS header versions
 The reference restore accepts ESS versions from 12 and matching file/change-form
 versions from 77, following the parser's supported minima. The corpus survey
 covers only ESS 12 with form and change-form version 78. xEdit labels the first
-word `Mask Invert Flags`; FallrimTools and CommonLib do not document application
+word `Mask Invert Flags`. FallrimTools and CommonLib do not document application
 of the second word or confirm this operation across all accepted versions.
 
 ## ARMO, WEAP and AMMO change coverage
