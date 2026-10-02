@@ -196,37 +196,11 @@ impl PlayerNode {
                 self.camera_shake = Some((0.0, shake.duration, shake.strength));
                 self.camera_shake_time = 0.0;
             }
-            let (hud_cart_mode, requests) = {
-                let mut world = game.world_mut();
-                (world.hud_cart_mode, world.take_game_ui_requests())
-            };
+            let hud_cart_mode = game.world().hud_cart_mode;
             if hud_cart_mode != self.presented_hud_cart_mode {
                 self.presented_hud_cart_mode = hud_cart_mode;
                 self.base_mut()
                     .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
-            }
-            for request in requests {
-                match request {
-                    soe_game::world::GameUiRequest::ShowRaceMenu => {
-                        self.base_mut().emit_signal("race_menu_requested", &[]);
-                    }
-                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
-                        self.base_mut()
-                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
-                    }
-                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
-                        self.base_mut().emit_signal(
-                            "bink_requested",
-                            &[
-                                Variant::from(GString::from(file_name.as_str())),
-                                Variant::from(options.interruptible),
-                                Variant::from(options.mute_audio),
-                                Variant::from(options.mute_music),
-                                Variant::from(options.letterbox),
-                            ],
-                        );
-                    }
-                }
             }
         }
         self.refresh_image_space();
@@ -261,6 +235,32 @@ impl PlayerNode {
                 }
                 // CONTEXT: Valid trainers use the pending request consumed above.
                 soe_game::world::MenuRequest::Training(_) => {}
+            }
+        }
+        if let Some(game) = &mut self.game {
+            let requests = game.world_mut().take_game_ui_requests();
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {

@@ -623,9 +623,10 @@ CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 shim exposes source-level C++ declarations only, without an FFI bridge.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
-and their chargen TRI files before processing later race menu requests. The
-clear request drops those retained file buffers. These requests add no saved
-state.
+and their chargen TRI files before processing later race menu requests. It
+processes these host requests before emitting the race menu presentation
+signal. The clear request drops those retained file buffers and resets their
+residency and byte accounting. These requests add no saved state.
 
 `Game.ShowTrainingMenu(actor)` queues a training-menu request containing the
 actor form when the argument resolves to an actor reference. Invalid or missing
