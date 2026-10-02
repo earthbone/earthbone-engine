@@ -165,15 +165,18 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
-supplied cart and horse body RIDs and keys ownership by both resolved
-reference IDs, each encoded as `(file << 32) | object`. Creating another link
-for either endpoint first frees the old one. `untether_reference` frees links
-for explicit untethering. The player
-sync path also releases a link when either endpoint is missing or disabled,
-and `clear` or node teardown frees every remaining joint. The caller supplies
-the rigid bodies and local pivots. The host API does not infer cart bones or
-build the wheel, pole, chassis or horse rig from NIF collision data.
+`CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and
+horse body RIDs and keys ownership by both resolved reference IDs, each
+encoded as `(file << 32) | object`. Papyrus queues the two references and the
+CK Havok pivots. The cell host resolves each reference to its resident body,
+maps the pivots into Godot's axis basis and creates the joint. Creating
+another link for either endpoint first frees the old one. `untether_reference`
+frees links for explicit untethering. The player sync path releases a link
+when either endpoint is missing or disabled. Releasing the collision cell,
+calling `clear`, or tearing down the node frees its joints before its bodies.
+The CK page names `HorseSpine2` and describes the chassis and horse connection
+pivots. The host connects whole reference bodies and does not infer that bone
+or build wheel, pole and chassis rig constraints from NIF collision data.
 
 ### Editor forms dock, EDT-02
 

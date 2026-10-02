@@ -768,11 +768,14 @@ placement record cannot be reset.
 
 **ObjectReference.TetherToHorse.** The native places the supplied horse 100
 Skyrim units behind the cart along its local Y axis, copies the cart rotation,
-and moves the horse into the cart's cell. The CK page specifies positioning
-relative to the cart but no offset, so this is the runtime's simple placement
-rule. `CellStreamerNode` owns pin joints between supplied rigid body RIDs, but
-the Papyrus runtime does not yet connect cart and horse references to those
-host bodies or pivots.
+and moves the horse into the cart's cell. It queues a transient host request
+for the cart and horse references using the CK page's chassis and horse
+connection pivots. The host resolves those forms to resident rigid body RIDs
+and connects them with a pin joint. The CK page names `HorseSpine2` as the
+horse connection and gives pivots in Havok units. This runtime connects the
+reference body as a whole and does not resolve that bone or build the cart's
+wheel and pole constraints. Replacing a tether or unloading its collision
+cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure

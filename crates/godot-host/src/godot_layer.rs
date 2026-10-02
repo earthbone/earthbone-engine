@@ -427,8 +427,8 @@ impl INode3D for CellStreamerNode {
         self.free_effect_shaders();
         self.free_runtime_lights();
         self.clear_terrain_lod();
-        self.collision.free();
         self.tethers.free();
+        self.collision.free();
         self.collision_space = None;
         self.collision_cell = None;
         self.ref_cache.clear();
@@ -776,7 +776,8 @@ impl CellStreamerNode {
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
-            self.collision.apply_reference_physics_requests(world);
+            self.collision
+                .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
         }
         let mut changed = std::collections::HashSet::new();
@@ -1531,6 +1532,7 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
+            self.tethers.free();
             self.collision.free();
             self.collision_cell = None;
             self.collision_space = None;
@@ -1608,6 +1610,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
+        self.tethers.free();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
