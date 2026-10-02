@@ -776,10 +776,13 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
-The nine observed kind-18 `Stacked` payloads remain rejected. The local public
-save readers name the variant but do not define its fields or termination, so
-the decoder does not guess where following extra data begins. The SAV-21
-regression test keeps this unsupported case explicit.
+The nine observed kind-18 `Stacked` payloads now decode as one named child
+followed by a four-byte child index. The Sandbox child with no path request
+has an eight-byte suffix, compared with nine bytes for a populated request.
+All nine 170-byte frames re-encode exactly in isolation and before replacement
+extras and inventory. The strict 60-save contents survey now passes with zero
+decoder errors. See [the Stacked follow-up](save-package-data.md#stacked-boundary-correction-2026-10-02)
+for the observed layout and source limits.
 
 ## Reference mask semantics, SAV-15
 
@@ -852,20 +855,24 @@ and persistence state from the winning plugin, while `World::unload_cell` and
 `World::is_persistent_child` consume those values. Restored mask results flow
 through those existing properties and are retained by engine save/load.
 
-The SAV-54 follow-up on 2026-09-27 checked the same xEdit definition,
-FallrimTools `ChangeFormFlags.java` and CommonLibSSE-NG
-`TESObjectREFR.cpp`. xEdit's `ChangedFlag00Decider` selects whether the mask
-payload is present. It does not select an application operation or a version
-specific layout for the two words. FallrimTools reads and writes the words
-without applying them. CommonLib checks authored runtime flags for disabled
-and persistent state, but its public code does not connect those checks to the
-saved words.
+SAV-54 checked xEdit `Core/wbDefinitionsTES5Saves.pas`, FallrimTools
+`ChangeFormFlags.java` and CommonLibSSE-NG `TESObjectREFR.cpp`. xEdit defines
+the first word as `Mask Invert Flags` and the second as `Mask Set unk010`, with
+the same six-byte payload selected by `ChangedFlag00Decider`. FallrimTools
+reads and writes both words without applying them. CommonLib checks the
+authored runtime bits used for disabled and persistent state, but its public
+code does not connect those checks to saved words.
 
-The recorded corpus survey has masks only in saves with header version 12,
-form version 78 and change-form version 78. It records word values and byte
-round trips, not game-generated before-and-after reference state, and does not
-cover other save versions. SAV-54 remains open for those broader source and
-runtime observations. SAV-15 implements the bounded interpretation above.
+The engine XORs the first word with the winning record flags, then derives
+reference enable and persistence from the result. It preserves the second
+word without assigning it runtime meaning. `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+checks all four authored combinations, varied saved words, ESS header versions
+12 and 13, form versions 77 and 78, persistence queries and SOEW save/load.
+The reference restore accepts ESS versions from 12 and matching file/change-form
+versions from 77, following the parser's supported minima. The corpus survey
+covers only ESS 12 with form and change-form version 78. xEdit labels the first
+word `Mask Invert Flags`. FallrimTools and CommonLib do not document application
+of the second word or confirm this operation across all accepted versions.
 
 ## ARMO, WEAP and AMMO change coverage
 

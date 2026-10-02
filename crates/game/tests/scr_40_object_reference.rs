@@ -140,7 +140,8 @@ fn scr_40_damage_object_uses_argument_and_emits_crossed_stage_events() {
     assert!(game.world().pending.iter().any(|pending| matches!(
         pending,
         Pending::Event { name, args, .. }
-            if name == "OnDestructionStageChanged" && args == &[Value::Int(1)]
+            if name == "OnDestructionStageChanged"
+                && args == &[Value::Int(0), Value::Int(1)]
     )));
 }
 

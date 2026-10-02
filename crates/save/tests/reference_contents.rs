@@ -179,7 +179,7 @@ fn nonempty_or_unknown_packages_cannot_be_mistaken_for_empty_state() {
 }
 
 #[test]
-fn sav_12_sequence_with_following_extra_stays_rejected_without_a_known_boundary() {
+fn sav_12_sequence_without_a_child_cannot_consume_the_following_extra() {
     let mut change = fixture();
     change.change_flags = 1 << 11;
     let header_end = change.reference_header(78).unwrap().unwrap().bytes_consumed;
@@ -190,7 +190,7 @@ fn sav_12_sequence_with_following_extra_stays_rejected_without_a_known_boundary(
     reference(0x800900).write(&mut change.data);
 
     let error = change.reference_contents(78).unwrap_err().to_string();
-    assert!(error.contains("Sequence"), "{error}");
+    assert!(error.contains("truncated"), "{error}");
 }
 
 #[test]

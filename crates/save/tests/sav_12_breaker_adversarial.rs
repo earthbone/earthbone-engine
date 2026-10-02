@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Boundary checks for the still undocumented saved Sequence payload.
+//! Boundary checks for the saved Sequence payload framing.
 
 use soe_save::{reference::Field, ChangeForm, RefId, Save, WString};
 use std::path::{Path, PathBuf};
@@ -32,23 +32,26 @@ fn sequence_form(body: &[u8]) -> ChangeForm {
 }
 
 #[test]
-fn sequence_body_followed_by_a_known_extra_is_not_misread_as_empty_state() {
+fn sav_12_invalid_child_followed_by_a_known_extra_is_rejected() {
     let form = sequence_form(&[0x19, 0x08, 0x85, 0x00, 0x09, 0x00]);
     let first = form.reference_contents(78).unwrap_err().to_string();
     let second = form.reference_contents(78).unwrap_err().to_string();
-    assert!(first.contains("Sequence"), "{first}");
+    assert!(matches!(
+        form.reference_contents(78),
+        Err(soe_save::Error::Truncated { .. })
+    ));
     assert_eq!(first, second);
 }
 
 #[test]
-fn sequence_payload_containing_outer_terminator_byte_remains_opaque() {
+fn sav_12_outer_terminator_inside_an_invalid_child_cannot_end_the_entry() {
     let form = sequence_form(&[0x11, 0x22, 0xFF, 0x85, 0x00]);
     let error = form.reference_contents(78).unwrap_err().to_string();
-    assert!(error.contains("Sequence"), "{error}");
+    assert!(error.contains("truncated"), "{error}");
 }
 
 #[test]
-fn every_truncated_sequence_name_fails_without_accepting_a_partial_boundary() {
+fn sav_12_every_truncated_sequence_name_fails_without_accepting_a_partial_boundary() {
     let complete = sequence_form(&[]);
     for cut in 4..complete.data.len() {
         let mut truncated = complete.clone();
@@ -58,7 +61,7 @@ fn every_truncated_sequence_name_fails_without_accepting_a_partial_boundary() {
 }
 
 #[test]
-fn all_observed_sequence_payloads_reencode_and_preserve_the_following_boundary() {
+fn sav_12_all_observed_sequence_payloads_reencode_and_preserve_the_following_boundary() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping Sequence corpus check");
         return;

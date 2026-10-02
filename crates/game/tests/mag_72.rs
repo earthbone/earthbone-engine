@@ -133,6 +133,71 @@ fn mag_72_malformed_cell_link_returns_an_error() {
 }
 
 #[test]
+fn mag_72_non_null_image_space_links_require_live_imgs_records() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(tag(*b"CELL"), 20).sub(tag(*b"XCIM"), 99_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(tag(*b"WTHR"), 30).sub(
+            tag(*b"IMSP"),
+            [99_u32, 0, 0, 0]
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>(),
+        ),
+    );
+    let mut order = LoadOrder::new();
+    order.add("MissingImages.esm", plugin).unwrap();
+    let mut world = World::new(order);
+
+    world.load_cell(id(20));
+    assert!(world.base_image_space().is_err());
+
+    world.load_cell(id(21));
+    world
+        .select_weather_image_space(Some(WeatherSelection {
+            weather: id(30),
+            from: 0,
+            to: 1,
+            blend: 0.5,
+        }))
+        .unwrap();
+    assert!(world.base_image_space().is_err());
+}
+
+#[test]
+fn mag_72_non_null_image_space_link_rejects_non_imgs_target() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(tag(*b"CELL"), 20).sub(tag(*b"XCIM"), 21_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(tag(*b"WTHR"), 30).sub(
+            tag(*b"IMSP"),
+            [21_u32, 0, 0, 0]
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>(),
+        ),
+    );
+    plugin.push_top(Record::new(tag(*b"CELL"), 21));
+    let mut order = LoadOrder::new();
+    order.add("WrongImageType.esm", plugin).unwrap();
+    let mut world = World::new(order);
+
+    world.load_cell(id(20));
+    assert!(world.base_image_space().is_err());
+
+    world.load_cell(id(22));
+    world
+        .select_weather_image_space(Some(WeatherSelection {
+            weather: id(30),
+            from: 0,
+            to: 1,
+            blend: 0.5,
+        }))
+        .unwrap();
+    assert!(world.base_image_space().is_err());
+}
+
+#[test]
 fn mag_72_installed_cell_and_weather_links_resolve() {
     let Ok(path) = std::env::var("SKYRIM_DATA") else {
         return;
