@@ -3050,72 +3050,64 @@ array. It allocates no scene node or server resource. The host does not yet
 render EFSH authored textures, color keys or particles on reference geometry.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
-## Image-space renderer prerequisites, MAG-71
+## Image-space modifier rendering, MAG-71
 
-PlayerNode synchronizes modifier identity, age and strength plus the winning
-base IMGS for the loaded cell or selected weather. It maps authored HDR white,
-bloom scale and eye-adapt strength to camera Environment controls, cinematic
-saturation, brightness and contrast to adjustments, tint to a screen ColorRect,
-and depth strength, distance and range to CameraAttributesPractical. The
-camera Environment starts as a copy of the WorldEnvironment when one exists.
-Clearing the source removes the camera resources and tint overlay. The host's
-weather selection method accepts a WTHR editor id, two slots and a blend. An empty id
+PlayerNode synchronizes active modifier identity, age and strength with the
+winning base IMGS for the loaded cell or selected weather. Base IMGS values
+continue through the Environment and CameraAttributesPractical controls. The
+camera Environment starts as a copy of the WorldEnvironment when present.
+Clearing the base and modifier sources removes the camera resources. The host weather
+selection method accepts a WTHR editor id, two slots and a blend. An empty id
 returns to CELL/XCIM. `godot/walkthrough.gd` still supplies background and
 ambient light through its WorldEnvironment.
 
-`ImageSpaceStack::render_layers` samples the active modifiers' authored IMAD
-curves through the shared World and returns their channels beside each layer's
-active strength. The host also applies the base snapshot through Godot's
-Environment and CameraAttributes controls. `godot/walkthrough.gd` continues to
-supply background and ambient light through its WorldEnvironment.
+`ImageSpaceStack::render_layers` samples active authored IMAD curves through
+the shared World. `RenderedModifiers::from_layers` composes tint, blur radius,
+double vision, depth strength and distance, HDR scale, bloom threshold, and
+cinematic saturation, brightness and contrast using each layer's active
+strength. This is the host composition policy, since local xEdit and CommonLib
+sources do not define exact weighted stacking.
+
+`ModifierRenderer` applies tint, blur sampling, double vision and the selected
+HDR and cinematic channels in `godot/mag_71_image_space.gdshader`. DOF
+strength, distance and range update the camera's `CameraAttributesPractical`.
+The pass is attached to the existing player CanvasLayer and hides when no
+visible color channels are active. It creates no per-reference node or server
+resource.
 
 The base reader retains all authored HNAM, CNAM, TNAM and DNAM values in its
-snapshot. The host maps the listed subset to stock Godot controls. Its
-`mag_72_...` Rust fixture checks source-derived render parameters and clearing
-when the loaded cell changes. A Godot pixel readback is not part of that test.
-MAG-71 retains animated curves, active-stack composition, all authored blur
-modes and modifier renderer cleanup. Both rows require rendered evidence.
+snapshot. The host maps the supported subset to stock Godot controls. The
+`mag_71_rendered_image_space_test.gd` pixel fixture loads the production shader
+and checks tint, blur, depth-of-field and HDR exposure against a checkerboard
+scene. The Rust test
+`mag_71_composes_authored_render_channels_with_active_stack_weights` checks
+that evaluated samples retain their layer weights before rendering. These
+fixtures verify visible host output for selected parameters. They do not claim
+pixel parity with Skyrim or implement target-based radial blur.
 
 Sources read under `engine-refs`:
 
-- xEdit `Core/wbDefinitionsTES5.pas` and `Core/wbDefinitionsCommon.pas`, plus
-  Mutagen `Records/Major Records/ImageSpaceAdapter.xml` and `.cs`, establish
-  curve layouts and flags. CommonLibSSE-NG
-  `include/RE/T/TESImageSpaceModifier.h` and `include/RE/I/ImageSpaceData.h`
-  distinguish base HDR/color data from modifier-only effects.
-- Community Shaders `package/Shaders/ISHDR.hlsl` consumes exposure history,
-  bloom, cinematic, tint and fade inputs. `ISBlur.hlsl`, `ISDoubleVision.hlsl`
-  and `ISRadialBlur.hlsl` show separate passes and their shader parameters.
-  `src/Features/LinearLighting.cpp` reads the combined sunlight scale for
-  directional lighting. These sources show the required inputs. They do not
-  establish the complete mapping from each IMAD curve to shader constants.
-  The current HDR shader also contains explicit changes to vanilla contrast
-  and display mapping, so copying it would not prove vanilla parity.
-- Godot `classes/class_environment.rst`, `class_cameraattributes.rst`,
-  `class_cameraattributespractical.rst` and
-  `tutorials/3d/environment_and_post_processing.rst` describe color
-  adjustments, tone mapping, bloom, exposure and depth-of-field controls.
-  These are available implementation mechanisms. Their names do not prove
-  equivalent units, transfer functions or ordering to Skyrim.
-- Godot `tutorials/rendering/compositor.rst` documents custom passes with
-  RenderingDevice access in Forward+ and Mobile. Callbacks run on the render
-  thread and require synchronized state and explicit resource cleanup.
-  `tutorials/shaders/advanced_postprocessing.rst` describes depth access and
-  reconstruction. No custom compositor was installed during this audit.
+- xEdit `Core/wbDefinitionsTES5.pas` defines IMAD channel order, DNAM counts,
+  IMGS base values and depth fields. CommonLibSSE-NG
+  `include/RE/T/TESImageSpaceModifier.h` distinguishes base data, animated
+  curves and modifier-only effects.
+- Godot `classes/class_environment.rst` and
+  `classes/class_cameraattributespractical.rst` define the Environment and
+  practical depth-of-field controls used by the host. Its
+  `tutorials/shaders/screen-reading_shaders.rst` defines screen-texture access
+  for the color pass.
 
-`mag_71_host_frame_keeps_curve_samples_with_their_active_weights` checks that
-the host frame preserves the sample and the independent active weight. The
-game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
-synthetic animated color, blur, depth and HDR keys.
-`mag_71_installed_imad_curves_sample_winning_records` is gated on `SKYRIM_DATA`
-and samples each winning IMAD at its active normalized age. These checks do not
-create rendered image fixtures or verify GPU resource cleanup.
+The game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
+synthetic animated keys. The installed test
+`scr_33_installed_imad_lifetimes_and_curves_sample_winning_records` is gated on
+`SKYRIM_DATA` and samples winning IMAD records at their active normalized ages.
+The rendered Godot fixture uses llvmpipe. It does not measure frame time or
+verify Skyrim shader parity.
 
-The repeatable installed survey and its exact counts are recorded in
-[game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). It verifies
-record layout and dependency reach. No Godot process was launched, no frame
-time was measured, and no visible image-space behavior is claimed. MAG-71's
-full rendered acceptance check remains in BACKLOG.csv.
+The installed layout survey and counts are recorded in
+[game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). The pixel
+fixture uses a synthetic scene rather than a vanilla gameplay capture. Frame
+time and exact Skyrim shader parity remain unmeasured.
 
 ## Record-driven skin refresh (INV-08)
 
