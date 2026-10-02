@@ -46,6 +46,35 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Update the shared actor state when a rider mounts or leaves a mount.
+    ///
+    /// # Errors
+    /// Returns an error if the rider or mount is not an actor, or both ids are equal.
+    pub fn set_mount_rider(
+        &mut self,
+        rider: GlobalFormId,
+        mount: GlobalFormId,
+        mounted: bool,
+    ) -> Result<(), String> {
+        if rider == mount {
+            return Err(format!("actor {rider} cannot ride itself"));
+        }
+        if self.actor(rider).is_none() {
+            return Err(format!("{rider} is not an actor"));
+        }
+        if self.actor(mount).is_none() {
+            return Err(format!("{mount} is not an actor"));
+        }
+
+        self.actor(rider)
+            .ok_or_else(|| format!("{rider} is not an actor"))?
+            .riding_mount = mounted;
+        self.actor(mount)
+            .ok_or_else(|| format!("{mount} is not an actor"))?
+            .being_ridden = mounted;
+        Ok(())
+    }
+
     /// Set the actor's head-tracking flag.
     ///
     /// # Errors
