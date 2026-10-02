@@ -550,11 +550,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "ObjectReference",
         "PlayGamebryoAnimation",
         |world, call, me| {
-            let animation = text(&call.arg(0));
-            if animation.is_empty() || world.reference(me).is_none() {
-                return b(false);
-            }
-            b(true)
+            let _ = (world, call, me);
+            b(false)
         }
     );
     method!(
