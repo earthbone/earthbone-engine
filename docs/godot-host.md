@@ -309,9 +309,17 @@ seam a VulkanSceneGraph or other host would reuse: everything above the layer is
 world and converts each Skyrim position to Godot metres and axes. The request
 retains the winning MGEF Hit Shader FormID and active effect identity so a host
 effect renderer can identify the authored shader and remove it when the effect
-ends. This adapter returns requests only. It does not decode EFSH records or
-draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
-`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
+ends. `PlayerNode` reconciles those targets each gameplay step with the existing
+RenderingServer EffectShader path. A newly detected actor starts its MGEF Hit
+Shader on that actor, and a target leaving the set stops the matching shader.
+The renderer reads EFSH `ICON`, color and blend settings, applies its membrane
+fade timing, and uses an authored fill texture when it resolves. It draws a
+server-side sphere instance and creates no per-actor scene nodes. It does not
+render the EFSH particle or gradient groups. The EFSH fields follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `EFSH.wikitext`; the CK dump has no Detect Life
+archetype page defining additional execution semantics. The focused check
+`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`
+also checks the start and stop requests and authored membrane settings.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and

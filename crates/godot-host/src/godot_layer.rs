@@ -99,6 +99,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Detect Life shader pairs currently synchronized to the renderer.
+    detect_life_shaders: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -383,6 +385,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            detect_life_shaders: std::collections::BTreeSet::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -458,9 +461,16 @@ impl CellStreamerNode {
         &mut self,
         world: &soe_game::World,
         requests: Vec<soe_game::world::EffectShaderRequest>,
+        detections: &[crate::detect_life::DetectionPresentation],
         delta: f32,
     ) {
         let mut server = RenderingServer::singleton();
+        let mut requests = requests;
+        requests.extend(crate::detect_life::effect_shader_requests(
+            world,
+            detections,
+            &mut self.detect_life_shaders,
+        ));
         for request in requests {
             let key = (request.shader, request.target);
             if !request.playing {

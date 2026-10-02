@@ -4,7 +4,9 @@
 
 use soe_esm::GlobalFormId;
 use soe_game::world::magic::{EffectId, MagicError};
+use soe_game::world::EffectShaderRequest;
 use soe_game::world::World;
+use std::collections::BTreeSet;
 
 use crate::units::{GodotPos, SkyrimPos};
 
@@ -31,4 +33,39 @@ pub fn presentations(world: &mut World) -> Result<Vec<DetectionPresentation>, Ma
             hit_shader: target.hit_shader,
         })
         .collect())
+}
+
+/// Reconcile active detections with the EffectShader renderer's request queue.
+/// Each selected actor receives its authored MGEF Hit Shader until it leaves
+/// the detection set. Results and requests are stable by shader and actor ID.
+pub fn effect_shader_requests(
+    world: &World,
+    detections: &[DetectionPresentation],
+    active: &mut BTreeSet<(GlobalFormId, GlobalFormId)>,
+) -> Vec<EffectShaderRequest> {
+    let next: BTreeSet<_> = detections
+        .iter()
+        .filter_map(|detection| detection.hit_shader.map(|shader| (shader, detection.actor)))
+        .collect();
+    let mut requests = Vec::new();
+    for &(shader, target) in next.difference(active) {
+        requests.push(EffectShaderRequest {
+            shader,
+            target,
+            duration: -1.0,
+            playing: true,
+            appearance: world.effect_shader_appearance(shader),
+        });
+    }
+    for &(shader, target) in active.difference(&next) {
+        requests.push(EffectShaderRequest {
+            shader,
+            target,
+            duration: 0.0,
+            playing: false,
+            appearance: world.effect_shader_appearance(shader),
+        });
+    }
+    *active = next;
+    requests
 }
