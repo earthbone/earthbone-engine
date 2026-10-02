@@ -7,16 +7,16 @@ use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::{UnresolvedRecord, UnresolvedRecordId};
 use soe_game::Game;
 
-fn plugin(tag: &[u8; 4], object: u32) -> Plugin {
+fn plugin(tag: [u8; 4], object: u32) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag(*tag), object));
+    plugin.push_top(Record::new(Tag(tag), object));
     plugin
 }
 
 fn order(names: &[(&str, Plugin)]) -> LoadOrder {
     let mut order = LoadOrder::new();
     for (name, plugin) in names {
-        order.add(*name, plugin.clone()).unwrap();
+        order.add(name, plugin.clone()).unwrap();
     }
     order
 }
@@ -39,20 +39,17 @@ fn unresolved(plugin: &str) -> UnresolvedRecord {
 
 #[test]
 fn sav_58_rejects_removed_regular_plugin_before_retained_plugin_atomically() {
-    let first = plugin(b"STAT", 0x800);
-    let middle = plugin(b"STAT", 0x801);
-    let tail = plugin(b"STAT", 0x802);
+    let first = plugin(*b"STAT", 0x800);
+    let middle = plugin(*b"STAT", 0x801);
+    let tail = plugin(*b"STAT", 0x802);
     let source_order = order(&[
         ("base.esm", first.clone()),
         ("removed.esp", middle),
         ("tail.esp", tail.clone()),
     ]);
-    let mut source = Game::new(source_order);
+    let source = Game::new(source_order);
     let orphan = unresolved("removed.esp");
-    source
-        .world_mut()
-        .retain_unresolved_record(orphan)
-        .unwrap();
+    source.world_mut().retain_unresolved_record(orphan).unwrap();
     let bytes = source.save_state().unwrap();
 
     let mut current = Game::new(order(&[("base.esm", first), ("tail.esp", tail)]));
@@ -64,14 +61,14 @@ fn sav_58_rejects_removed_regular_plugin_before_retained_plugin_atomically() {
 #[test]
 fn sav_58_rejects_removed_light_plugin_before_retained_light_plugin_atomically() {
     let light = |object| {
-        let mut plugin = plugin(b"STAT", object);
+        let mut plugin = plugin(*b"STAT", object);
         plugin.header.flags = soe_esm::plugin::flags::LIGHT_MASTER;
         plugin
     };
-    let base = plugin(b"STAT", 0x800);
+    let base = plugin(*b"STAT", 0x800);
     let removed = light(0x801);
     let tail = light(0x802);
-    let mut source = Game::new(order(&[
+    let source = Game::new(order(&[
         ("base.esm", base.clone()),
         ("removed.esl", removed),
         ("tail.esl", tail.clone()),
@@ -79,10 +76,7 @@ fn sav_58_rejects_removed_light_plugin_before_retained_light_plugin_atomically()
     let mut orphan = unresolved("removed.esl");
     orphan.id.light = true;
     orphan.id.object = 0x321;
-    source
-        .world_mut()
-        .retain_unresolved_record(orphan)
-        .unwrap();
+    source.world_mut().retain_unresolved_record(orphan).unwrap();
     let bytes = source.save_state().unwrap();
 
     let mut current = Game::new(order(&[("base.esm", base), ("tail.esl", tail)]));
@@ -93,10 +87,10 @@ fn sav_58_rejects_removed_light_plugin_before_retained_light_plugin_atomically()
 
 #[test]
 fn sav_58_rejects_same_name_changed_content_without_mutating_world() {
-    let saved_plugin = plugin(b"STAT", 0x800);
-    let changed_plugin = plugin(b"STAT", 0x801);
-    let suffix = plugin(b"STAT", 0x802);
-    let mut source = Game::new(order(&[
+    let saved_plugin = plugin(*b"STAT", 0x800);
+    let changed_plugin = plugin(*b"STAT", 0x801);
+    let suffix = plugin(*b"STAT", 0x802);
+    let source = Game::new(order(&[
         ("base.esm", saved_plugin),
         ("removed.esp", suffix.clone()),
     ]));
@@ -114,16 +108,19 @@ fn sav_58_rejects_same_name_changed_content_without_mutating_world() {
 
 #[test]
 fn sav_58_rejects_added_plugin_after_removal_without_mutating_world() {
-    let base = plugin(b"STAT", 0x800);
-    let removed = plugin(b"STAT", 0x801);
-    let mut source = Game::new(order(&[("base.esm", base.clone()), ("removed.esp", removed)]));
+    let base = plugin(*b"STAT", 0x800);
+    let removed = plugin(*b"STAT", 0x801);
+    let source = Game::new(order(&[
+        ("base.esm", base.clone()),
+        ("removed.esp", removed),
+    ]));
     source
         .world_mut()
         .retain_unresolved_record(unresolved("removed.esp"))
         .unwrap();
     let bytes = source.save_state().unwrap();
 
-    let added = plugin(b"STAT", 0x802);
+    let added = plugin(*b"STAT", 0x802);
     let mut current = Game::new(order(&[("base.esm", base), ("added.esp", added)]));
     let before = current.save_state().unwrap();
     assert!(current.load_state(&bytes).is_err());
