@@ -2575,9 +2575,7 @@ package over the base list, switch at once from a script's
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
-calling the `On Begin`, `On End` and `On Change` package fragments at
-package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
-driver does not yet call them, AI-04), idles and topics, once per day for
+idles and topics, once per day for
 packages that end without arriving, `Must Complete`, interrupt flags, combat
 interrupt overrides, door unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
@@ -4030,19 +4028,26 @@ state sets LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads
 false until
 a bribe or intimidate native writes it.
 
-AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
-parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
-value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
-Arrested state reads the subject actor's `arrested` field, matching CK's
-`IsArrested`. Nonzero unused parameter slots and subjects without actor state
-return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
-`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
-has no arresting-target state to evaluate. Its condition is reported as
-`Error::Function(657)` instead of guessing from combat or alert state. The
-function names and parameter counts follow local xEdit
+AI-46 covers parameterless functions `GetBribeSuccess` (654),
+`GetIntimidateSuccess` (655), `GetArrestedState` (656) and
+`GetArrestingActor` (657). Bribe success reads the subject's
+`LastBribedIntimidated` actor
+value, consistent with CK's `SetBribed` status contract and the paired
+intimidation status functions `SetIntimidated` and `IsIntimidated`. Arrested
+state reads the subject actor's `arrested` field, matching CK's `IsArrested`.
+`GetIntimidateSuccess` (655) reports an unavailable result when the subject
+has the required actor state, because CK's `WillIntimidateSucceed` points to
+the unimplemented "Mod Player Intimidation" perk entry point. Subjects without
+the required confidence value return `Error::StateContract(655)`. Nonzero
+unused parameter slots and subjects without actor state return explicit
+errors for implemented predicates. `GetArrestingActor` (657) follows CK's
+`IsArrestingTarget`: it returns false for non-guards and non-alerted guards.
+The runtime does not track an alerted guard's active arrest interaction, so
+that context returns `Error::Unavailable(657)`. Function IDs and parameter
+counts follow local xEdit
 `wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
-contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
-`IsArrestingTarget` pages.
+contracts follow the local CK `SetBribed`, `SetIntimidated`, `IsIntimidated`,
+`IsArrested`, `IsArrestingTarget` and `WillIntimidateSucceed` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
@@ -6391,8 +6396,12 @@ Its six ordered parameters are PathStart, PointRadius, Repeatable,
 StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
 Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
 vanilla Patrol template. Some branches omit optional inputs using index 255.
-Their defaults are not established, so those branches report Unsupported.
-Public parameter names do not determine execution.
+Omitted Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
+inputs default to false. Missing PathStart or PointRadius remains unsupported.
+The CK procedure-tree tutorial authors Static Pathing as a boolean input but
+does not describe a separate movement result. This runtime accepts either
+value and follows the same cached navmesh segment route for both. It does not
+model a separate static-path request or dynamic-obstacle replanning.
 
 PathStart currently supports a specific reference or the actor's keyword-free
 linked reference. Template overrides retain their defining plugin namespace.
@@ -6429,8 +6438,13 @@ accepts null topic placeholders. The primary author's
 [Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
 linked order, nearest entry, reversal and circular traversal. The
 [procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
-describes the parameter types. These sources provide no reusable runtime
-walker, so this implementation extends the existing actor driver.
+describes the parameter types and authors Static Pathing as an assigned input,
+without documenting a distinct path result. CommonLib names a
+`MovementMessageSetStaticPath` type, but its available declarations do not
+expose a Patrol-specific behavior contract. The runtime comparison fixture
+therefore establishes only that both values use the current cached navmesh
+segment walker. These sources provide no reusable runtime walker, so this
+implementation extends the existing actor driver.
 
 The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
