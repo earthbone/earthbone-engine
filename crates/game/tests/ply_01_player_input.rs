@@ -85,7 +85,7 @@ fn cell(plugin: &mut Plugin, object: u32, name: &str, references: Vec<Record>) {
     plugin.groups.push(top);
 }
 
-fn plugin() -> Plugin {
+pub(super) fn plugin() -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     for base in [7, 0x900] {
         plugin.push_top(Record::new(T(b"NPC_"), base).sub(T(b"ACBS"), vec![0; 24]));
@@ -224,7 +224,7 @@ fn trace(function: &str, message: &str, parameters: &[(&str, &str)]) -> soe_papy
         .build()
 }
 
-fn scripts() -> Vec<(&'static str, Vec<u8>)> {
+pub(super) fn scripts() -> Vec<(&'static str, Vec<u8>)> {
     vec![
         (
             "Debug",
