@@ -338,6 +338,9 @@ effect renderer can identify the authored shader and remove it when the effect
 ends. `PlayerNode` reconciles those targets each gameplay step with the existing
 RenderingServer EffectShader path. A newly detected actor starts its MGEF Hit
 Shader on that actor, and a target leaving the set stops the matching shader.
+The host requests a visual only when the resolved form is a winning `EFSH`
+record, so a missing or differently typed shader cannot become a default
+white sphere.
 The renderer reads EFSH `ICON`, color and blend settings, applies its membrane
 fade timing, and uses an authored fill texture when it resolves. It draws a
 server-side sphere instance and creates no per-actor scene nodes. It does not

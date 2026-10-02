@@ -2,6 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::GlobalFormId;
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::magic::EffectId;
 use soe_game::Game;
 use soe_godot_host::detect_life::{effect_shader_requests, DetectionPresentation};
@@ -21,6 +22,14 @@ fn detection(actor: u32, shader: Option<u32>) -> DetectionPresentation {
     }
 }
 
+fn game_with_efsh() -> Game {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag::new(b"EFSH"), 0x400));
+    let mut order = LoadOrder::new();
+    order.add("EffectShaders.esm", plugin).unwrap();
+    Game::new(order)
+}
+
 #[test]
 fn mag_40_missing_efsh_record_does_not_request_a_fallback_visual() {
     let game = Game::new(soe_esm::LoadOrder::new());
@@ -35,7 +44,7 @@ fn mag_40_missing_efsh_record_does_not_request_a_fallback_visual() {
 
 #[test]
 fn mag_40_overlapping_effects_for_one_shader_start_only_one_target_visual() {
-    let game = Game::new(soe_esm::LoadOrder::new());
+    let game = game_with_efsh();
     let world = game.world();
     let mut active = BTreeSet::new();
     let detections = [detection(0x101, Some(0x400)), detection(0x101, Some(0x400))];
@@ -43,7 +52,10 @@ fn mag_40_overlapping_effects_for_one_shader_start_only_one_target_visual() {
     let requests = effect_shader_requests(&world, &detections, &mut active);
 
     assert_eq!(requests.len(), 1);
-    assert_eq!((requests[0].shader, requests[0].target), (id(0x400), id(0x101)));
+    assert_eq!(
+        (requests[0].shader, requests[0].target),
+        (id(0x400), id(0x101))
+    );
     assert!(requests[0].playing);
 }
 

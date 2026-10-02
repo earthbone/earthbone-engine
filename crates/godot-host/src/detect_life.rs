@@ -45,7 +45,13 @@ pub fn effect_shader_requests(
 ) -> Vec<EffectShaderRequest> {
     let next: BTreeSet<_> = detections
         .iter()
-        .filter_map(|detection| detection.hit_shader.map(|shader| (shader, detection.actor)))
+        .filter_map(|detection| {
+            let shader = detection.hit_shader?;
+            world
+                .record(shader)
+                .is_some_and(|record| record.tag == soe_esm::Tag::new(b"EFSH"))
+                .then_some((shader, detection.actor))
+        })
         .collect();
     let mut requests = Vec::new();
     for &(shader, target) in next.difference(active) {
