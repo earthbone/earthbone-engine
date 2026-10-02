@@ -52,6 +52,8 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-48", write: crate::dialogue::write_known_topics, read: crate::dialogue::read_known_topics },
     Section { name: "SCR-24", write: |world, writer, _pool| world.write_effect_shader_section(writer), read: |world, reader, _table| world.read_effect_shader_section(reader) },
     Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
+    Section { name: "AI-80", write: write_faction_attacks, read: read_faction_attacks },
+    Section { name: "MAG-64", write: write_reference_bindings, read: read_reference_bindings },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -249,6 +251,8 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
     Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
+    Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
+    Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
 ];
 
 fn write_stagger_metadata(
@@ -857,5 +861,118 @@ fn read_scene_runtime(
         ));
     }
     world.scene_runs = runs;
+    Ok(())
+}
+
+fn write_faction_attacks(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    let attacked: std::collections::BTreeSet<_> = world
+        .factions
+        .iter()
+        .filter_map(|(id, faction)| faction.player_attacked.then_some(*id))
+        .collect();
+    writer.len(attacked.len());
+    for id in attacked {
+        super::save::write_form_id(writer, id);
+    }
+}
+
+fn read_faction_attacks(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "AI-80 faction count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("AI-80 duplicate faction".into()));
+        }
+        let faction = world
+            .factions
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("AI-80 missing faction".into()))?;
+        faction.player_attacked = true;
+    }
+    Ok(())
+}
+
+fn write_movement_flags(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(actor.swimming);
+    writer.bool(actor.running);
+    writer.bool(actor.riding_mount);
+}
+
+fn read_movement_flags(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.swimming = reader.bool()?;
+    actor.running = reader.bool()?;
+    actor.riding_mount = reader.bool()?;
+    Ok(())
+}
+
+fn write_reference_bindings(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    let bindings: Vec<_> = world
+        .pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, pending)| match pending {
+            super::Pending::BindReference { object, base } => Some((index, object, base)),
+            _ => None,
+        })
+        .collect();
+    writer.len(bindings.len());
+    for (index, object, base) in bindings {
+        writer.len(index);
+        writer.u64(object.0);
+        super::save::write_form_id(writer, *base);
+    }
+}
+
+fn read_reference_bindings(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 18 {
+        return Err(VmError::State(
+            "MAG-64 binding count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut previous = None;
+    for _ in 0..count {
+        let index = reader.len()?;
+        let object = soe_papyrus::ObjectId(reader.u64()?);
+        let base = super::save::read_form_id(reader)?;
+        if previous.is_some_and(|prior| index <= prior) || index > world.pending.len() {
+            return Err(VmError::State("MAG-64 invalid binding position".into()));
+        }
+        previous = Some(index);
+        world
+            .pending
+            .insert(index, super::Pending::BindReference { object, base });
+    }
+    Ok(())
+}
+
+fn write_package_tree(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    crate::ai::write_tree_state(writer, actor.ai.tree.as_ref());
+}
+
+fn read_package_tree(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.ai.tree = crate::ai::read_tree_state(reader)?;
     Ok(())
 }

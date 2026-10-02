@@ -2888,6 +2888,16 @@ fully consume are all load errors naming the section and the level.
 Versions before 37 have no section table at any level, and the reader
 skips looking for one below version 37.
 
+The fixed world, actor, reference and faction bodies retain the layout at
+`72add3f8`. Version 34 stores encounter-zone visits, version 35 stores list
+metadata, and version 36 stores scene phase and completed action slots.
+AI-80 faction attacks, MAG-43 Reanimate owners and CRF-03 learned effects
+use world sections. AI-64 movement flags and AI-15 stacked package frames
+use actor sections. MAG-64 pending reference bindings use a world section,
+after AI-16 script calls, to preserve their combined queue order. The source
+for this engine-owned layout is the frozen repository writer, rather than
+the external vanilla ESS references.
+
 Legacy test fixtures measure trailing cuts with `version_tail_len` or
 `truncate_to_version` in `tests/common/save_tail.rs`, using a fresh world and
 the requested version's reader. Invalid fixtures reuse a cut measured on a

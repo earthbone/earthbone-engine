@@ -140,7 +140,7 @@ fn read_reanimate_owners(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     let count = r.len()?;
-    if count > r.remaining() / 12 {
+    if count > r.remaining() / 9 {
         return Err(VmError::State(
             "MAG-43 owner count exceeds remaining bytes".into(),
         ));
@@ -214,7 +214,6 @@ fn read_command_owners(
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
-    has_reanimated_owner: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -232,11 +231,6 @@ pub(in crate::world) fn read_magic(
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
             read_opt_form_id(r)?
-        } else {
-            None
-        };
-        let reanimated_previous_owner = if has_reanimated_owner && r.bool()? {
-            Some(read_opt_form_id(r)?)
         } else {
             None
         };
@@ -276,7 +270,7 @@ pub(in crate::world) fn read_magic(
             duration,
             elapsed,
             summoned,
-            reanimated_previous_owner,
+            reanimated_previous_owner: None,
             restore_owner: None,
             recover,
             changes,

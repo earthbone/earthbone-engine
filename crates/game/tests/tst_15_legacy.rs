@@ -31,7 +31,6 @@ fn tst_15_legacy_tails_follow_the_versioned_reader() {
     let original = World::new(order()).save_state();
     for version in [4, 7, 8, 9, 11, 14, 19, 20, 21, 22, 24, 25, 26, 34, 35, 36] {
         let mut bytes = original.clone();
-        legacy::empty_legacy_world_collections(&mut bytes, version);
         let fixture_len = bytes.len();
         let tail = legacy::truncate_to_version(&mut bytes, version, |candidate| {
             World::new(order()).load_state(candidate).is_ok()

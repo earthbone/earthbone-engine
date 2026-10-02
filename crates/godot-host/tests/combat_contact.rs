@@ -462,7 +462,8 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
-    // Detection's empty pool count precedes the world-level section table.
+    // Frozen version 36 scene progress precedes detection and named sections.
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u16.to_le_bytes());
     assert!(bytes.ends_with(&suffix));

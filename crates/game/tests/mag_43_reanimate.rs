@@ -51,6 +51,7 @@ fn fixture_with_flags(duration: u32, flags: u32) -> Game {
         }
         plugin.push_top(reference);
     }
+    plugin.push_top(Record::new(tag(b"FACT"), 0x400).sub(tag(b"DATA"), 0_u32.to_le_bytes()));
     plugin.push_top(Record::new(tag(b"MGEF"), EFFECT).sub(tag(b"DATA"), effect_data));
     plugin.push_top(
         Record::new(tag(b"SPEL"), SPELL)
@@ -203,4 +204,83 @@ fn mag_43_saved_reanimation_resumes_its_remaining_lifetime() {
         loaded.world().reference_ref(id(CORPSE)).unwrap().owner,
         Some(id(PRIOR_OWNER))
     );
+}
+
+#[test]
+fn frozen_version_37_layout_loads_factions_and_magic_without_extra_fields() {
+    assert_frozen_layout(37);
+}
+
+#[test]
+fn frozen_version_36_layout_loads_factions_and_magic_without_reused_fields() {
+    assert_frozen_layout(36);
+}
+
+fn assert_frozen_layout(version: u16) {
+    let mut game = fixture(10);
+    assert!(game.world_mut().kill_actor(id(CORPSE), None));
+    let effect = cast(&mut game, Some(id(CASTER))).unwrap()[0];
+    let faction = id(0x400);
+    let actor = id(CORPSE);
+    {
+        let mut world = game.world_mut();
+        let state = world.faction(faction).unwrap();
+        state.player_attacked = true;
+        state.crime_gold_violent = 123;
+        world.actor(actor).unwrap().swimming = true;
+    }
+    let bytes = match version {
+        36 => {
+            crate::common::legacy::version_36_at_freeze(&mut game.world_mut(), &[id(CASTER), actor])
+        }
+        37 => {
+            crate::common::legacy::version_37_at_freeze(&mut game.world_mut(), &[id(CASTER), actor])
+        }
+        _ => unreachable!("fixture version"),
+    };
+    assert_eq!(&bytes[4..6], &version.to_le_bytes());
+    // CONTEXT: Encode the active-effect block exactly as the frozen writer did.
+    let mut magic = soe_papyrus::vm::state::Writer::new();
+    magic.u64(effect.0 + 1);
+    magic.len(1);
+    magic.u64(effect.0);
+    for form in [SPELL, EFFECT] {
+        magic.u16(0);
+        magic.u32(form);
+    }
+    magic.u32(0);
+    magic.u16(0);
+    magic.u32(CASTER);
+    magic.bool(true);
+    magic.u16(0);
+    magic.u32(CASTER);
+    magic.u16(0);
+    magic.u32(CORPSE);
+    magic.f32(10.0);
+    magic.bool(true);
+    magic.f64(10.0);
+    magic.f64(0.0);
+    magic.bool(false);
+    magic.bool(false);
+    magic.len(0);
+    crate::common::legacy::unique_offset(&bytes, &magic.out);
+
+    let restored = fixture(10);
+    restored
+        .world_mut()
+        .faction(faction)
+        .unwrap()
+        .player_attacked = true;
+    restored.world_mut().load_state(&bytes).unwrap();
+    let mut world = restored.world_mut();
+    assert_eq!(world.faction(faction).unwrap().crime_gold_violent, 123);
+    assert!(!world.faction(faction).unwrap().player_attacked);
+    assert!(!world.actor(actor).unwrap().swimming);
+    let loaded = world
+        .active_effects()
+        .find(|loaded| loaded.id == effect)
+        .unwrap();
+    assert_eq!(loaded.target, actor);
+    assert_eq!(loaded.reanimated_previous_owner, None);
+    assert_eq!(loaded.elapsed, 0.0);
 }

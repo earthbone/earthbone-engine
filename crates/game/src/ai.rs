@@ -3059,7 +3059,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
-        Procedure::Flee => w.u8(if version < 34 { 7 } else { 19 }),
+        Procedure::Flee if version >= 34 => w.u8(19),
         Procedure::Patrol => {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref(), version);
@@ -3070,7 +3070,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
             w.u8(4);
             w.str("AI-30 Guard");
         }
-        Procedure::Sit => w.u8(if version >= 37 { 18 } else { 9 }),
+        Procedure::Sit if version >= 37 => w.u8(18),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -3105,7 +3105,7 @@ fn write_record_state_version(w: &mut Writer, a: &AiState, version: u16) {
                 None => w.bool(false),
             }
         }
-        Procedure::Shout => {
+        Procedure::Shout if version >= 37 => {
             w.u8(17);
             w.bool(a.wait_until.is_some());
             if let Some(until) = a.wait_until {
@@ -3213,6 +3213,18 @@ pub(crate) fn write_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
             };
             write_record_state(w, &state);
         }
+    }
+}
+
+/// Write the package cursor layout frozen by SOEW version 37.
+pub(crate) fn write_legacy_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
+    w.bool(tree.is_some());
+    if let Some(tree) = tree {
+        w.u16(tree.owner.file);
+        w.u32(tree.owner.object);
+        w.u32(tree.branch);
+        w.bool(tree.active);
+        w.bool(tree.finished);
     }
 }
 
