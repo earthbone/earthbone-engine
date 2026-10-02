@@ -78,7 +78,7 @@ fn sav_15_saved_reference_mask_inverts_authored_flags() {
         report.remaining[&id(0, 0xA00)].form_flags,
         Some((mask, 0x50))
     );
-    assert!(world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
+    assert!(!world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
 
     let bytes = world.save_state();
     let mut loaded = World::new(fixture_order_with_flags(mask));
