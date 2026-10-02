@@ -10,6 +10,9 @@ mod support;
 #[path = "ply_06_ai_crafting.rs"]
 mod ply_06_ai_crafting;
 
+#[path = "ply_06_adversarial.rs"]
+mod ply_06_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
