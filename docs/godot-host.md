@@ -449,10 +449,30 @@ the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used
 host renderer. It clears the previous selection first, so the viewport contains one cell.
 The viewport camera frames the rendered bounds after selection.
 
-This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
-cell records, expose reference selection, or add transform gizmos. The Godot project opens
-the cell view only after the author enters a valid `Data` directory or launches the editor
-with `SKYRIM_DATA` set.
+This milestone supplies a read-only cell tree and rendered cell preview. Reference transform
+editing is provided by the separate `addons/soe_reference_gizmo` dock described below. The
+Godot project opens the cell view only after the author enters a valid `Data` directory or
+launches the editor with `SKYRIM_DATA` set.
+
+### Selected reference transform gizmo, EDT-14
+
+The `addons/soe_reference_gizmo` editor dock opens plugin paths through
+`SoeReferenceTransformEditor`, takes a resolved `file:object` FormID, and adds one
+`SoeReferenceGizmoTarget` proxy Node3D to the edited scene. Godot's registered
+`EditorNode3DGizmoPlugin` attaches a draggable handle to that selected proxy. Its commit
+callback calls `commit_gizmo_transform`, which forwards position and rotation to
+`SoeReferenceTransformEditor::set_reference_transform` and then to
+`EditorDocument::set_reference_transform`. The record remains the source used for plugin
+output. Undo calls the document edit log and reloads the proxy pose from the winning record.
+The Save plugin button writes the active plugin. This creates one proxy node for the selected
+reference only; ordinary cell rendering remains RID-backed.
+
+Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value
+used by this adapter. `godot/edt_14_gizmo_test.gd` exercises the gizmo callback adapter and
+proxy update in Godot. The editor crate tests verify the record operation, undo, and saved
+`REFR` placement. Reference selection from the cell tree and automatic replacement of the
+streamed cell preview after a placement edit are not implemented by this milestone.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
 per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`

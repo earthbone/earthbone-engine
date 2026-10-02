@@ -353,12 +353,19 @@ already owned by the active plugin, then rebuilds the winning form table. Its ed
 the prior plugin so undo restores the record pose used by the renderer and by plugin save.
 The operation rejects missing or malformed transform data and repeated `DATA` fields. It
 does not create overrides for references owned by another plugin. The Godot cell editor does
-not yet connect a transform gizmo to this operation.
+not enumerate references from its streamed cell preview. The separate selected-reference dock
+opens an `EditorDocument`, adds one proxy Node3D for the supplied FormID, and registers an
+`EditorNode3DGizmoPlugin` for that proxy. A gizmo handle commit calls the proxy adapter, which
+passes the position and rotation into this operation. The dock's undo action restores the
+document and reloads the proxy transform from the winning record. Saving writes the changed
+active plugin. Bulk cell rendering continues to use RenderingServer instances; only the
+currently edited reference has a scene proxy.
 
 The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
-`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. Their
-Godot callback is not wired to this Rust operation yet.
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values. The
+integration check invokes the same callback adapter used by `_commit_handle` and checks the
+record edit, undo and serialized placement through the editor document tests.
 
 `EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
 `soe-esm::records::stat::Static` view and returns the value with the file name of the winning
