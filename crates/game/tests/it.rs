@@ -1162,6 +1162,8 @@ mod scr_49_adversarial;
 mod scr_49_utility_frame_rate;
 #[path = "scr_50_adversarial.rs"]
 mod scr_50_adversarial;
+#[path = "scr_50_breaker_adversarial.rs"]
+mod scr_50_breaker_adversarial;
 #[path = "scr_50_utility_runtime_queries.rs"]
 mod scr_50_utility_runtime_queries;
 #[path = "scr_51_adversarial.rs"]
