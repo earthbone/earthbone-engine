@@ -16,10 +16,7 @@ use soe_game::{
     combat::{Difficulty, Error, Hand},
     Game,
 };
-use soe_godot_host::{
-    combat::{contact_annotation_triggers, MeleeContact},
-    input::{Action, Bindings, ControlMap, InputState},
-};
+use soe_godot_host::combat::{contact_annotation_triggers, MeleeContact};
 use soe_hkx::{
     animation::{Annotation, AnnotationTrack, SplineCompressedAnimation},
     behavior::{BehaviorGraph, BehaviorGraphData, ClipGenerator, Node, NodeId, NodeKind},
@@ -31,6 +28,10 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn weapon(object: u32, damage: u16, animation: u8, slot: u32) -> Record {
+    weapon_with_stagger(object, damage, animation, slot, 0.0)
+}
+
+fn weapon_with_stagger(object: u32, damage: u16, animation: u8, slot: u32, stagger: f32) -> Record {
     let mut data = vec![0; 10];
     data[8..10].copy_from_slice(&damage.to_le_bytes());
     let mut dnam = vec![0; 100];
@@ -39,6 +40,7 @@ fn weapon(object: u32, damage: u16, animation: u8, slot: u32) -> Record {
     dnam[8..12].copy_from_slice(&1_f32.to_le_bytes());
     dnam[76..80].copy_from_slice(&(-1_i32).to_le_bytes());
     dnam[88..92].copy_from_slice(&(-1_i32).to_le_bytes());
+    dnam[96..100].copy_from_slice(&stagger.to_le_bytes());
     Record::new(Tag(*b"WEAP"), object)
         .sub(Tag(*b"DATA"), data)
         .sub(Tag(*b"DNAM"), dnam)
@@ -84,6 +86,7 @@ fn fixture() -> Game {
     ] {
         plugin.push_top(weapon(form, damage, animation, slot));
     }
+    plugin.push_top(weapon_with_stagger(0xa07, 10, 1, 0xb02, 1.0));
     let mut order = LoadOrder::new();
     plugin.push_top(Record::new(Tag(*b"WEAP"), 0xa06).sub(Tag(*b"CNAM"), 0xa01_u32.to_le_bytes()));
     order.add("Contact.esm", plugin).unwrap();
@@ -211,6 +214,43 @@ fn cmb_03_authored_contact_frame_applies_one_hit_with_the_selected_hand() {
             .unwrap();
         assert_eq!(queries, 1);
     }
+}
+
+#[test]
+fn cmb_27_shared_game_applies_stagger_damage_once_per_hit_frame() {
+    let mut game = fixture();
+    let attacker = id(0x14);
+    let target = id(0x900);
+    let weapon = id(0xa07);
+    game.world_mut().add_item(attacker, weapon, 1);
+    game.world_mut()
+        .equip_hand_weapon(attacker, Hand::Right, weapon)
+        .unwrap();
+
+    let mut contact = MeleeContact::default();
+    contact.begin(&game, attacker, Hand::Right).unwrap();
+    let hit = contact
+        .event(&mut game, "HitFrame", |_| Ok(Some(target)))
+        .unwrap()
+        .expect("the shared Game should apply the host-confirmed hit");
+
+    assert_eq!(hit.health_damage, 10.0);
+    assert!(hit.staggered);
+    assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
+    assert!(game
+        .world_mut()
+        .actor(target)
+        .unwrap()
+        .stagger_end_time
+        .is_some());
+
+    assert!(contact
+        .event(&mut game, "HitFrame", |_| panic!(
+            "duplicate hit frame queried"
+        ))
+        .unwrap()
+        .is_none());
+    assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
 }
 
 #[test]
@@ -401,7 +441,10 @@ fn templated_hand_weapon_reaches_contact_damage_with_selected_identity() {
 }
 
 #[test]
+#[cfg(feature = "godot")]
 fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
+    use soe_godot_host::input::{Action, Bindings, ControlMap, InputState};
+
     let mut game = fixture();
     let mut bindings = Bindings::default();
     bindings.apply_control_map(&ControlMap::parse(
@@ -416,9 +459,22 @@ fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
     assert_eq!(Action::RightAttack.event_name(), "Right Attack/Block");
 
     let mut contact = MeleeContact::default();
-    if input.right_attack_pressed {
-        contact.begin(&game, id(0x14), Hand::Right).unwrap();
-    }
+    assert!(
+        soe_godot_host::godot_player::PlayerNode::arm_melee_swing_from_input(
+            &mut game,
+            &mut contact,
+            input.right_attack_pressed,
+        )
+        .unwrap()
+    );
+    assert!(
+        !soe_godot_host::godot_player::PlayerNode::arm_melee_swing_from_input(
+            &mut game,
+            &mut contact,
+            false,
+        )
+        .unwrap()
+    );
     assert_eq!(contact.armed(), Some((id(0x14), Hand::Right)));
     assert!(contact
         .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))

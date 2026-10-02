@@ -85,6 +85,12 @@ enum StaggerGraphEvent {
     Stop,
 }
 
+/// Send the shared actor's stagger magnitude and start event to its graph.
+pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
+    vm.variables.set_by_name("staggerMagnitude", magnitude);
+    vm.send_event_named("staggerStart")
+}
+
 #[derive(Default)]
 struct StaggerTracker {
     last_deadline: Option<f64>,
@@ -402,11 +408,10 @@ impl SkinnedActorNode {
             return;
         };
         match stagger_event {
-            Some(StaggerGraphEvent::Start) => {
-                vm.variables.set_by_name("staggerMagnitude", 1.0);
-                vm.send_event_named("staggerStart");
+            Some((StaggerGraphEvent::Start, magnitude)) => {
+                send_stagger_start(vm, magnitude);
             }
-            Some(StaggerGraphEvent::Stop) => {
+            Some((StaggerGraphEvent::Stop, _)) => {
                 vm.send_event_named("staggerStop");
             }
             None => {}
@@ -711,15 +716,19 @@ impl SkinnedActorNode {
         }
     }
 
-    fn take_stagger_event(&mut self) -> Option<StaggerGraphEvent> {
+    fn take_stagger_event(&mut self) -> Option<(StaggerGraphEvent, f32)> {
         let Some(binding) = &mut self.appearance else {
             return None;
         };
         let mut world = binding.world.borrow_mut();
-        let deadline = world
+        let state = world
             .actor(binding.actor)
-            .and_then(|actor| actor.stagger_end_time);
-        binding.stagger.observe(deadline, world.clock.real_seconds)
+            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
+        let (deadline, magnitude) = state?;
+        binding
+            .stagger
+            .observe(deadline, world.clock.real_seconds)
+            .map(|event| (event, magnitude as f32))
     }
 
     fn apply_queued_impulses(&mut self) {
