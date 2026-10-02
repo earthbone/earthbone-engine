@@ -12,6 +12,71 @@ use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
 use super::World;
 
 impl World {
+    /// Send the assault alarm for `faction` using its nearest resident actor
+    /// as the witness and the player as the perpetrator.
+    ///
+    /// # Errors
+    /// Returns [`Error::NoAssaultWitness`] when no other built actor belongs
+    /// to the faction, [`Error::NotTracked`] when the faction does not track
+    /// crime, or the actor validation errors from the crime recorder.
+    ///
+    /// # Panics
+    /// This operation does not panic.
+    pub fn send_assault_alarm(&mut self, faction: GlobalFormId) -> Result<i32, Error> {
+        let player = self.player();
+        let player_position = self
+            .refs
+            .get(&player)
+            .map_or([0.0; 3], |reference| reference.position);
+        let witness = self
+            .actors
+            .iter()
+            .filter(|(id, actor)| **id != player && actor.factions.contains_key(&faction))
+            .filter_map(|(id, _)| {
+                self.refs.get(id).map(|reference| {
+                    let distance_squared = reference
+                        .position
+                        .iter()
+                        .zip(player_position)
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f32>();
+                    (*id, distance_squared)
+                })
+            })
+            .filter(|(_, distance)| distance.is_finite())
+            .min_by(|(left_id, left_distance), (right_id, right_distance)| {
+                left_distance
+                    .total_cmp(right_distance)
+                    .then_with(|| left_id.cmp(right_id))
+            })
+            .map(|(id, _)| id)
+            .ok_or(Error::NoAssaultWitness(faction))?;
+        self.record_witnessed_crime_in_faction(player, witness, CrimeType::Assault, faction)
+    }
+
+    /// Serve the player's bounty with `faction` and mark the player arrested
+    /// when a positive sentence is served.
+    ///
+    /// Jail marker travel and belongings storage are host/runtime work and
+    /// are not performed by this accounting operation.
+    ///
+    /// # Errors
+    /// Returns [`Error::NotTracked`] when the faction is absent or does not
+    /// track crime, and [`Error::Actor`] when the player cannot be built.
+    ///
+    /// # Panics
+    /// This operation does not panic.
+    pub fn send_player_to_jail(&mut self, faction: GlobalFormId) -> Result<u32, Error> {
+        let days = self.serve_jail_time(faction)?;
+        if days > 0 {
+            let player = self.player();
+            if let Some(actor) = self.actor(player) {
+                actor.arrested = true;
+            }
+        }
+        Ok(days)
+    }
+
     /// Return the choices offered for an arrest by the player's crime faction.
     ///
     /// Payment is offered only when the player has enough `Gold001`, jail is

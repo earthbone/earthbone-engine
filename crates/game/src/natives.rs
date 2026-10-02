@@ -3454,14 +3454,35 @@ fn faction(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Faction", "ModReaction", |world, call, me| {
         let amount = call.arg(1).as_int();
         if let Some(other) = world.form_arg(&call.arg(0)) {
-            if let Some(f) = world.faction(me) {
-                let reaction = f
-                    .reactions
-                    .get(&other)
-                    .copied()
-                    .unwrap_or(reaction::NEUTRAL);
-                f.reactions.insert(other, reaction.saturating_add(amount));
-            }
+            world.mod_faction_reaction(me, other, amount);
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "SendAssaultAlarm", |world, call, me| {
+        if let Err(error) = world.send_assault_alarm(me) {
+            call.log
+                .push(call.time, format!("Faction.SendAssaultAlarm: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "SendPlayerToJail", |world, call, me| {
+        let remove_inventory = call.arg(0).as_bool();
+        let real_jail = call.arg(1).as_bool();
+        if remove_inventory || real_jail {
+            let unsupported = match (remove_inventory, real_jail) {
+                (true, true) => "inventory removal and jail placement",
+                (true, false) => "inventory removal",
+                (false, true) => "jail placement",
+                (false, false) => "requested jail options",
+            };
+            call.log.push(
+                call.time,
+                format!("Faction.SendPlayerToJail: {unsupported} is not implemented"),
+            );
+        }
+        if let Err(error) = world.send_player_to_jail(me) {
+            call.log
+                .push(call.time, format!("Faction.SendPlayerToJail: {error}"));
         }
         none()
     });
@@ -4862,8 +4883,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Faction", "SendAssaultAlarm"),
-        ("Faction", "SendPlayerToJail"),
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
@@ -5491,8 +5510,11 @@ mod tests {
             "SetPlayerExpelled",
             "SetPlayerEnemy",
             "IsFactionInCrimeGroup",
+            "SendAssaultAlarm",
+            "SendPlayerToJail",
+            "ModReaction",
         ];
-        let stubs = ["SendAssaultAlarm", "SendPlayerToJail", "ModReaction"];
+        let stubs: [&str; 0] = [];
 
         for name in implemented.into_iter().chain(stubs) {
             assert!(vm.natives.has_method("Faction", name), "Faction.{name}");
@@ -5501,8 +5523,8 @@ mod tests {
                 "Faction.{name} is a method, not a global"
             );
         }
-        assert_eq!(implemented.len(), 19);
-        assert_eq!(stubs.len(), 3);
+        assert_eq!(implemented.len(), 22);
+        assert_eq!(stubs.len(), 0);
         assert_eq!(implemented.len() + stubs.len(), 22);
     }
 

@@ -1914,6 +1914,98 @@ fn scr_25_mod_reaction_handles_default_missing_target_and_overflow() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// The faction alarm uses a resident member as witness and records player assault.
+#[test]
+fn scr_25_send_assault_alarm_records_nearest_faction_witness() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let guard_id = g.form("GuardRef").unwrap();
+    let faction_id = g.form("GuardsFaction").unwrap();
+    let guard_base = g.form("GuardBase").unwrap();
+    let player = g.world_mut().player();
+    let nearby_guard = {
+        let mut world = g.world_mut();
+        world.reference(guard_id).unwrap().position = [100.0, 0.0, 0.0];
+        let spawned = world.place_at(guard_base, player, false);
+        world.reference(spawned).unwrap().position = [2.0, 0.0, 0.0];
+        world.actor(spawned).unwrap().factions.insert(faction_id, 0);
+        spawned
+    };
+
+    assert_eq!(call(&mut g, &guards, "SendAssaultAlarm", &[]), Value::None);
+
+    assert!(g
+        .world_mut()
+        .actor(nearby_guard)
+        .unwrap()
+        .witnessed_crimes
+        .contains(&player));
+    assert!(!g
+        .world_mut()
+        .actor(guard_id)
+        .unwrap()
+        .witnessed_crimes
+        .contains(&player));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Alarm dispatch reports a missing faction witness and jail requires a tracked faction.
+#[test]
+fn scr_25_faction_crime_methods_report_missing_prerequisites() {
+    let mut g = game();
+    let thieves = obj(&mut g, "ThievesFaction");
+
+    assert_eq!(call(&mut g, &thieves, "SendAssaultAlarm", &[]), Value::None);
+    assert_eq!(
+        call(
+            &mut g,
+            &thieves,
+            "SendPlayerToJail",
+            &[Value::Bool(false), Value::Bool(false)],
+        ),
+        Value::None
+    );
+
+    assert!(g.vm.log.contains("no resident actor"));
+    assert!(g.vm.log.contains("does not track crime"));
+    let player = g.world_mut().player();
+    assert_eq!(g.world_mut().actor(player).unwrap().days_in_jail, 0);
+}
+
+/// Jail arguments are observed, sentencing clears bounty and marks the player arrested.
+#[test]
+fn scr_25_send_player_to_jail_serves_sentence_and_reports_host_options() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let faction = g.form("GuardsFaction").unwrap();
+    let player = g.world_mut().player();
+    {
+        let mut world = g.world_mut();
+        let state = world.faction(faction).unwrap();
+        state.crime_gold_violent = 150;
+        state.crime_gold_nonviolent = 25;
+    }
+
+    assert_eq!(
+        call(
+            &mut g,
+            &guards,
+            "SendPlayerToJail",
+            &[Value::Bool(true), Value::Bool(true)],
+        ),
+        Value::None
+    );
+
+    let mut world = g.world_mut();
+    assert_eq!(world.actor(player).unwrap().days_in_jail, 2);
+    assert!(world.actor(player).unwrap().arrested);
+    let faction_state = world.faction(faction).unwrap();
+    assert_eq!(faction_state.crime_gold_violent, 0);
+    assert_eq!(faction_state.crime_gold_nonviolent, 0);
+    drop(world);
+    assert!(g.vm.log.contains("inventory removal and jail placement"));
+}
+
 /// ModCrimeGold adds to the violent or non-violent bounty and to the
 /// infamy of that kind, GetCrimeGold is both, CanPayCrimeGold checks the
 /// player's gold, PlayerPayCrimeGold takes it and clears the bounty,
