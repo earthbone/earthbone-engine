@@ -1311,6 +1311,8 @@ mod tst_16_test_binary;
 mod ui_03_magic_menu;
 #[path = "ui_05_adversarial.rs"]
 mod ui_05_adversarial;
+#[path = "ui_05_breaker2_adversarial.rs"]
+mod ui_05_breaker2_adversarial;
 #[path = "ui_05_breaker_adversarial.rs"]
 mod ui_05_breaker_adversarial;
 #[path = "ui_05_mcm.rs"]
@@ -1323,6 +1325,8 @@ mod ui_08_adversarial;
 mod ui_08_breaker_adversarial;
 #[path = "ui_08_breaker2_adversarial.rs"]
 mod ui_08_breaker2_adversarial;
+#[path = "ui_08_breaker3_adversarial.rs"]
+mod ui_08_breaker3_adversarial;
 #[path = "ui_08_lockpicking.rs"]
 mod ui_08_lockpicking;
 #[path = "ui_09_adversarial.rs"]

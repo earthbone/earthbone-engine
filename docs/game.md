@@ -204,8 +204,9 @@ fixture are in `crates/commonlib-shim`.
 
 ### MCM script lifecycle, UI-05
 
-`Game::start` registers MCM scripts after quest initialization.
-`Game::mcm_configs` scans running quest forms in winning load-order order and
+`Game::start` initializes enabled quests without registering MCM scripts.
+The first `Game::mcm_configs` call is the host's manager-ready boundary. It
+scans running quest forms in winning load-order order and
 reads `SKI_ConfigBase.ModName` and `Pages` from their attached Papyrus scripts.
 It registers at most 128 configs, delivers `OnConfigRegister` once per config,
 and returns the current page labels. `mcm_open`, `mcm_select_page` and

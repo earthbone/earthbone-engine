@@ -71,4 +71,15 @@ fn ui_05_waits_for_manager_ready_before_register_callback() {
         .unwrap()
         .1;
     assert_eq!(count, Value::Int(0));
+
+    assert_eq!(game.mcm_configs().len(), 1);
+    assert_eq!(game.mcm_configs().len(), 1);
+    let count = game
+        .vm
+        .vars_on(object, "PendingConfig")
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("register_count"))
+        .unwrap()
+        .1;
+    assert_eq!(count, Value::Int(1));
 }

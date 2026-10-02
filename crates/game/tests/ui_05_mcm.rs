@@ -184,8 +184,8 @@ fn variable(game: &mut Game, name: &str) -> Value {
 #[test]
 fn ui_05_initializes_and_registers_modeled_config_once() {
     let mut game = fixture();
-    assert_eq!(variable(&mut game, "register_count"), Value::Int(1));
     let configs = game.mcm_configs();
+    assert_eq!(variable(&mut game, "register_count"), Value::Int(1));
     assert_eq!(configs.len(), 1);
     assert_eq!(configs[0].name, "Example Mod");
     assert_eq!(variable(&mut game, "init_count"), Value::Int(1));

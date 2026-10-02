@@ -30,8 +30,12 @@ fn ui_05_repeated_registration_queries_do_not_repeat_register_callback() {
         ..Default::default()
     });
     plugin.push_top(
-        quest::build_record(0x800, "RepeatedConfigQuest", quest_flags::START_GAME_ENABLED)
-            .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
+        quest::build_record(
+            0x800,
+            "RepeatedConfigQuest",
+            quest_flags::START_GAME_ENABLED,
+        )
+        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
     );
     let mut order = LoadOrder::new();
     order.add("RepeatedConfig.esm", plugin).unwrap();
@@ -41,7 +45,10 @@ fn ui_05_repeated_registration_queries_do_not_repeat_register_callback() {
         .auto_property("Pages", "String[]", soe_papyrus::asm::none())
         .function(
             FunctionBuilder::new("OnInit", "None")
-                .ins(CallMethod, vec![s("OnConfigInit"), ident("self"), ident("::nonevar")])
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                )
                 .build(),
         )
         .bytes();
@@ -54,17 +61,26 @@ fn ui_05_repeated_registration_queries_do_not_repeat_register_callback() {
         )
         .function(
             FunctionBuilder::new("OnConfigRegister", "None")
-                .ins(IAdd, vec![ident("register_count"), ident("register_count"), i(1)])
+                .ins(
+                    IAdd,
+                    vec![ident("register_count"), ident("register_count"), i(1)],
+                )
                 .build(),
         )
         .bytes();
     game.load_script(&base).unwrap();
     game.load_script(&child).unwrap();
     game.start();
-    let object = GlobalFormId { file: 0, object: 0x800 };
+    let object = GlobalFormId {
+        file: 0,
+        object: 0x800,
+    };
     assert_eq!(game.mcm_configs().len(), 1);
     assert_eq!(game.mcm_configs().len(), 1);
-    assert_eq!(read_count(&mut game, object, "register_count"), Value::Int(1));
+    assert_eq!(
+        read_count(&mut game, object, "register_count"),
+        Value::Int(1)
+    );
 }
 
 #[test]
@@ -75,5 +91,8 @@ fn ui_05_page_reset_is_rejected_before_open_and_for_undeclared_index() {
         .unwrap();
     let mut game = Game::new(order);
     assert!(!game.mcm_select_page(0));
-    assert!(!game.mcm_open(GlobalFormId { file: 0, object: 0x800 }));
+    assert!(!game.mcm_open(GlobalFormId {
+        file: 0,
+        object: 0x800
+    }));
 }

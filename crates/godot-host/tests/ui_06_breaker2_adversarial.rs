@@ -8,7 +8,9 @@ use soe_godot_host::hud::Snapshot;
 #[test]
 fn ui_06_hud_snapshot_refreshes_all_values_and_heading_from_shared_game() {
     let mut order = LoadOrder::new();
-    order.add("Ui06Refresh.esm", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Ui06Refresh.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut game = Game::new(order);
     let player = game.player();
     let first = Snapshot::read(&mut game, player, 0.0);
