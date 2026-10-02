@@ -66,6 +66,8 @@ mod ai_22_adversarial;
 mod ai_22_follow;
 #[path = "ai_23_adversarial.rs"]
 mod ai_23_adversarial;
+#[path = "ai_23_breaker_adversarial.rs"]
+mod ai_23_breaker_adversarial;
 #[path = "ai_24_adversarial.rs"]
 mod ai_24_adversarial;
 #[path = "ai_25_adversarial.rs"]
