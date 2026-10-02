@@ -2981,6 +2981,19 @@ Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
 native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
 crafting menu's recipe list and selected-recipe confirmation flow.
 
+`PlayerNode::gameplay_creation_benches` exposes enabled creation bench
+references in the loaded logical cell for runtime tools. The CRF-06 installed
+runtime check activates these references through `activate_reference`, then
+checks the recipe Control buttons and their confirmation callback in Godot.
+With the fresh live player inventory, the test exercises the insufficient
+ingredient rejection. The Rust presenter tests cover successful transaction
+confirmation.
+It runs with `SKYRIM_DATA` and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --resolution 640x360 --script crf_06_crafting_menu_test.gd
+```
+
 `Game.ShowTrainingMenu(actor)` requests this presenter through a transient
 World request. The presenter shows the trainer's skill, current value, tier
 cap, DLG-16 price and remaining per-level sessions. The purchase button is

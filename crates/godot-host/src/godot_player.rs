@@ -1296,6 +1296,34 @@ impl PlayerNode {
         result
     }
 
+    /// Creation benches in the current logical cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_creation_benches(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut references = game.world_mut().cell_references(cell);
+        references.sort_unstable();
+        let mut result = Array::new();
+        for id in references {
+            if !crate::crafting_menu::is_creation_bench(game, id) {
+                continue;
+            }
+            let active = game
+                .world_mut()
+                .reference(id)
+                .is_some_and(|reference| reference.enabled && !reference.deleted);
+            if !active {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            result.push(&row);
+        }
+        result
+    }
+
     /// Unlocked non-teleport doors in the current cell, for gameplay tools.
     #[func]
     pub fn gameplay_swing_doors(&self) -> Array<VarDictionary> {
