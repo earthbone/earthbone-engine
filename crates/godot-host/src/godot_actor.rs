@@ -30,7 +30,7 @@ use soe_hkx::QsTransform;
 use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
-use crate::godot_layer::array_mesh_from;
+use crate::godot_layer::actor_array_mesh_from;
 use crate::godot_ragdoll::LiveRagdoll;
 use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
@@ -303,7 +303,7 @@ impl SkinnedActorNode {
             for i in 0..bones {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
-            let mut mesh = array_mesh_from(&surface.arrays);
+            let mut mesh = actor_array_mesh_from(&surface.arrays, &surface.expression_shapes);
             let material = crate::godot_layer::standard_material_from(
                 &surface.arrays.material,
                 &surface.textures,
@@ -350,6 +350,13 @@ impl SkinnedActorNode {
             self.surfaces
                 .iter()
                 .map(|s| s.arrays.triangle_count())
+                .sum::<usize>() as i64,
+        );
+        self.stats.set(
+            "expression_shapes",
+            self.meshes
+                .iter()
+                .map(|mesh| mesh.get_blend_shape_count() as usize)
                 .sum::<usize>() as i64,
         );
     }
@@ -453,9 +460,22 @@ impl SkinnedActorNode {
             .as_ref()
             .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
+        let facial_expression = self
+            .appearance
+            .as_ref()
+            .and_then(|binding| binding.world.borrow_mut().facial_expression(binding.actor));
+        let target = facial_expression.and_then(|(mood, _)| crate::facial::expression_name(mood));
         self.uploaded_skins.clear();
         for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
             server.instance_set_transform(rids.instance, placement);
+            for (index, shape) in surface.expression_shapes.iter().enumerate() {
+                let weight = if Some(shape.name.as_str()) == target {
+                    f32::from(facial_expression.map_or(0, |(_, strength)| strength)) / 100.0
+                } else {
+                    0.0
+                };
+                server.instance_set_blend_shape_weight(rids.instance, index as i32, weight);
+            }
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {

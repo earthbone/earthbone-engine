@@ -319,6 +319,16 @@ passes the changed geometry through the same axis conversion, bounds and surface
 as streamed meshes. Normals are generated from the changed geometry. The caller resolves
 the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
 
+### Actor expression targets, ANM-59
+
+Animated actor head surfaces load a companion `.tri` file when its vertex count matches the
+head NIF surface. CK expression names in that file become Godot relative blend shapes
+with converted vertex and normal deltas. Each actor update reads the effective expression
+from the shared game world and sets the matching blend-shape weight to its strength divided
+by 100, clearing the other expression targets. Clearing a Papyrus override therefore lets
+the actor's current record mood drive the same head targets again. Other TRI morph names and
+head surfaces without a matching TRI remain unchanged.
+
 ## FaceGen tint textures, EDT-23
 
 `facegen::generate_face_tint` accepts decoded RGBA8 masks in the order supplied by the

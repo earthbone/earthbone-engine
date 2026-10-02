@@ -20,7 +20,7 @@ use godot::classes::base_material_3d::{
     CullMode, EmissionOperator, Feature, TextureParam, Transparency,
 };
 use godot::classes::image::Format;
-use godot::classes::mesh::{ArrayType, PrimitiveType};
+use godot::classes::mesh::{ArrayType, BlendShapeMode, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
@@ -2600,32 +2600,72 @@ fn image_from_texture(texture: &TextureData) -> Option<Gd<Image>> {
 /// caller applies a material through `set_surface_override_material`, this
 /// function only builds the geometry.
 pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
+    let arrays = mesh_surface_arrays(surface);
+    let mut mesh = ArrayMesh::new_gd();
+    mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
+    mesh
+}
+
+pub(crate) fn actor_array_mesh_from(
+    surface: &SurfaceArrays,
+    shapes: &[crate::actor::ExpressionShape],
+) -> Gd<ArrayMesh> {
+    let arrays = mesh_surface_arrays(surface);
+    let mut mesh = ArrayMesh::new_gd();
+    mesh.set_blend_shape_mode(BlendShapeMode::RELATIVE);
+    for shape in shapes {
+        mesh.add_blend_shape(&StringName::from(shape.name.as_str()));
+    }
+    let mut blend_shapes = Array::<AnyArray>::new();
+    for shape in shapes {
+        let mut target = VarArray::new();
+        for _ in 0..ArrayType::MAX.ord() {
+            target.push(&Variant::nil());
+        }
+        let positions: PackedVector3Array = shape
+            .positions
+            .iter()
+            .map(|p| Vector3::new(p[0], p[1], p[2]))
+            .collect();
+        target.set(ArrayType::VERTEX.ord() as usize, &positions.to_variant());
+        if !shape.normals.is_empty() {
+            let normals: PackedVector3Array = shape
+                .normals
+                .iter()
+                .map(|n| Vector3::new(n[0], n[1], n[2]))
+                .collect();
+            target.set(ArrayType::NORMAL.ord() as usize, &normals.to_variant());
+        }
+        blend_shapes.push(target.upcast_any_array());
+    }
+    mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays)
+        .blend_shapes(&blend_shapes)
+        .done();
+    mesh
+}
+
+fn mesh_surface_arrays(surface: &SurfaceArrays) -> VarArray {
     let mut arrays = VarArray::new();
     for _ in 0..ArrayType::MAX.ord() {
         arrays.push(&Variant::nil());
     }
-    let set = |arrays: &mut VarArray, slot: ArrayType, v: Variant| {
-        arrays.set(slot.ord() as usize, &v);
-    };
-
     let positions: PackedVector3Array = surface
         .positions
         .iter()
         .map(|p| Vector3::new(p[0], p[1], p[2]))
         .collect();
-    set(&mut arrays, ArrayType::VERTEX, positions.to_variant());
-
+    arrays.set(ArrayType::VERTEX.ord() as usize, &positions.to_variant());
     if !surface.normals.is_empty() {
         let normals: PackedVector3Array = surface
             .normals
             .iter()
             .map(|n| Vector3::new(n[0], n[1], n[2]))
             .collect();
-        set(&mut arrays, ArrayType::NORMAL, normals.to_variant());
+        arrays.set(ArrayType::NORMAL.ord() as usize, &normals.to_variant());
     }
     if !surface.tangents.is_empty() {
         let tangents: PackedFloat32Array = surface.tangents.iter().copied().collect();
-        set(&mut arrays, ArrayType::TANGENT, tangents.to_variant());
+        arrays.set(ArrayType::TANGENT.ord() as usize, &tangents.to_variant());
     }
     if !surface.uvs.is_empty() {
         let uvs: PackedVector2Array = surface
@@ -2633,20 +2673,17 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
             .iter()
             .map(|u| Vector2::new(u[0], u[1]))
             .collect();
-        set(&mut arrays, ArrayType::TEX_UV, uvs.to_variant());
+        arrays.set(ArrayType::TEX_UV.ord() as usize, &uvs.to_variant());
     }
     if surface.is_skinned() {
         let bones: PackedInt32Array = surface.bones.iter().copied().collect();
         let weights: PackedFloat32Array = surface.weights.iter().copied().collect();
-        set(&mut arrays, ArrayType::BONES, bones.to_variant());
-        set(&mut arrays, ArrayType::WEIGHTS, weights.to_variant());
+        arrays.set(ArrayType::BONES.ord() as usize, &bones.to_variant());
+        arrays.set(ArrayType::WEIGHTS.ord() as usize, &weights.to_variant());
     }
     let indices: PackedInt32Array = surface.indices.iter().copied().collect();
-    set(&mut arrays, ArrayType::INDEX, indices.to_variant());
-
-    let mut mesh = ArrayMesh::new_gd();
-    mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
-    mesh
+    arrays.set(ArrayType::INDEX.ord() as usize, &indices.to_variant());
+    arrays
 }
 
 /// Patches one batch member's vertex range in `arrays` in place, for
