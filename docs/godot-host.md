@@ -255,6 +255,18 @@ streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
 
+### Debug reference presentation and movement, SCR-23
+
+`PlayerNode` displays each `Debug.ShowRefPosition` request as a small emissive
+sphere at that reference's current world placement. The sphere mesh and
+material are shared; the host stores one `RenderingServer` instance RID per
+requested reference and frees the instances when the player node exits.
+`Debug.PlayerMoveToAndWait` requests are applied to the shared World before
+`sync_game_pose`. The latent Papyrus call resolves with 0 after the host has
+installed the destination, or -1 if the move cannot be applied or installed.
+`Debug.SetFootIK` is retained in World, but actor rendering does not yet apply
+foot inverse kinematics.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.

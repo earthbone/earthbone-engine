@@ -552,6 +552,29 @@ four functions were absent from this corpus. SCR-20 tests cover native
 arguments, duplicate and missing names, queued host effects and latent
 completion. This host path does not reproduce the freeze note.
 
+### Debug presentation natives, SCR-23
+
+`Debug.SetFootIK(enabled)` changes a transient world setting. The current actor
+renderer has no foot-IK solver, so this setting does not change rendered
+poses. `Debug.ShowRefPosition(reference)` accepts a
+resolved placed reference, records its identity once, and logs an invalid
+reference when the object does not resolve to a placed reference.
+`Debug.PlayerMoveToAndWait(editorId)` resolves the destination reference,
+queues a host move, and suspends the Papyrus thread. The Godot host applies the
+placement and resolves the wait with 0 after destination resources install.
+Missing references log an error and return 0. Failed host installation returns
+-1. `Debug.MoveToCell`
+resolves a CELL editor id and moves the player to the cell origin; an unknown
+cell logs an error and leaves the player unchanged.
+
+The local `ck-wiki/Debug_Script.wikitext` documents the listed signatures and
+summaries, and `CenterOnCell_-_Debug.wikitext` documents the cell teleport
+argument and its warning about freezing. Individual pages for the four SCR-23
+functions are absent from the corpus. Host rendering displays each requested
+reference position as a small emissive sphere using `RenderingServer` instances.
+Foot IK remains a presentation gap because no solver or ground-contact input is
+available in the actor renderer.
+
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an

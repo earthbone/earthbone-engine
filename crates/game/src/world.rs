@@ -199,6 +199,10 @@ pub enum DebugHostRequest {
         cell: GlobalFormId,
         latent: Option<LatentId>,
     },
+    MovePlayerToReference {
+        reference: GlobalFormId,
+        latent: LatentId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
