@@ -1511,12 +1511,12 @@ pub(super) fn matches_package_object_type(world: &World, base: GlobalFormId, kin
             .and_then(|record| {
                 record
                     .find(T(b"BOD2"))
-                    .and_then(|data| data.get(12..16))
+                    .and_then(|data| data.get(4..8))
                     .or_else(|| record.find(T(b"BODT")).and_then(|data| data.get(8..12)))
             })
             .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
             .map(u32::from_le_bytes);
-        return armor_type.is_some_and(|armor_type| armor_type == 1 || armor_type == 2);
+        return armor_type.is_some_and(|armor_type| armor_type == 0 || armor_type == 1);
     }
     if (18..=20).contains(&kind) {
         let weapon_type = world

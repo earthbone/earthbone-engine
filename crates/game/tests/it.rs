@@ -42,6 +42,8 @@ mod ai_14_breaker_adversarial;
 mod ai_14_breaker_adversarial_2;
 #[path = "ai_14_breaker_breaker_adversarial.rs"]
 mod ai_14_breaker_breaker_adversarial;
+#[path = "ai_14_breaker_breaker_adversarial_2.rs"]
+mod ai_14_breaker_breaker_adversarial_2;
 #[path = "ai_15_adversarial.rs"]
 mod ai_15_adversarial;
 #[path = "ai_16_adversarial.rs"]
@@ -332,6 +334,8 @@ mod ai_90_adversarial;
 mod ai_91_adversarial;
 #[path = "ai_91_breaker_adversarial.rs"]
 mod ai_91_breaker_adversarial;
+#[path = "ai_91_breaker_breaker_adversarial.rs"]
+mod ai_91_breaker_breaker_adversarial;
 #[path = "anm_09_adversarial.rs"]
 mod anm_09_adversarial;
 #[path = "anm_09_oar_runtime.rs"]

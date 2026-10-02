@@ -2469,15 +2469,21 @@ actor's first link or the link matching the authored keyword. These selectors
 still require the selected reference to pass the search eligibility checks.
 Object Type values 1 to 15 match their corresponding base record types. Values
 14 and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
-Unknown Object Type values and other target selectors are unsupported. A
-negative authored radius is unsupported. The search uses the
+Values 16 and 17 match combat wearable armor and any armor. Combat wearable
+uses the `ARMO.BOD2` or `BODT` armor type, where 0 is Light, 1 is Heavy, and 2
+is Clothing. Values 18 to 20 select unarmed, melee, and ranged weapons by
+`WEAP.DNAM`. Values 21 to 24 select spells by delivery, 25 selects placed
+actors, 26 and 27 select beds and chairs by furniture animation, and 28
+selects shouts. Unknown Object Type values and other target selectors are
+unsupported. A negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
 or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
 authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
 Find procedure page. Target kinds and Object Type labels follow xEdit's
-`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. The UESP
+`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. Its `ARMO`
+`BOD2` and `BODT` definitions supply the armor subtype offsets and enum. The UESP
 PACK page documents value 11 as any weapon, and xEdit's `wbRecord(ALCH)`
 defines the Food Item flag. Package alias resolution uses the actor's selected
 quest alias or the package owner quest. Linked references use the actor's
