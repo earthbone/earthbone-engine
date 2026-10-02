@@ -9,6 +9,8 @@ use soe_game::{
 use soe_papyrus::asm::ScriptBuilder;
 use soe_save::{Compression, FileLocationTable, GlobalData, Header, Save, WString};
 
+use crate::common::installed;
+
 fn plugin(light: bool, content: &str) -> Plugin {
     let mut file = Plugin::new(FileHeader {
         flags: if light { flags::LIGHT_MASTER } else { 0 },
@@ -81,15 +83,19 @@ fn empty_save() -> Save {
     Save::parse(&bytes).unwrap()
 }
 
-fn papyrus_with_script(name: &str) -> Vec<u8> {
+fn papyrus_with_scripts(names: &[&str]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&1_u16.to_le_bytes()); // VM version
-    out.extend_from_slice(&1_u32.to_le_bytes()); // string count
-    WString::from_text(name).write(&mut out);
-    out.extend_from_slice(&1_u32.to_le_bytes()); // script count
-    out.extend_from_slice(&0_u32.to_le_bytes()); // script name
-    out.extend_from_slice(&0_u32.to_le_bytes()); // parent name
-    out.extend_from_slice(&0_u32.to_le_bytes()); // members
+    out.extend_from_slice(&(names.len() as u32).to_le_bytes()); // string count
+    for name in names {
+        WString::from_text(name).write(&mut out);
+    }
+    out.extend_from_slice(&(names.len() as u32).to_le_bytes()); // script count
+    for index in 0..names.len() {
+        out.extend_from_slice(&(index as u32).to_le_bytes()); // script name
+        out.extend_from_slice(&0_u32.to_le_bytes()); // parent name
+        out.extend_from_slice(&0_u32.to_le_bytes()); // members
+    }
     out.extend_from_slice(&0_u32.to_le_bytes()); // instances
     out.extend_from_slice(&0_u32.to_le_bytes()); // references
     out.extend_from_slice(&0_u32.to_le_bytes()); // arrays
@@ -185,12 +191,20 @@ fn sav_57_vanilla_report_marks_unknown_provenance_and_missing_dependencies() {
     save.light_plugins = vec![];
     save.table_3.push(GlobalData {
         kind: GlobalData::PAPYRUS,
-        data: papyrus_with_script("MissingScript"),
+        data: papyrus_with_scripts(&["MissingScript", "KnownScript"]),
     });
-    let current = game(&[("Kind.esl", true, "changed kind")], &[]);
+    let current = game(
+        &[("Kind.esl", true, "changed kind")],
+        &[("KnownScript", "")],
+    );
+    let before = current.save_state().unwrap();
 
     let report = current.preflight_vanilla_dependencies(&save).unwrap();
     assert_eq!(report.source, DependencySource::Vanilla);
+    assert_eq!(
+        report,
+        current.preflight_vanilla_dependencies(&save).unwrap()
+    );
     assert!(report.findings.iter().any(|finding| {
         finding.identity == "Missing.esp" && finding.change == DependencyChange::Missing
     }));
@@ -202,9 +216,84 @@ fn sav_57_vanilla_report_marks_unknown_provenance_and_missing_dependencies() {
             && finding.kind == DependencyKind::Script
             && finding.change == DependencyChange::Missing
     }));
-    for identity in ["Missing.esp", "Kind.esl", "MissingScript"] {
+    assert!(report.findings.iter().any(|finding| {
+        finding.identity == "KnownScript"
+            && finding.kind == DependencyKind::Script
+            && finding.affects == SavedStateKind::Vm
+            && finding.change == DependencyChange::ProvenanceUnknown
+    }));
+    for identity in ["Missing.esp", "Kind.esl", "MissingScript", "KnownScript"] {
         assert!(report.findings.iter().any(|finding| {
             finding.identity == identity && finding.change == DependencyChange::ProvenanceUnknown
         }));
     }
+    assert_eq!(current.save_state().unwrap(), before);
+}
+
+#[test]
+fn sav_57_installed_ess_report_marks_real_dependencies_unknown_without_mutation() {
+    let Some(data_dir) = installed::data_dir() else {
+        eprintln!("SKYRIM_DATA not set, skipping installed dependency preflight");
+        return;
+    };
+    let masters = [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ];
+    let mut current = installed::game(&masters).unwrap();
+    let script_load = current.load_scripts_from_data(&data_dir);
+    assert!(
+        script_load.scripts_loaded > 0,
+        "no installed PEX scripts loaded"
+    );
+
+    let before = current.save_state().unwrap();
+    let provenance = Game::saved_provenance(&before).unwrap();
+    let script = provenance
+        .scripts
+        .first()
+        .expect("installed PEX script provenance");
+    let mut save = empty_save();
+    let mut plugins: Vec<_> = provenance.plugins.iter().collect();
+    plugins.sort_by_key(|plugin| plugin.slot);
+    save.plugins = plugins
+        .iter()
+        .filter(|plugin| !plugin.light)
+        .map(|plugin| WString::from_text(&plugin.name))
+        .collect();
+    save.light_plugins = plugins
+        .iter()
+        .filter(|plugin| plugin.light)
+        .map(|plugin| WString::from_text(&plugin.name))
+        .collect();
+    save.table_3.push(GlobalData {
+        kind: GlobalData::PAPYRUS,
+        data: papyrus_with_scripts(&[&script.name]),
+    });
+
+    let report = current.preflight_vanilla_dependencies(&save).unwrap();
+    assert_eq!(
+        report,
+        current.preflight_vanilla_dependencies(&save).unwrap()
+    );
+    assert!(report.findings.iter().any(|finding| {
+        finding.kind == DependencyKind::Script
+            && finding.identity.eq_ignore_ascii_case(&script.name)
+            && finding.change == DependencyChange::ProvenanceUnknown
+    }));
+    assert!(report.findings.iter().all(|finding| {
+        finding.change != DependencyChange::Missing
+            && finding.change != DependencyChange::KindChanged
+    }));
+    assert!(plugins
+        .iter()
+        .all(|plugin| report.findings.iter().any(|finding| {
+            finding.kind == DependencyKind::Plugin
+                && finding.identity.eq_ignore_ascii_case(&plugin.name)
+                && finding.change == DependencyChange::ProvenanceUnknown
+        })));
+    assert_eq!(current.save_state().unwrap(), before);
 }

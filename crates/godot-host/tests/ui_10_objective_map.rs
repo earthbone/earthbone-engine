@@ -38,7 +38,7 @@ fn quest() -> Record {
         .sub(tag(*b"ALED"), [])
         .sub(tag(*b"ALLS"), 2_u32.to_le_bytes())
         .zsub(tag(*b"ALID"), "LocationTarget")
-        .sub(tag(*b"ALFR"), 0x200_u32.to_le_bytes())
+        .sub(tag(*b"ALFL"), 0x200_u32.to_le_bytes())
         .sub(tag(*b"ALED"), [])
 }
 
@@ -61,11 +61,11 @@ fn game() -> Game {
     plugin.push_top(Record::new(tag(*b"LCTN"), 0x200).sub(tag(*b"MNAM"), 0x301_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("UiObjectiveMap.esm", plugin).unwrap();
-    let game = Game::new(order);
+    let mut game = Game::new(order);
+    assert!(game.start_quest(id(0x100)));
     {
         let mut world = game.world_mut();
         let state = world.quest_state(id(0x100)).unwrap();
-        state.active = true;
         state.highest = 1;
         world.objective(id(0x100), 10).unwrap().displayed = true;
         world.objective(id(0x100), 20).unwrap().displayed = true;
@@ -113,4 +113,33 @@ fn ui_10_target_conditions_control_objective_map_targets() {
     let markers = objective_map::markers(&mut game);
     assert_eq!(markers.len(), 1);
     assert_eq!(markers[0].objective, 20);
+}
+
+#[test]
+fn ui_10_map_control_projects_world_xy_north_up_and_keeps_hidden_bounds() {
+    let mut game = game();
+    let markers = objective_map::markers(&mut game);
+    let points = objective_map::project(&markers, 640.0, 360.0);
+
+    assert_eq!(points.len(), 2);
+    assert_eq!((points[0].x, points[0].y), (24.0, 336.0));
+    assert_eq!((points[1].x, points[1].y), (616.0, 24.0));
+    assert!(points.iter().all(|point| point.visible));
+
+    game.world_mut().objective(id(0x100), 10).unwrap().displayed = false;
+    let updated = objective_map::project(&objective_map::markers(&mut game), 640.0, 360.0);
+    assert_eq!((updated[1].x, updated[1].y), (616.0, 24.0));
+    assert!(!updated[0].visible);
+    assert!(updated[1].visible);
+}
+
+#[test]
+fn ui_10_map_control_handles_empty_and_degenerate_marker_sets() {
+    let mut game = game();
+    let marker = objective_map::markers(&mut game).remove(0);
+
+    assert!(objective_map::project(&[], 640.0, 360.0).is_empty());
+    let points = objective_map::project(std::slice::from_ref(&marker), 640.0, 360.0);
+    assert_eq!((points[0].x, points[0].y), (320.0, 180.0));
+    assert!(objective_map::project(std::slice::from_ref(&marker), f32::NAN, 360.0).is_empty());
 }

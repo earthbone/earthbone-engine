@@ -81,19 +81,54 @@ fn id(object: u32) -> soe_esm::GlobalFormId {
 }
 
 #[test]
-fn mag_61_valid_hazard_cast_rejects_without_owned_lifecycle() {
+fn mag_61_cast_spawns_authored_hazard_at_target_with_caster_owner() {
     let mut game = game();
-    let confidence = game.world_mut().actor_value(id(TARGET), "confidence");
+    let effects = cast(&mut game).unwrap();
+    assert_eq!(effects.len(), 1);
 
-    assert!(matches!(
-        cast(&mut game),
-        Err(soe_game::world::magic::MagicError::Unsupported(
-            "spawn hazard requires hazard ownership and expiry"
-        ))
-    ));
-    assert_eq!(
-        game.world_mut().actor_value(id(TARGET), "confidence"),
-        confidence
-    );
-    assert_eq!(game.world().active_effects().count(), 0);
+    let effect = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.id == effects[0])
+        .unwrap()
+        .clone();
+    let hazard = effect.summoned.unwrap();
+    let world = game.world();
+    let state = world.reference_ref(hazard).unwrap();
+    let target = world.reference_ref(id(TARGET)).unwrap();
+    assert_eq!(state.base, Some(id(HAZARD)));
+    assert_eq!(state.position, target.position);
+    assert_eq!(state.rotation, target.rotation);
+    assert_eq!(state.owner, Some(id(CASTER)));
+    assert_eq!(effect.magnitude, 20.0);
+    assert_eq!(effect.duration, Some(5.0));
+}
+
+#[test]
+fn mag_61_expiry_disables_only_its_owned_hazard() {
+    let mut game = game();
+    let effects = cast(&mut game).unwrap();
+    let hazard = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.id == effects[0])
+        .unwrap()
+        .summoned
+        .unwrap();
+
+    let shared = game.shared_world();
+    shared.borrow_mut().tick_magic(4.9, &mut |name, class| {
+        game.vm.create_object_of(name, class)
+    });
+    assert!(shared.borrow().reference_ref(hazard).unwrap().enabled);
+    shared.borrow_mut().tick_magic(0.1, &mut |name, class| {
+        game.vm.create_object_of(name, class)
+    });
+
+    let world = shared.borrow();
+    let state = world.reference_ref(hazard).unwrap();
+    assert!(!state.enabled);
+    assert!(state.deleted);
+    assert_eq!(world.active_effects().count(), 0);
+    assert!(world.reference_ref(id(TARGET)).unwrap().enabled);
 }

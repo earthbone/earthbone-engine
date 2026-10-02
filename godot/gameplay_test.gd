@@ -22,6 +22,32 @@ func _check_door_fade(player: Node3D, crossing: String) -> void:
 	if overlay != null:
 		_check(overlay.visible == expected, crossing + " fade overlay visibility is wrong")
 
+func _hst_01_gameplay_swing_door(player: Node3D) -> void:
+	var swing_doors: Array = player.call("gameplay_swing_doors")
+	_check(not swing_doors.is_empty(), "Bannered Mare has no unlocked swing door")
+	if swing_doors.is_empty():
+		return
+	var swing: Dictionary = swing_doors[0]
+	_check(player.call("activate_reference", swing.file, swing.object), "swing door activation failed")
+	_check(player.call("swing_door_count") == 1, "activation did not create an animated swing door")
+	var animated: Node3D
+	for child: Node in player.get_children():
+		if child.name.begins_with("SwingDoor_"):
+			animated = child as Node3D
+	_check(animated != null, "activated swing door node is missing")
+	if animated == null or animated.get_child_count() == 0:
+		return
+	var mesh := animated.get_child(0) as MeshInstance3D
+	var body: StaticBody3D
+	for child: Node in mesh.get_children():
+		if child is StaticBody3D:
+			body = child
+	var before: Basis = mesh.global_transform.basis
+	animated.call("advance", 5.0)
+	_check(not before.is_equal_approx(mesh.global_transform.basis), "gameplay door did not swing")
+	_check(body != null and body.global_transform.is_equal_approx(mesh.global_transform),
+		"gameplay door collision did not follow the mesh")
+
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
 	if data.is_empty() or not ClassDB.class_exists("PlayerNode"):
@@ -45,6 +71,7 @@ func _run() -> void:
 	else:
 		var start: String = player.call("gameplay_cell")
 		_check(start == requested, "startup quests replaced the requested walkthrough cell")
+		_hst_01_gameplay_swing_door(player)
 		var doors: Array = player.call("gameplay_doors")
 		var chosen: Dictionary = {}
 		for door: Dictionary in doors:

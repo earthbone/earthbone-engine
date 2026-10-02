@@ -46,6 +46,10 @@ pub enum RestoreError {
     Npc { id: GlobalFormId, reason: String },
     #[error("cannot restore list {id}: {reason}")]
     List { id: GlobalFormId, reason: String },
+    #[error("cannot restore base object {id}: {reason}")]
+    BaseObject { id: GlobalFormId, reason: String },
+    #[error("cannot restore static object {id}: {reason}")]
+    StaticObject { id: GlobalFormId, reason: String },
     #[error("cannot restore record change {id}: {reason}")]
     RecordChange { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
@@ -264,9 +268,9 @@ impl crate::Game {
     /// Restore the currently supported vanilla world and VM state as one
     /// transaction. A failure in any pass restores the prior SOEG state.
     ///
-    /// Passes run in dependency order: globals, NPC changes, reference
-    /// placement, actor templates, inventories, reference extras, quests,
-    /// lists and Papyrus execution. Queued messages and suspended stacks remain
+    /// Passes run in dependency order: globals, NPC changes, CLAS/FACT/RELA
+    /// record changes, reference placement, actor templates, inventories,
+    /// reference extras, quests, lists and Papyrus execution. Queued messages and suspended stacks remain
     /// inert, and unsupported change-form types are not imported here.
     ///
     /// # Errors
@@ -292,6 +296,7 @@ impl crate::Game {
     fn restore_vanilla_world_and_vm_inner(&mut self, save: &Save) -> Result<(), RestoreError> {
         self.world_mut().restore_vanilla_globals(save)?;
         self.world_mut().restore_vanilla_npcs(save)?;
+        self.world_mut().restore_vanilla_record_changes(save)?;
         self.world_mut()
             .restore_vanilla_reference_placements(save)?;
         self.world_mut().restore_vanilla_actor_templates(save)?;

@@ -107,3 +107,70 @@ fn hst_09_only_active_sit_markers_can_be_reserved() {
     assert!(game.activate(id(CHAIR), player));
     assert_eq!(game.world().furniture_seat(player), None);
 }
+
+#[test]
+fn hst_09_activating_the_seated_chair_again_stands_and_releases_it() {
+    let mut game = Game::new(order());
+    let player = game.player();
+    game.world_mut().reference(player).unwrap().is_actor = true;
+
+    assert!(game.activate(id(CHAIR), player));
+    assert_eq!(game.world().furniture_seat(player), Some((id(CHAIR), 0)));
+    assert!(game.activate(id(CHAIR), player));
+    assert_eq!(game.world().furniture_seat(player), None);
+    assert!(!game.world().furniture_marker_in_use(id(CHAIR), Some(0)));
+}
+
+#[test]
+fn hst_09_rejects_non_furniture_disabled_references_and_non_actors() {
+    let mut game = Game::new(order());
+    let player = game.player();
+    game.world_mut().reference(player).unwrap().is_actor = true;
+    for actor in [id(ACTOR_TWO), id(ACTOR_THREE)] {
+        game.world_mut().reference(actor).unwrap().is_actor = true;
+    }
+
+    assert_eq!(
+        game.world_mut()
+            .reserve_furniture_marker(id(CHAIR), id(CHAIR)),
+        None
+    );
+    assert_eq!(
+        game.world_mut()
+            .reserve_furniture_marker(id(ACTOR_TWO), player),
+        None
+    );
+    game.world_mut().reference(id(CHAIR)).unwrap().enabled = false;
+    assert_eq!(
+        game.world_mut().reserve_furniture_marker(id(CHAIR), player),
+        None
+    );
+    assert_eq!(game.world().furniture_seat(player), None);
+}
+
+#[test]
+fn hst_09_malformed_fnpr_and_markers_above_index_23_are_not_reserved() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    let mut furniture = Record::new(T(b"FURN"), CHAIR_BASE)
+        .sub(T(b"MNAM"), u32::MAX.to_le_bytes())
+        .sub(T(b"FNPR"), [1_u8, 0, 0]);
+    for _ in 1..24 {
+        furniture = furniture.sub(T(b"FNPR"), [2_u8, 0, 0, 0]);
+    }
+    furniture = furniture.sub(T(b"FNPR"), [1_u8, 0, 0, 0]);
+    plugin.push_top(Record::new(T(b"STAT"), ACTOR_BASE));
+    plugin.push_top(furniture);
+    plugin.push_top(Record::new(T(b"REFR"), CHAIR).sub(T(b"NAME"), CHAIR_BASE.to_le_bytes()));
+    plugin.push_top(Record::new(T(b"REFR"), ACTOR_TWO).sub(T(b"NAME"), ACTOR_BASE.to_le_bytes()));
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let game = Game::new(order);
+    game.world_mut().reference(id(ACTOR_TWO)).unwrap().is_actor = true;
+
+    assert_eq!(
+        game.world_mut()
+            .reserve_furniture_marker(id(CHAIR), id(ACTOR_TWO)),
+        None,
+        "a malformed entry is skipped and marker index 24 is outside the active MNAM mask"
+    );
+}

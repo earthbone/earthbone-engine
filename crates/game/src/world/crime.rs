@@ -4,12 +4,164 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::VmError;
 
-use crate::crime::{CrimeType, Error};
+use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
 
 use super::World;
 
 impl World {
+    /// Return the choices offered for an arrest by the player's crime faction.
+    ///
+    /// Payment is offered only when the player has enough `Gold001`, jail is
+    /// offered for a positive bounty, and resisting is always available.
+    /// The faction must track crime and its `CRVA` record must enable arrest.
+    ///
+    /// # Errors
+    /// Returns [`Error::Actor`] when the player is not a valid actor,
+    /// [`Error::NoCrimeFaction`] when no crime faction is assigned, or
+    /// [`Error::NotTracked`] and [`Error::ArrestDisabled`] when the faction
+    /// cannot arrest the player.
+    pub fn arrest_options(&mut self) -> Result<ArrestOptions, Error> {
+        let player = self.player();
+        let faction_id = self
+            .actor(player)
+            .ok_or(Error::Actor(player))?
+            .crime_faction
+            .ok_or(Error::NoCrimeFaction(player))?;
+        let values = self.crime_values(faction_id);
+        let faction = self
+            .faction(faction_id)
+            .ok_or(Error::NotTracked(faction_id))?;
+        if !faction.tracks_crime {
+            return Err(Error::NotTracked(faction_id));
+        }
+        if !values.arrest {
+            return Err(Error::ArrestDisabled);
+        }
+        let bounty = faction
+            .crime_gold_violent
+            .saturating_add(faction.crime_gold_nonviolent)
+            .max(0);
+        let can_pay = if bounty > 0 {
+            self.form("Gold001")
+                .is_some_and(|gold| self.item_count(player, gold) >= bounty)
+        } else {
+            false
+        };
+        Ok(ArrestOptions {
+            bounty,
+            can_pay,
+            can_serve_time: bounty > 0,
+            can_resist: true,
+        })
+    }
+
+    /// Resolve the selected arrest choice against the player's crime faction.
+    ///
+    /// A payment deducts the full bounty and clears both bounty ledgers. Jail
+    /// delegates to `serve_jail_time`. Resistance leaves the purse, bounty,
+    /// infamy and jail state unchanged. Invalid choices fail before mutation.
+    ///
+    /// # Errors
+    /// Returns the validation errors from [`Self::arrest_options`],
+    /// [`Error::NoBounty`] when a payment or jail choice has no positive
+    /// bounty, [`Error::CannotPay`] when the player lacks enough gold, or
+    /// [`Error::MissingGold`] when `Gold001` is unavailable.
+    pub fn resolve_arrest(&mut self, choice: ArrestChoice) -> Result<ArrestResult, Error> {
+        let options = self.arrest_options()?;
+        let player = self.player();
+        let faction_id = self
+            .actor(player)
+            .ok_or(Error::Actor(player))?
+            .crime_faction
+            .ok_or(Error::NoCrimeFaction(player))?;
+        match choice {
+            ArrestChoice::Pay => {
+                if options.bounty == 0 {
+                    return Err(Error::NoBounty);
+                }
+                let gold = self.form("Gold001").ok_or(Error::MissingGold)?;
+                if !options.can_pay {
+                    return Err(Error::CannotPay);
+                }
+                let removed = self.remove_item(player, gold, options.bounty, None);
+                if removed != options.bounty {
+                    return Err(Error::CannotPay);
+                }
+                let faction = self
+                    .faction(faction_id)
+                    .ok_or(Error::NotTracked(faction_id))?;
+                faction.crime_gold_violent = 0;
+                faction.crime_gold_nonviolent = 0;
+                Ok(ArrestResult::Paid {
+                    amount: options.bounty,
+                })
+            }
+            ArrestChoice::Jail => {
+                if !options.can_serve_time {
+                    return Err(Error::NoBounty);
+                }
+                let days = self.serve_jail_time(faction_id)?;
+                Ok(ArrestResult::Jailed { days })
+            }
+            ArrestChoice::Resist => Ok(ArrestResult::Resisted),
+        }
+    }
+
+    /// Serve the player's bounty in `faction` as jail time.
+    ///
+    /// The sentence is one day per 100 gold, rounded up and capped at seven
+    /// days. Serving clears the faction bounty, advances game time, records
+    /// the days served, and clears partial skill use experience.
+    ///
+    /// # Errors
+    /// Returns [`Error::NotTracked`] when the faction is absent or does not
+    /// track crime, and [`Error::Actor`] when the player cannot be built.
+    pub fn serve_jail_time(&mut self, faction: GlobalFormId) -> Result<u32, Error> {
+        let player = self.player();
+        self.actor(player).ok_or(Error::Actor(player))?;
+        let state = self.faction(faction).ok_or(Error::NotTracked(faction))?;
+        if !state.tracks_crime {
+            return Err(Error::NotTracked(faction));
+        }
+        let bounty = state
+            .crime_gold_violent
+            .saturating_add(state.crime_gold_nonviolent)
+            .max(0);
+        if bounty == 0 {
+            return Ok(0);
+        }
+        let days = sentence_days(bounty);
+        state.crime_gold_violent = 0;
+        state.crime_gold_nonviolent = 0;
+        let actor = self.actor(player).ok_or(Error::Actor(player))?;
+        actor.days_in_jail = actor.days_in_jail.saturating_add(days);
+        actor.skill_experience.clear();
+        let scale = self.clock.timescale;
+        if scale.is_finite() && scale > 0.0 {
+            self.advance_clock(f64::from(days) * 86_400.0 / scale);
+        }
+        Ok(days)
+    }
+
+    /// Clear the player's cumulative served-day counter.
+    pub fn clear_prison(&mut self) {
+        if let Some(player) = self.player {
+            if let Some(actor) = self.actors.get_mut(&player) {
+                actor.days_in_jail = 0;
+            }
+        }
+    }
+
+    /// Whether any actor has witnessed a crime committed by `actor`.
+    pub fn is_actor_victim(&self, actor: GlobalFormId) -> bool {
+        self.actors
+            .values()
+            .any(|witness| witness.witnessed_crimes.contains(&actor))
+    }
+
     /// Records a crime `perpetrator` commits, seen by `witness`. Prices it
     /// from `perpetrator`'s own crime faction's `CRVA` table
     /// (`Actor.GetCrimeFaction`) and adds the result to that faction's
@@ -45,6 +197,19 @@ impl World {
             .ok_or(Error::Actor(perpetrator))?
             .crime_faction
             .ok_or(Error::NoCrimeFaction(perpetrator))?;
+        self.record_witnessed_crime_in_faction(perpetrator, witness, crime, faction_id)
+    }
+
+    /// Price a witnessed crime for the faction the witness reports to.
+    pub(super) fn record_witnessed_crime_in_faction(
+        &mut self,
+        perpetrator: GlobalFormId,
+        witness: GlobalFormId,
+        crime: CrimeType,
+        faction_id: GlobalFormId,
+    ) -> Result<i32, Error> {
+        self.actor(witness).ok_or(Error::Actor(witness))?;
+        self.actor(perpetrator).ok_or(Error::Actor(perpetrator))?;
         let values = self.crime_values(faction_id);
         let fs = self
             .faction(faction_id)
@@ -69,4 +234,29 @@ impl World {
             .insert(perpetrator);
         Ok(total)
     }
+}
+
+fn sentence_days(bounty: i32) -> u32 {
+    u32::try_from(bounty.max(0).saturating_add(99) / 100)
+        .unwrap_or(u32::MAX)
+        .clamp(1, 7)
+}
+
+/// Save the player's jail-day count in the PRG-13 actor section.
+pub(crate) fn write_days_in_jail(
+    actor: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut ArrayPool,
+) {
+    writer.u32(actor.days_in_jail);
+}
+
+/// Restore the player's jail-day count from the PRG-13 actor section.
+pub(crate) fn read_days_in_jail(
+    actor: &mut super::ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.days_in_jail = reader.u32()?;
+    Ok(())
 }

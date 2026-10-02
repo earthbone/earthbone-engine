@@ -136,6 +136,8 @@ fn pending(game: &Game) -> Vec<(soe_papyrus::ObjectId, String, Vec<Value>)> {
             Pending::Call { .. } => panic!("unexpected function call"),
             Pending::CallScript { .. } => panic!("unexpected script function call"),
             Pending::BindEffect { .. } => panic!("unexpected magic effect binding"),
+            Pending::BindReference { .. } => panic!("unexpected reference binding"),
+            Pending::ReferenceEvent { .. } => panic!("unexpected cell event"),
             Pending::DeferredDeath { .. } | Pending::ActorDeath { .. } => {
                 panic!("unexpected actor death")
             }
@@ -459,7 +461,7 @@ fn recipe_conditions_are_rechecked_and_unknown_functions_fail_closed() {
     assert_eq!(pending(&g), events);
 
     let mut g = game(
-        crate::recipe(&[(IRON, 1)], NAILS, 10).sub(Tag(*b"CTDA"), condition(0xffff, 0, 1.0, 0)),
+        self::recipe(&[(IRON, 1)], NAILS, 10).sub(Tag(*b"CTDA"), condition(0xffff, 0, 1.0, 0)),
         1,
     );
     stock(&g, IRON, 1);

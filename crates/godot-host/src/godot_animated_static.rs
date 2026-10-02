@@ -86,6 +86,12 @@ impl INode3D for AnimatedStaticNode {
 
 #[godot_api]
 impl AnimatedStaticNode {
+    /// Enable trimesh collision before loading an animated mesh.
+    #[func]
+    pub fn enable_collision(&mut self) {
+        self.collision_enabled = true;
+    }
+
     /// Load `nif_path`, find the node named `node_name`, resolve its
     /// authored transform controller, and add one `MeshInstance3D` child per
     /// mesh under it. Returns false and logs on failure. The node must
@@ -113,7 +119,12 @@ impl AnimatedStaticNode {
             }
         };
         let name = node_name.to_string();
-        let Some(node) = animated_static::find_node(&file, &name) else {
+        let node = if name.is_empty() {
+            animated_static::find_animated_node(&file)
+        } else {
+            animated_static::find_node(&file, &name)
+        };
+        let Some(node) = node else {
             godot_error!("AnimatedStaticNode: no node named {name} in {path}");
             return false;
         };
@@ -153,6 +164,64 @@ impl AnimatedStaticNode {
                 instance.create_trimesh_collision();
             }
             self.children.push(instance);
+        }
+        self.controller = Some(controller);
+        self.elapsed = 0.0;
+        true
+    }
+
+    /// Load NIF bytes from the host VFS and animate their first supported
+    /// transform controller. Returns false when parsing or controller setup fails.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn load_nif_bytes(&mut self, bytes: PackedByteArray) -> bool {
+        if self.controller.is_some() {
+            godot_error!("AnimatedStaticNode: already loaded, make another node");
+            return false;
+        }
+        let raw: Vec<u8> = bytes.as_slice().to_vec();
+        let file = match soe_nif::parse(&raw) {
+            Ok(file) => file,
+            Err(error) => {
+                godot_error!("AnimatedStaticNode: NIF bytes: {error}");
+                return false;
+            }
+        };
+        let Some(node) = animated_static::find_animated_node(&file) else {
+            godot_error!("AnimatedStaticNode: NIF has no supported transform controller");
+            return false;
+        };
+        let controller = match animated_static::resolve_controller(&file, node) {
+            Ok(controller) => controller,
+            Err(error) => {
+                godot_error!("AnimatedStaticNode: controller: {error}");
+                return false;
+            }
+        };
+        let meshes = match soe_nif::mesh::meshes_under_children(&file, node) {
+            Ok(meshes) => meshes,
+            Err(error) => {
+                godot_error!("AnimatedStaticNode: controller meshes: {error}");
+                return false;
+            }
+        };
+        for mesh in &meshes {
+            let data = mesh_data_from(mesh, &mesh.transform);
+            let Ok(surface) = build_surface(&data, MeshOptions::default()) else {
+                continue;
+            };
+            let array_mesh = array_mesh_from(&surface);
+            let mut instance = MeshInstance3D::new_alloc();
+            instance.set_mesh(&array_mesh);
+            self.base_mut().add_child(&instance);
+            if self.collision_enabled {
+                instance.create_trimesh_collision();
+            }
+            self.children.push(instance);
+        }
+        if self.children.is_empty() {
+            godot_error!("AnimatedStaticNode: controller has no renderable meshes");
+            return false;
         }
         self.controller = Some(controller);
         self.elapsed = 0.0;

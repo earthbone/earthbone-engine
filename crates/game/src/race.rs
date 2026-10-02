@@ -4,7 +4,7 @@
 //! The record remains authoritative. This view supplies initial actor values
 //! and unarmed inputs, not an independent race database.
 
-use soe_esm::{Error, Record, Tag};
+use soe_esm::{Error, GlobalFormId, Record, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Attributes {
@@ -32,6 +32,138 @@ pub struct Attributes {
     /// Weight multiplier, male and female, `DATA` offsets 24 and 28.
     pub weight_male: f32,
     pub weight_female: f32,
+}
+
+/// Sex-specific animation assets named by a `RACE` record.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AnimationModels {
+    pub male_skeleton: Option<String>,
+    pub female_skeleton: Option<String>,
+    pub male_behavior: Option<String>,
+    pub female_behavior: Option<String>,
+}
+
+impl AnimationModels {
+    /// Read skeletal `ANAM` strings and behavior graph `MODL` paths in the
+    /// order xEdit places them under the male and female markers.
+    ///
+    /// # Errors
+    /// Rejects a record whose type is not `RACE`.
+    pub fn from_record(record: &Record) -> Result<Self, Error> {
+        if record.tag != Tag(*b"RACE") {
+            return Err(Error::Invalid("race animation models require RACE".into()));
+        }
+        let mut models = Self::default();
+        let mut female = false;
+        let mut behavior_models = false;
+        for subrecord in &record.subrecords {
+            match subrecord.tag.as_bytes() {
+                b"NAM3" => behavior_models = true,
+                b"MNAM" => female = false,
+                b"FNAM" => female = true,
+                b"ANAM" => {
+                    if !behavior_models {
+                        let path = nonempty_path(&subrecord.data);
+                        if female {
+                            models.female_skeleton = path;
+                        } else {
+                            models.male_skeleton = path;
+                        }
+                    }
+                }
+                b"MODL" if behavior_models => {
+                    let path = nonempty_path(&subrecord.data);
+                    if female {
+                        models.female_behavior = path;
+                    } else {
+                        models.male_behavior = path;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(models)
+    }
+
+    #[must_use]
+    pub fn select(&self, female: bool) -> AnimationRig {
+        AnimationRig {
+            skeleton: if female {
+                self.female_skeleton.clone()
+            } else {
+                self.male_skeleton.clone()
+            },
+            behavior: if female {
+                self.female_behavior.clone()
+            } else {
+                self.male_behavior.clone()
+            },
+        }
+    }
+}
+
+/// The selected race rig for an actor's current sex.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationRig {
+    pub skeleton: Option<String>,
+    pub behavior: Option<String>,
+}
+
+/// Record identity and the rig selected for an actor's current race and sex.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorAnimationRig {
+    pub race: GlobalFormId,
+    pub female: bool,
+    pub skeleton: Option<String>,
+    pub behavior: Option<String>,
+}
+
+impl crate::World {
+    /// Select the animation assets authored by the actor's current race.
+    pub fn actor_animation_rig(
+        &mut self,
+        actor: GlobalFormId,
+    ) -> Result<Option<ActorAnimationRig>, Error> {
+        let current_race = self
+            .actor(actor)
+            .ok_or_else(|| Error::Invalid(format!("animation rig requires an actor: {actor}")))?
+            .race;
+        let base = self.reference(actor).and_then(|reference| reference.base);
+        let (traits_race, female) = match base {
+            Some(_) => {
+                let traits = self.actor_component_source(actor, crate::npc::template::TRAITS)?;
+                (
+                    self.actor_base_race(traits)?,
+                    self.npc_record(traits)?.is_female(),
+                )
+            }
+            None => (None, false),
+        };
+        let race = current_race.or(traits_race);
+        let Some(race) = race else {
+            return Ok(None);
+        };
+        let record = self
+            .record(race)
+            .ok_or_else(|| Error::Invalid(format!("missing RACE {race}")))?;
+        let models = AnimationModels::from_record(record)?;
+        let selected = models.select(female);
+        Ok(Some(ActorAnimationRig {
+            race,
+            female,
+            skeleton: selected.skeleton,
+            behavior: selected.behavior,
+        }))
+    }
+}
+
+fn nonempty_path(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    let value = std::str::from_utf8(&bytes[..end]).ok()?.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 impl Attributes {
@@ -86,4 +218,30 @@ impl Attributes {
             weight_female: field(28)?,
         }))
     }
+}
+
+/// Whether the race's `DATA` flags mark it as a child race.
+///
+/// The flag is the `0x00000004` bit at bytes 32 to 35 in the RACE DATA
+/// prefix, following the four height and weight floats. The field layout follows
+/// xEdit's `wbRecord(RACE)` and UESP's RACE page.
+///
+/// # Errors
+/// Rejects a wrong record type or a `DATA` subrecord shorter than 36 bytes.
+pub fn is_child(record: &Record) -> Result<Option<bool>, Error> {
+    if record.tag != Tag(*b"RACE") {
+        return Err(Error::Invalid("race flags require RACE".into()));
+    }
+    let Some(data) = record.find(Tag(*b"DATA")) else {
+        return Ok(None);
+    };
+    let flags = data
+        .get(32..36)
+        .ok_or_else(|| Error::Invalid("short RACE DATA flags".into()))?;
+    let flags = u32::from_le_bytes(
+        flags
+            .try_into()
+            .map_err(|_| Error::Invalid("short RACE DATA flags".into()))?,
+    );
+    Ok(Some(flags & 0x4 != 0))
 }

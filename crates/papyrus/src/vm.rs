@@ -20,9 +20,11 @@
 #![allow(clippy::unwrap_used)]
 
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::time::Instant;
 
 use crate::pex::{Function, Object, Opcode, Operand, Script};
 use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
@@ -175,7 +177,10 @@ pub struct NativeCall<'a> {
     pub log: &'a mut Log,
     latent_counter: &'a mut u64,
     objects: &'a mut HashMap<ObjectId, GameObject>,
+    instances: &'a [Instance],
     next_object: &'a mut u64,
+    profiling: Rc<RefCell<Profiler>>,
+    thread_id: ThreadId,
 }
 
 impl NativeCall<'_> {
@@ -206,6 +211,115 @@ impl NativeCall<'_> {
     pub fn object_name(&self, id: ObjectId) -> Option<&str> {
         self.objects.get(&id).map(|o| o.name.as_str())
     }
+
+    /// Read matching conditional variables from an object's attached scripts.
+    /// Multiple matches remain visible so callers can reject ambiguous names.
+    pub fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
+        conditional_vars(self.objects, self.instances, object, name)
+    }
+    /// Start timing Papyrus functions defined by a script name.
+    pub fn start_script_profiling(&mut self, script: &str) {
+        let target = script.to_ascii_lowercase();
+        let mut profiler = self.profiling.borrow_mut();
+        profiler.start(ProfileScope::Script(target));
+    }
+    /// Stop script profiling and write the collected Chrome trace profile.
+    pub fn stop_script_profiling(&mut self, script: &str) -> std::io::Result<()> {
+        self.profiling
+            .borrow_mut()
+            .stop(&ProfileScope::Script(script.to_ascii_lowercase()))
+    }
+    /// Start timing functions on the current Papyrus thread's call stack.
+    pub fn start_stack_profiling(&mut self) {
+        let mut profiler = self.profiling.borrow_mut();
+        profiler.start(ProfileScope::Stack(self.thread_id));
+    }
+    /// Stop profiling the current Papyrus thread's call stack.
+    pub fn stop_stack_profiling(&mut self) -> std::io::Result<()> {
+        self.profiling
+            .borrow_mut()
+            .stop(&ProfileScope::Stack(self.thread_id))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProfileScope {
+    Script(String),
+    Stack(ThreadId),
+}
+
+#[derive(Default)]
+struct Profiler {
+    active: Option<(ProfileScope, std::time::Instant)>,
+    functions: std::collections::BTreeMap<String, (u64, u64)>,
+    output_dir: Option<std::path::PathBuf>,
+}
+
+impl Profiler {
+    fn start(&mut self, scope: ProfileScope) {
+        self.active = Some((scope, Instant::now()));
+        self.functions.clear();
+    }
+    fn stop(&mut self, scope: &ProfileScope) -> std::io::Result<()> {
+        let Some((active, started)) = self.active.take() else {
+            return Ok(());
+        };
+        if &active != scope {
+            self.active = Some((active, started));
+            return Ok(());
+        }
+        let dir = self
+            .output_dir
+            .clone()
+            .or_else(|| std::env::var_os("SOE_PROFILE_DIR").map(Into::into))
+            .unwrap_or_else(|| std::path::PathBuf::from("logs/Script/Profiling"));
+        std::fs::create_dir_all(&dir)?;
+        let filename = match scope {
+            ProfileScope::Script(name) => name.clone(),
+            ProfileScope::Stack(id) => format!("stack-{}", id.0),
+        };
+        let safe_filename: String = filename
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = dir.join(format!(
+            "soe-{safe_filename}-{}.json",
+            started.elapsed().as_nanos()
+        ));
+        let mut events = Vec::new();
+        for (name, (calls, elapsed)) in &self.functions {
+            events.push(format!("{{\"name\":\"{}\",\"cat\":\"papyrus.profile\",\"ph\":\"X\",\"ts\":0,\"dur\":{:.3},\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"duration_ns\":{}}}}}", json_escape(name), *elapsed as f64 / 1000.0, calls, elapsed));
+        }
+        std::fs::write(
+            path,
+            format!("{{\"traceEvents\":[{}]}}\n", events.join(",")),
+        )
+    }
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04x}", character as u32);
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 pub type NativeFn = Box<dyn FnMut(&mut NativeCall<'_>) -> NativeReturn>;
@@ -266,6 +380,32 @@ impl NativeRegistry {
     pub fn has_global(&self, class: &str, name: &str) -> bool {
         self.globals.contains_key(&Self::key(class, name))
     }
+
+    /// Return registered method bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn method_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.methods.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
+    }
+
+    /// Return registered global bindings sorted by lowercase class and name.
+    ///
+    /// # Errors
+    /// This method does not return errors.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn global_bindings(&self) -> Vec<(String, String)> {
+        let mut bindings: Vec<_> = self.globals.keys().cloned().collect();
+        bindings.sort_unstable();
+        bindings
+    }
 }
 
 /// A loaded script with its functions shared behind `Rc` so frames can hold
@@ -292,6 +432,38 @@ struct Instance {
     state: String,
     vars: HashMap<String, Value>,
     var_types: HashMap<String, String>,
+}
+
+fn conditional_vars(
+    objects: &HashMap<ObjectId, GameObject>,
+    instances: &[Instance],
+    object: ObjectId,
+    name: &str,
+) -> Vec<Value> {
+    let Some(object) = objects.get(&object) else {
+        return Vec::new();
+    };
+    object
+        .instances
+        .iter()
+        .filter_map(|id| instances.get(id.0))
+        .filter_map(|instance| {
+            let (script, variable) = instance.chain.iter().find_map(|script| {
+                script
+                    .object
+                    .variables
+                    .iter()
+                    .find(|variable| variable.name.eq_ignore_ascii_case(name))
+                    .map(|variable| (script, variable))
+            })?;
+            let mask = script.conditional_mask;
+            if script.object.user_flags & mask == 0 || variable.user_flags & mask == 0 {
+                return None;
+            }
+            let key = variable_key(&script.name, &variable.name);
+            instance.vars.get(&key).cloned()
+        })
+        .collect()
 }
 
 fn variable_key(script: &str, name: &str) -> String {
@@ -330,6 +502,7 @@ pub struct GameObject {
 struct Frame {
     /// Transient coverage state, omitted from saves and state hashes.
     coverage_recorded: bool,
+    profile_recorded: bool,
     instance: Option<InstanceId>,
     self_object: Option<ObjectId>,
     /// The script that defines the running function, for `CallParent`.
@@ -372,6 +545,7 @@ pub struct Vm {
     time: f64,
     menu_time: f64,
     game_hours: f64,
+    profiling: Rc<RefCell<Profiler>>,
     suspended_state: Option<Vec<u8>>,
 }
 
@@ -382,6 +556,11 @@ impl Vm {
 
     pub fn time(&self) -> f64 {
         self.time
+    }
+
+    /// Set the directory used by Papyrus script and stack profiles.
+    pub fn set_profile_directory(&mut self, path: impl Into<std::path::PathBuf>) {
+        self.profiling.borrow_mut().output_dir = Some(path.into());
     }
 
     // ----- loading -----
@@ -802,30 +981,7 @@ impl Vm {
     /// visible to the caller instead of choosing by attachment order.
     /// Auto properties use their compiled `::Name_var` variable name.
     pub fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
-        let Some(object) = self.objects.get(&object) else {
-            return Vec::new();
-        };
-        object
-            .instances
-            .iter()
-            .filter_map(|id| {
-                let instance = &self.instances[id.0];
-                let (script, variable) = instance.chain.iter().find_map(|script| {
-                    script
-                        .object
-                        .variables
-                        .iter()
-                        .find(|variable| variable.name.eq_ignore_ascii_case(name))
-                        .map(|variable| (script, variable))
-                })?;
-                let mask = script.conditional_mask;
-                if script.object.user_flags & mask == 0 || variable.user_flags & mask == 0 {
-                    return None;
-                }
-                let key = variable_key(&script.name, &variable.name);
-                instance.vars.get(&key).cloned()
-            })
-            .collect()
+        conditional_vars(&self.objects, &self.instances, object, name)
     }
 
     pub fn set_var(
@@ -876,6 +1032,7 @@ impl Vm {
         }
         Frame {
             coverage_recorded: false,
+            profile_recorded: false,
             instance,
             self_object,
             script,

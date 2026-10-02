@@ -4,6 +4,9 @@
 //! in `wbDefinitionsTES5.pas` and the UESP page
 //! (`engine-refs/uesp-modfileformat/PACK.wikitext`), conditions from
 //! `wbConditions` in the same file.
+//! Procedure completion uses `FNAM` bit 0, as named by xEdit and specified
+//! by UESP. `PRCB` bit 0 is the separate repeat-when-complete flag, also
+//! represented by Mutagen's `PackageRoot.Flag`.
 //!
 //! A package is a template plus data. The template (`PKCU` names it, its
 //! own `PKDT` type byte says it is one) carries the procedure tree, `ANAM`
@@ -35,6 +38,17 @@ pub mod flags {
     pub const WEAPON_DRAWN: u32 = 0x0080_0000;
     pub const NO_COMBAT_ALERT: u32 = 0x0800_0000;
     pub const WEAR_SLEEP_OUTFIT: u32 = 0x2000_0000;
+
+    /// `PKDT` interrupt override values from xEdit's PACK definition.
+    pub const INTERRUPT_OVERRIDE_COMBAT: u8 = 4;
+    /// The `Observe combat behavior` interrupt bit from xEdit's PACK definition.
+    pub const INTERRUPT_OBSERVE_COMBAT: u16 = 1 << 2;
+}
+
+/// `FNAM` procedure flags.
+pub mod branch_flags {
+    /// A successful procedure completes the package tree.
+    pub const SUCCESS_COMPLETES_PACKAGE: u32 = 0x0000_0001;
 }
 
 /// `PKDT` preferred speed.
@@ -468,7 +482,9 @@ impl Package {
                 b"FNAM" => {
                     if matches!(section, Section::Tree) {
                         if let Some(b) = p.tree.last_mut() {
-                            b.success_completes_package = u32_at_checked(d, "FNAM")? != 0;
+                            b.success_completes_package = u32_at_checked(d, "FNAM")?
+                                & branch_flags::SUCCESS_COMPLETES_PACKAGE
+                                != 0;
                         }
                     }
                 }
@@ -785,7 +801,15 @@ pub fn with_procedure(rec: Record, procedure: &str, inputs: &[u8], completes: bo
         .sub(Tag::new(b"CITC"), 0u32.to_le_bytes())
         .sub(Tag::new(b"PRCB"), prcb)
         .zsub(Tag::new(b"PNAM"), procedure)
-        .sub(Tag::new(b"FNAM"), u32::from(completes).to_le_bytes());
+        .sub(
+            Tag::new(b"FNAM"),
+            if completes {
+                branch_flags::SUCCESS_COMPLETES_PACKAGE
+            } else {
+                0
+            }
+            .to_le_bytes(),
+        );
     for i in inputs {
         rec = rec.sub(Tag::new(b"PKC2"), [*i]);
     }
@@ -911,6 +935,49 @@ mod tests {
                 radius: 0
             })
         );
+    }
+
+    #[test]
+    fn ai_87_paired_simultaneous_records_preserve_completion_policy() {
+        fn simultaneous(id: u32, edid: &str, completing: bool) -> Record {
+            let rec = finish(close_header(build_template(id, edid), None))
+                .zsub(Tag::new(b"ANAM"), "Simultaneous")
+                .sub(Tag::new(b"CITC"), 0u32.to_le_bytes())
+                .sub(Tag::new(b"PRCB"), [2, 0, 0, 0, 0, 0, 0, 0]);
+            let rec = with_procedure(rec, "Travel", &[], completing);
+            let rec = with_procedure(rec, "Sandbox", &[], false);
+            with_input_name(rec, 0, "Location", true)
+        }
+
+        let all_children =
+            Package::from_record(&simultaneous(0xA870, "AllChildren", true)).unwrap();
+        let keep_running =
+            Package::from_record(&simultaneous(0xA871, "KeepRunning", false)).unwrap();
+
+        assert_eq!(all_children.tree[0].kind, "Simultaneous");
+        assert_eq!(all_children.tree[0].child_count, 2);
+        assert_eq!(all_children.tree[1].procedure.as_deref(), Some("Travel"));
+        assert!(all_children.tree[1].success_completes_package);
+        assert_eq!(keep_running.tree[1].procedure.as_deref(), Some("Travel"));
+        assert!(!keep_running.tree[1].success_completes_package);
+        assert!(!all_children.tree[2].success_completes_package);
+    }
+
+    #[test]
+    fn ai_87_completion_flag_ignores_unknown_fnam_bits() {
+        let rec = with_procedure(
+            finish(close_header(
+                build_template(0xA872, "UnknownCompletionBit"),
+                None,
+            )),
+            "Travel",
+            &[],
+            false,
+        )
+        .sub(Tag::new(b"FNAM"), 0x0000_0002u32.to_le_bytes());
+
+        let parsed = Package::from_record(&rec).unwrap();
+        assert!(!parsed.tree[0].success_completes_package);
     }
 
     #[test]

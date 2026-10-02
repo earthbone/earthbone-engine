@@ -85,6 +85,7 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
             let (channels, tolerance): (usize, i32) = match dds.format() {
                 Format::Bc4 { .. } => (1, 1),
                 Format::Bc5 { .. } => (2, 1),
+                Format::Bc6h { .. } => (3, 1),
                 Format::Bc1 | Format::Bc2 | Format::Bc3 => (4, 1),
                 Format::Bc7 | Format::Uncompressed(_) => (4, 0),
             };

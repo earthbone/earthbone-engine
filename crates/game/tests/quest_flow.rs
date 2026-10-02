@@ -336,6 +336,15 @@ pub fn game() -> Game {
     for pex in scripts() {
         game.load_script(&pex).unwrap();
     }
+    let cell = game.form("TestCellA").unwrap();
+    let report = game.load_cell(cell);
+    assert_eq!(report.forms_with_scripts, 2, "{report:?}");
+    assert_eq!(report.scripts_attached, 2, "{report:?}");
+    assert_eq!(report.properties_set, 1, "{report:?}");
+    assert!(
+        report.scripts_missing.is_empty() && report.properties_missing.is_empty(),
+        "{report:?}"
+    );
     game
 }
 
@@ -350,9 +359,9 @@ fn script_errors(game: &Game) -> Vec<String> {
 fn a_quest_advances_on_activation_end_to_end() {
     let mut game = game();
     let report = game.start();
-    assert_eq!(report.forms_with_scripts, 3, "{report:?}");
-    assert_eq!(report.scripts_attached, 4, "{report:?}");
-    assert_eq!(report.properties_set, 3, "{report:?}");
+    assert_eq!(report.forms_with_scripts, 1, "{report:?}");
+    assert_eq!(report.scripts_attached, 2, "{report:?}");
+    assert_eq!(report.properties_set, 2, "{report:?}");
     assert!(
         report.scripts_missing.is_empty() && report.properties_missing.is_empty(),
         "{report:?}"
@@ -567,7 +576,11 @@ fn a_second_native_provider_loses_collisions_and_is_told() {
 
 #[test]
 fn the_scenario_harness_runs_the_same_flow_against_a_captured_log() {
-    let dir = std::env::temp_dir().join(format!("soe-game-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "soe-game-{}-{}",
+        module_path!(),
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("Papyrus.0.log");
     std::fs::write(

@@ -4,9 +4,9 @@
 //! VM's, one after the other inside a small envelope of their own.
 //!
 //! Plugin and loaded-script fingerprints travel in the file as provenance.
-//! The caller still supplies those definitions before `load_state`. The
-//! loader rejects changed dependencies and slot movement before replacing
-//! world or VM state.
+//! The caller supplies those definitions before `load_state`. Plugin identity
+//! changes reject loading, while VM script fingerprints determine whether
+//! saved execution state loads or remains suspended.
 
 use soe_esm::Slot;
 use soe_papyrus::vm::state::{Reader, Writer};
@@ -237,11 +237,6 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
             )));
         }
     }
-    if saved.scripts != current.scripts {
-        return Err(VmError::State(
-            "loaded script fingerprints differ from the save".into(),
-        ));
-    }
     Ok(())
 }
 
@@ -416,6 +411,11 @@ fn vanilla_dependency_report(
             if let Some(name) = papyrus.string(script.name) {
                 saved_scripts.insert(name.to_owned());
             }
+            if let Some(parent) = papyrus.string(script.parent) {
+                if !parent.is_empty() {
+                    saved_scripts.insert(parent.to_owned());
+                }
+            }
         }
         for instance in &papyrus.instances {
             if let Some(name) = papyrus.string(instance.script) {
@@ -509,11 +509,22 @@ impl Game {
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
         let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
+        match self.validate_saved_state(bytes) {
+            Ok(())
+            | Err(
+                VmError::UnknownScript(_)
+                | VmError::UnknownFunction { .. }
+                | VmError::IncompatibleScript(_),
+            ) => {}
+            Err(error) => return Err(error),
+        }
         let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
         check_provenance(&saved, &current_provenance(self))?;
         self.world.borrow_mut().load_state(world_bytes)?;
         self.vm.load_state(vm_bytes)?;
         self.bound = None;
+        self.bound_cells.clear();
+        self.bound_forms.clear();
         Ok(())
     }
 }

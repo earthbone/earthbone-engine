@@ -42,13 +42,22 @@ fn game_with_marker() -> Game {
     game
 }
 
-/// A one-off global script whose `Run` function calls `Debug.TraceUser`
-/// with a fixed user log name and severity, the way a vanilla script's
+/// A one-off global script whose `Run` function opens a named log and calls
+/// `Debug.TraceUser` with a fixed severity, the way a vanilla script's
 /// `CallStatic` would.
 fn trace_user_script() -> Vec<u8> {
     let run = FunctionBuilder::new("Run", "None")
         .global()
         .param("t", "Form")
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("OpenUserLog"),
+                ident("::nonevar"),
+                s("UserLog"),
+            ],
+        )
         .ins(
             CallStatic,
             vec![

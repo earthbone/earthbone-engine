@@ -3,11 +3,9 @@
 
 //! Actor-level template selection and group ownership, including persistence.
 
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
@@ -262,12 +260,39 @@ fn malformed_selected_lists_restore_the_rng_and_reject_partial_spawns() {
 #[test]
 fn corrupt_saved_template_does_not_replace_existing_state() {
     let mut world = world(plugin(list(LIST, 0, 0, &[(1, LOW)])));
+    world
+        .prepare_actor_template(id(ACTOR), id(BASE), 17)
+        .unwrap();
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = world.save_state();
-    let offset = bytes.len() - 49;
+    let choice = world
+        .actor_component_source(id(ACTOR), template::STATS)
+        .unwrap();
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&id(ACTOR).file.to_le_bytes());
+    marker.extend_from_slice(&ACTOR.to_le_bytes());
+    marker.extend_from_slice(&17_u32.to_le_bytes());
+    marker.push(1);
+    let chain_at = legacy::unique_offset(&bytes, &marker) + marker.len();
+    let mut reader = soe_papyrus::vm::state::Reader::new(&bytes[chain_at..]);
+    let count = reader.len().unwrap();
+    let mut offset = None;
+    for _ in 0..count {
+        let file = reader.u16().unwrap();
+        let object_at = bytes.len() - reader.remaining();
+        let object = reader.u32().unwrap();
+        if (GlobalFormId { file, object }) == choice {
+            offset = Some(object_at);
+        }
+    }
+    let offset = offset.expect("selected template is in the saved chain");
     bytes[offset..offset + 4].copy_from_slice(&0x600u32.to_le_bytes());
-    assert!(world.load_state(&bytes).is_err());
+    assert!(world
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid saved actor template selection"));
     assert_eq!(world.state_hash(), hash);
 }
 
@@ -288,11 +313,9 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
-    // The trailing 64 bytes are the version 10 to 36 blocks this legacy save
-    // omits, plus detection's now-unconditional empty pool count (4 bytes)
-    // and the world-level save-section table version 37 added (2 bytes).
-    bytes.truncate(bytes.len() - 64);
-    bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
+    legacy::truncate_to_version(&mut bytes, 9, |candidate| {
+        World::new(LoadOrder::new()).load_state(candidate).is_ok()
+    });
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);
 }

@@ -118,6 +118,7 @@ const BSA_FLAG_INCLUDE_FILE_NAMES: u32 = 0x02;
 const BSA_FLAG_COMPRESSED: u32 = 0x04;
 const BSA_FLAG_EMBED_FILE_NAMES: u32 = 0x100;
 const BSA_SIZE_COMPRESSION_BIT: u32 = 1 << 30;
+const BA2_DX10_CHUNK_SENTINEL: u32 = 0xBAAD_F00D;
 
 /// Index an archive off disk, reading only the header and tables.
 ///
@@ -967,7 +968,13 @@ fn parse_ba2<R: Read + Seek>(cursor: &mut R, len: u64, path: &Path) -> Result<Ar
                 let _dir_hash = cursor.read_u32::<LittleEndian>()?;
                 let _unknown = cursor.read_u8()?;
                 let num_chunks = cursor.read_u8()?;
-                let _chunk_header_size = cursor.read_u16::<LittleEndian>()?;
+                let chunk_header_size = cursor.read_u16::<LittleEndian>()?;
+                if chunk_header_size != 24 {
+                    return Err(Error::format(
+                        format!("Invalid BA2 DX10 chunk header size {chunk_header_size}"),
+                        path,
+                    ));
+                }
                 let height = cursor.read_u16::<LittleEndian>()?;
                 let width = cursor.read_u16::<LittleEndian>()?;
                 let num_mips = cursor.read_u8()?;
@@ -981,6 +988,13 @@ fn parse_ba2<R: Read + Seek>(cursor: &mut R, len: u64, path: &Path) -> Result<Ar
                     let unpacked_size = cursor.read_u32::<LittleEndian>()?;
                     let _start_mip = cursor.read_u16::<LittleEndian>()?;
                     let _end_mip = cursor.read_u16::<LittleEndian>()?;
+                    let sentinel = cursor.read_u32::<LittleEndian>()?;
+                    if sentinel != BA2_DX10_CHUNK_SENTINEL {
+                        return Err(Error::format(
+                            format!("Invalid BA2 DX10 chunk sentinel {sentinel:#010x}"),
+                            path,
+                        ));
+                    }
                     chunks.push(DdsChunk {
                         offset: chunk_offset,
                         packed_size,
@@ -1819,7 +1833,7 @@ mod tests {
     }
 
     #[test]
-    fn dx10_texture_comes_back_as_a_dds_file() {
+    fn tst_08_ba2_dx10_raw_chunk_rebuilds_a_dds_file() {
         // One DX10 record, one uncompressed chunk of 16 bytes.
         let pixels = [0xABu8; 16];
         let mut d = Vec::new();
@@ -1827,8 +1841,8 @@ mod tests {
         d.extend_from_slice(&1u32.to_le_bytes());
         d.extend_from_slice(b"DX10");
         d.extend_from_slice(&1u32.to_le_bytes());
-        // header 24 + record (24 + 1 chunk * 20) = 68, name table there
-        let record_len = 24u64 + 20;
+        // Header 24 + record (24 + 1 chunk * 24) = 72, name table there.
+        let record_len = 24u64 + 24;
         let name = b"textures/t.dds";
         let name_table = 24 + record_len;
         let data_at = name_table + 2 + name.len() as u64;
@@ -1849,6 +1863,7 @@ mod tests {
         d.extend_from_slice(&16u32.to_le_bytes()); // unpacked
         d.extend_from_slice(&0u16.to_le_bytes());
         d.extend_from_slice(&0u16.to_le_bytes());
+        d.extend_from_slice(&0xBAAD_F00Du32.to_le_bytes());
         assert_eq!(d.len() as u64, name_table);
         d.extend_from_slice(&(name.len() as u16).to_le_bytes());
         d.extend_from_slice(name);
@@ -1871,6 +1886,127 @@ mod tests {
         assert_eq!(&dds[dds.len() - 16..], &pixels);
         // dxgiFormat sits right after the 128-byte DDS header.
         assert_eq!(u32::from_le_bytes(dds[128..132].try_into().unwrap()), 98);
+    }
+
+    #[test]
+    fn tst_08_ba2_general_reads_a_compressed_record() {
+        use std::io::Write;
+
+        let payload = b"BA2 general payload";
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(payload).unwrap();
+        let packed = encoder.finish().unwrap();
+        let name = b"meshes/a.nif";
+        let name_table = 24 + 36;
+        let data_at = name_table + 2 + name.len();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"BTDX");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(b"GNRL");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&(name_table as u64).to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(b"nif\0");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&(data_at as u64).to_le_bytes());
+        bytes.extend_from_slice(&(packed.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(name);
+        bytes.extend_from_slice(&packed);
+
+        let archive = Archive::from_bytes(Path::new("tst_08.ba2"), bytes).unwrap();
+        assert_eq!(archive.read("meshes/a.nif").unwrap(), payload);
+    }
+
+    fn tst_08_dx10_archive(payload: &[u8], compressed: bool) -> Vec<u8> {
+        use std::io::Write;
+
+        let name = b"textures/t.dds";
+        let mut packed = Vec::new();
+        if compressed {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(payload).unwrap();
+            packed = encoder.finish().unwrap();
+        }
+        let stored = if compressed { &packed } else { payload };
+        let name_table = 24 + 48;
+        let data_at = name_table + 2 + name.len();
+        let mut d = Vec::new();
+        d.extend_from_slice(b"BTDX");
+        d.extend_from_slice(&1u32.to_le_bytes());
+        d.extend_from_slice(b"DX10");
+        d.extend_from_slice(&1u32.to_le_bytes());
+        d.extend_from_slice(&(name_table as u64).to_le_bytes());
+        d.extend_from_slice(&0u32.to_le_bytes());
+        d.extend_from_slice(b"dds\0");
+        d.extend_from_slice(&0u32.to_le_bytes());
+        d.extend_from_slice(&[0, 1]);
+        d.extend_from_slice(&24u16.to_le_bytes());
+        d.extend_from_slice(&2u16.to_le_bytes());
+        d.extend_from_slice(&2u16.to_le_bytes());
+        d.push(1);
+        d.push(98);
+        d.extend_from_slice(&0u16.to_le_bytes());
+        d.extend_from_slice(&(data_at as u64).to_le_bytes());
+        d.extend_from_slice(&(packed.len() as u32).to_le_bytes());
+        d.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        d.extend_from_slice(&[0; 4]);
+        d.extend_from_slice(&0xBAAD_F00Du32.to_le_bytes());
+        d.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        d.extend_from_slice(name);
+        d.extend_from_slice(stored);
+        d
+    }
+
+    #[test]
+    fn tst_08_ba2_dx10_compressed_chunk_rebuilds_with_full_payload() {
+        let pixels = [0x5Au8; 16];
+        let bytes = tst_08_dx10_archive(&pixels, true);
+        let archive = Archive::from_bytes(Path::new("tst_08.ba2"), bytes).unwrap();
+        let dds = archive.read("textures/t.dds").unwrap();
+        assert_eq!(&dds[..4], b"DDS ");
+        assert_eq!(u32::from_le_bytes(dds[128..132].try_into().unwrap()), 98);
+        assert_eq!(&dds[148..], &pixels);
+    }
+
+    #[test]
+    fn tst_08_ba2_dx10_truncated_chunk_returns_an_error() {
+        let pixels = [0x5Au8; 16];
+        let mut bytes = tst_08_dx10_archive(&pixels, false);
+        bytes.pop();
+        let archive = Archive::from_bytes(Path::new("tst_08.ba2"), bytes).unwrap();
+        assert!(matches!(
+            archive.read("textures/t.dds"),
+            Err(Error::Truncated { .. })
+        ));
+    }
+
+    #[test]
+    fn tst_08_ba2_dx10_invalid_chunk_sentinel_is_rejected() {
+        let pixels = [0x5Au8; 16];
+        let mut bytes = tst_08_dx10_archive(&pixels, false);
+        let sentinel_offset = 24 + 24 + 20;
+        bytes[sentinel_offset..sentinel_offset + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            index_archive_in(&bytes, Path::new("tst_08.ba2")),
+            Err(Error::Format { .. })
+        ));
+    }
+
+    #[test]
+    fn tst_08_ba2_dx10_invalid_chunk_header_size_is_rejected() {
+        let pixels = [0x5Au8; 16];
+        let mut bytes = tst_08_dx10_archive(&pixels, false);
+        bytes[38..40].copy_from_slice(&20u16.to_le_bytes());
+        assert!(matches!(
+            index_archive_in(&bytes, Path::new("tst_08.ba2")),
+            Err(Error::Format { .. })
+        ));
     }
 
     /// Wraps a reader and counts the bytes actually pulled through it.

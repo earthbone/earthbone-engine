@@ -96,24 +96,21 @@ pub struct LightStaticChange {
     pub value_changed: bool,
     /// Whether xEdit's zero-byte base-object full-name marker is set.
     pub full_name_changed: bool,
+    /// Change flag bits xEdit labels unnamed.
+    pub unnamed_flags: u32,
 }
 
 impl LightStaticChange {
     /// Rebuild the defined change flag bits.
-    ///
-    /// # Panics
-    /// Does not panic.
     #[must_use]
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags
     }
 
     /// Rebuild the exact source-defined payload bytes.
-    ///
-    /// # Panics
-    /// Does not panic.
     #[must_use]
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::with_capacity(if self.form_flags.is_some() { 6 } else { 0 });
@@ -136,26 +133,40 @@ pub struct StaticObjectChange {
     pub value_changed: bool,
     /// Whether xEdit marks the zero-byte full-name field as changed.
     pub full_name_changed: bool,
+    /// Change flag bits xEdit labels unnamed.
+    pub unnamed_flags: u32,
     /// Payload bytes after the fields defined by xEdit.
     pub opaque_suffix: Vec<u8>,
 }
 
 impl StaticObjectChange {
-    /// Rebuild the payload while retaining unnamed flags and opaque bytes.
+    /// Rebuild the complete change flag word from its typed fields.
     ///
     /// # Errors
     /// Returns an error when a typed field disagrees with its change flag.
-    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+    pub fn change_flags(&self) -> Result<u32> {
         let form_present = self.change_flags & static_object_flags::FORM != 0;
         if self.form_flags.is_some() != form_present
             || self.value_changed != (self.change_flags & static_object_flags::VALUE != 0)
             || self.full_name_changed != (self.change_flags & static_object_flags::FULL_NAME != 0)
+            || self.unnamed_flags != (self.change_flags & !static_object_flags::KNOWN)
         {
             return Err(crate::Error::RecordChange {
                 reason: "static-object fields disagree with change flags".to_owned(),
             });
         }
+        Ok(u32::from(form_present)
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+            | self.unnamed_flags)
+    }
 
+    /// Rebuild the payload while retaining opaque suffix bytes.
+    ///
+    /// # Errors
+    /// Returns an error when a typed field disagrees with its change flag.
+    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+        self.change_flags()?;
         let mut bytes =
             Vec::with_capacity(self.form_flags.map_or(0, |_| 6) + self.opaque_suffix.len());
         if let Some((form_flags, unknown)) = self.form_flags {
@@ -175,24 +186,12 @@ const BASE_OBJECT_TYPES: &[&str] = &[
 impl ChangeForm {
     /// Decode a LIGH, STAT or MSTT change payload defined by xEdit.
     ///
-    /// These records contain optional form flags followed by value and
-    /// full-name markers. xEdit defines both markers as zero-byte fields.
-    ///
     /// # Errors
-    /// Returns decompression, truncation, unknown-flag or trailing-byte errors.
-    ///
-    /// # Panics
-    /// Does not panic.
+    /// Returns decompression, truncation or trailing-byte errors.
     pub fn light_static_change(&self) -> Result<Option<LightStaticChange>> {
         if !matches!(self.record_type(), "LIGH" | "STAT" | "MSTT") {
             return Ok(None);
         }
-        if self.change_flags & !0b111 != 0 {
-            return Err(Error::RecordChange {
-                reason: "unknown LIGH/STAT/MSTT change flags".into(),
-            });
-        }
-
         let fields = self
             .base_object_fields()?
             .ok_or_else(|| Error::RecordChange {
@@ -203,21 +202,20 @@ impl ChangeForm {
                 reason: "trailing LIGH/STAT/MSTT change bytes".into(),
             });
         }
-
         Ok(Some(LightStaticChange {
             form_flags: fields
                 .form_flags
                 .map(|(flags, unknown)| FormFlags { flags, unknown }),
             value_changed: fields.value_changed,
             full_name_changed: fields.full_name_changed,
+            unnamed_flags: self.change_flags & !0b111,
         }))
     }
 
     /// Decode the xEdit-defined fields in a `CONT`, `MISC` or `FURN` payload.
     ///
-    /// The three records share the base-object flags. Unnamed flag bits and
-    /// payload bytes beyond the defined prefix are retained without assigning
-    /// them a meaning.
+    /// FallrimTools keeps these payloads raw. The suffix remains opaque here
+    /// because xEdit defines no additional fields after the shared prefix.
     ///
     /// # Errors
     /// Returns a payload decompression error or a truncation error when the
@@ -226,7 +224,6 @@ impl ChangeForm {
         if !matches!(self.record_type(), "CONT" | "MISC" | "FURN") {
             return Ok(None);
         }
-
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "static-object change");
         let form_flags = if self.change_flags & static_object_flags::FORM != 0 {
@@ -239,6 +236,7 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & static_object_flags::VALUE != 0,
             full_name_changed: self.change_flags & static_object_flags::FULL_NAME != 0,
+            unnamed_flags: self.change_flags & !static_object_flags::KNOWN,
             opaque_suffix: cursor.rest().to_vec(),
         }))
     }
@@ -255,7 +253,6 @@ impl ChangeForm {
         if !matches!(self.record_type(), "ARMO" | "WEAP" | "AMMO") {
             return Ok(None);
         }
-
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "item change");
         let form_flags = if self.change_flags & flags::FORM != 0 {
@@ -263,14 +260,13 @@ impl ChangeForm {
         } else {
             None
         };
-        let trailing_data = cursor.rest().to_vec();
         Ok(Some(ItemChange {
             record_type: self.record_type(),
             form_flags,
             value_changed: self.change_flags & flags::VALUE != 0,
             full_name_changed: self.change_flags & flags::FULL_NAME != 0,
             unnamed_flags: self.change_flags & !0b111,
-            trailing_data,
+            trailing_data: cursor.rest().to_vec(),
         }))
     }
 

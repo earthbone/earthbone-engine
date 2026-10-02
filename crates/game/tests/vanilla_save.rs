@@ -25,19 +25,25 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/appa_idlm.rs"]
+mod appa_idlm;
+#[path = "vanilla_save/base_objects.rs"]
+mod base_objects;
 #[path = "vanilla_save/record_changes.rs"]
 mod record_changes;
 
-#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
-mod sav_30_dialogue_scene;
-
 #[path = "vanilla_save/pack_navmesh.rs"]
 mod pack_navmesh;
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+#[path = "vanilla_save/static_objects.rs"]
+mod static_objects;
+#[path = "vanilla_save/woop_mgef.rs"]
+mod woop_mgef;
 
-#[path = "common/installed.rs"]
-mod installed;
-#[path = "common/legacy.rs"]
-mod legacy;
+use crate::common::legacy;
+
+use crate::common::installed;
 
 use std::{
     path::{Path, PathBuf},

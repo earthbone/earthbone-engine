@@ -2,6 +2,7 @@
 
 //! NPC changes must reach shared records and actors across file namespaces.
 
+use super::legacy;
 use super::*;
 use soe_game::npc::{self, Config, Stats};
 use soe_save::npc::flags as saved_flags;
@@ -277,7 +278,7 @@ fn restored_npc_fields_reach_records_actors_and_native_queries() {
 }
 
 #[test]
-fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them() {
+fn sav_46_npc_version_13_migration_preserves_overrides_and_old_saves_clear_them() {
     let mut world = World::new(fixture_order());
     let empty = world.save_state();
     let saved = fixture();
@@ -307,6 +308,10 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let tail_len = empty.len() - override_entry;
     v13.truncate(v13.len() - tail_len);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&v13, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    v13.truncate(v13.len() - tail);
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
     assert_eq!(legacy.save_state(), before);
@@ -325,6 +330,10 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let mut v12 = empty;
     v12.truncate(override_count);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&v12, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    v12.truncate(v12.len() - tail);
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());
     assert_eq!(

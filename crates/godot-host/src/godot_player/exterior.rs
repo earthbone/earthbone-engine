@@ -23,7 +23,7 @@ pub(super) fn config() -> StreamConfig {
     StreamConfig {
         load_radius: 1,
         unload_radius: 2,
-        max_loads_per_tick: 2,
+        max_loads_per_tick: soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE,
         max_unloads_per_tick: 4,
     }
 }
@@ -132,10 +132,7 @@ impl PlayerNode {
                 }
             }
         }
-        if let Err(error) = game
-            .world_mut()
-            .update_streaming_cells(cell, &entered, &departed)
-        {
+        if let Err(error) = game.update_streaming_cells(cell, &entered, &departed) {
             godot_error!("PlayerNode: exterior state failed: {error}");
             return false;
         }

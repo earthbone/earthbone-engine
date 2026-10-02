@@ -25,6 +25,9 @@
 //! across many cells is read once for the source's lifetime. The trace of
 //! 2026-09-18 had a per-call cache decoding every texture on the calling
 //! thread after the workers joined, at 97 percent of the stream time.
+//!
+//! Skinned character surfaces resolve their material textures through the
+//! same DDS loader, using the character archives supplied to their VFS.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -42,11 +45,14 @@ use crate::mesh::{
     WaterMaterial,
 };
 
+#[cfg(feature = "godot")]
+mod chargen;
 mod exterior;
 mod grass;
 mod location;
 mod lod;
 mod models;
+mod terrain_texture;
 mod textures;
 mod water;
 mod workers;
@@ -54,6 +60,8 @@ mod workers;
 #[cfg(test)]
 mod marker_survey_tests;
 
+#[cfg(feature = "godot")]
+pub(crate) use chargen::ChargenCache;
 pub use location::LoadedLocation;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;
@@ -63,6 +71,18 @@ use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
 use workers::WorkerPools;
+
+/// Resolve material textures through the same VFS path as streamed meshes.
+pub(crate) fn resolve_material_textures(
+    vfs: &Vfs,
+    materials: &[MaterialDesc],
+) -> Vec<SurfaceTextures> {
+    let cache = TextureCache::default();
+    materials
+        .iter()
+        .map(|material| cache.resolve(vfs, material))
+        .collect()
+}
 
 /// The base masters every Skyrim SE install ships, in the order the game
 /// itself loads them.
@@ -278,17 +298,71 @@ pub struct DataSource {
     textures: TextureCache,
 }
 
+/// A winning cell record prepared for the editor's worldspace and cell tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorCell {
+    /// The resolved cell form id, formatted as `file:object`.
+    pub id: String,
+    /// The cell editor id, or its form id when it has no editor id.
+    pub name: String,
+    /// The resolved worldspace form id for an exterior cell.
+    pub world_id: Option<String>,
+    /// The worldspace editor id for an exterior cell.
+    pub world_name: Option<String>,
+    /// Whether this is an interior cell.
+    pub interior: bool,
+    /// Exterior grid X coordinate.
+    pub x: Option<i32>,
+    /// Exterior grid Y coordinate.
+    pub y: Option<i32>,
+    /// Number of live placed objects indexed under this cell.
+    pub references: usize,
+}
+
 /// Parse the base masters, on `threads` workers when more than one, and hand
 /// them back in master order so the load order stays deterministic.
+fn plugin_cache_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("SOE_PLUGIN_CACHE") {
+        return (path != "off").then(|| PathBuf::from(path));
+    }
+    if let Some(path) = std::env::var_os("XDG_CACHE_HOME") {
+        return Some(
+            PathBuf::from(path)
+                .join("skyrim-open-engine")
+                .join("plugins"),
+        );
+    }
+    #[cfg(windows)]
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        return Some(
+            PathBuf::from(path)
+                .join("skyrim-open-engine")
+                .join("plugins"),
+        );
+    }
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join(".cache")
+            .join("skyrim-open-engine")
+            .join("plugins")
+    })
+}
+
 fn parse_masters(
     data_dir: &Path,
     threads: usize,
     workers: &WorkerPools,
+    cache_dir: Option<&Path>,
 ) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
     let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
     let parse_one = |name: &str| -> Result<soe_esm::Plugin, DataSourceError> {
         let path = data_dir.join(name);
-        soe_esm::read_plugin(&path)
+        let parsed = if let Some(cache_dir) = cache_dir {
+            soe_esm::read_plugin_cached(&path, cache_dir)
+        } else {
+            soe_esm::read_plugin(&path)
+        };
+        parsed
             .map_err(|source| DataSourceError::Io {
                 path: path.clone(),
                 source,
@@ -305,6 +379,12 @@ fn parse_masters(
 }
 
 impl DataSource {
+    /// Load an EffectShader membrane texture through the source's shared DDS cache.
+    #[cfg(feature = "godot")]
+    pub(crate) fn effect_shader_texture(&self, path: &str) -> Option<Arc<TextureData>> {
+        self.textures.get_or_decode(&self.vfs, path)
+    }
+
     /// Loads a vanilla game's resolved profile from its `Data` directory.
     /// The game's default INI supplies the locale when no user INI is given.
     /// Share archive handles and records, with a private speculative texture cache.
@@ -348,6 +428,16 @@ impl DataSource {
 
     /// `open_loadout` with a fixed worker count, one for the sequential path.
     pub fn open_with_threads(data_dir: &Path, threads: usize) -> Result<Self, DataSourceError> {
+        Self::open_with_threads_and_cache(data_dir, threads, plugin_cache_dir().as_deref())
+    }
+
+    /// `open_with_threads` with an explicit parsed-plugin cache directory.
+    /// Passing `None` disables the parsed-plugin cache.
+    pub fn open_with_threads_and_cache(
+        data_dir: &Path,
+        threads: usize,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self, DataSourceError> {
         let game_dir = data_dir
             .parent()
             .ok_or_else(|| DataSourceError::DataDirectory(data_dir.to_path_buf()))?;
@@ -360,13 +450,23 @@ impl DataSource {
             ccc: None,
         }
         .resolve()?;
-        Self::open_loadout_with_threads(&loadout, threads)
+        Self::open_loadout_with_threads_and_cache(&loadout, threads, cache_dir)
     }
 
     /// `open_loadout` with a fixed worker count, one for the sequential path.
     pub fn open_loadout_with_threads(
         loadout: &soe_profile::Loadout,
         threads: usize,
+    ) -> Result<Self, DataSourceError> {
+        Self::open_loadout_with_threads_and_cache(loadout, threads, plugin_cache_dir().as_deref())
+    }
+
+    /// `open_loadout_with_threads` with an explicit parsed-plugin cache directory.
+    /// Passing `None` disables the parsed-plugin cache.
+    pub fn open_loadout_with_threads_and_cache(
+        loadout: &soe_profile::Loadout,
+        threads: usize,
+        cache_dir: Option<&Path>,
     ) -> Result<Self, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
@@ -375,7 +475,7 @@ impl DataSource {
             .data_roots
             .first()
             .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
-        let parsed = parse_masters(data_dir, threads, &workers)?;
+        let parsed = parse_masters(data_dir, threads, &workers, cache_dir)?;
         let mut order = LoadOrder::new();
         for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
             order
@@ -422,6 +522,49 @@ impl DataSource {
     #[must_use]
     pub fn cell_index(&self) -> &CellIndex {
         self.order.build_cell_index()
+    }
+
+    /// Returns winning cells in a stable order for an editor tree.
+    /// Exterior cells carry their worldspace and grid coordinates. Interior
+    /// cells have no worldspace parent in the plugin record hierarchy.
+    pub fn editor_cells(&self) -> Vec<EditorCell> {
+        let index = self.cell_index();
+        let mut cells = Vec::new();
+        for (id, references) in index.cells() {
+            let Some(record) = self.order.winner(id) else {
+                continue;
+            };
+            if record.tag != tag::CELL {
+                continue;
+            }
+            let grid = index.grid_of(id);
+            let world_id = grid.map(|grid| grid.world);
+            let world_name = world_id.and_then(|world| {
+                self.order
+                    .winner(world)
+                    .and_then(|record| record.editor_id())
+            });
+            cells.push(EditorCell {
+                id: id.to_string(),
+                name: record.editor_id().unwrap_or_else(|| id.to_string()),
+                world_id: world_id.map(|world| world.to_string()),
+                world_name,
+                interior: index.is_interior(id),
+                x: grid.map(|grid| grid.x),
+                y: grid.map(|grid| grid.y),
+                references,
+            });
+        }
+        cells.sort_by(|left, right| {
+            (left.interior, &left.world_id, left.y, left.x, &left.id).cmp(&(
+                right.interior,
+                &right.world_id,
+                right.y,
+                right.x,
+                &right.id,
+            ))
+        });
+        cells
     }
 
     /// Share records and the cached cell index with the authoritative game runtime.

@@ -19,6 +19,15 @@ jobs:
             ~/.cargo/git
             target
           key: perf-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Callgrind tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+          cargo install --locked --version 0.16.1 iai-callgrind-runner
+      - name: Check parser and VM instruction counts
+        run: |
+          cargo bench --locked -p soe-esm --bench tst_04_perf_gate
+          cargo bench --locked -p soe-papyrus --bench tst_04_perf_gate
       - name: Build synthetic workloads
         run: cargo build -p soe-bench --profile thin --locked
       - name: Check mixed workload

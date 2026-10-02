@@ -76,23 +76,37 @@ impl Default for GameClock {
 
 impl GameClock {
     pub fn advance(&mut self, real_seconds: f64) {
+        self.advance_scaled(real_seconds, 1.0);
+    }
+
+    pub(crate) fn advance_scaled(&mut self, real_seconds: f64, game_time_scale: f64) {
         let dt = real_seconds.max(0.0);
         self.real_seconds += dt;
-        self.game_days += dt * self.timescale / 86_400.0;
+        self.game_days += dt * self.timescale * game_time_scale / 86_400.0;
     }
 
     pub fn game_hours(&self) -> f64 {
         self.game_days * 24.0
     }
 
-    /// `Utility.GameTimeToString`: hours of game time as `D.HH:MM:SS`.
-    pub fn format_game_time(hours: f32) -> String {
-        let total = (f64::from(hours) * 3600.0).round().max(0.0) as u64;
-        let days = total / 86_400;
-        let h = (total % 86_400) / 3600;
-        let m = (total % 3600) / 60;
-        let s = total % 60;
-        format!("{days}.{h:02}:{m:02}:{s:02}")
+    /// `Utility.GameTimeToString`: game days as a calendar date and time.
+    pub fn format_game_time(game_days: f32) -> String {
+        let elapsed = f64::from(game_days).max(0.0);
+        let mut calendar = Calendar {
+            year: 201,
+            month: 7,
+            day: 17,
+            hour: elapsed.fract() * 24.0,
+        };
+        calendar.add_days(elapsed.floor().min(u64::MAX as f64) as u64);
+        let hour = calendar.hour.floor() as u32;
+        let minute = (calendar.hour.fract() * 60.0).floor() as u32;
+        format!(
+            "{:02}/{:02}/{:03} {hour:02}:{minute:02}",
+            calendar.month + 1,
+            calendar.day,
+            calendar.year
+        )
     }
 }
 
@@ -112,7 +126,13 @@ mod tests {
 
     #[test]
     fn game_time_formats_like_the_game() {
-        assert_eq!(GameClock::format_game_time(25.5), "1.01:30:00");
-        assert_eq!(GameClock::format_game_time(0.0), "0.00:00:00");
+        assert_eq!(GameClock::format_game_time(0.0), "08/17/201 00:00");
+        assert_eq!(GameClock::format_game_time(0.5), "08/17/201 12:00");
+        assert_eq!(GameClock::format_game_time(1.0), "08/18/201 00:00");
+    }
+
+    #[test]
+    fn scr_72_game_time_to_string_uses_game_days_and_calendar_time() {
+        assert_eq!(GameClock::format_game_time(2.25), "08/19/201 06:00");
     }
 }

@@ -130,7 +130,7 @@ fn ai_66_within_distance_rejects_invalid_references_and_ranges() {
 #[test]
 fn ai_66_unavailable_motion_state_conditions_report_function_diagnostics() {
     let game = fixture();
-    for function in [614, 619, 620, 621, 622, 623, 633] {
+    for function in [614, 620, 621, 622] {
         assert!(!conditions::supports_function(function), "{function}");
         assert_eq!(
             evaluate(&game, id(0x900), &condition(function, [0, 0], 0.0)),
@@ -138,4 +138,82 @@ fn ai_66_unavailable_motion_state_conditions_report_function_diagnostics() {
             "{function}"
         );
     }
+}
+
+#[test]
+fn ai_66_pathing_target_offset_reports_missing_contract_after_validating_axis_and_actor() {
+    let game = fixture();
+    let valid = condition(619, [90, 0], 1.0);
+    assert!(conditions::supports_function(619));
+    assert_eq!(
+        evaluate(&game, id(0x900), &valid),
+        Err(conditions::Error::Contract(619))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(619, [3, 0], 1.0)),
+        Err(conditions::Error::Parameter(619, 3))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x910), &valid),
+        Err(conditions::Error::Form(id(0x910)))
+    );
+}
+
+#[test]
+fn ai_66_movement_speed_reports_missing_contract_for_valid_actor_only() {
+    let game = fixture();
+    let valid = condition(623, [0, 0], 0.0);
+    assert!(conditions::supports_function(623));
+    assert_eq!(
+        evaluate(&game, id(0x900), &valid),
+        Err(conditions::Error::Contract(623))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(623, [0, 1], 0.0)),
+        Err(conditions::Error::Parameter(623, 1))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x910), &valid),
+        Err(conditions::Error::Form(id(0x910)))
+    );
+}
+
+#[test]
+fn ai_66_flying_state_matches_documented_values_and_checks_context() {
+    let game = fixture();
+    let hover = condition(633, [0, 0], 3.0);
+    assert!(conditions::supports_function(633));
+    assert_eq!(
+        evaluate(&game, id(0x900), &hover),
+        Err(conditions::Error::Unavailable(633))
+    );
+
+    game.world_mut().actor(id(0x900)).unwrap().flying_state = Some(3);
+    assert_eq!(evaluate(&game, id(0x900), &hover), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(633, [0, 0], 2.0)),
+        Ok(false)
+    );
+    for state in 0..=4 {
+        game.world_mut().actor(id(0x900)).unwrap().flying_state = Some(state);
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(633, [0, 0], f32::from(state))),
+            Ok(true),
+            "state {state}"
+        );
+    }
+    assert_eq!(
+        evaluate(&game, id(0x910), &hover),
+        Err(conditions::Error::Form(id(0x910)))
+    );
+
+    game.world_mut().actor(id(0x900)).unwrap().flying_state = Some(5);
+    assert_eq!(
+        evaluate(&game, id(0x900), &hover),
+        Err(conditions::Error::StateContract(633))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(633, [1, 0], 3.0)),
+        Err(conditions::Error::Parameter(633, 1))
+    );
 }

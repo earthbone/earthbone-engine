@@ -16,3 +16,8 @@ thiserror = "2"
 [dev-dependencies]
 proptest = "1.11"
 soe-bsa = { path = "../bsa" }
+iai-callgrind = "=0.16.1"
+
+[[bench]]
+name = "tst_04_perf_gate"
+harness = false

@@ -11,18 +11,41 @@ use soe_papyrus::VmError;
 use super::{ActorState, Handle, Pending, World};
 
 impl World {
+    /// Set essential status through an actor's base-data source when it has
+    /// one, or on its runtime state when it does not.
+    pub fn set_actor_essential(&mut self, actor: GlobalFormId, essential: bool) {
+        let base = self
+            .reference(actor)
+            .and_then(|reference| reference.base)
+            .and_then(|_| {
+                self.actor_component_source(actor, crate::npc::template::BASE_DATA)
+                    .ok()
+            });
+        if let Some(base) = base {
+            self.set_actor_base_essential(base, essential);
+        } else if let Some(state) = self.actor(actor) {
+            state.essential = essential;
+        }
+    }
+
     /// Update the source base and every initialized actor inheriting its essential flag.
     pub fn set_actor_base_essential(&mut self, base: GlobalFormId, essential: bool) {
         let Some(state) = self.actor_base(base) else {
             return;
         };
         state.essential = essential;
+        if essential {
+            state.protected = false;
+        }
         let mut actors: Vec<_> = self.actors.keys().copied().collect();
         actors.sort_unstable();
         for actor in actors {
             if self.actor_component_source(actor, crate::npc::template::BASE_DATA) == Ok(base) {
                 if let Some(state) = self.actors.get_mut(&actor) {
                     state.essential = essential;
+                    if essential {
+                        state.protected = false;
+                    }
                 }
             }
         }
@@ -38,12 +61,18 @@ impl World {
             return;
         };
         state.protected = protected;
+        if protected {
+            state.essential = false;
+        }
         let mut actors: Vec<_> = self.actors.keys().copied().collect();
         actors.sort_unstable();
         for actor in actors {
             if self.actor_component_source(actor, crate::npc::template::BASE_DATA) == Ok(base) {
                 if let Some(state) = self.actors.get_mut(&actor) {
                     state.protected = protected;
+                    if protected {
+                        state.essential = false;
+                    }
                 }
             }
         }
@@ -100,6 +129,7 @@ impl World {
         killer: Option<GlobalFormId>,
         silent: bool,
     ) -> bool {
+        let base = self.base_of(id);
         let Some(actor) = self.actor(id) else {
             return false;
         };
@@ -114,7 +144,19 @@ impl World {
         actor.killer = killer;
         actor.in_combat = false;
         actor.combat_target = None;
+        if let Some(base) = base {
+            if let Some(state) = self.actor_base(base) {
+                state.dead_count = state.dead_count.saturating_add(1);
+            }
+        }
         if !silent {
+            if let Some(killer) = killer.filter(|killer| self.actor(*killer).is_some()) {
+                let event = soe_commonlib_shim::events::ActorKill {
+                    killer: World::event_form_id(killer),
+                    victim: World::event_form_id(id),
+                };
+                self.actor_kill_events.send(&event);
+            }
             let recipients = self.actor_event_recipients(id);
             self.pending.push(Pending::ActorDeath {
                 actor: id,
@@ -200,9 +242,11 @@ impl World {
 
     /// Held death requests are persistent state, not runnable VM work.
     pub fn has_pending_calls(&self) -> bool {
-        self.pending
-            .iter()
-            .any(|event| !matches!(event, Pending::DeferredDeath { .. }))
+        !self.pending_story_events.is_empty()
+            || self
+                .pending
+                .iter()
+                .any(|event| !matches!(event, Pending::DeferredDeath { .. }))
     }
 }
 

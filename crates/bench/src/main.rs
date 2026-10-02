@@ -20,6 +20,7 @@
 //! SKYRIM_DATA=<Data> soe-bench dirty
 //! SKYRIM_DATA=<Data> soe-bench save
 //! SKYRIM_DATA=<Data> soe-bench overhead WhiterunBanneredMare
+//! SKYRIM_DATA=<Data> soe-bench open-data
 //! SKYRIM_DATA=<Data> soe-bench trace cell WhiterunBanneredMare
 //! SKYRIM_DATA=<Data> soe-bench all
 //! ```
@@ -51,7 +52,7 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|open-data|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
     gates: RefCell<Gates>,
@@ -132,6 +133,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
     };
     match args.first().map(String::as_str) {
         Some("load-order") => load_order(opts),
+        Some("open-data") => open_data(opts),
         Some("archives") => archives(opts),
         Some("cell") => cell(opts, arg(1)?),
         Some("cell-index") => cell_index(opts, arg(1)?),
@@ -328,6 +330,32 @@ fn load_order(opts: &Options) -> Result<(), String> {
         median_1 / median_n.max(1e-9),
         "x",
     );
+    Ok(())
+}
+
+fn open_data(opts: &Options) -> Result<(), String> {
+    let cache = std::env::temp_dir().join(format!("soe-bench-plugin-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache);
+    let cold = timed(opts, "open_data_cold", opts.runs, || {
+        let _ = std::fs::remove_dir_all(&cache);
+        soe_godot_host::data_source::DataSource::open_with_threads_and_cache(
+            &opts.data,
+            opts.threads,
+            Some(&cache),
+        )
+        .map_err(|error| error.to_string())
+    })?;
+    drop(cold);
+    let warm = timed(opts, "open_data_warm", opts.runs, || {
+        soe_godot_host::data_source::DataSource::open_with_threads_and_cache(
+            &opts.data,
+            opts.threads,
+            Some(&cache),
+        )
+        .map_err(|error| error.to_string())
+    })?;
+    drop(warm);
+    std::fs::remove_dir_all(&cache).map_err(|error| format!("{}: {error}", cache.display()))?;
     Ok(())
 }
 

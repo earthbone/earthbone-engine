@@ -19,7 +19,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
+use godot::classes::{ArrayMesh, INode3D, Material, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
 use soe_game::combat::{Error as CombatError, Hand};
@@ -27,7 +27,7 @@ use soe_hkx::interp::Interpreter;
 use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
-use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
+use crate::actor::{ActorAssets, ActorSurface};
 use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
@@ -36,10 +36,19 @@ use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
 /// The archives a character reads from, in load order.
-const ARCHIVES: [&str; 3] = [
+const ARCHIVES: [&str; 12] = [
     "Skyrim - Meshes0.bsa",
     "Skyrim - Meshes1.bsa",
     "Skyrim - Animations.bsa",
+    "Skyrim - Textures0.bsa",
+    "Skyrim - Textures1.bsa",
+    "Skyrim - Textures2.bsa",
+    "Skyrim - Textures3.bsa",
+    "Skyrim - Textures4.bsa",
+    "Skyrim - Textures5.bsa",
+    "Skyrim - Textures6.bsa",
+    "Skyrim - Textures7.bsa",
+    "Skyrim - Textures8.bsa",
 ];
 
 fn to_transform3d(a: &Affine) -> Transform3D {
@@ -74,6 +83,12 @@ struct AppearanceBinding {
 enum StaggerGraphEvent {
     Start,
     Stop,
+}
+
+/// Send the shared actor's stagger magnitude and start event to its graph.
+pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
+    vm.variables.set_by_name("staggerMagnitude", magnitude);
+    vm.send_event_named("staggerStart")
 }
 
 #[derive(Default)]
@@ -118,6 +133,7 @@ pub struct SkinnedActorNode {
     /// shapes naming different bones would read each other's transforms.
     shapes: Vec<ShapeRids>,
     meshes: Vec<Gd<ArrayMesh>>,
+    materials: Vec<Gd<Material>>,
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
@@ -141,6 +157,7 @@ impl INode3D for SkinnedActorNode {
             appearance: None,
             shapes: Vec::new(),
             meshes: Vec::new(),
+            materials: Vec::new(),
             model: Vec::new(),
             skins: Vec::new(),
             uploaded_skins: Vec::new(),
@@ -153,6 +170,14 @@ impl INode3D for SkinnedActorNode {
     }
 
     fn exit_tree(&mut self) {
+        if let Some(binding) = &self.appearance {
+            binding
+                .world
+                .borrow_mut()
+                .queue_animation_unload(binding.actor);
+        } else if self.vm.is_some() {
+            self.signals().animation_graph_unloaded().emit();
+        }
         if let Some(mut ragdoll) = self.ragdoll.take() {
             ragdoll.free();
         }
@@ -161,6 +186,7 @@ impl INode3D for SkinnedActorNode {
 
     fn process(&mut self, delta: f64) {
         self.sync_death_rendering();
+        self.apply_queued_impulses();
         if self.ragdoll.is_some() {
             self.refresh_appearance();
             self.push_pose();
@@ -180,6 +206,10 @@ impl SkinnedActorNode {
     /// Authored graph events emitted after the corresponding pose is installed.
     #[signal]
     pub fn animation_event(name: GString);
+
+    /// The loaded behavior graph is leaving the scene tree.
+    #[signal]
+    pub fn animation_graph_unloaded();
 
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.
@@ -273,13 +303,19 @@ impl SkinnedActorNode {
             for i in 0..bones {
                 server.skeleton_bone_set_transform(skeleton, i as i32, Transform3D::IDENTITY);
             }
-            let mesh = array_mesh_from(&surface.arrays);
+            let mut mesh = array_mesh_from(&surface.arrays);
+            let material = crate::godot_layer::standard_material_from(
+                &surface.arrays.material,
+                &surface.textures,
+            );
+            mesh.surface_set_material(0, &material);
             let instance = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(instance, Transform3D::IDENTITY);
             server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
+            self.materials.push(material.upcast());
         }
     }
 
@@ -372,11 +408,10 @@ impl SkinnedActorNode {
             return;
         };
         match stagger_event {
-            Some(StaggerGraphEvent::Start) => {
-                vm.variables.set_by_name("staggerMagnitude", 1.0);
-                vm.send_event_named("staggerStart");
+            Some((StaggerGraphEvent::Start, magnitude)) => {
+                send_stagger_start(vm, magnitude);
             }
-            Some(StaggerGraphEvent::Stop) => {
+            Some((StaggerGraphEvent::Stop, _)) => {
                 vm.send_event_named("staggerStop");
             }
             None => {}
@@ -400,7 +435,14 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
+        let report_target = self
+            .appearance
+            .as_ref()
+            .map(|binding| (binding.world.clone(), binding.actor));
         report_graph_events(&mut events, |event| {
+            if let Some((world, target)) = &report_target {
+                world.borrow_mut().queue_animation_report(*target, event);
+            }
             self.signals().animation_event().emit(&GString::from(event));
         });
     }
@@ -503,7 +545,15 @@ impl SkinnedActorNode {
     /// The skeleton file this node loads, so a script can report it.
     #[func]
     pub fn skeleton_path(&self) -> GString {
-        GString::from(HUMAN_SKELETON)
+        self.assets
+            .map_or_else(GString::new, |assets| GString::from(&assets.skeleton_path))
+    }
+
+    /// The behavior graph selected for this actor's race.
+    #[func]
+    pub fn behavior_path(&self) -> GString {
+        self.assets
+            .map_or_else(GString::new, |assets| GString::from(&assets.behavior_path))
     }
 
     /// Named inputs and markers declared by the loaded behavior graph.
@@ -587,10 +637,19 @@ impl SkinnedActorNode {
             server.free_rid(shape.skeleton);
         }
         self.meshes.clear();
+        self.materials.clear();
     }
 }
 
 impl SkinnedActorNode {
+    /// Show or hide this rig's RenderingServer instances with first-person geometry.
+    pub(crate) fn set_first_person_geometry_visible(&mut self, visible: bool) {
+        let mut server = RenderingServer::singleton();
+        for shape in &self.shapes {
+            server.instance_set_visible(shape.instance, visible);
+        }
+    }
+
     fn sync_invisibility(&mut self) {
         let invisible = self
             .appearance
@@ -610,12 +669,17 @@ impl SkinnedActorNode {
         let Some(binding) = &self.appearance else {
             return;
         };
-        let dead = binding
-            .world
-            .borrow_mut()
-            .actor(binding.actor)
-            .is_some_and(|state| state.dead);
-        match (ActorRenderMode::for_dead(dead), self.ragdoll.is_some()) {
+        let mode = binding.world.borrow_mut().actor(binding.actor).map_or(
+            ActorRenderMode::Animated,
+            |state| {
+                ActorRenderMode::for_dead(crate::ragdoll::actor_uses_ragdoll(
+                    state.dead,
+                    state.unconscious,
+                    state.ragdoll_forced,
+                ))
+            },
+        );
+        match (mode, self.ragdoll.is_some()) {
             (ActorRenderMode::Ragdoll, false) => {
                 let (Some(assets), Some(map)) = (self.assets, &self.ragdoll_map) else {
                     return;
@@ -652,15 +716,35 @@ impl SkinnedActorNode {
         }
     }
 
-    fn take_stagger_event(&mut self) -> Option<StaggerGraphEvent> {
+    fn take_stagger_event(&mut self) -> Option<(StaggerGraphEvent, f32)> {
         let Some(binding) = &mut self.appearance else {
             return None;
         };
         let mut world = binding.world.borrow_mut();
-        let deadline = world
+        let state = world
             .actor(binding.actor)
-            .and_then(|actor| actor.stagger_end_time);
-        binding.stagger.observe(deadline, world.clock.real_seconds)
+            .map(|actor| (actor.stagger_end_time, actor.stagger_magnitude));
+        let (deadline, magnitude) = state?;
+        binding
+            .stagger
+            .observe(deadline, world.clock.real_seconds)
+            .map(|event| (event, magnitude as f32))
+    }
+
+    fn apply_queued_impulses(&mut self) {
+        let Some(ragdoll) = &self.ragdoll else {
+            return;
+        };
+        let Some(binding) = &self.appearance else {
+            return;
+        };
+        let impulses = binding
+            .world
+            .borrow_mut()
+            .take_actor_impulses(binding.actor);
+        for impulse in impulses {
+            ragdoll.apply_impulse(impulse.vector);
+        }
     }
 
     fn actor_placement(&self) -> Transform3D {
@@ -689,6 +773,7 @@ impl SkinnedActorNode {
 
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
+    /// The first upload uses the actor's current invisibility state.
     pub(crate) fn bind_appearance(
         &mut self,
         world: Rc<RefCell<soe_game::World>>,
@@ -708,10 +793,11 @@ impl SkinnedActorNode {
             )
             .map_err(|error| error.to_string())?
             .ok_or("initial appearance was not prepared")?;
+        self.invisible = world.borrow().is_invisible(actor);
         self.replace_surfaces(update.surfaces)?;
         let animation_cursor = {
             let world = world.borrow();
-            AnimationEventCursor::at_end(&world.animation_events)
+            AnimationEventCursor::at_end(&world.animation_requests)
         };
         self.appearance = Some(AppearanceBinding {
             world,
@@ -725,13 +811,60 @@ impl SkinnedActorNode {
     }
 
     fn refresh_appearance(&mut self) {
-        let (Some(binding), Some(assets)) = (&mut self.appearance, self.assets) else {
+        let Some(assets) = self.assets else {
+            return;
+        };
+        let Some(binding) = self.appearance.as_ref() else {
+            return;
+        };
+        let (world, source, actor) = (
+            Rc::clone(&binding.world),
+            Arc::clone(&binding.source),
+            binding.actor,
+        );
+        let selected = match world.borrow_mut().actor_animation_rig(actor) {
+            Ok(Some(rig)) => rig,
+            Ok(None) => return,
+            Err(error) => {
+                godot_error!("SkinnedActorNode race rig: {error}");
+                return;
+            }
+        };
+        if assets.actor_race != Some(selected.race) || assets.actor_female != Some(selected.female)
+        {
+            let mut next =
+                match ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs()) {
+                    Ok(assets) => assets,
+                    Err(error) => {
+                        godot_error!("SkinnedActorNode race rig: {error}");
+                        return;
+                    }
+                };
+            let surfaces = std::mem::take(&mut next.surfaces);
+            let next: &'static ActorAssets = Box::leak(Box::new(next));
+            self.assets = Some(next);
+            self.vm = Some(Interpreter::new(
+                &next.graph,
+                &next.clips,
+                next.skeleton.reference_pose.clone(),
+            ));
+            self.model.clear();
+            self.surfaces.clear();
+            if let Some(binding) = &mut self.appearance {
+                binding.cache = crate::actor::AppearanceCache::default();
+            }
+            if let Err(error) = self.replace_surfaces(surfaces) {
+                godot_error!("SkinnedActorNode race rig: {error}");
+            }
+            return;
+        }
+        let Some(binding) = &mut self.appearance else {
             return;
         };
         let update = match binding.cache.prepare(
             &mut binding.world.borrow_mut(),
             binding.actor,
-            binding.source.vfs(),
+            source.vfs(),
             &assets.skeleton,
         ) {
             Ok(Some(update)) => update,
@@ -753,7 +886,7 @@ impl SkinnedActorNode {
         let world = binding.world.borrow();
         binding
             .animation_cursor
-            .take_for(&world.animation_events, binding.actor)
+            .take_for(&world.animation_requests, binding.actor)
     }
 
     fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {
