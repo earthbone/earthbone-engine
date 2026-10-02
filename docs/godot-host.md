@@ -2738,19 +2738,18 @@ default colors. Its active dialog setters model `SetColorDialogStartColor` and
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
-first, then registered mod config mappings in registration order. A vanilla
-match has an empty config name, and a mod match reports that config's name.
-`remap_key_scanned` performs this lookup before dispatching the callback. The
-manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
-so this host models the public callback contract and the manager's conflict
-lookup. Conflict maps are currently supplied to `KeyConflictScanner` by the
-caller. The host does not yet query Godot's live input map or ask registered
-Papyrus configs for `GetCustomControl`. Color dialog parameters are exposed by
-the host model. They are not yet wired to Papyrus calls to the two SkyUI setter
-functions. Synthetic tests cover callback eligibility, vanilla and mod
-conflict precedence, callback arguments, color dialog parameters, acceptance
-and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
+conflicts from the active gameplay `Bindings`, including every key in a chord
+and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
+bindings first, then asks each registered MCM config to run its
+`GetCustomControl(keyCode)` method in registration order. It reports the first
+nonempty custom control with that config's `ModName`. The older scanner
+constructor and `remap_key_scanned` remain available for focused callers and
+fixtures. Color dialog parameters are exposed by the host model. They are not
+yet wired to Papyrus calls to the two SkyUI setter functions. Synthetic tests
+cover active binding discovery, registered script calls, callback eligibility,
+conflict precedence, color dialog parameters, acceptance and cancellation
+without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host

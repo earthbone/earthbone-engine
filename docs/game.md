@@ -213,9 +213,12 @@ and returns the current page labels. `mcm_open`, `mcm_select_page` and
 functions. Those functions deliver the initial empty-page reset, selected-page
 reset, open and close callbacks. The registry and active menu selection are
 session UI state, while page labels remain script properties. This bridge
-does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
-order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
-`SKI_ConfigManager.psc` sources.
+also exposes `mcm_custom_control` and `mcm_custom_controls`, which call
+registered configs' `GetCustomControl(keyCode)` methods and return string
+results in registration order. The methods use ordinary Papyrus dispatch so
+config overrides are honored. This bridge does not execute SkyUI's Scaleform
+panel or its option APIs. The lifecycle order and limit come from the local
+SkyUI `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources.
 The tests assemble equivalent lifecycle methods in Papyrus bytecode. They do
 not execute an unmodified SkyUI script. `ui_05_original_skyui_source_defines_lifecycle_order`
 checks the original source when `SOE_SKYUI_CONFIG_BASE` names its
