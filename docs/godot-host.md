@@ -171,7 +171,10 @@ and names the active plugin, then filters winning forms by an optional four-char
 signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
 FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
-ID and winning plugin. The resource is a view and does not expose record editing.
+ID and winning plugin. The same selection calls `override_chain`, which returns every record
+version with its source plugin, signature, Editor ID and winner flag. The dock displays those
+versions in its override-chain tree, with the last load-order version marked as the winner.
+The resource is a view and does not expose record editing.
 
 The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
 property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
