@@ -46,5 +46,9 @@ fn ui_17_adversarial_cached_head_parts_cover_distinct_models_and_morph_paths() {
     }
     assert!(!model_paths.is_empty(), "no head models are offered");
     assert!(!morph_paths.is_empty(), "no chargen TRI paths are offered");
-    assert!(morph_paths.iter().all(|path| path.ends_with(".tri")));
+    assert!(morph_paths.iter().all(|path| {
+        PathBuf::from(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("tri"))
+    }));
 }

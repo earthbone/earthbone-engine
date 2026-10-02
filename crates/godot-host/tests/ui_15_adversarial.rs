@@ -82,7 +82,9 @@ fn ui_15_adversarial_filter_includes_form_and_keyword_members_only() {
     let rows = gift_entries(&game, &request(Some(id(FILTER)), false));
 
     assert_eq!(
-        rows.iter().map(|row| (row.item, row.count)).collect::<Vec<_>>(),
+        rows.iter()
+            .map(|row| (row.item, row.count))
+            .collect::<Vec<_>>(),
         [(id(DIRECT_ITEM), 1), (id(KEYWORD_ITEM), 2)]
     );
 }
@@ -124,7 +126,9 @@ fn ui_15_adversarial_hides_stolen_stack_but_lists_unowned_stack_of_same_form() {
     let rows = gift_entries(&game, &request(None, false));
 
     assert_eq!(
-        rows.iter().map(|Entry { item, count, .. }| (*item, *count)).collect::<Vec<_>>(),
+        rows.iter()
+            .map(|Entry { item, count, .. }| (*item, *count))
+            .collect::<Vec<_>>(),
         [(id(DIRECT_ITEM), 1)],
         "stolen stacks are hidden without hiding the eligible stack sharing their base form"
     );

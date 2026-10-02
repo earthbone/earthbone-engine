@@ -74,12 +74,7 @@ fn hst_17_first_person_geometry_native_last_call_wins() {
 #[test]
 fn hst_17_sitting_offset_changes_camera_yaw_without_turning_movement() {
     let mut game = Game::new(LoadOrder::new());
-    call(
-        &mut game,
-        "SetSittingRotation",
-        "Float",
-        Value::Float(90.0),
-    );
+    call(&mut game, "SetSittingRotation", "Float", Value::Float(90.0));
 
     let mut state = CameraHostState::default();
     state.apply(game.world().camera_controls);
@@ -103,12 +98,7 @@ fn hst_17_zero_sitting_rotation_clears_prior_camera_offset() {
         "Float",
         Value::Float(-135.0),
     );
-    call(
-        &mut game,
-        "SetSittingRotation",
-        "Float",
-        Value::Float(0.0),
-    );
+    call(&mut game, "SetSittingRotation", "Float", Value::Float(0.0));
 
     let mut state = CameraHostState::default();
     state.apply(game.world().camera_controls);

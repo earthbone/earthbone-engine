@@ -97,17 +97,25 @@ pub fn gift_entries(game: &Game, request: &soe_game::world::GiftMenuRequest) -> 
         });
     }
     if !request.show_stolen {
-        entries.retain(|entry| {
-            world
-                .reference_ref(request.source)
-                .is_none_or(|reference| {
-                    reference.inventory.stacks(entry.item).iter().all(|stack| {
-                        stack.extra(33).is_none_or(|owner| {
-                            !matches!(owner.fields.as_slice(), [soe_game::inventory::Field::Form(Some(id))] if *id != request.giver)
-                        })
+        for entry in &mut entries {
+            let Some(reference) = world.reference_ref(request.source) else {
+                entry.count = 0;
+                continue;
+            };
+            let stacks = reference.inventory.stacks(entry.item);
+            if stacks.is_empty() {
+                continue;
+            }
+            entry.count = stacks
+                .iter()
+                .filter(|stack| {
+                    stack.extra(33).is_none_or(|owner| {
+                        !matches!(owner.fields.as_slice(), [soe_game::inventory::Field::Form(Some(id))] if *id != request.giver)
                     })
                 })
-        });
+                .fold(0_i32, |count, stack| count.saturating_add(stack.count()));
+        }
+        entries.retain(|entry| entry.count > 0);
     }
     entries
 }

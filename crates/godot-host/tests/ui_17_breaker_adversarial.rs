@@ -17,7 +17,10 @@ fn ui_17_playable_race_catalog_repeats_and_resolves_head_model_and_morph_records
     let game = Game::from_shared_order(source.shared_order());
     let entries = race_menu::entries(&game);
     let world = game.world();
-    assert!(!entries.is_empty(), "no playable race menu entries resolved");
+    assert!(
+        !entries.is_empty(),
+        "no playable race menu entries resolved"
+    );
     assert_eq!(race_menu::entries(&game), entries);
 
     let mut resolved_parts = 0;
@@ -42,8 +45,7 @@ fn ui_17_playable_race_catalog_repeats_and_resolves_head_model_and_morph_records
                     .all(Tag(*b"NAM0"))
                     .zip(record.all(Tag(*b"NAM1")))
                     .filter(|(kind, name)| {
-                        **kind == [2, 0, 0, 0]
-                            && !soe_esm::cursor::zstring(name).is_empty()
+                        **kind == [2, 0, 0, 0] && !soe_esm::cursor::zstring(name).is_empty()
                     })
                     .count();
             }
@@ -51,5 +53,8 @@ fn ui_17_playable_race_catalog_repeats_and_resolves_head_model_and_morph_records
     }
     assert!(resolved_parts > 0, "no playable race head parts resolved");
     assert!(models > 0, "no playable head parts define model paths");
-    assert!(morphs > 0, "no playable head parts define chargen morph paths");
+    assert!(
+        morphs > 0,
+        "no playable head parts define chargen morph paths"
+    );
 }

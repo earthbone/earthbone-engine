@@ -35,7 +35,10 @@ fn anm_59_breaker_installed_head_morph_deltas_match_surface_vertex_order() {
     ] {
         let path = data.join(archive);
         if !path.exists() {
-            eprintln!("{} is absent, skipping installed head morph survey", path.display());
+            eprintln!(
+                "{} is absent, skipping installed head morph survey",
+                path.display()
+            );
             return;
         }
         vfs.add_archive_path(&path).unwrap();
@@ -55,11 +58,22 @@ fn anm_59_breaker_installed_head_morph_deltas_match_surface_vertex_order() {
                 .map(move |shape| (surface, shape))
         })
         .collect::<Vec<_>>();
-    assert!(!shapes.is_empty(), "installed head has no expression targets");
+    assert!(
+        !shapes.is_empty(),
+        "installed head has no expression targets"
+    );
     for (surface, shape) in shapes {
         assert_eq!(shape.positions.len(), surface.arrays.positions.len());
-        assert!(shape.positions.iter().flatten().all(|value| value.is_finite()));
+        assert!(shape
+            .positions
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite()));
         assert!(shape.normals.is_empty() || shape.normals.len() == surface.arrays.normals.len());
-        assert!(shape.normals.iter().flatten().all(|value| value.is_finite()));
+        assert!(shape
+            .normals
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite()));
     }
 }

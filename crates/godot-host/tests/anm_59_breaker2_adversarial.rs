@@ -4,9 +4,9 @@
 use std::path::Path;
 
 use soe_bsa::Vfs;
-use soe_godot_host::actor::ActorAssets;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, World};
+use soe_godot_host::actor::ActorAssets;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const NPC: u32 = 0x100;
@@ -76,7 +76,10 @@ fn anm_59_breaker2_adversarial_installed_head_shapes_are_supported_and_aligned()
     ] {
         let path = data.join(archive);
         if !path.exists() {
-            eprintln!("{} is absent, skipping installed head expression survey", path.display());
+            eprintln!(
+                "{} is absent, skipping installed head expression survey",
+                path.display()
+            );
             return;
         }
         vfs.add_archive_path(Path::new(&path)).unwrap();
@@ -96,7 +99,10 @@ fn anm_59_breaker2_adversarial_installed_head_shapes_are_supported_and_aligned()
                 .map(move |shape| (surface, shape))
         })
         .collect::<Vec<_>>();
-    assert!(!shapes.is_empty(), "installed head has no expression targets");
+    assert!(
+        !shapes.is_empty(),
+        "installed head has no expression targets"
+    );
     for (surface, shape) in shapes {
         assert!(
             soe_godot_host::facial::expression_name_for_target(&shape.name).is_some(),
@@ -104,6 +110,10 @@ fn anm_59_breaker2_adversarial_installed_head_shapes_are_supported_and_aligned()
             shape.name
         );
         assert_eq!(shape.positions.len(), surface.arrays.positions.len());
-        assert!(shape.positions.iter().flatten().all(|value| value.is_finite()));
+        assert!(shape
+            .positions
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite()));
     }
 }
