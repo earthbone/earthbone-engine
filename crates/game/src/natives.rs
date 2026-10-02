@@ -227,6 +227,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     quest(vm, world);
     alias(vm, world);
     game(vm, world);
+    actor_util(vm, world);
     debug(vm, world);
     utility(vm, world);
     globals_and_lists(vm, world);
@@ -253,7 +254,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 385;
+pub const NATIVE_COUNT: usize = 390;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2417,6 +2418,58 @@ fn alias(vm: &mut Vm, w: &Shared) {
     );
 }
 
+fn actor_util(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "ActorUtil", "AddPackageOverride", |world, call| {
+        if let (Some(actor), Some(package)) =
+            (world.form_arg(&call.arg(0)), world.form_arg(&call.arg(1)))
+        {
+            world.add_package_override(
+                actor,
+                package,
+                call.args.get(2).map_or(30, Value::as_int),
+                call.arg(3).as_int(),
+            );
+        }
+        none()
+    });
+    global!(
+        vm,
+        w,
+        "ActorUtil",
+        "RemovePackageOverride",
+        |world, call| {
+            let removed = match (world.form_arg(&call.arg(0)), world.form_arg(&call.arg(1))) {
+                (Some(actor), Some(package)) => world.remove_package_override(actor, package),
+                _ => false,
+            };
+            b(removed)
+        }
+    );
+    global!(vm, w, "ActorUtil", "CountPackageOverride", |world, call| {
+        i(world
+            .form_arg(&call.arg(0))
+            .map_or(0, |actor| world.count_package_overrides(actor)) as i32)
+    });
+    global!(vm, w, "ActorUtil", "ClearPackageOverride", |world, call| {
+        let count = world
+            .form_arg(&call.arg(0))
+            .map_or(0, |actor| world.clear_package_overrides(actor));
+        i(count as i32)
+    });
+    global!(
+        vm,
+        w,
+        "ActorUtil",
+        "RemoveAllPackageOverride",
+        |world, call| {
+            let count = world
+                .form_arg(&call.arg(0))
+                .map_or(0, |package| world.remove_all_package_overrides(package));
+            i(count as i32)
+        }
+    );
+}
+
 fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetCurrentCrosshairRef", |world, call| {
         form_value(world, call, world.crosshair_reference())
@@ -2707,7 +2760,7 @@ fn game(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Game", "SetPlayerAIDriven", |world, call| {
-        world.player_ai_driven = call.args.first().is_none_or(Value::as_bool);
+        world.set_player_ai_driven(call.args.first().is_none_or(Value::as_bool));
         none()
     });
     global!(vm, w, "Game", "SetInChargen", |world, call| {

@@ -87,7 +87,10 @@ fn ply_01_missing_move_target_rejects_without_changing_player_pose() {
         })
         .unwrap();
     let event = driver.step(&mut game).unwrap();
-    assert!(event.result.is_err(), "missing reference must reject: {event:?}");
+    assert!(
+        event.result.is_err(),
+        "missing reference must reject: {event:?}"
+    );
     assert_eq!((event.cell, event.position, event.rotation), before);
 }
 

@@ -283,6 +283,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
+    Section { name: "PLY-06", write: super::package_overrides::write_overrides, read: super::package_overrides::read_overrides },
 ];
 
 fn write_stagger_metadata(

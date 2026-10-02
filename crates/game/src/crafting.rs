@@ -50,6 +50,8 @@ pub enum Error {
     },
     #[error("crafting skill progression: {0}")]
     Progression(String),
+    #[error("invalid alchemy effect value: {0:?}")]
+    AlchemyValue(GlobalFormId),
     #[error("item {0} cannot be tempered")]
     TemperItem(GlobalFormId),
     #[error("recipe {0} does not describe one temperable item")]
@@ -503,6 +505,11 @@ impl Game {
             }
             inventory.take(item, needed);
         }
+        if let Some(magnitude) = alchemy_skill_use(&world, &effects)? {
+            world
+                .advance_skill(actor, "alchemy", magnitude)
+                .map_err(|error| Error::Progression(error.to_string()))?;
+        }
         let created = world.create_brewed_potion(effects);
         inventory.add(created, 1).map_err(|_| Error::Quantity)?;
         world.reference(actor).ok_or(Error::Actor(actor))?.inventory = inventory;
@@ -885,6 +892,7 @@ fn validate_alchemy_bench(world: &mut World, bench: GlobalFormId) -> Result<(), 
             if data[0] != 5 {
                 return Err(Error::BenchType(data[0]));
             }
+            return Ok(());
         }
         b"ACTI" => {}
         _ => return Err(Error::Bench(bench)),
@@ -917,6 +925,52 @@ fn smithing_skill_use(world: &World, output: GlobalFormId, count: i32) -> Option
     let total = per_item * f64::from(count);
     let magnitude = total as f32;
     magnitude.is_finite().then_some(magnitude)
+}
+
+// CONTEXT: W.H.A.T.'s published per-effect value equation uses the MGEF flags
+// and base cost. AVIF supplies the Alchemy experience multiplier.
+fn alchemy_skill_use(
+    world: &World,
+    effects: &[(GlobalFormId, f32, u32, u32)],
+) -> Result<Option<f32>, Error> {
+    let mut total = 0.0_f64;
+    for &(effect, magnitude, _, duration) in effects {
+        let Some(data) = world
+            .record(effect)
+            .and_then(|record| record.find(Tag(*b"DATA")))
+        else {
+            return Ok(None);
+        };
+        let flags = data
+            .get(..4)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .ok_or(Error::AlchemyValue(effect))?;
+        let cost = data
+            .get(4..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(f32::from_le_bytes)
+            .ok_or(Error::AlchemyValue(effect))?;
+        if !cost.is_finite() || cost < 0.0 || !magnitude.is_finite() || magnitude < 0.0 {
+            return Err(Error::AlchemyValue(effect));
+        }
+        let magnitude = if flags & 0x400 != 0 || magnitude == 0.0 {
+            1.0
+        } else {
+            f64::from(magnitude)
+        };
+        let duration = if flags & 0x200 != 0 || duration == 0 {
+            1.0
+        } else {
+            f64::from(duration) / 10.0
+        };
+        total += (f64::from(cost) * (magnitude * duration).powf(1.1)).floor();
+    }
+    let magnitude = total as f32;
+    if !magnitude.is_finite() {
+        return Err(Error::AlchemyValue(effects[0].0));
+    }
+    Ok(Some(magnitude))
 }
 
 fn inventory_form(world: &World, id: GlobalFormId) -> bool {
@@ -1027,4 +1081,70 @@ fn disenchant_effects(record: &Record) -> Option<(u32, Vec<u32>)> {
         return None;
     }
     Some((kind, effects))
+}
+
+#[cfg(test)]
+mod alchemy_value_tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin};
+
+    fn skill_use(
+        flags: u32,
+        cost: f32,
+        magnitude: f32,
+        duration: u32,
+    ) -> Result<Option<f32>, Error> {
+        let effect = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"MGEF"), effect.object).sub(
+            Tag(*b"DATA"),
+            [flags.to_le_bytes(), cost.to_le_bytes()].concat(),
+        ));
+        let mut order = LoadOrder::new();
+        order.add("AlchemyValue.esm", plugin).unwrap();
+        let game = Game::new(order);
+        let result = alchemy_skill_use(&game.world(), &[(effect, magnitude, 0, duration)]);
+        result
+    }
+
+    #[test]
+    fn ply_06_alchemy_value_respects_no_magnitude_no_duration_and_instant_effects() {
+        for (flags, magnitude, duration, expected) in [
+            (0, 2.0, 10, 21.0),
+            (0, 0.5, 10, 4.0),
+            (0, 0.0, 10, 10.0),
+            (0x400, 200.0, 20, 21.0),
+            (0x200, 2.0, 200, 21.0),
+            (0x600, 200.0, 200, 10.0),
+            (0, 2.0, 0, 21.0),
+        ] {
+            assert_eq!(
+                skill_use(flags, 10.0, magnitude, duration).unwrap(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn ply_06_alchemy_value_rejects_negative_nonfinite_and_overflowing_inputs() {
+        let effect = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
+        for (cost, magnitude) in [
+            (f32::NAN, 2.0),
+            (-1.0, 2.0),
+            (10.0, f32::NAN),
+            (10.0, -1.0),
+            (f32::MAX, f32::MAX),
+        ] {
+            assert_eq!(
+                skill_use(0, cost, magnitude, 10),
+                Err(Error::AlchemyValue(effect))
+            );
+        }
+    }
 }
