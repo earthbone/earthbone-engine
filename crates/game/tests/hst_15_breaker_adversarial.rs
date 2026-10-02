@@ -2,11 +2,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::ReferencePhysicsRequest};
+use soe_game::{world::ReferencePhysicsRequest, Game};
 use soe_papyrus::{
+    asm::{ident, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident},
 };
 
 const CART: u32 = 0x900;
@@ -107,9 +107,8 @@ fn hst_15_self_reference_does_not_move_or_tether_the_cart() {
         game.world().reference_ref(cart_id).unwrap().position,
         before
     );
-    assert!(
-        game.world_mut()
-            .take_reference_physics_requests()
-            .is_empty()
-    );
+    assert!(game
+        .world_mut()
+        .take_reference_physics_requests()
+        .is_empty());
 }
