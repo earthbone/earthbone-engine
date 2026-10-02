@@ -204,8 +204,9 @@ fixture are in `crates/commonlib-shim`.
 
 ### MCM script lifecycle, UI-05
 
-`Game::start` registers MCM scripts after quest initialization.
-`Game::mcm_configs` scans running quest forms in winning load-order order and
+`Game::start` initializes enabled quests without registering MCM scripts.
+The first `Game::mcm_configs` call is the host's manager-ready boundary. It
+scans running quest forms in winning load-order order and
 reads `SKI_ConfigBase.ModName` and `Pages` from their attached Papyrus scripts.
 It registers at most 128 configs, delivers `OnConfigRegister` once per config,
 and returns the current page labels. `mcm_open`, `mcm_select_page` and
@@ -216,11 +217,15 @@ session UI state, while page labels remain script properties. This bridge
 does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
 order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
 `SKI_ConfigManager.psc` sources.
-The tests assemble equivalent lifecycle methods in Papyrus bytecode. They do
-not execute an unmodified SkyUI script. `ui_05_original_skyui_source_defines_lifecycle_order`
-checks the original source when `SOE_SKYUI_CONFIG_BASE` names its
-`SKI_ConfigBase.psc` path. Full compatibility with the compiled script remains
-unverified.
+The focused fixture assembles equivalent lifecycle methods in Papyrus
+bytecode. `ui_05_original_skyui_source_defines_lifecycle_order` checks the
+original source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc`
+path. `ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and
+runs the unmodified `SKI_ConfigBase.pex` when
+`SOE_SKYUI_CONFIG_BASE_PEX` names that file. The PEX execution check skips when
+the compiled SkyUI script is unavailable. It was not available in the local
+reference checkout or installed game data during this change, so the
+unmodified script execution remains unverified here.
 
 ### Furniture activation, HST-09
 

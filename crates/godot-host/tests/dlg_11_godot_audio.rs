@@ -7,6 +7,8 @@
 use soe_audio::{fuz, SoundSource};
 use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
 use soe_esm::{FileHeader, Plugin};
+use soe_godot_host::data_source::vfs_from_loadout;
+use soe_profile::LoadoutInput;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -32,8 +34,13 @@ fn wave() -> Vec<u8> {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_bytes.to_le_bytes());
     for frame in 0..frames {
-        let sample = ((frame as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin()
-            * 12_000.0) as i16;
+        // Voice assets can have leading silence longer than a mixer buffer.
+        let sample = if frame < frames / 4 {
+            0
+        } else {
+            ((frame as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin() * 12_000.0)
+                as i16
+        };
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
     bytes
@@ -44,6 +51,11 @@ fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::write(
         data.parent().unwrap().join("Skyrim_Default.ini"),
         "[General]\nsLanguage=English\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
+    )
+    .unwrap();
+    std::fs::write(
+        data.parent().unwrap().join("Skyrim_Default.ini"),
+        "[General]\nsLanguage=ENGLISH\n",
     )
     .unwrap();
     for master in [
@@ -163,9 +175,10 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
     write_fixture_data(&data, None);
-    let mut vfs = Vfs::new();
-    vfs.add_archive_path(&data.join("Skyrim - Voices_en0.bsa"))
+    let loadout = LoadoutInput::vanilla(fixture.path(), None, None)
+        .resolve()
         .unwrap();
+    let vfs = vfs_from_loadout(&loadout).unwrap();
     let source = SoundSource::new(&vfs);
     for path in [FIRST, SECOND] {
         let sound = source.read(path).unwrap();
