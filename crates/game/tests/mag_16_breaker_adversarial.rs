@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "common/mag_adversarial.rs"]
-mod common;
-
-use common::{cast, effect, game, id, spell, ACTOR, EFFECT, OTHER, SPELL};
+use crate::common::mag_adversarial::{cast, effect, game, id, spell, ACTOR, EFFECT, OTHER, SPELL};
 use soe_game::world::magic::MagicError;
 
 #[test]
