@@ -100,11 +100,10 @@ fn mag_48_stacked_paralysis_cure_preserves_other_target_and_unrelated_effects() 
     assert!(game.world().actor_is_paralyzed(id(OTHER)));
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "paralysis"), 0.0);
     assert_eq!(game.world_mut().actor_value(id(OTHER), "paralysis"), 1.0);
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|effect| effect.target == id(ACTOR) && effect.effect == id(UNRELATED))
-    );
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.target == id(ACTOR) && effect.effect == id(UNRELATED)));
 }
 
 #[test]

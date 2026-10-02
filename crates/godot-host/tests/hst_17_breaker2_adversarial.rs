@@ -21,9 +21,15 @@ fn hst_17_cleared_or_mismatched_camera_target_uses_player_anchor() {
         target: Some(target),
         ..CameraControls::default()
     });
-    assert_eq!(state.anchor(player, 128.0, Some((other, Vec3::ZERO, 190.0))), (player, 128.0));
+    assert_eq!(
+        state.anchor(player, 128.0, Some((other, Vec3::ZERO, 190.0))),
+        (player, 128.0)
+    );
 
     state.apply(CameraControls::default());
     assert_eq!(state.target(), None);
-    assert_eq!(state.anchor(player, 128.0, Some((target, Vec3::ZERO, 190.0))), (player, 128.0));
+    assert_eq!(
+        state.anchor(player, 128.0, Some((target, Vec3::ZERO, 190.0))),
+        (player, 128.0)
+    );
 }

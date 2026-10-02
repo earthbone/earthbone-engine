@@ -10,9 +10,9 @@
 //! `GetItemCount` rather than through the patch list is the point: a side
 //! table this module alone reads would pass a weaker test and fail a mod.
 
-use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
-use soe_game::Game;
+use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};
+use soe_game::Game;
 use std::path::PathBuf;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -297,16 +297,14 @@ fn mod_02_exclusive_group_respects_keywords_already_on_the_record() {
     let mut g = game_with_pretagged_helmet();
     let report = g.apply_mod_data(&dir.roots());
     assert_eq!(report.keywords_attached, 0);
-    assert!(
-        g.world()
-            .keywords(id(PRETAGGED_HELMET))
-            .contains(&id(KEYWORD))
-    );
-    assert!(
-        !g.world()
-            .keywords(id(PRETAGGED_HELMET))
-            .contains(&id(KEYWORD_TWO))
-    );
+    assert!(g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD)));
+    assert!(!g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD_TWO)));
 }
 
 #[test]
@@ -365,13 +363,12 @@ fn mod_10_explicit_shout_reaches_actor_shout_state() {
     let mut g = game();
     let report = g.apply_mod_data(&dir.roots());
     assert_eq!(report.skipped_unsupported_consumer, 0);
-    assert!(
-        g.world_mut()
-            .actor(id(GUARD_REF))
-            .expect("the guard is an actor")
-            .shouts
-            .contains(&id(SHOUT))
-    );
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
 }
 
 #[test]
@@ -391,13 +388,12 @@ fn mod_10_generic_form_infers_shout_consumer_from_signature() {
     let mut g = game();
     let report = g.apply_mod_data(&dir.roots());
     assert_eq!(report.skipped_unsupported_consumer, 0);
-    assert!(
-        g.world_mut()
-            .actor(id(GUARD_REF))
-            .expect("the guard is an actor")
-            .shouts
-            .contains(&id(SHOUT))
-    );
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
 }
 
 #[test]
@@ -444,13 +440,12 @@ fn mod_10_package_distribution_reaches_actor_package_overrides() {
     assert_eq!(report.distribution_rules, 1);
     assert_eq!(report.distributions_applied, 1);
     assert_eq!(report.skipped_unsupported_consumer, 0);
-    assert!(
-        g.world_mut()
-            .actor(id(GUARD_REF))
-            .expect("the guard is an actor")
-            .package_overrides
-            .contains(&(0, id(PACKAGE)))
-    );
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .package_overrides
+        .contains(&(0, id(PACKAGE))));
 }
 
 #[test]

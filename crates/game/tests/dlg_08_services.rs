@@ -236,11 +236,10 @@ fn dlg_08_non_vendor_faction_has_no_service() {
     }
     let mut game = game(vendor, &[ITEM]);
 
-    assert!(
-        game.resolve_vendor_service(id(FACTION), id(MERCHANT))
-            .unwrap()
-            .is_none()
-    );
+    assert!(game
+        .resolve_vendor_service(id(FACTION), id(MERCHANT))
+        .unwrap()
+        .is_none());
 }
 
 /// False faction CTDA conditions hide merchandise and prevent gold exposure.

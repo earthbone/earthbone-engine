@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, quest};
+use soe_game::{quest, Game};
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident};
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;
@@ -148,11 +148,10 @@ fn crf_05_rejected_craft_does_not_route_authored_event() {
     assert!(game.craft(player, bench, recipe).is_err());
     game.pump();
 
-    assert!(
-        game.world_mut()
-            .quest_state(quest_id)
-            .is_some_and(|quest| !quest.running && quest.runtime.run_data.is_none())
-    );
+    assert!(game
+        .world_mut()
+        .quest_state(quest_id)
+        .is_some_and(|quest| !quest.running && quest.runtime.run_data.is_none()));
     assert!(!game.world().pending.iter().any(|pending| matches!(
         pending,
         soe_game::Pending::Event { name, .. } if name == "OnStoryCraftItem"

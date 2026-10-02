@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::WeatherRequest};
+use soe_game::{world::WeatherRequest, Game};
 
 #[test]
 fn repeated_weather_requests_retain_only_the_latest_valid_choice() {

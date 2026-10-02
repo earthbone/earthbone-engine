@@ -153,10 +153,9 @@ fn sav_30_invalid_last_change_leaves_all_world_state_unchanged() {
     let mut saved = fixture();
     saved.change_forms.push(change(1, 0, 7, vec![]));
     let before = game.save_state().unwrap();
-    assert!(
-        game.world_mut()
-            .restore_vanilla_dialogue_scene_changes(&saved)
-            .is_err()
-    );
+    assert!(game
+        .world_mut()
+        .restore_vanilla_dialogue_scene_changes(&saved)
+        .is_err());
     assert_eq!(game.save_state().unwrap(), before);
 }

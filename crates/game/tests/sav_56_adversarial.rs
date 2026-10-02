@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, plugin::flags, tag};
-use soe_game::{Game, save::DependencyChange, save::DependencyKind, save::SavedStateKind};
+use soe_esm::{plugin::flags, tag, FileHeader, LoadOrder, Plugin, Record};
+use soe_game::{save::DependencyChange, save::DependencyKind, save::SavedStateKind, Game};
 use soe_papyrus::asm::ScriptBuilder;
 
 fn plugin(light: bool, contents: &str) -> Plugin {
@@ -128,13 +128,11 @@ fn sav_56_same_name_plugin_replacement_reports_changed_fingerprint() {
         "Patch.esp",
         DependencyChange::FingerprintChanged
     ));
-    assert!(
-        replacement
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("content changed")
-    );
+    assert!(replacement
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("content changed"));
 }
 
 #[test]
@@ -150,13 +148,11 @@ fn sav_56_same_name_plugin_cannot_change_regular_light_kind() {
         "Patch.esp",
         DependencyChange::KindChanged
     ));
-    assert!(
-        relabeled
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("regular/light kind")
-    );
+    assert!(relabeled
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("regular/light kind"));
 }
 
 #[test]

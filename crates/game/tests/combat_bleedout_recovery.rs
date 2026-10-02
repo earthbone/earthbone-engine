@@ -9,11 +9,11 @@
 use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, combat::MeleeHit, npc::flags};
+use soe_game::{combat::MeleeHit, npc::flags, Game};
 use soe_papyrus::{
+    asm::{i, ident, FunctionBuilder, ScriptBuilder},
     Opcode::*,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, i, ident},
 };
 
 fn id(object: u32) -> GlobalFormId {

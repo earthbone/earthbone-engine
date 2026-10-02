@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, music};
+use soe_game::{music, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const MUSIC: u32 = 0x800;
@@ -95,12 +95,10 @@ fn aud_05_music_selects_only_eligible_tracks_and_returns_authored_fades() {
 #[test]
 fn aud_05_music_rejects_missing_eligible_tracks_and_bad_draws() {
     let mut game = test_game();
-    assert!(
-        music::select(&mut game, id(MUSIC), id(0xDEAD), 0.0)
-            .unwrap_err()
-            .to_string()
-            .contains("no eligible tracks")
-    );
+    assert!(music::select(&mut game, id(MUSIC), id(0xDEAD), 0.0)
+        .unwrap_err()
+        .to_string()
+        .contains("no eligible tracks"));
     assert!(music::select(&mut game, id(MUSIC), id(SUBJECT), f32::NAN).is_err());
 }
 

@@ -4,10 +4,10 @@
 //! AI-41 combat CTDA conditions from xEdit and the CK Actor reference.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions, package};
+use soe_game::{conditions, package, Game};
 
 const BASE: u32 = 0x800;
 const SUBJECT: u32 = 0x900;

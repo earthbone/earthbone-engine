@@ -4,10 +4,10 @@
 //! AI-72 condition queries for reference state and package identity.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, ai, conditions, package};
+use soe_game::{ai, conditions, package, Game};
 
 const OWNER: u32 = 0x800;
 const ACTOR: u32 = 0x801;

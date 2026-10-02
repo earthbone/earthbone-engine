@@ -2,9 +2,9 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::DebugHostRequest};
+use soe_game::{world::DebugHostRequest, Game};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::CallStatic;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{ThreadState, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

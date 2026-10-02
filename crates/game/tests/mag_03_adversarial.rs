@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::Pending};
+use soe_game::{world::Pending, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -112,12 +112,10 @@ fn mag_03_invalid_tick_does_not_mutate_effect_resource_or_cast() {
 
     let shared = game.shared_world();
     for dt in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-        assert!(
-            shared
-                .borrow_mut()
-                .tick_concentration(dt, &mut |name, class| game.vm.create_object_of(name, class))
-                .is_empty()
-        );
+        assert!(shared
+            .borrow_mut()
+            .tick_concentration(dt, &mut |name, class| game.vm.create_object_of(name, class))
+            .is_empty());
     }
 
     assert_eq!(game.world_mut().actor_value(id(TARGET), "health"), health);

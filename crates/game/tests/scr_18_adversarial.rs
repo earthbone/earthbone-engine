@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const BASE: u32 = 0x800;
@@ -49,13 +49,12 @@ fn scr_18_empty_authored_filter_is_returned_as_a_valid_form_list() {
         object: FILTER,
     });
     assert_eq!(game.vm.thread_result(result), Some(Value::Object(filter)));
-    assert!(
-        game.world_mut()
-            .form_list(GlobalFormId {
-                file: 0,
-                object: FILTER
-            })
-            .unwrap()
-            .is_empty()
-    );
+    assert!(game
+        .world_mut()
+        .form_list(GlobalFormId {
+            file: 0,
+            object: FILTER
+        })
+        .unwrap()
+        .is_empty());
 }

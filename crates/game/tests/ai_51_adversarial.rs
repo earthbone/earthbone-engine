@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions, inventory::*};
+use soe_game::{conditions, inventory::*, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

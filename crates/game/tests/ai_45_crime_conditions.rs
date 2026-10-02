@@ -5,10 +5,10 @@
 //! player jail accounting and actor crime factions.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions};
+use soe_game::{conditions, Game};
 
 const OWNER: GlobalFormId = GlobalFormId {
     file: 0,

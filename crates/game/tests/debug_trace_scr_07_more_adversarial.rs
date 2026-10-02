@@ -18,10 +18,10 @@ use soe_esm::plugin::flags::LIGHT_MASTER;
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::magic::EffectId;
 use soe_game::{Game, Handle};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::value::{ArrayRef, ElementKind};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
-use soe_papyrus::value::{ArrayRef, ElementKind};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");

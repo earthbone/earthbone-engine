@@ -4,12 +4,12 @@
 //! Registry and behavior checks for the GetID and GetName contracts in the
 //! Creation Kit wiki's Form, Quest, and Alias script pages.
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::quest;
 use soe_game::{Game, Handle};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::CallMethod;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const FORM: u32 = 0x800;

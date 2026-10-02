@@ -12,13 +12,13 @@ use crate::common::legacy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -368,20 +368,18 @@ fn mag_32_disarm_drops_one_equipped_weapon_as_a_recoverable_reference() {
         assert_eq!(dropped.item.as_ref().map(|item| item.count()), Some(1));
     }
 
-    assert!(
-        game.world_mut()
-            .add_item_notified(id(ACTOR), dropped_id, 1, &mut |_, _| soe_papyrus::ObjectId(
-                999
-            ),)
-    );
+    assert!(game
+        .world_mut()
+        .add_item_notified(id(ACTOR), dropped_id, 1, &mut |_, _| soe_papyrus::ObjectId(
+            999
+        ),));
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(WEAPON)), 2);
-    assert!(
-        game.world()
-            .reference_ref(dropped_id)
-            .unwrap()
-            .item
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .reference_ref(dropped_id)
+        .unwrap()
+        .item
+        .is_none());
     assert!(!game.world().reference_ref(dropped_id).unwrap().enabled);
 }
 
@@ -404,13 +402,11 @@ fn mag_32_disarmed_loose_reference_survives_save_load_and_can_be_recovered_once(
         restored.world().reference_ref(dropped).unwrap().base,
         Some(id(WEAPON))
     );
-    assert!(
-        restored
-            .world_mut()
-            .add_item_notified(id(ACTOR), dropped, 1, &mut |_, _| soe_papyrus::ObjectId(
-                999
-            ))
-    );
+    assert!(restored
+        .world_mut()
+        .add_item_notified(id(ACTOR), dropped, 1, &mut |_, _| soe_papyrus::ObjectId(
+            999
+        )));
     assert_eq!(restored.world_mut().item_count(id(ACTOR), id(WEAPON)), 2);
 }
 

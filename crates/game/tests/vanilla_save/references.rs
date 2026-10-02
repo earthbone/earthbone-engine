@@ -4,8 +4,8 @@
 
 use super::*;
 use soe_save::{
+    reference::{flags as change_flags, PlayerLocation},
     ChangeForm,
-    reference::{PlayerLocation, flags as change_flags},
 };
 
 pub(super) fn fixture_order() -> LoadOrder {
@@ -107,11 +107,9 @@ fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
         let error = world
             .restore_vanilla_reference_placements(&save)
             .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("only validated for save version 12 and form versions 78")
-        );
+        assert!(error
+            .to_string()
+            .contains("only validated for save version 12 and form versions 78"));
         assert_eq!(world.state_hash(), before);
     }
 }
@@ -533,21 +531,18 @@ fn malformed_late_entries_and_inconsistent_player_data_leave_whole_game_unchange
     for save in cases {
         let game = Game::new(fixture_order());
         let before = game.save_state().unwrap();
-        assert!(
-            game.world_mut()
-                .restore_vanilla_reference_placements(&save)
-                .is_err()
-        );
+        assert!(game
+            .world_mut()
+            .restore_vanilla_reference_placements(&save)
+            .is_err());
         assert_eq!(game.save_state().unwrap(), before);
     }
     let mut world = World::new(fixture_order());
     world.player();
     let before = world.save_state();
-    assert!(
-        world
-            .restore_vanilla_reference_placements(&original)
-            .is_err()
-    );
+    assert!(world
+        .restore_vanilla_reference_placements(&original)
+        .is_err());
     assert_eq!(world.save_state(), before);
 }
 
@@ -609,18 +604,14 @@ fn installed_saved_reference_placements_restore_and_persist() {
         assert_eq!(count, report.references);
         world.restore_vanilla_globals(&save).unwrap();
         let quest_report = world.restore_vanilla_quests(&save).unwrap();
-        assert!(
-            quest_report
-                .unresolved_forms
-                .iter()
-                .all(|id| id.file == DYNAMIC_FILE)
-        );
-        assert!(
-            quest_report
-                .unresolved_forms
-                .iter()
-                .all(|id| !report.remaining.contains_key(id))
-        );
+        assert!(quest_report
+            .unresolved_forms
+            .iter()
+            .all(|id| id.file == DYNAMIC_FILE));
+        assert!(quest_report
+            .unresolved_forms
+            .iter()
+            .all(|id| !report.remaining.contains_key(id)));
         quests += quest_report.quests;
         unresolved_quest_forms += quest_report.unresolved_forms.len();
         assert!(world.pending.is_empty());

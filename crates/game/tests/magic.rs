@@ -13,13 +13,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::combat::{Error as CombatError, MeleeHit};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
+use soe_game::Game;
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, f, i, ident, s};
 use soe_papyrus::{ThreadState, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -897,14 +897,12 @@ fn mag_11_malformed_effect_group_leaves_the_ingestible_in_inventory() {
     let mut game = game(plugin(effect(1 << 1, 0, 24, false), vec![potion]));
     game.world_mut().add_item(id(ACTOR), id(POTION), 1);
     let shared = game.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
-                game.vm.create_object_of(name, class)
-            })
-            .is_err()
-    );
+    assert!(shared
+        .borrow_mut()
+        .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        })
+        .is_err());
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(POTION)), 1);
     assert_eq!(game.world().active_effects().count(), 0);
 }
@@ -1172,10 +1170,9 @@ fn mag_16_touch_spell_rejects_a_non_actor_target() {
 #[test]
 fn mag_16_touch_hostile_spell_rejects_a_dead_target() {
     let mut game = game(plugin(touch_effect(), vec![touch_spell(SPELL, 15.0, 10.0)]));
-    assert!(
-        game.world_mut()
-            .kill_actor_silent(id(OTHER), Some(id(ACTOR)))
-    );
+    assert!(game
+        .world_mut()
+        .kill_actor_silent(id(OTHER), Some(id(ACTOR))));
 
     assert!(matches!(
         cast(&mut game, SPELL, OTHER),
@@ -1263,16 +1260,15 @@ fn mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon() {
         .values
         .get("health")
         .current();
-    assert!(
-        game.melee_hit(MeleeHit {
+    assert!(game
+        .melee_hit(MeleeHit {
             attacker: id(ACTOR),
             target: id(OTHER),
             weapon: id(UNEQUIPPED),
             is_bash: false,
             is_power_attack: false,
         })
-        .is_err()
-    );
+        .is_err());
     mag_60_close(
         game.world()
             .actor_ref(id(OTHER))
@@ -1641,13 +1637,11 @@ fn mag_21_saved_effect_keeps_its_perk_until_dispelled() {
     restored.load_state(&saved).unwrap();
     assert!(restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
     let shared = restored.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
-                .vm
-                .create_object_of(name, class),)
-    );
+    assert!(shared
+        .borrow_mut()
+        .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
+            .vm
+            .create_object_of(name, class),));
     assert!(!restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
 }
 
@@ -1735,11 +1729,9 @@ fn mag_63_banish_dismisses_the_targeted_summon() {
     let reference = world.reference_ref(summoned).unwrap();
     assert!(reference.deleted, "Banish deletes its linked summon");
     assert!(!reference.enabled, "Banish disables its linked summon");
-    assert!(
-        world
-            .active_effects()
-            .all(|effect| effect.summoned != Some(summoned))
-    );
+    assert!(world
+        .active_effects()
+        .all(|effect| effect.summoned != Some(summoned)));
 }
 
 #[test]
@@ -1767,11 +1759,9 @@ fn mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged() {
     let summon = world.reference_ref(summoned).unwrap();
     assert!(!summon.deleted, "a different summon is not the target");
     assert!(summon.enabled, "a different summon remains enabled");
-    assert!(
-        world
-            .active_effects()
-            .any(|effect| effect.summoned == Some(summoned))
-    );
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
 }
 
 #[test]
@@ -1790,11 +1780,9 @@ fn mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level() {
     let reference = world.reference_ref(summoned).unwrap();
     assert!(!reference.deleted, "a higher-level summon resists Banish");
     assert!(reference.enabled, "a higher-level summon remains enabled");
-    assert!(
-        world
-            .active_effects()
-            .any(|effect| effect.summoned == Some(summoned))
-    );
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
 }
 
 #[test]
@@ -1938,11 +1926,9 @@ fn mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_ide
         assert_eq!(reference.position, [12.0, 34.0, 56.0]);
     }
     let spawned_object = original.object_of(Handle::Form(spawned));
-    assert!(
-        original
-            .vm
-            .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad")
-    );
+    assert!(original
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
 
     let mut restored = game(plugin);
     restored.load_script(&script).unwrap();
@@ -1953,11 +1939,9 @@ fn mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_ide
         Some(id(SCRIPTED_REF_BASE))
     );
     let spawned_object = restored.object_of(Handle::Form(spawned));
-    assert!(
-        restored
-            .vm
-            .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad")
-    );
+    assert!(restored
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
 }
 
 #[test]
@@ -2157,10 +2141,9 @@ fn mag_06_area_hit_selects_each_eligible_actor_once_in_radius() {
     let effect = effect(1 | 4, 0, 24, false);
     let spell = spell_with_area(SPELL, 0, false, 15.0, 0, 500);
     let mut game = game(plugin(effect, vec![spell]));
-    assert!(
-        game.world_mut()
-            .move_to(id(SOURCE), id(ACTOR), [2_000.0, 0.0, 0.0])
-    );
+    assert!(game
+        .world_mut()
+        .move_to(id(SOURCE), id(ACTOR), [2_000.0, 0.0, 0.0]));
 
     let shared = game.shared_world();
     let applied = shared
@@ -2234,10 +2217,9 @@ fn mag_30_demoralize_makes_eligible_actor_flee_and_lowers_confidence() {
     plugin.push_top(Record::new(T(b"CELL"), CELL));
     plugin.push_top(Record::new(T(b"NAVM"), NAVM).sub(T(b"NVNM"), mag_30_navmesh().to_bytes()));
     let mut game = game(plugin);
-    assert!(
-        game.world_mut()
-            .move_to(id(ACTOR), id(SOURCE), [10.0, 10.0, 0.0])
-    );
+    assert!(game
+        .world_mut()
+        .move_to(id(ACTOR), id(SOURCE), [10.0, 10.0, 0.0]));
     game.world_mut()
         .set_actor_value(id(ACTOR), "confidence", 3.0)
         .unwrap();
@@ -2580,11 +2562,10 @@ fn menu_time_does_not_age_effects() {
 fn scripts_bind_per_application_and_receive_target_and_caster() {
     let mut game = fixture(0, 1, 0.0, 10);
     let definition = game.object_of_form(id(EFFECT));
-    assert!(
-        game.vm
-            .get_var(definition, "EffectProbe", "started")
-            .is_none()
-    );
+    assert!(game
+        .vm
+        .get_var(definition, "EffectProbe", "started")
+        .is_none());
     let first = cast(&mut game, SPELL, ACTOR).unwrap()[0];
     let second = cast(&mut game, SPELL, OTHER).unwrap()[0];
     game.run_until_idle(64);
@@ -2796,23 +2777,19 @@ fn mag_27_cure_disease_removes_only_disease_effects_and_updates_keyword_queries(
 
     cast(&mut game, DISEASE_SPELL, OTHER).unwrap();
     cast(&mut game, ORDINARY_SPELL, OTHER).unwrap();
-    assert!(
-        game.world_mut()
-            .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD))
-    );
+    assert!(game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
 
     cast(&mut game, CURE_SPELL, OTHER).unwrap();
 
-    assert!(
-        !game
-            .world_mut()
-            .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD))
-    );
+    assert!(!game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
     assert!(!game.world().has_magic_effect(id(OTHER), id(DISEASE_EFFECT)));
-    assert!(
-        game.world()
-            .has_magic_effect(id(OTHER), id(ORDINARY_EFFECT))
-    );
+    assert!(game
+        .world()
+        .has_magic_effect(id(OTHER), id(ORDINARY_EFFECT)));
     let remaining: std::collections::BTreeSet<_> = game
         .world()
         .active_effects()
@@ -3231,13 +3208,12 @@ fn corrupt_effect_data_leaves_the_live_world_unchanged() {
     marker.extend_from_slice(&effect.target.object.to_le_bytes());
     let offset = legacy::unique_offset(&bytes, &marker) + marker.len();
     bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
-    assert!(
-        game.world_mut()
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("invalid active effect state")
-    );
+    assert!(game
+        .world_mut()
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid active effect state"));
     assert_eq!(game.world().state_hash(), before);
 }
 
@@ -3534,13 +3510,11 @@ fn hostile_no_hit_event_applies_damage_without_hit_callbacks() {
     game.world_mut().pending.clear();
     cast(&mut game, SPELL, OTHER).unwrap();
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
-    assert!(
-        !game
-            .world()
-            .pending
-            .iter()
-            .any(|p| matches!(p, Pending::Event { name, .. } if name == "OnHit"))
-    );
+    assert!(!game
+        .world()
+        .pending
+        .iter()
+        .any(|p| matches!(p, Pending::Event { name, .. } if name == "OnHit")));
 }
 
 #[test]

@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::magic::EffectId;
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CASTER: u32 = 0x100;
@@ -152,13 +152,11 @@ fn mag_61_dispelling_one_of_two_hazards_keeps_the_other_live() {
     assert_ne!(first, second);
 
     let shared = game.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .dispel_effect(effects[0], &mut |name, class| {
-                game.vm.create_object_of(name, class)
-            })
-    );
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(effects[0], &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        }));
     let world = shared.borrow();
     assert!(world.reference_ref(first).unwrap().deleted);
     assert!(!world.reference_ref(second).unwrap().deleted);

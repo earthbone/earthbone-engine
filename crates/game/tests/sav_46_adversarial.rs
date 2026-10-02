@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
+use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
 use soe_save::{Compression, Header, RefId, Save, WString};
 
@@ -138,27 +138,23 @@ fn sav_46_present_empty_faction_reactions_clear_warm_record_consumer() {
     saved.change_forms.push(change(FACT, 31, 4, vec![0]));
     assert_eq!(world.restore_vanilla_record_changes(&saved).unwrap(), 1);
     assert!(world.faction(id(0, FACT)).unwrap().reactions.is_empty());
-    assert!(
-        world
-            .record(id(0, FACT))
-            .unwrap()
-            .all(Tag(*b"XNAM"))
-            .next()
-            .is_none()
-    );
+    assert!(world
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_none());
 
     let bytes = world.save_state();
     let mut loaded = World::from_shared_order(order);
     loaded.load_state(&bytes).unwrap();
     assert!(loaded.faction(id(0, FACT)).unwrap().reactions.is_empty());
-    assert!(
-        loaded
-            .record(id(0, FACT))
-            .unwrap()
-            .all(Tag(*b"XNAM"))
-            .next()
-            .is_none()
-    );
+    assert!(loaded
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_none());
 }
 
 #[test]
@@ -177,12 +173,10 @@ fn sav_46_unresolved_faction_reaction_does_not_apply_prior_record_changes() {
     let before = world.save_state();
     assert!(world.restore_vanilla_record_changes(&saved).is_err());
     assert_eq!(world.save_state(), before);
-    assert!(
-        world
-            .record(id(0, FACT))
-            .unwrap()
-            .all(Tag(*b"XNAM"))
-            .next()
-            .is_some()
-    );
+    assert!(world
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_some());
 }

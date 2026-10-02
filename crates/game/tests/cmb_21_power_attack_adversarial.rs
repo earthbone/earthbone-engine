@@ -16,13 +16,13 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game, Handle,
     combat::{Error, MeleeHit},
+    Game, Handle,
 };
 use soe_papyrus::{
+    asm::{b, ident, FunctionBuilder, ScriptBuilder},
     Opcode::*,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, b, ident},
 };
 
 fn id(object: u32) -> GlobalFormId {

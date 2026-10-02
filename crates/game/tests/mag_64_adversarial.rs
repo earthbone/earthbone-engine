@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::DYNAMIC_FILE;
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -79,14 +79,13 @@ fn mag_64_rejects_truncated_mgef_data_before_spawning() {
     let mut game = fixture(88, 52);
     assert!(cast(&mut game).is_err());
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(
-        game.world()
-            .reference_ref(GlobalFormId {
-                file: DYNAMIC_FILE,
-                object: 0x1001
-            })
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .reference_ref(GlobalFormId {
+            file: DYNAMIC_FILE,
+            object: 0x1001
+        })
+        .is_none());
 }
 
 #[test]
@@ -94,12 +93,11 @@ fn mag_64_rejects_truncated_expl_data_before_spawning() {
     let mut game = fixture(152, 20);
     assert!(cast(&mut game).is_err());
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(
-        game.world()
-            .reference_ref(GlobalFormId {
-                file: DYNAMIC_FILE,
-                object: 0x1001
-            })
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .reference_ref(GlobalFormId {
+            file: DYNAMIC_FILE,
+            object: 0x1001
+        })
+        .is_none());
 }

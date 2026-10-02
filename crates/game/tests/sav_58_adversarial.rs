@@ -4,9 +4,9 @@
 //! SAV-58 opaque unresolved identity and payload resilience.
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::save::{DependencyChange, DependencyKind};
 use soe_game::world::{UnresolvedRecord, UnresolvedRecordId, World};
+use soe_game::Game;
 
 fn live_order() -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
@@ -162,10 +162,8 @@ fn sav_58_native_game_load_reports_removed_plugins_without_mutation() {
 
     let before = restored.save_state().unwrap();
     let error = restored.load_state(&bytes).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("saved plugin absentlight.esl is missing")
-    );
+    assert!(error
+        .to_string()
+        .contains("saved plugin absentlight.esl is missing"));
     assert_eq!(restored.save_state().unwrap(), before);
 }

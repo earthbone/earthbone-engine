@@ -14,8 +14,8 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Handle};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");

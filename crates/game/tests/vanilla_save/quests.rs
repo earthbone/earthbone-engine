@@ -5,7 +5,7 @@
 
 use super::*;
 use soe_game::quest;
-use soe_save::{ChangeForm, quest::flags as change_flags};
+use soe_save::{quest::flags as change_flags, ChangeForm};
 
 const QUEST: u32 = 0x900;
 
@@ -263,17 +263,16 @@ fn sav_20_mapped_story_arguments_wait_for_handler_and_resume_once() {
         );
     }
     assert_eq!(game.resume_vanilla_quest_story_events(), 0);
-    assert!(
-        game.world()
-            .quest(quest_id)
-            .unwrap()
-            .runtime
-            .run_data
-            .as_ref()
-            .unwrap()
-            .event
-            .is_some()
-    );
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_some());
     let bytes = game.world().save_state();
     game = fixture();
     let object = game.object_of_form(quest_id);
@@ -295,30 +294,27 @@ fn sav_20_mapped_story_arguments_wait_for_handler_and_resume_once() {
 
     game.load_script(&story_resume_handler()).unwrap();
     game.vm.attach(object, "StoryResumeProbe").unwrap();
-    assert!(
-        game.vm
-            .has_script_method(object, "StoryResumeProbe", "OnStoryScript")
-    );
+    assert!(game
+        .vm
+        .has_script_method(object, "StoryResumeProbe", "OnStoryScript"));
     assert_eq!(game.resume_vanilla_quest_story_events(), 1);
-    assert!(
-        game.world()
-            .quest(quest_id)
-            .unwrap()
-            .runtime
-            .run_data
-            .as_ref()
-            .unwrap()
-            .event
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_none());
     assert_eq!(game.resume_vanilla_quest_story_events(), 0);
-    assert!(
-        game.vm
-            .log
-            .messages()
-            .iter()
-            .any(|message| message.to_string().contains("41"))
-    );
+    assert!(game
+        .vm
+        .log
+        .messages()
+        .iter()
+        .any(|message| message.to_string().contains("41")));
     assert!(
         game.vm
             .log
@@ -354,17 +350,16 @@ fn sav_20_unresolved_story_argument_remains_pending() {
     game.vm.attach(object, "StoryResumeProbe").unwrap();
 
     assert_eq!(game.resume_vanilla_quest_story_events(), 0);
-    assert!(
-        game.world()
-            .quest(quest_id)
-            .unwrap()
-            .runtime
-            .run_data
-            .as_ref()
-            .unwrap()
-            .event
-            .is_some()
-    );
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_some());
     assert!(game.vm.log.messages().is_empty());
 }
 
@@ -517,12 +512,10 @@ fn corrupt_quest_extension_cannot_create_lazy_state() {
     let clean = fixture();
     let before = clean.save_state().unwrap();
     for cut in 1..20 {
-        assert!(
-            clean
-                .world_mut()
-                .load_state(&bytes[..bytes.len() - cut])
-                .is_err()
-        );
+        assert!(clean
+            .world_mut()
+            .load_state(&bytes[..bytes.len() - cut])
+            .is_err());
         assert_eq!(clean.save_state().unwrap(), before);
     }
 }

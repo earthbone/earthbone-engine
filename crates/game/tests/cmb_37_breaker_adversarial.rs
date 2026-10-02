@@ -3,7 +3,7 @@
 
 //! CMB-37 adversarial checks from CK destruction natives and xEdit DEST layout.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};

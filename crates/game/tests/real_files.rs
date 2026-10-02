@@ -250,12 +250,10 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     assert!(total > 10_000);
     assert!(executed > 100 && executed < total);
     assert!(coverage.quests.iter().any(|q| q.summary.executed > 0));
-    assert!(
-        coverage
-            .quests
-            .iter()
-            .all(|q| q.summary.executed <= q.summary.total)
-    );
+    assert!(coverage
+        .quests
+        .iter()
+        .all(|q| q.summary.executed <= q.summary.total));
     eprintln!(
         "coverage: {executed}/{total} bodies, {} scripts, {} quests",
         coverage.scripts.scripts.len(),

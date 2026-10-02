@@ -5,7 +5,7 @@ use crate::common::installed;
 
 use soe_esm::Tag;
 use soe_game::Game;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
 fn call_play_animation(game: &mut Game, target: Value) -> Value {

@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
-use soe_game::world::Pending;
 use soe_game::world::magic::EffectId;
+use soe_game::world::Pending;
+use soe_game::Game;
 
 const CASTER: u32 = 0x100;
 const TARGET: u32 = 0x101;
@@ -97,18 +97,16 @@ fn mag_67_racial_ability_binds_and_receives_effect_start_on_transformation() {
         game.world_mut().actor(id(TARGET)).unwrap().race,
         Some(id(VAMPIRE_RACE))
     );
-    assert!(
-        game.world_mut()
-            .actor(id(TARGET))
-            .unwrap()
-            .spells
-            .contains(&id(ABILITY))
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|effect| effect.target == id(TARGET) && effect.spell == id(ABILITY))
-    );
+    assert!(game
+        .world_mut()
+        .actor(id(TARGET))
+        .unwrap()
+        .spells
+        .contains(&id(ABILITY)));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.target == id(TARGET) && effect.spell == id(ABILITY)));
     let ability_object = game
         .world()
         .pending
@@ -141,20 +139,16 @@ fn mag_67_transformation_reverts_owned_race_and_ability_after_save_load() {
         Some(id(VAMPIRE_RACE))
     );
     let shared = restored.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .dispel_effect(transformation, &mut |name, class| {
-                restored.vm.create_object_of(name, class)
-            })
-    );
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(transformation, &mut |name, class| {
+            restored.vm.create_object_of(name, class)
+        }));
     let mut world = restored.world_mut();
     let actor = world.actor(id(TARGET)).unwrap();
     assert_eq!(actor.race, Some(id(OLD_RACE)));
     assert!(!actor.spells.contains(&id(ABILITY)));
-    assert!(
-        !world
-            .active_effects()
-            .any(|effect| effect.target == id(TARGET) && effect.spell == id(ABILITY))
-    );
+    assert!(!world
+        .active_effects()
+        .any(|effect| effect.target == id(TARGET) && effect.spell == id(ABILITY)));
 }

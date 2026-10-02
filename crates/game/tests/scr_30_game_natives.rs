@@ -3,12 +3,13 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game, npc,
+    npc,
     world::{GameUiRequest, MenuRequest},
+    Game,
 };
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call_game(game: &mut Game, name: &str, arg: Option<(&str, Value)>) -> Value {
     let script = format!("Scr30{name}");

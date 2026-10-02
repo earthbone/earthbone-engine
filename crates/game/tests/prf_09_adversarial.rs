@@ -3,8 +3,8 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, none, s};
 use std::path::PathBuf;
 
 fn worker() -> Vec<u8> {

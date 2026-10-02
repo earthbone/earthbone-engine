@@ -118,21 +118,18 @@ fn hst_03_repeating_a_success_does_not_emit_another_lock_event_or_spend_a_pick()
     game.object_of(Handle::Form(id(DOOR)));
     game.world_mut().add_item(player, id(LOCKPICK), 2);
 
-    assert!(
-        game.world_mut()
-            .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
-                panic!("unexpected form allocation")
-            })
-    );
+    assert!(game
+        .world_mut()
+        .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
+            panic!("unexpected form allocation")
+        }));
     assert_eq!(lock_events(&game), 1);
     game.world_mut().pending.clear();
-    assert!(
-        !game
-            .world_mut()
-            .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
-                panic!("unexpected form allocation")
-            })
-    );
+    assert!(!game
+        .world_mut()
+        .resolve_lockpick(id(DOOR), player, true, &mut |_, _| {
+            panic!("unexpected form allocation")
+        }));
 
     assert!(!game.world_mut().reference(id(DOOR)).unwrap().locked);
     assert_eq!(game.world_mut().item_count(player, id(LOCKPICK)), 2);

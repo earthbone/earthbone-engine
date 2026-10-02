@@ -3,13 +3,13 @@
 
 //! UI-05 lifecycle checks and SkyUI source contract checks.
 
-use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Tag, plugin::flags};
-use soe_game::Game;
+use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
 use soe_game::quest::{self, flags as quest_flags};
 use soe_game::vmad::{ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const QUEST: u32 = 0x800;
 
@@ -243,11 +243,8 @@ fn ui_05_original_skyui_source_defines_lifecycle_order() {
 
     let reload = source_body(&source, "event OnGameReload()", "endevent").unwrap();
     assert!(reload.contains("onconfiginit()"));
-    assert!(
-        reload.contains(
-            "registerformodevent(\"skicp_configmanagerready\", \"onconfigmanagerready\")"
-        )
-    );
+    assert!(reload
+        .contains("registerformodevent(\"skicp_configmanagerready\", \"onconfigmanagerready\")"));
 
     let ready = source_body(&source, "event OnConfigManagerReady(", "endevent").unwrap();
     let register = ready.find("newmanager.registermod(self, modname)").unwrap();

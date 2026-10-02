@@ -15,22 +15,22 @@
 //! script takes. The behaviour each test asserts is the one the Creation
 //! Kit wiki page states, quoted in the test's doc comment.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use soe_esm::{
-    Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
-    plugin::flags,
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
 };
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
+use soe_game::{world::RngStream, HostRequest};
 use soe_game::{Game, Handle, Pending};
-use soe_game::{HostRequest, world::RngStream};
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::pex::Function;
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, f, i, ident, s};
-use soe_papyrus::pex::Function;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
@@ -812,11 +812,10 @@ fn scr_21_dump_alias_data_reports_a_non_quest_argument() {
         call_global(&mut game, "Debug", "DumpAliasData", &[Value::None]),
         Value::None
     ));
-    assert!(
-        game.vm
-            .log
-            .contains("Debug.DumpAliasData: argument is not a quest")
-    );
+    assert!(game
+        .vm
+        .log
+        .contains("Debug.DumpAliasData: argument is not a quest"));
 }
 
 #[test]
@@ -1267,11 +1266,9 @@ fn scr_65_registry_inventory_matches_location_and_leveled_spell_contracts() {
         .filter(|(class, name)| g.vm.natives.has_method(class, name))
         .collect();
     assert_eq!(inventory, expected);
-    assert!(
-        expected
-            .iter()
-            .all(|(class, name)| !g.vm.natives.has_global(class, name))
-    );
+    assert!(expected
+        .iter()
+        .all(|(class, name)| !g.vm.natives.has_global(class, name)));
     assert!(!g.vm.natives.has_method("LeveledSpell", "GetNthCount"));
 }
 
@@ -2180,13 +2177,12 @@ fn scr_14_equipped_weapon_hands_and_shield_follow_equipment() {
     state.left_weapon = Some(dagger);
     state.right_weapon = Some(sword);
     drop(world);
-    assert!(
-        g.world_mut()
-            .actor(actor)
-            .unwrap()
-            .equipped
-            .contains(&shield)
-    );
+    assert!(g
+        .world_mut()
+        .actor(actor)
+        .unwrap()
+        .equipped
+        .contains(&shield));
     assert_eq!(g.world_mut().item_count(actor, shield), 1);
     assert_eq!(g.world_mut().equipped_shield(actor).unwrap(), Some(shield));
 
@@ -2364,12 +2360,11 @@ fn scr_12_expression_and_head_tracking_actor_natives() {
         "SetExpressionOverride",
         &[Value::Int(17), Value::Int(45)],
     );
-    assert!(
-        g.world_mut()
-            .set_expression_override(id, 17, 45)
-            .unwrap_err()
-            .contains("expression mood 17")
-    );
+    assert!(g
+        .world_mut()
+        .set_expression_override(id, 17, 45)
+        .unwrap_err()
+        .contains("expression mood 17"));
     assert_eq!(g.world_mut().facial_expression(id), cleared);
 
     let saved = g.world_mut().save_state();

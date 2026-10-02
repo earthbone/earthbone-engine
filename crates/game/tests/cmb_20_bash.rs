@@ -7,11 +7,11 @@
 //! combat_hits.rs and cmb_14_stagger.rs.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, Handle, combat::MeleeHit};
+use soe_game::{combat::MeleeHit, Game, Handle};
 use soe_papyrus::{
+    asm::{i, ident, FunctionBuilder, ScriptBuilder},
     Opcode::*,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, i, ident},
 };
 
 fn id(object: u32) -> GlobalFormId {

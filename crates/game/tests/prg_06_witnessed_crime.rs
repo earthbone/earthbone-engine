@@ -15,9 +15,9 @@
 
 use soe_esm::plugin::flags;
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::crime::CrimeType;
 use soe_game::npc::{self, Config, Stats};
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 

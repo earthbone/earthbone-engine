@@ -7,8 +7,8 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    World,
     npc::{self, AiData, Config, Stats},
+    World,
 };
 
 fn id(object: u32) -> GlobalFormId {

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, plugin::flags, tag};
+use soe_esm::{plugin::flags, tag, FileHeader, LoadOrder, Plugin, Record};
 use soe_game::{
-    Game,
     save::{DependencyChange, SaveProvenance},
+    Game,
 };
 use soe_papyrus::asm::ScriptBuilder;
 
@@ -102,13 +102,11 @@ fn sav_56_slot_reordering_is_distinct_from_same_name_replacement() {
         .unwrap();
     assert_eq!(saved_second.fingerprint, moved_second.fingerprint);
     assert_ne!(saved_second.slot, moved_second.slot);
-    assert!(
-        reordered
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("moved load-order slot")
-    );
+    assert!(reordered
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("moved load-order slot"));
 
     let mut replacement = game(
         &[
@@ -126,13 +124,11 @@ fn sav_56_slot_reordering_is_distinct_from_same_name_replacement() {
         .unwrap();
     assert_eq!(saved_second.slot, changed_second.slot);
     assert_ne!(saved_second.fingerprint, changed_second.fingerprint);
-    assert!(
-        replacement
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("content changed")
-    );
+    assert!(replacement
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("content changed"));
 }
 
 #[test]
@@ -162,12 +158,10 @@ fn sav_56_unknown_native_version_is_rejected() {
     let mut bytes = source.save_state().unwrap();
     bytes[4..6].copy_from_slice(&u16::MAX.to_le_bytes());
     let before = source.save_state().unwrap();
-    assert!(
-        source
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("game save version 65535")
-    );
+    assert!(source
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("game save version 65535"));
     assert_eq!(source.save_state().unwrap(), before);
 }

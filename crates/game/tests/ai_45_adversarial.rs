@@ -4,10 +4,10 @@
 //! Adversarial checks for crime conditions and their persisted inputs.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions};
+use soe_game::{conditions, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

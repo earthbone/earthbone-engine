@@ -3,7 +3,7 @@
 
 use soe_esm::plugin::flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{World, ambience};
+use soe_game::{ambience, World};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CELL: u32 = 0x800;
@@ -70,9 +70,7 @@ fn aud_09_region_music_starts_when_cell_has_no_music() {
 #[test]
 fn aud_09_palette_and_silent_tracks_are_not_started_as_files() {
     let mut world = order(Some(MUSIC), 0x23F6_78C3);
-    assert!(
-        ambience::tracks_for_cell(&mut world, id(CELL))
-            .unwrap()
-            .is_empty()
-    );
+    assert!(ambience::tracks_for_cell(&mut world, id(CELL))
+        .unwrap()
+        .is_empty());
 }

@@ -2,8 +2,8 @@
 
 use super::*;
 use soe_game::world::{Pending, UpdateTimer};
-use soe_papyrus::Opcode::CallStatic;
 use soe_papyrus::asm::{f, none};
+use soe_papyrus::Opcode::CallStatic;
 use soe_papyrus::{NativeReturn, ObjectId};
 
 fn callback_script(wait: bool) -> Vec<u8> {
@@ -46,11 +46,10 @@ fn callback_script(wait: bool) -> Vec<u8> {
 fn assert_reclaimed(game: &Game, effect: EffectId, object: ObjectId) {
     assert!(game.vm.object(object).is_none());
     assert!(game.world().handle_of(object).is_none());
-    assert!(
-        game.world()
-            .object_id(Handle::ActiveEffect(effect))
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .object_id(Handle::ActiveEffect(effect))
+        .is_none());
 }
 
 #[test]
@@ -93,23 +92,19 @@ fn mag_26_expiry_preserves_sleeping_finish_across_save_load() {
     game.tick(1.0);
     assert!(game.vm.object(object).is_some());
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(
-        !game
-            .traces()
-            .iter()
-            .any(|line| line.contains("effect finished"))
-    );
+    assert!(!game
+        .traces()
+        .iter()
+        .any(|line| line.contains("effect finished")));
     let saved = game.save_state().unwrap();
     let mut restored = fixture(0, 1, 0.0, 1);
     restored.load_script(&script).unwrap();
     restored.load_state(&saved).unwrap();
     restored.tick(1.0);
-    assert!(
-        restored
-            .traces()
-            .iter()
-            .any(|line| line.contains("effect finished"))
-    );
+    assert!(restored
+        .traces()
+        .iter()
+        .any(|line| line.contains("effect finished")));
     assert_reclaimed(&restored, effect, object);
 }
 
@@ -215,10 +210,9 @@ fn mag_26_pending_callback_and_late_registration_are_drained() {
     assert!(game.run_until_idle(1));
     assert!(game.traces().iter().any(|line| line.contains("tail ran")));
     assert_reclaimed(&game, effect, object);
-    assert!(
-        game.world()
-            .timers
-            .iter()
-            .all(|timer| timer.object != object)
-    );
+    assert!(game
+        .world()
+        .timers
+        .iter()
+        .all(|timer| timer.object != object));
 }

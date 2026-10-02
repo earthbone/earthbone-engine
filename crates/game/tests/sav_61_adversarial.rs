@@ -4,10 +4,10 @@
 //! Adversarial checks for explicit recovery session boundaries.
 
 use soe_esm::LoadOrder;
-use soe_game::{Game, save_generations::GenerationStore};
+use soe_game::{save_generations::GenerationStore, Game};
 use soe_papyrus::{
+    asm::{i, ScriptBuilder},
     Value,
-    asm::{ScriptBuilder, i},
 };
 use std::{
     fs,

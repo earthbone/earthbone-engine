@@ -4,10 +4,10 @@
 //! SCR-09 Actor queries backed by race and shared detection state.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::detection::{DetectionLevel, Error as DetectionError};
 pub use soe_game::detection::{Motion, Observation};
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, b, ident, s};
+use soe_game::Game;
+use soe_papyrus::asm::{b, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::CallMethod, Value};
 
 pub fn id(object: u32) -> GlobalFormId {
@@ -144,11 +144,10 @@ fn scr_09_is_detected_by_uses_other_actor_and_does_not_advance_state() {
         .unwrap();
     let before = game.world().awareness(id(0x901), id(0x900)).unwrap();
     assert_eq!(before.level, DetectionLevel::Combat);
-    assert!(
-        game.world()
-            .is_actor_detected_by(id(0x900), id(0x901))
-            .unwrap()
-    );
+    assert!(game
+        .world()
+        .is_actor_detected_by(id(0x900), id(0x901))
+        .unwrap());
     let observer = game.object_of_form(id(0x901));
     assert!(actor_bool(
         &mut game,

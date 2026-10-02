@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{World, npc};
+use soe_game::{npc, World};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const NPC: u32 = 0x100;

@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::magic::MagicError;
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -121,13 +121,11 @@ fn mag_40_detect_life_has_no_presentation_after_its_active_effect_ends() {
     cast_detection(&mut game).unwrap();
     let effect = game.world().active_effects().next().unwrap().id;
     let shared = game.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .dispel_effect(effect, &mut |name, class| game
-                .vm
-                .create_object_of(name, class),)
-    );
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(effect, &mut |name, class| game
+            .vm
+            .create_object_of(name, class),));
     assert!(game.world_mut().detect_life_targets().unwrap().is_empty());
 }
 

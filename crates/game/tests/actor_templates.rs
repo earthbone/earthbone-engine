@@ -9,8 +9,8 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    npc::{self, template, Config, Stats},
     World,
-    npc::{self, Config, Stats, template},
 };
 use std::collections::BTreeSet;
 
@@ -221,11 +221,9 @@ fn nested_lists_and_template_cycles_have_bounded_evaluation() {
     invalid.push_top(list(0x301, 0, 0, &[(1, LIST)]));
     let mut broken = world(invalid.clone());
     let next = world(invalid).random_u64();
-    assert!(
-        broken
-            .prepare_actor_template(id(ACTOR), id(BASE), 10)
-            .is_err()
-    );
+    assert!(broken
+        .prepare_actor_template(id(ACTOR), id(BASE), 10)
+        .is_err());
     assert_eq!(broken.random_u64(), next);
 }
 
@@ -251,11 +249,9 @@ fn malformed_selected_lists_restore_the_rng_and_reject_partial_spawns() {
         let fixture = plugin(record);
         let mut original = world(fixture.clone());
         let expected = world(fixture).random_u64();
-        assert!(
-            original
-                .prepare_actor_template(id(ACTOR), id(BASE), 10)
-                .is_err()
-        );
+        assert!(original
+            .prepare_actor_template(id(ACTOR), id(BASE), 10)
+            .is_err());
         assert_eq!(original.random_u64(), expected);
         assert!(original.actor_ref(id(ACTOR)).is_none());
     }
@@ -292,13 +288,11 @@ fn corrupt_saved_template_does_not_replace_existing_state() {
     }
     let offset = offset.expect("selected template is in the saved chain");
     bytes[offset..offset + 4].copy_from_slice(&0x600u32.to_le_bytes());
-    assert!(
-        world
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("invalid saved actor template selection")
-    );
+    assert!(world
+        .load_state(&bytes)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid saved actor template selection"));
     assert_eq!(world.state_hash(), hash);
 }
 

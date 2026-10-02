@@ -7,7 +7,7 @@ use crate::common::legacy;
 
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{World, npc};
+use soe_game::{npc, World};
 use soe_papyrus::Value;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

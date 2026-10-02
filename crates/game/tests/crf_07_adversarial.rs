@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     crafting::Error,
     inventory::{Extra, Field, StackSource},
+    Game,
 };
 
 const PLAYER: u32 = 0x14;

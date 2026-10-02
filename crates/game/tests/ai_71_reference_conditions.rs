@@ -4,10 +4,10 @@
 //! AI-71 reference state condition contracts.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, ai::Procedure, conditions};
+use soe_game::{ai::Procedure, conditions, Game};
 
 const BASE: u32 = 0x800;
 const ACTOR: u32 = 0x801;

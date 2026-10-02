@@ -7,8 +7,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     combat::{Difficulty, MeleeHit},
+    Game,
 };
 
 fn id(object: u32) -> GlobalFormId {

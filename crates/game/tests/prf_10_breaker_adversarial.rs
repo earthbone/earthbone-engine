@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use soe_esm::LoadOrder;
-use soe_game::{EXTERIOR_CELL_LOADS_PER_UPDATE, Game, PAPYRUS_INSTRUCTIONS_PER_SLICE};
+use soe_game::{Game, EXTERIOR_CELL_LOADS_PER_UPDATE, PAPYRUS_INSTRUCTIONS_PER_SLICE};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call(game: &mut Game, name: &str, index: Option<i32>) -> Value {
     let mut function = FunctionBuilder::new("Read", "Var")

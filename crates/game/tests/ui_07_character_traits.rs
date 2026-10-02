@@ -3,13 +3,13 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     npc::{self, Config, Stats},
+    Game,
 };
 use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::CallStatic,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -117,18 +117,14 @@ fn ui_07_rejects_a_non_playable_or_wrong_type_race_without_mutation() {
     let mut invalid = Game::new(order);
     let player = invalid.player();
     let before = invalid.world_mut().player_character_traits();
-    assert!(
-        invalid
-            .world_mut()
-            .set_player_character_traits(id(0x702), false)
-            .is_err()
-    );
-    assert!(
-        invalid
-            .world_mut()
-            .set_player_character_traits(id(0x703), false)
-            .is_err()
-    );
+    assert!(invalid
+        .world_mut()
+        .set_player_character_traits(id(0x702), false)
+        .is_err());
+    assert!(invalid
+        .world_mut()
+        .set_player_character_traits(id(0x703), false)
+        .is_err());
     assert_eq!(invalid.world_mut().player_character_traits(), before);
     assert_eq!(invalid.world_mut().actor_ref(player), None);
 }

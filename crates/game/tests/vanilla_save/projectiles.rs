@@ -88,7 +88,7 @@ fn sav_24_bad_late_projectile_change_leaves_all_live_forms_unchanged() {
     }
 }
 
-use soe_save::{ChangeForm, reference::flags as change_flags};
+use soe_save::{reference::flags as change_flags, ChangeForm};
 
 fn moved_projectile(raw: u32, type_index: u8, position: [f32; 3]) -> ChangeForm {
     let mut data = vec![];

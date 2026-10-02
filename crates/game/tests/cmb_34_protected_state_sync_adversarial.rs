@@ -34,7 +34,7 @@
 //! This file only adds tests. It does not modify the files under test.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, combat::Error, combat::MeleeHit, npc::flags};
+use soe_game::{combat::Error, combat::MeleeHit, npc::flags, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

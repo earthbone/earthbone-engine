@@ -4,10 +4,10 @@
 //! Find selects an eligible placed reference from its authored target input.
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Location, Schedule, Target};
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x900;

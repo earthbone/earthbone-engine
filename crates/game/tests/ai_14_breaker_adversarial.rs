@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, CompValue, Condition, Schedule, condition};
+use soe_game::package::{self, condition, CompValue, Condition, Schedule};
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x800;

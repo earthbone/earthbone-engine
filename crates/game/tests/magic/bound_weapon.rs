@@ -64,12 +64,10 @@ fn mag_38_expiry_removes_the_effects_copy_and_clears_its_hand() {
 
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)), 0);
     assert_eq!(game.world_mut().hand_weapon(id(ACTOR), Hand::Right), None);
-    assert!(
-        !game
-            .world()
-            .active_effects()
-            .any(|effect| effect.effect == id(EFFECT))
-    );
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|effect| effect.effect == id(EFFECT)));
 }
 
 #[test]

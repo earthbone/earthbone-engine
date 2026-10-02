@@ -4,10 +4,10 @@
 //! AI-53 legacy condition functions with missing and available contracts.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, ai, conditions, package};
+use soe_game::{ai, conditions, package, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

@@ -9,7 +9,7 @@
 //! magic.rs, so the only new ground covered here is the clamp itself.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, npc::flags};
+use soe_game::{npc::flags, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TARGET: u32 = 0x900;

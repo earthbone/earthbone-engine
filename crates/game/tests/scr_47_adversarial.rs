@@ -3,9 +3,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, Return},
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
@@ -41,14 +41,12 @@ fn scr_47_art_methods_validate_spell_and_leave_magic_unchanged() {
     call(&mut g, "Unload");
     assert_eq!(g.world().spell_casts, before);
     assert_eq!(g.world().active_effects().count(), 0);
-    assert!(
-        g.traces()
-            .iter()
-            .any(|x| x.contains("Spell.Preload: spell art resource loading is unsupported"))
-    );
-    assert!(
-        g.traces()
-            .iter()
-            .any(|x| x.contains("Spell.Unload: spell art resource loading is unsupported"))
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|x| x.contains("Spell.Preload: spell art resource loading is unsupported")));
+    assert!(g
+        .traces()
+        .iter()
+        .any(|x| x.contains("Spell.Unload: spell art resource loading is unsupported")));
 }

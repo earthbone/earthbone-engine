@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder};
 

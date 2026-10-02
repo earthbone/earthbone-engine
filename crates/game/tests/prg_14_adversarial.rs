@@ -3,10 +3,10 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::quest::state::{StoryEvent, StoryParameter};
-use soe_game::{Game, Pending, quest};
+use soe_game::{quest, Game, Pending};
+use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const KEYWORD: u32 = 0x800;

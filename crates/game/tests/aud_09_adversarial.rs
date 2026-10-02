@@ -3,7 +3,7 @@
 
 use soe_esm::plugin::flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{World, ambience};
+use soe_game::{ambience, World};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CELL: u32 = 0x800;
@@ -63,11 +63,9 @@ fn aud_09_condition_false_track_is_not_started() {
         .zsub(T(b"ANAM"), "Music/Conditional.wav")
         .sub(T(b"CTDA"), condition(72, OTHER));
     let mut world = world(track, None);
-    assert!(
-        ambience::tracks_for_cell(&mut world, id(CELL))
-            .unwrap()
-            .is_empty()
-    );
+    assert!(ambience::tracks_for_cell(&mut world, id(CELL))
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

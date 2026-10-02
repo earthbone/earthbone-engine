@@ -10,10 +10,10 @@
 //! pages and the runtime race and furniture state.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions};
+use soe_game::{conditions, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const OWNER: u32 = 0x800;

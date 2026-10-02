@@ -3,15 +3,15 @@
 
 //! SAV-10 lifecycle restoration edge checks.
 
-use soe_esm::{GlobalFormId, LoadOrder, Plugin, plugin::FileHeader};
-use soe_game::{Game, quest};
+use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin};
+use soe_game::{quest, Game};
 use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode, Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 use soe_save::{
+    quest::{flags as quest_flags, QuestChange},
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
-    quest::{QuestChange, flags as quest_flags},
 };
 
 fn reference(raw: u32) -> RefId {

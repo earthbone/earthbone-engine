@@ -9,8 +9,8 @@ use crate::common::installed;
 
 use std::collections::BTreeMap;
 
-use soe_esm::Tag;
 use soe_esm::records::gameplay::MagicEffect;
+use soe_esm::Tag;
 
 #[test]
 fn mag_68_five_master_winning_effect_inventory_has_no_unnamed_archetypes() {

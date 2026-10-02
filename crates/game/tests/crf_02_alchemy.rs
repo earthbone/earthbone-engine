@@ -97,10 +97,9 @@ fn crf_02_failed_combination_preserves_inputs_and_saved_potion_survives_reload()
     let bench = id(&game, BENCH);
     let ingredient_a = id(&game, INGREDIENT_A);
     let ingredient_b = id(&game, INGREDIENT_B);
-    assert!(
-        game.brew_potion(actor, bench, &[ingredient_a, ingredient_a])
-            .is_err()
-    );
+    assert!(game
+        .brew_potion(actor, bench, &[ingredient_a, ingredient_a])
+        .is_err());
     assert_eq!(game.world_mut().item_count(actor, ingredient_a), 1);
     assert_eq!(game.world_mut().item_count(actor, ingredient_b), 1);
 

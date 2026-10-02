@@ -5,7 +5,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::CallMethod, Value};
 
 const ACTOR: u32 = 0x100;
@@ -80,11 +80,10 @@ fn mag_13_ordinary_spell_is_not_automatically_active() {
 
     game.world_mut().actor(id(ACTOR));
 
-    assert!(
-        game.world()
-            .active_effects()
-            .all(|effect| effect.spell != id(ORDINARY))
-    );
+    assert!(game
+        .world()
+        .active_effects()
+        .all(|effect| effect.spell != id(ORDINARY)));
 }
 
 #[test]
@@ -149,9 +148,7 @@ fn mag_13_add_spell_native_activates_a_new_constant_ability() {
     let world = game.world();
     let active: Vec<_> = world.active_effects().collect();
     assert_eq!(active.len(), 2);
-    assert!(
-        active
-            .iter()
-            .any(|effect| effect.spell == id(NEW_ABILITY) && effect.target == id(ACTOR))
-    );
+    assert!(active
+        .iter()
+        .any(|effect| effect.spell == id(NEW_ABILITY) && effect.target == id(ACTOR)));
 }

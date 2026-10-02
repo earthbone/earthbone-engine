@@ -53,22 +53,18 @@ fn mag_48_cure_paralysis_removes_only_paralysis_effects_on_its_target() {
 
     cast(&mut game, CURE_SPELL, ACTOR).unwrap();
 
-    assert!(
-        !game
-            .world()
-            .active_effects()
-            .any(|active| active.id == target_paralysis)
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|active| active.id == other_paralysis)
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|active| active.id == unrelated)
-    );
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|active| active.id == target_paralysis));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|active| active.id == other_paralysis));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|active| active.id == unrelated));
 }
 
 #[test]

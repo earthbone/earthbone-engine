@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::{World, world::RngStream};
+use soe_game::{world::RngStream, World};
 
 const SEED: u64 = 0x1234_5678_9ABC_DEF0;
 

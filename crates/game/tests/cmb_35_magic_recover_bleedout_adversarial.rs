@@ -28,7 +28,7 @@
 //! tests runs before any Papyrus event is delivered.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, npc::flags};
+use soe_game::{npc::flags, Game};
 
 // Mirrors magic.rs's private flag constants (crates/game/src/world/magic.rs):
 // HOSTILE = 1, RECOVER = 1 << 1, DETRIMENTAL = 1 << 2.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag, records::Transform};
+use soe_esm::{records::Transform, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Pending, World};
 use std::path::PathBuf;
 

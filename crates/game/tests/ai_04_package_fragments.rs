@@ -2,12 +2,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::package::{self, Schedule};
 use soe_game::vmad::{PackFragment, PackFragments, ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, none, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, IAdd};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, none};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const BASE: u32 = 0x800;

@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use soe_esm::LoadOrder;
-use soe_game::{World, natives};
+use soe_game::{natives, World};
 use soe_papyrus::Vm;
 
 const DEBUG_GLOBALS: &[&str] = &[

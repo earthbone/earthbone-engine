@@ -5,12 +5,11 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game, Handle, Pending,
     crafting::Error,
     inventory::{Extra, Field, StackSource},
-    quest,
+    quest, Game, Handle, Pending,
 };
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, b, i, ident, none, s};
+use soe_papyrus::asm::{b, i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
 const PLAYER: u32 = 0x14;

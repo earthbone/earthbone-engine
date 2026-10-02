@@ -5,10 +5,10 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::ObjectId;
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const SCENE: u32 = 0x800;
 const QUEST: u32 = 0x801;

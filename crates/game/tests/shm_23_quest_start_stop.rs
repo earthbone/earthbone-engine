@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use soe_commonlib_shim::events::{EventSink, NotifyControl, QuestStartStopEvent};
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest::entry_flags, world::World};
 use soe_papyrus::ObjectId;
 

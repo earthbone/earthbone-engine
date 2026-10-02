@@ -4,8 +4,8 @@
 //! CMB-15 ownership, routing and invalid operand checks.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::combat::{Error, MeleeHit};
+use soe_game::Game;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

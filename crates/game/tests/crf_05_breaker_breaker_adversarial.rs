@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, quest};
+use soe_game::{quest, Game};
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident};
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;
@@ -148,10 +148,9 @@ fn crf_05_breaker_missing_required_created_object_rejects_without_event() {
     let ingredient = id(&game, INGREDIENT);
     game.world_mut().add_item(player, ingredient, 1);
 
-    assert!(
-        game.craft(player, id(&game, BENCH), id(&game, RECIPE))
-            .is_err()
-    );
+    assert!(game
+        .craft(player, id(&game, BENCH), id(&game, RECIPE))
+        .is_err());
     assert!(game.world_mut().take_story_manager_events().is_empty());
     assert_eq!(
         game.world_mut()

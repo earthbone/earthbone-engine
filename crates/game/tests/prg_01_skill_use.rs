@@ -5,8 +5,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     npc::{self, Config, Stats},
+    Game,
 };
 use std::path::PathBuf;
 

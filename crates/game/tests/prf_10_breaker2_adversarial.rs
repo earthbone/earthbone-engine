@@ -3,9 +3,9 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn budget(game: &mut Game, index: i32) -> Value {
     let function = FunctionBuilder::new("Read", "Int")

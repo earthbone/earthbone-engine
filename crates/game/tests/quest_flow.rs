@@ -6,13 +6,13 @@
 //! clock. Plus the map's week 6 to 9 gate: a door teleports, a container
 //! opens, a notification fires from a quest stage.
 
-use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
-use soe_game::Game;
+use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::harness::{self, Scenario};
 use soe_game::quest::{self, entry_flags, stage_flags};
 use soe_game::vmad::{ObjectRef, PropertyValue, QuestFragment, ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{b, f, i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, b, f, i, ident, none, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
@@ -183,12 +183,10 @@ fn test_plugin() -> Plugin {
         &mut p,
         CELL_B,
         "TestCellB",
-        vec![
-            Record::new(T(b"REFR"), DOOR_B)
-                .zsub(EDID, "DoorB")
-                .sub(T(b"NAME"), DOOR_BASE.to_le_bytes())
-                .sub(T(b"DATA"), zero_data),
-        ],
+        vec![Record::new(T(b"REFR"), DOOR_B)
+            .zsub(EDID, "DoorB")
+            .sub(T(b"NAME"), DOOR_BASE.to_le_bytes())
+            .sub(T(b"DATA"), zero_data)],
     );
     let mut block = Group::new(GroupKind::InteriorBlock(0));
     block.entries.push(Entry::Group(cell_a));

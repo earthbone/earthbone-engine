@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::IAdd;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident};
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
 }

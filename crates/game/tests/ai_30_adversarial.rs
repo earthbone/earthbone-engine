@@ -4,9 +4,9 @@
 //! Adversarial checks for AI-30 Guard area eligibility.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::World;
 use soe_game::ai::Procedure;
 use soe_game::package::{self, Location, Schedule};
+use soe_game::World;
 
 const GUARD_BASE: u32 = 0x801;
 const INTRUDER_BASE: u32 = 0x802;

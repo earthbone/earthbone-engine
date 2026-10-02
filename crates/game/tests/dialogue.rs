@@ -8,12 +8,12 @@ use crate::common::installed;
 use crate::common::legacy;
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::dialogue::Error;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, IAdd, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, none, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const SPEAKER: u32 = 0x100;
@@ -187,14 +187,12 @@ fn scr_48_topic_add_offers_owned_topic_and_saves_the_known_set() {
     game.begin_dialogue(id(SPEAKER), player).unwrap();
 
     assert!(game.vm.natives.has_method("Topic", "Add"));
-    assert!(
-        !game
-            .dialogue_choices()
-            .unwrap()
-            .available
-            .iter()
-            .any(|choice| choice.topic == id(LINKED_TOPIC))
-    );
+    assert!(!game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .any(|choice| choice.topic == id(LINKED_TOPIC)));
     scr_48_call_topic_add(&mut game, LINKED_TOPIC);
     let choices = game.dialogue_choices().unwrap();
     assert!(
@@ -214,13 +212,12 @@ fn scr_48_topic_add_offers_owned_topic_and_saves_the_known_set() {
     let saved = game.world().save_state();
     game.world_mut().load_state(&saved).unwrap();
     game.begin_dialogue(id(SPEAKER), player).unwrap();
-    assert!(
-        game.dialogue_choices()
-            .unwrap()
-            .available
-            .iter()
-            .any(|choice| choice.topic == id(LINKED_TOPIC))
-    );
+    assert!(game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .any(|choice| choice.topic == id(LINKED_TOPIC)));
 }
 
 #[test]
@@ -243,18 +240,16 @@ fn scr_48_topic_add_reports_invalid_forms_without_adding_them() {
         Err(Error::Data(_))
     ));
     scr_48_call_topic_add(&mut game, invalid_topic);
-    assert!(
-        game.traces()
-            .iter()
-            .any(|trace| trace.contains("Topic.Add"))
-    );
-    assert!(
-        game.dialogue_choices()
-            .unwrap()
-            .available
-            .iter()
-            .all(|choice| choice.topic == id(TOPIC))
-    );
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("Topic.Add")));
+    assert!(game
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .all(|choice| choice.topic == id(TOPIC)));
 }
 
 fn plugin(infos: Vec<Record>) -> Plugin {
@@ -368,7 +363,7 @@ fn counter_on(game: &mut Game, form: u32, variable: &str) -> i32 {
 #[test]
 fn scr_62_topic_info_gets_owning_quest_from_its_dialogue_group() {
     let mut plugin = plugin(vec![
-        info(INFO, 0, &["First", "Second"], true).sub(T(b"TPIC"), LINKED_TOPIC.to_le_bytes()),
+        info(INFO, 0, &["First", "Second"], true).sub(T(b"TPIC"), LINKED_TOPIC.to_le_bytes())
     ]);
     add_topic(&mut plugin, topic(LINKED_TOPIC, OTHER_QUEST), vec![], false);
     let mut game = game(plugin);
@@ -489,10 +484,9 @@ fn filled_actor_alias_controls_dialogue_for_same_base_references() {
     let player = game.player();
     game.begin_dialogue(id(SPEAKER + 1), player).unwrap();
     assert!(game.dialogue_choices().unwrap().available.is_empty());
-    assert!(
-        game.world_mut()
-            .force_alias(id(QUEST), 0, Some(id(SPEAKER + 1)))
-    );
+    assert!(game
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER + 1))));
     assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
     let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
     assert_eq!(line.speaker, id(SPEAKER + 1));
@@ -512,10 +506,9 @@ fn alias_clear_invalidates_offered_choice_before_fragments() {
     ));
     assert_eq!(counter(&mut game, "begins"), 0);
     assert!(game.dialogue_line().unwrap().is_none());
-    assert!(
-        game.world_mut()
-            .force_alias(id(QUEST), 0, Some(id(SPEAKER)))
-    );
+    assert!(game
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER))));
     assert!(game.choose_dialogue(id(TOPIC)).unwrap().is_some());
     assert_eq!(counter(&mut game, "begins"), 1);
 }
@@ -530,11 +523,9 @@ fn dialogue_alias_assignment_survives_save_and_reload() {
     restored.load_state(&bytes).unwrap();
     assert_eq!(restored.world_mut().alias_ref(id(QUEST), 0), None);
     assert!(restored.dialogue_choices().unwrap().available.is_empty());
-    assert!(
-        restored
-            .world_mut()
-            .force_alias(id(QUEST), 0, Some(id(SPEAKER)))
-    );
+    assert!(restored
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER))));
     let bytes = restored.save_state().unwrap();
     let mut filled = alias_dialogue();
     filled.load_state(&bytes).unwrap();
@@ -551,7 +542,7 @@ fn dialogue_alias_assignment_survives_save_and_reload() {
 #[test]
 fn shared_response_data_does_not_transfer_fragments_or_ownership() {
     let mut plugin = plugin(vec![
-        info(INFO, 0, &["Discarded local text"], true).sub(T(b"DNAM"), SHARED.to_le_bytes()),
+        info(INFO, 0, &["Discarded local text"], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
     ]);
     add_topic(
         &mut plugin,
@@ -656,7 +647,7 @@ fn localized_choice_and_shared_response_keep_distinct_winning_owners() {
         }
     }
     let mut base = plugin(vec![
-        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes()),
+        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
     ]);
     base.header.flags |= soe_esm::plugin::flags::LOCALIZED;
     add_topic(
@@ -685,11 +676,9 @@ fn localized_choice_and_shared_response_keep_distinct_winning_owners() {
     add_topic(
         &mut patch,
         localized_topic(LINKED_TOPIC, OTHER_QUEST),
-        vec![
-            info(SHARED, 0, &[], false)
-                .sub(T(b"TRDT"), response)
-                .sub(T(b"NAM1"), 1u32.to_le_bytes()),
-        ],
+        vec![info(SHARED, 0, &[], false)
+            .sub(T(b"TRDT"), response)
+            .sub(T(b"NAM1"), 1u32.to_le_bytes())],
         false,
     );
     let mut order = LoadOrder::new();
@@ -721,11 +710,9 @@ fn mixed_case_interface_archive_errors_reach_load_report() {
     let mut game = game(plugin(vec![]));
     let report = game.load_scripts_from_data(&root);
     assert_eq!(report.scripts_failed.len(), 1);
-    assert!(
-        report.scripts_failed[0]
-            .0
-            .ends_with("Dialogue - iNtErFaCe.BSA")
-    );
+    assert!(report.scripts_failed[0]
+        .0
+        .ends_with("Dialogue - iNtErFaCe.BSA"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1002,7 +989,7 @@ fn dlg_06_menu_pause_defers_walk_away_until_simulation_resumes() {
 #[test]
 fn dlg_06_shared_response_uses_selected_info_end_fragment() {
     let mut plugin = plugin(vec![
-        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes()),
+        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
     ]);
     add_topic(
         &mut plugin,
@@ -1115,7 +1102,7 @@ fn stale_choice_is_rechecked_before_running_its_fragment() {
 #[test]
 fn topic_links_replace_the_root_choices_after_completion() {
     let mut plugin = plugin(vec![
-        info(INFO, 0, &["Choose next"], false).sub(T(b"TCLT"), LINKED_TOPIC.to_le_bytes()),
+        info(INFO, 0, &["Choose next"], false).sub(T(b"TCLT"), LINKED_TOPIC.to_le_bytes())
     ]);
     add_topic(
         &mut plugin,
@@ -1278,13 +1265,12 @@ fn missing_fragment_rejects_without_consuming_say_once() {
         game.choose_dialogue(id(TOPIC)),
         Err(Error::Script(_))
     ));
-    assert!(
-        game.world()
-            .dialogue_session()
-            .unwrap()
-            .current_info
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .dialogue_session()
+        .unwrap()
+        .current_info
+        .is_none());
     assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
 }
 
@@ -1337,12 +1323,10 @@ fn cyclic_info_order_is_reported_without_hanging() {
     open(&mut game);
     let choices = game.dialogue_choices().unwrap();
     assert!(choices.available.is_empty());
-    assert!(
-        choices
-            .rejected
-            .iter()
-            .any(|(_, reason)| reason.contains("cyclic"))
-    );
+    assert!(choices
+        .rejected
+        .iter()
+        .any(|(_, reason)| reason.contains("cyclic")));
 }
 
 #[test]
@@ -1798,24 +1782,21 @@ fn cyclic_shared_response_rejects_before_consuming_say_once() {
         Err(Error::State("cyclic shared INFO"))
     ));
     assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
-    assert!(
-        game.world()
-            .dialogue_session()
-            .unwrap()
-            .current_info
-            .is_none()
-    );
+    assert!(game
+        .world()
+        .dialogue_session()
+        .unwrap()
+        .current_info
+        .is_none());
 }
 
 #[test]
 fn cell_and_location_keyword_conditions_follow_current_world_state() {
     let mut keyword_condition = condition(606, 0x600, 2.0, 0);
     keyword_condition[16..20].copy_from_slice(&0x601u32.to_le_bytes());
-    let mut plugin = plugin(vec![
-        info(INFO, 0, &["Here and now"], false)
-            .sub(T(b"CTDA"), condition(67, 0x602, 1.0, 0))
-            .sub(T(b"CTDA"), keyword_condition),
-    ]);
+    let mut plugin = plugin(vec![info(INFO, 0, &["Here and now"], false)
+        .sub(T(b"CTDA"), condition(67, 0x602, 1.0, 0))
+        .sub(T(b"CTDA"), keyword_condition)]);
     plugin.push_top(Record::new(T(b"LCTN"), 0x600));
     plugin.push_top(Record::new(T(b"KYWD"), 0x601));
     plugin.push_top(Record::new(T(b"CELL"), 0x602));

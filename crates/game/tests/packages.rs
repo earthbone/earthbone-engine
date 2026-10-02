@@ -11,19 +11,19 @@ use crate::common::installed;
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{
-    Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
-    plugin::flags,
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
 };
-use soe_game::Game;
 use soe_game::ai::{self, AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, CompValue, Condition, Location, LocationData, Schedule, condition};
+use soe_game::package::{self, condition, CompValue, Condition, Location, LocationData, Schedule};
 use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
-use soe_navmesh::ObstacleShape;
+use soe_game::Game;
 use soe_navmesh::vanilla::flags as nav_flags;
+use soe_navmesh::ObstacleShape;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
@@ -897,14 +897,12 @@ fn ai_23_reserves_and_uses_an_eligible_idle_marker_then_releases_it_on_interrupt
     // This relabeled current payload is malformed for the older layout. It
     // only checks atomic rejection, not migration of an authentic old save.
     old_version[4..6].copy_from_slice(&35_u16.to_le_bytes());
-    assert!(
-        !game
-            .world_mut()
-            .load_state(&old_version)
-            .unwrap_err()
-            .to_string()
-            .is_empty()
-    );
+    assert!(!game
+        .world_mut()
+        .load_state(&old_version)
+        .unwrap_err()
+        .to_string()
+        .is_empty());
     assert_eq!(game.world().save_state(), saved);
     game.world_mut().load_state(&saved).unwrap();
     assert_eq!(game.world().save_state(), saved);

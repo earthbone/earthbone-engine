@@ -3,9 +3,9 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{Game, World};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 #[test]
 fn scr_22_take_screenshot_preserves_path_and_consumes_each_request_once() {

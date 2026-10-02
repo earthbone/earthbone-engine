@@ -5,7 +5,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::inventory::StackSource;
-use soe_game::{Game, crafting::DisenchantError};
+use soe_game::{crafting::DisenchantError, Game};
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;
@@ -57,11 +57,10 @@ fn crf_03_accepts_enit_without_optional_trailing_worn_restrictions() {
         result.is_ok(),
         "valid optional-tail ENIT was rejected: {result:?}"
     );
-    assert!(
-        game.world()
-            .learned_enchantment_effects
-            .contains(&id(&game, EFFECT))
-    );
+    assert!(game
+        .world()
+        .learned_enchantment_effects
+        .contains(&id(&game, EFFECT)));
     assert_eq!(game.world_mut().item_count(player, item), 0);
 }
 

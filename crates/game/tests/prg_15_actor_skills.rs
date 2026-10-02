@@ -20,8 +20,8 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     npc::{self, Config, Npc, Stats},
+    Game,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

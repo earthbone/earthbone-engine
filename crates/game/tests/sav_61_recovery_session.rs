@@ -4,10 +4,10 @@
 //! Available recovery-session boundary while dependency recovery is unfinished.
 
 use soe_esm::LoadOrder;
-use soe_game::{Game, save_generations::GenerationStore};
+use soe_game::{save_generations::GenerationStore, Game};
 use soe_papyrus::{
+    asm::{i, ScriptBuilder},
     Value,
-    asm::{ScriptBuilder, i},
 };
 use std::{
     fs,
@@ -73,11 +73,9 @@ fn sav_61_recovery_output_is_distinct_and_keeps_source_bytes() {
     let selected = resumed.recover_generation(&store).unwrap();
 
     assert_ne!(selected.path, source);
-    assert!(
-        selected
-            .path
-            .starts_with(directory.0.join("accepted-recovery"))
-    );
+    assert!(selected
+        .path
+        .starts_with(directory.0.join("accepted-recovery")));
     assert_eq!(fs::read(source).unwrap(), source_bytes);
     assert_eq!(
         resumed.save_state().unwrap(),

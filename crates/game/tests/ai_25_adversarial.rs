@@ -5,10 +5,10 @@
 
 use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Location, Schedule};
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x900;
@@ -141,11 +141,9 @@ fn ai_25_orbit_moves_around_its_resolved_target_with_authored_bounds_and_height(
         let radius = (position[0] - target[0]).hypot(position[1] - target[1]);
         assert!((40.0..=80.0).contains(&radius), "orbit radius was {radius}");
         assert_eq!(position[2], target[2] + 25.0);
-        assert!(
-            soe_game::ai::nav_graph(&mut world)
-                .locate(position)
-                .is_some()
-        );
+        assert!(soe_game::ai::nav_graph(&mut world)
+            .locate(position)
+            .is_some());
     }
     let (procedure, position, target) = {
         let mut world = game.world_mut();
@@ -215,14 +213,12 @@ fn ai_25_orbit_round_trips_and_rejects_future_world_versions() {
     );
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());
-    assert!(
-        restored
-            .world_mut()
-            .load_state(&future)
-            .unwrap_err()
-            .to_string()
-            .contains("world state version")
-    );
+    assert!(restored
+        .world_mut()
+        .load_state(&future)
+        .unwrap_err()
+        .to_string()
+        .contains("world state version"));
 }
 
 #[test]

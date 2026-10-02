@@ -4,12 +4,13 @@
 //! AI-70 reference state condition functions.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
 use soe_game::{
-    Game, conditions,
+    conditions,
     detection::{DetectionLevel, Motion, Observation},
+    Game,
 };
 
 fn id(object: u32) -> GlobalFormId {

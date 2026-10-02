@@ -3,8 +3,9 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Tag};
 use soe_game::{
-    Game, Handle, harness, quest,
+    harness, quest,
     vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad},
+    Game, Handle,
 };
 use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder};
 use soe_papyrus::vm::coverage::Summary;

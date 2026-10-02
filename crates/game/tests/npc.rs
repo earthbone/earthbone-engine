@@ -6,9 +6,9 @@
 
 use crate::common::installed;
 
-use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::npc::{self, flags as npc_flags, Config, Npc, Stats};
 use soe_game::Game;
-use soe_game::npc::{self, Config, Npc, Stats, flags as npc_flags};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 

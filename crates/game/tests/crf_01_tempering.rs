@@ -4,7 +4,7 @@
 //! Tempering raises one item instance's quality and consumes its material atomically.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, Pending, crafting::Error, inventory::*};
+use soe_game::{crafting::Error, inventory::*, Game, Pending};
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_save::{ChangeForm, RefId, reference::flags};
+use soe_save::{reference::flags, ChangeForm, RefId};
 
 fn moved_reference(payload: Vec<u8>, change_flags: u32) -> ChangeForm {
     ChangeForm {
@@ -60,10 +60,8 @@ fn sav_54_truncated_mask_word_is_rejected_at_every_byte_boundary() {
         let mut payload = placement_prefix();
         payload.extend((0..present).map(|byte| byte as u8));
 
-        assert!(
-            moved_reference(payload, flags::MOVE | flags::FORM)
-                .reference_header(78)
-                .is_err()
-        );
+        assert!(moved_reference(payload, flags::MOVE | flags::FORM)
+            .reference_header(78)
+            .is_err());
     }
 }

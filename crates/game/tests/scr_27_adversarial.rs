@@ -3,7 +3,7 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
 fn global(game: &mut Game, name: &str) {

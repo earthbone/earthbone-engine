@@ -14,8 +14,8 @@ use crate::common::installed;
 
 use std::path::PathBuf;
 
-use soe_esm::GlobalFormId;
 use soe_esm::records::Transform;
+use soe_esm::GlobalFormId;
 use soe_game::Game;
 
 const MASTERS: [&str; 5] = [
@@ -120,11 +120,10 @@ fn hst_07_an_exterior_landing_selects_the_return_door_across_its_worldspace() {
 
     // The same coordinates asked from inside an interior compare nothing
     // outside that interior.
-    assert!(
-        game.world_mut()
-            .nearby_interior_destination(cell, position, 1.0)
-            .is_none_or(|d| d.door != found.door)
-    );
+    assert!(game
+        .world_mut()
+        .nearby_interior_destination(cell, position, 1.0)
+        .is_none_or(|d| d.door != found.door));
 }
 
 #[test]

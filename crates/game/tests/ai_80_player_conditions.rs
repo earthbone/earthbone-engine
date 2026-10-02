@@ -4,10 +4,10 @@
 //! AI-80 player identity and faction CTDA contracts.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, combat::MeleeHit, conditions};
+use soe_game::{combat::MeleeHit, conditions, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

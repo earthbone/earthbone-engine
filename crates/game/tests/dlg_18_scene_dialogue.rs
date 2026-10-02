@@ -4,8 +4,8 @@
 //! DLG-18: Scene dialogue uses its ordered action slot, alias speaker and DIAL.
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::dialogue::Error;
+use soe_game::Game;
 use soe_papyrus::ObjectId;
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -120,23 +120,20 @@ fn dlg_18_scene_dialogue_uses_alias_speaker_and_completes_after_all_responses() 
         .unwrap()
         .unwrap();
     assert_eq!(second.text.as_deref(), Some("Second scene line"));
-    assert!(
-        game.advance_scene_dialogue_action(id(SCENE), 0)
-            .unwrap()
-            .is_none()
-    );
+    assert!(game
+        .advance_scene_dialogue_action(id(SCENE), 0)
+        .unwrap()
+        .is_none());
     assert!(game.dialogue_line().unwrap().is_none());
 
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(
-        game.world_mut()
-            .advance_scene_phase(id(SCENE), &mut allocate)
-    );
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(SCENE), &mut allocate));
     assert_eq!(game.world().scene_phase(id(SCENE)), Some(1));
-    assert!(
-        game.world_mut()
-            .advance_scene_phase(id(SCENE), &mut allocate)
-    );
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(SCENE), &mut allocate));
     assert!(!game.world().scenes.contains(&id(SCENE)));
 }
 
@@ -151,13 +148,10 @@ fn dlg_18_scene_dialogue_rejects_unfilled_alias_without_opening_conversation() {
     ));
     assert!(game.dialogue_line().unwrap().is_none());
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(
-        game.world_mut()
-            .advance_scene_phase(id(SCENE), &mut allocate)
-    );
-    assert!(
-        !game
-            .world_mut()
-            .advance_scene_phase(id(SCENE), &mut allocate)
-    );
+    assert!(game
+        .world_mut()
+        .advance_scene_phase(id(SCENE), &mut allocate));
+    assert!(!game
+        .world_mut()
+        .advance_scene_phase(id(SCENE), &mut allocate));
 }

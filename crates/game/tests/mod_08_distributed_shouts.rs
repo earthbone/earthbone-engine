@@ -5,8 +5,8 @@
 //! survive the whole-game save format.
 
 use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::npc::{self, Config, Stats};
+use soe_game::Game;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

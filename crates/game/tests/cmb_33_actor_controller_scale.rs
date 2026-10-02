@@ -14,8 +14,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    npc::{self, template, Config, Stats},
     World,
-    npc::{self, Config, Stats, template},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

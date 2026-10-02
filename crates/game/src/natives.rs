@@ -3057,10 +3057,14 @@ fn utility(vm: &mut Vm, w: &Shared) {
             );
             return none();
         }
-        let Some(index) = call.args.first().and_then(|value| match value {
-            Value::Int(index) => usize::try_from(*index).ok(),
-            _ => None,
-        }) else {
+        let Some(Value::Int(index)) = call.args.first() else {
+            call.log.push(
+                call.time,
+                "error: Utility.GetBudgetName expects an integer budget index",
+            );
+            return none();
+        };
+        let Ok(index) = usize::try_from(*index) else {
             return none();
         };
         ENGINE_BUDGETS.get(index).map_or_else(none, |name| s(name))

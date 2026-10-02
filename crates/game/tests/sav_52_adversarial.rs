@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    CREATED_FILE, GlobalFormId, LoadOrder, Record, Tag,
     plugin::{FileHeader, Plugin},
+    GlobalFormId, LoadOrder, Record, Tag, CREATED_FILE,
 };
-use soe_game::{World, vanilla_save::RestoreError};
+use soe_game::{vanilla_save::RestoreError, World};
 use soe_save::{Compression, Header, RefId, Save, WString};
 use std::sync::Arc;
 

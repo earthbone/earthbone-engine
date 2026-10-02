@@ -5,8 +5,8 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::asm::{i, ScriptBuilder};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{ScriptBuilder, i};
 use soe_save::atomic::WriteError;
 use soe_save::{Compression, Header, Save, WString};
 use std::fs;
@@ -134,17 +134,19 @@ impl Format {
                 let mut loaded = game(0);
                 loaded.load_state(&bytes).unwrap();
                 assert_eq!(loaded.save_state().unwrap(), bytes);
-                if bytes == self.bytes(1) { 1 } else { 2 }
+                if bytes == self.bytes(1) {
+                    1
+                } else {
+                    2
+                }
             }
             Self::Ess => {
                 let loaded = Save::open(path).unwrap();
                 assert_eq!(loaded.write().unwrap(), bytes);
-                assert!(
-                    loaded
-                        .unknown_3
-                        .iter()
-                        .all(|byte| *byte == loaded.header.save_number as u8)
-                );
+                assert!(loaded
+                    .unknown_3
+                    .iter()
+                    .all(|byte| *byte == loaded.header.save_number as u8));
                 loaded.header.save_number as u8
             }
         };
@@ -253,10 +255,10 @@ fn links_and_directories_are_rejected_without_touching_their_contents() {
 #[cfg(feature = "save-fault-tests")]
 mod failures {
     use super::*;
-    use soe_save::atomic::{Step, fault};
+    use soe_save::atomic::{fault, Step};
     use std::io::{self, BufRead, Write};
     use std::process::{Child, Command, Stdio};
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::time::Duration;
 
     // Acceptance boundaries are explicit. Adding an operation to the writer

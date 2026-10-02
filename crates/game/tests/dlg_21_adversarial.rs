@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::IAdd;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident};
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
 }
@@ -126,13 +126,12 @@ fn dlg_21_higher_quest_priority_interrupts_once_and_finishes_prior_fragments() {
     g.start_quest(id(0x801));
     let player = g.player();
     g.begin_dialogue(id(0x101), player).unwrap();
-    assert!(
-        g.dialogue_choices()
-            .unwrap()
-            .available
-            .iter()
-            .any(|c| c.topic == id(0x901))
-    );
+    assert!(g
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .any(|c| c.topic == id(0x901)));
     g.close_dialogue();
     g.begin_dialogue(id(0x100), player).unwrap();
     g.choose_dialogue(id(0x900)).unwrap();

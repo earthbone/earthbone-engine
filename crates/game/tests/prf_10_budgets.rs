@@ -3,9 +3,9 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{Game, PAPYRUS_INSTRUCTIONS_PER_SLICE};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call_global(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let mut function = FunctionBuilder::new("Run", "Var")
@@ -40,11 +40,10 @@ fn prf_10_budget_queries_expose_limits_and_diagnose_missing_memory_tracking() {
     let mut game = Game::new(LoadOrder::new());
 
     assert_eq!(call_global(&mut game, "GetCurrentMemory", &[]), Value::None);
-    assert!(
-        game.vm
-            .log
-            .contains("Utility.GetCurrentMemory: memory tracking is unavailable")
-    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
     assert_eq!(call_global(&mut game, "GetBudgetCount", &[]), Value::Int(2));
     assert_eq!(
         call_global(&mut game, "GetBudgetName", &[Value::Int(0)]),

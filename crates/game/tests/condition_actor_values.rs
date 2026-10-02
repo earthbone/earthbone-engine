@@ -4,10 +4,10 @@
 //! AI-01 actor queries through both CTDA evaluators and the existing death lifecycle.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, ai, conditions, package};
+use soe_game::{ai, conditions, package, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     npc::{self, Config, Stats},
+    Game,
 };
 use std::{fs, path::PathBuf};
 

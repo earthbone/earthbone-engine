@@ -12,8 +12,8 @@
 //! and the world's GMST and actor-value records, the surface CMB-31 added.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::World;
 use soe_game::detection::{DetectionLevel, Error, Motion, Observation};
+use soe_game::World;
 use soe_papyrus::ObjectId;
 
 fn id(object: u32) -> GlobalFormId {

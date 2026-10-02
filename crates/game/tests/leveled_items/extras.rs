@@ -113,7 +113,7 @@ fn distinct_leaf_extras_remain_separate_and_matching_extras_combine() {
 fn condition_bits_are_direct_and_default_epsilon_is_omitted() {
     for health in [-1.0, -0.1, 0.0, 0.5, 0.9999, 1.0, 1.00005, 1.0001, 1.1, 2.5] {
         let mut world = metadata_world(vec![
-            list(LIST, 0, 0, &[(1, WEAPON, 1)]).sub(T(b"COED"), coed(NPC, 0, health)),
+            list(LIST, 0, 0, &[(1, WEAPON, 1)]).sub(T(b"COED"), coed(NPC, 0, health))
         ]);
         let inventory = world.roll_leveled_inventory(id(LIST), 1, 1).unwrap();
         let expected = (health != -1.0 && !(health > 0.9999 && health < 1.0001))
@@ -125,7 +125,7 @@ fn condition_bits_are_direct_and_default_epsilon_is_omitted() {
         );
     }
     let mut world = metadata_world(vec![
-        list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"COED"), coed(FACTION, u32::MAX, 1.8)),
+        list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"COED"), coed(FACTION, u32::MAX, 1.8))
     ]);
     let inventory = world.roll_leveled_inventory(id(LIST), 1, 1).unwrap();
     assert_eq!(
@@ -136,9 +136,9 @@ fn condition_bits_are_direct_and_default_epsilon_is_omitted() {
 
 #[test]
 fn npc_global_and_faction_rank_are_distinct_even_for_signed_rank_bits() {
-    let mut world = metadata_world(vec![
-        list(LIST, 0, 0, &[(1, WEAPON, 1)]).sub(T(b"COED"), coed(FACTION, (-2_i32) as u32, 1.0)),
-    ]);
+    let mut world =
+        metadata_world(vec![list(LIST, 0, 0, &[(1, WEAPON, 1)])
+            .sub(T(b"COED"), coed(FACTION, (-2_i32) as u32, 1.0))]);
     let inventory = world.roll_leveled_inventory(id(LIST), 1, 1).unwrap();
     assert_eq!(
         inventory.stacks(id(WEAPON))[0].extra(35),
@@ -158,7 +158,7 @@ fn malformed_coed_rejects_before_random_selection() {
     ];
     for bytes in invalid {
         let mut world = metadata_world(vec![
-            list(LIST, 1, 0, &[(1, A, 1), (1, WEAPON, 1)]).sub(T(b"COED"), bytes),
+            list(LIST, 1, 0, &[(1, A, 1), (1, WEAPON, 1)]).sub(T(b"COED"), bytes)
         ]);
         let before = world.save_state();
         let expected_rng = world.random_u64();
@@ -172,11 +172,9 @@ fn malformed_coed_rejects_before_random_selection() {
             .sub(T(b"COED"), coed(NPC, 0, 1.0))
             .sub(T(b"COED"), coed(FACTION, 1, 1.0)),
     ] {
-        assert!(
-            metadata_world(vec![record])
-                .roll_leveled_inventory(id(LIST), 1, 1)
-                .is_err()
-        );
+        assert!(metadata_world(vec![record])
+            .roll_leveled_inventory(id(LIST), 1, 1)
+            .is_err());
     }
 }
 

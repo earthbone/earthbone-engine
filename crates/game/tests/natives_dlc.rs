@@ -19,15 +19,15 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
-use soe_game::Game;
+use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::harness::{self, Scenario};
 use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{b, i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::pex::Function;
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, b, i, ident, s};
-use soe_papyrus::pex::Function;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
@@ -1064,11 +1064,10 @@ fn scr_16_start_vampire_feed_delivers_actor_event() {
     g.world_mut().actor(player_id).unwrap().ai.sleeping = true;
     call(&mut g, &vampire, "StartVampireFeed", &[player]);
     g.pump();
-    assert!(
-        g.traces()
-            .iter()
-            .any(|trace| trace == "vampire feed started")
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace == "vampire feed started"));
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -1095,11 +1094,10 @@ fn scr_17_do_combat_spell_apply_changes_target_and_rejects_bad_arguments() {
     assert!(g.world().active_effects().next().is_some());
     call(&mut g, &caster, "DoCombatSpellApply", &[spell, Value::None]);
     assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
-    assert!(
-        g.traces()
-            .iter()
-            .any(|trace| trace.contains("DoCombatSpellApply requires a target form"))
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a target form")));
     call(
         &mut g,
         &caster,
@@ -1107,11 +1105,10 @@ fn scr_17_do_combat_spell_apply_changes_target_and_rejects_bad_arguments() {
         &[Value::None, target],
     );
     assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
-    assert!(
-        g.traces()
-            .iter()
-            .any(|trace| trace.contains("DoCombatSpellApply requires a spell form"))
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a spell form")));
 }
 
 /// SCR-17: MoveToPackageLocation moves an actor to the current package center
@@ -1148,11 +1145,10 @@ fn scr_17_move_to_package_location_reports_missing_location() {
     let original = g.world_mut().reference(id).unwrap().position;
     call(&mut g, &actor, "MoveToPackageLocation", &[]);
     assert_eq!(g.world_mut().reference(id).unwrap().position, original);
-    assert!(
-        g.traces()
-            .iter()
-            .any(|trace| trace.contains("MoveToPackageLocation has no package location"))
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("MoveToPackageLocation has no package location")));
 }
 
 /// SCR-17: WillIntimidateSucceed uses the existing condition system's
@@ -1180,11 +1176,10 @@ fn scr_17_will_intimidate_succeed_uses_speechcraft_and_confidence() {
         call(&mut g, &target, "WillIntimidateSucceed", &[Value::Int(1)]),
         Value::Bool(false)
     );
-    assert!(
-        g.traces()
-            .iter()
-            .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments"))
-    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments")));
 }
 
 /// SCR-26: sun queries read calendar and player state, gaze uses the host

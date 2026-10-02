@@ -4,7 +4,7 @@
 //! DLG-16 trainer cap boundary checks.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, npc};
+use soe_game::{npc, Game};
 use soe_papyrus::ObjectId;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

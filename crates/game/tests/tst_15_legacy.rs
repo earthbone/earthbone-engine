@@ -6,8 +6,8 @@
 use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::World;
 use soe_game::npc::{self, Config, Stats};
+use soe_game::World;
 use std::path::Path;
 
 fn order() -> LoadOrder {
@@ -96,13 +96,11 @@ fn tst_15_corruption_offsets_follow_serialized_fields() {
     let payload_len_at = corrupt.len() - reader.remaining();
     corrupt[payload_len_at..payload_len_at + std::mem::size_of::<u32>()]
         .copy_from_slice(&u32::MAX.to_le_bytes());
-    assert!(
-        world
-            .load_state(&corrupt)
-            .unwrap_err()
-            .to_string()
-            .contains(&format!("section {name} at reference"))
-    );
+    assert!(world
+        .load_state(&corrupt)
+        .unwrap_err()
+        .to_string()
+        .contains(&format!("section {name} at reference")));
     assert_eq!(
         world.save_state(),
         before,

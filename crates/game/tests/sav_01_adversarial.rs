@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
+use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
-use soe_save::{Compression, GlobalData, Header, RefId, Save, WString, reference::PlayerLocation};
+use soe_save::{reference::PlayerLocation, Compression, GlobalData, Header, RefId, Save, WString};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -161,11 +161,9 @@ fn sav_01_late_projectile_failure_leaves_reference_restore_atomic() {
     let mut invalid = saved();
     invalid.change_forms[3].form = reference(0x400999);
 
-    assert!(
-        world
-            .restore_vanilla_reference_placements(&invalid)
-            .is_err()
-    );
+    assert!(world
+        .restore_vanilla_reference_placements(&invalid)
+        .is_err());
     assert_eq!(world.save_state(), before);
     for object in 0x900..=0x902 {
         assert!(world.reference_ref(id(object)).is_none());

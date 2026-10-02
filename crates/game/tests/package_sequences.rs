@@ -8,8 +8,8 @@ use crate::common::legacy;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, CompValue, Condition, Location, Schedule, condition};
-use soe_game::{Game, world::RngStream};
+use soe_game::package::{self, condition, CompValue, Condition, Location, Schedule};
+use soe_game::{world::RngStream, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x800;
@@ -105,15 +105,13 @@ fn a_sequence_runs_each_destination_once_and_only_finishes_after_the_last() {
     let mut game = game(tree, 0);
     game.tick(2.0);
     assert_eq!(position(&mut game), 110.0, "one child consumes this tick");
-    assert!(
-        !game
-            .world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .contains_key(&id(PACK))
-    );
+    assert!(!game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .contains_key(&id(PACK)));
     advance(&mut game, 5);
     assert!((position(&mut game) - 165.0).abs() < 0.01);
     advance(&mut game, 10);
@@ -128,14 +126,13 @@ fn a_sequence_runs_each_destination_once_and_only_finishes_after_the_last() {
             .unwrap()
             .finished
     );
-    assert!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .contains_key(&id(PACK))
-    );
+    assert!(game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .contains_key(&id(PACK)));
 }
 
 #[test]
@@ -196,14 +193,13 @@ fn nested_sequences_and_root_repeat_keep_their_own_order() {
         165.0,
         "root repeated at the first destination"
     );
-    assert!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .is_empty()
-    );
+    assert!(game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .is_empty());
 }
 
 #[test]
@@ -214,14 +210,13 @@ fn nested_repeat_prevents_the_outer_sibling_from_starting() {
     let mut game = game(tree, 0);
     advance(&mut game, 40);
     assert_eq!(position(&mut game), 110.0);
-    assert!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .is_empty()
-    );
+    assert!(game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .is_empty());
 }
 
 #[test]
@@ -285,14 +280,13 @@ fn a_sleep_child_does_not_start_until_travel_completes() {
     );
     advance(&mut game, 20);
     assert!(game.world().actor_ref(id(ACTOR)).unwrap().ai.sleeping);
-    assert!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .is_empty()
-    );
+    assert!(game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .is_empty());
 }
 
 #[test]
@@ -322,14 +316,13 @@ fn empty_repeating_sequences_yield_without_running_later_branches() {
     let mut game = game(tree, 0);
     advance(&mut game, 40);
     assert_eq!(position(&mut game), 0.0);
-    assert!(
-        game.world()
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .ai
-            .completed
-            .is_empty()
-    );
+    assert!(game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .completed
+        .is_empty());
 }
 
 #[test]
@@ -607,14 +600,13 @@ fn a_repeating_random_branch_chooses_again_only_after_child_completion() {
             .unwrap();
         assert_eq!(state.branch, 0, "completion returns to the random parent");
         assert!(!state.active && !state.finished);
-        assert!(
-            game.world()
-                .actor_ref(id(ACTOR))
-                .unwrap()
-                .ai
-                .completed
-                .is_empty()
-        );
+        assert!(game
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .completed
+            .is_empty());
     }
     assert_eq!(destinations, std::collections::BTreeSet::from([110, 220]));
 }

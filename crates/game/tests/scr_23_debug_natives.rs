@@ -11,9 +11,9 @@
 use soe_esm::records::Transform;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CELL: u32 = 0x200;
@@ -114,13 +114,12 @@ fn scr_23_show_ref_position_records_resolved_reference_and_rejects_alias() {
         "ObjectReference",
         Value::Object(alias),
     );
-    assert!(
-        game.vm
-            .log
-            .messages()
-            .iter()
-            .any(|message| message.to_string().contains("invalid reference"))
-    );
+    assert!(game
+        .vm
+        .log
+        .messages()
+        .iter()
+        .any(|message| message.to_string().contains("invalid reference")));
 }
 
 #[test]
@@ -180,11 +179,10 @@ fn scr_23_move_to_cell_resolves_editor_id_and_reports_missing_cell() {
         "String",
         Value::string("MissingCell"),
     );
-    assert!(
-        game.vm
-            .log
-            .messages()
-            .iter()
-            .any(|message| message.to_string().contains("destination cell not found"))
-    );
+    assert!(game
+        .vm
+        .log
+        .messages()
+        .iter()
+        .any(|message| message.to_string().contains("destination cell not found")));
 }

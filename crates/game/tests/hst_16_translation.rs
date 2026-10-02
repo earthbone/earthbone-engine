@@ -4,8 +4,8 @@
 //! HST-16 reference translation behavior using a synthetic placed reference.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::{Pending, TranslationPath};
+use soe_game::Game;
 use soe_papyrus::ObjectId;
 
 const REFERENCE: u32 = 0x900;
@@ -133,10 +133,9 @@ fn hst_16_stopping_translation_keeps_position_and_fires_failure() {
     );
     tick(&mut game, 0.25);
     let stopped_at = game.world().reference_ref(id()).unwrap().position;
-    assert!(
-        game.world_mut()
-            .stop_translation(id(), &mut |_, _| ObjectId(1))
-    );
+    assert!(game
+        .world_mut()
+        .stop_translation(id(), &mut |_, _| ObjectId(1)));
     tick(&mut game, 1.0);
 
     assert_eq!(
@@ -179,10 +178,9 @@ fn hst_16_blocked_translation_stops_at_collision_and_fires_failure() {
     );
     tick(&mut game, 0.25);
     let blocked_at = game.world().reference_ref(id()).unwrap().position;
-    assert!(
-        game.world_mut()
-            .block_translation(id(), &mut |_, _| ObjectId(1))
-    );
+    assert!(game
+        .world_mut()
+        .block_translation(id(), &mut |_, _| ObjectId(1)));
 
     tick(&mut game, 1.0);
     assert_eq!(

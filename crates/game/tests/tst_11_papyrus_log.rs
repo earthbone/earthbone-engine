@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::Game;
 use soe_game::harness::{self, Check, Scenario, Step};
+use soe_game::Game;
 
 #[test]
 fn tst_11_vanilla_log_becomes_ordered_scenario_expectations() {

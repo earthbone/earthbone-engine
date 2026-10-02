@@ -7,11 +7,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::VisualEffectError;
+use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EFFECT_A: u32 = 0x100;
@@ -179,16 +179,12 @@ fn scr_52_stop_removes_only_matching_effect_target_instances() {
     call(&mut game, effect_a, "Stop", &[target_a]);
     let instances: Vec<_> = game.world().visual_effect_instances().cloned().collect();
     assert_eq!(instances.len(), 2);
-    assert!(
-        instances
-            .iter()
-            .any(|v| v.effect == id(EFFECT_A) && v.target == id(TARGET_B))
-    );
-    assert!(
-        instances
-            .iter()
-            .any(|v| v.effect == id(EFFECT_B) && v.target == id(TARGET_A))
-    );
+    assert!(instances
+        .iter()
+        .any(|v| v.effect == id(EFFECT_A) && v.target == id(TARGET_B)));
+    assert!(instances
+        .iter()
+        .any(|v| v.effect == id(EFFECT_B) && v.target == id(TARGET_A)));
 }
 
 #[test]
@@ -199,16 +195,14 @@ fn scr_52_stop_reports_invalid_target_and_api_errors() {
     let effect = form_arg(&mut game, "EffectA");
     let base = form_arg(&mut game, "Base");
     call(&mut game, effect, "Stop", &[base]);
-    assert!(
-        game.traces()
-            .iter()
-            .any(|trace| trace.contains("VisualEffect.Stop: missing target"))
-    );
-    assert!(
-        game.traces()
-            .iter()
-            .any(|trace| trace.contains("VisualEffect.Stop: visual effect target"))
-    );
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("VisualEffect.Stop: missing target")));
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("VisualEffect.Stop: visual effect target")));
     assert_eq!(
         game.world_mut().stop_visual_effect(id(EFFECT_A), id(BASE)),
         Err(VisualEffectError::Target(id(BASE)))

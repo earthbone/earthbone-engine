@@ -10,9 +10,9 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use soe_esm::Tag;
 use soe_game::{
-    Game,
     npc::{self, Npc},
     race::Attributes,
+    Game,
 };
 
 #[test]

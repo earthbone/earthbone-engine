@@ -26,10 +26,10 @@
 //! documented formula: it no longer expects the extra `+ permanent` term.
 
 use soe_esm::{
-    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
     records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::{Game, conditions};
+use soe_game::{conditions, Game};
 
 const OWNER: u32 = 0x800;
 const SPEAKER: u32 = 0x900;

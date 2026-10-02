@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::Pending};
+use soe_game::{world::Pending, Game};
 use soe_papyrus::{
+    asm::{f, ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
-    asm::{FunctionBuilder, ScriptBuilder, f, ident, s},
 };
 
 const REF: u32 = 0x900;

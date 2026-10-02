@@ -7,8 +7,8 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::CallStatic;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn screenshot_script() -> Vec<u8> {
     let run = FunctionBuilder::new("Run", "None")

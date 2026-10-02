@@ -4,9 +4,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::{
+    asm::{ident, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
     Value,
-    asm::{FunctionBuilder, ScriptBuilder, ident},
 };
 
 const CART: u32 = 0x900;

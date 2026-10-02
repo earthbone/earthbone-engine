@@ -5,7 +5,7 @@
 
 use soe_esm::plugin::flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, ai};
+use soe_game::{ai, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x800;

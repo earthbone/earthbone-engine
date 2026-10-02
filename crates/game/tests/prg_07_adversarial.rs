@@ -5,8 +5,8 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     npc::{self, Config, Stats},
+    Game,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

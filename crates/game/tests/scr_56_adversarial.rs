@@ -5,9 +5,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, World, natives};
+use soe_game::{natives, Game, World};
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{Value, Vm};
 
 #[test]
@@ -52,12 +52,11 @@ fn cell_and_clear_audit_covers_every_registered_binding() {
             ("cell".to_owned(), "setpublic".to_owned()),
         ]
     );
-    assert!(
-        vm.natives
-            .global_bindings()
-            .into_iter()
-            .all(|(class, name)| class != "cell" && name != "clear")
-    );
+    assert!(vm
+        .natives
+        .global_bindings()
+        .into_iter()
+        .all(|(class, name)| class != "cell" && name != "clear"));
 
     let audit = include_str!("../../../docs/reference-audit.md");
     for binding in [

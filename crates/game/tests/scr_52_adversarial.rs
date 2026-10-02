@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::VisualEffectError};
+use soe_game::{world::VisualEffectError, Game};
 
 const fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

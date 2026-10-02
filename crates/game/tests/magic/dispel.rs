@@ -95,22 +95,18 @@ fn mag_07_keyword_dispel_finishes_only_matching_effect_once() {
             .count(),
         1
     );
-    assert!(
-        !game
-            .world()
-            .active_effects()
-            .any(|effect| effect.id == victims[0])
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|effect| effect.id == victims[1])
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|effect| effect.id == other_actor[0])
-    );
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[0]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[1]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == other_actor[0]));
     game.run_until_idle(64);
     assert_eq!(
         game.vm.get_var(matching_object, "EffectProbe", "finished"),
@@ -145,17 +141,14 @@ fn mag_07_ingestible_keyword_dispel_selects_matching_effect() {
             game.vm.create_object_of(name, class)
         })
         .unwrap();
-    assert!(
-        !game
-            .world()
-            .active_effects()
-            .any(|effect| effect.id == victims[0])
-    );
-    assert!(
-        game.world()
-            .active_effects()
-            .any(|effect| effect.id == victims[1])
-    );
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[0]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[1]));
     assert_eq!(game.world_mut().item_count(id(OTHER), id(POTION)), 0);
 }
 
@@ -178,44 +171,37 @@ fn mag_05_dispel_finishes_timed_effects_once_preserving_constants_and_learned_sp
         let target = Value::Object(game.object_of_form(id(OTHER)));
         native(&mut game, dispelling, "Cast", &[source, target]);
         assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 105.0);
-        assert!(
-            game.world()
-                .active_effects()
-                .any(|effect| effect.id == constant)
-        );
-        assert!(
-            game.world()
-                .active_effects()
-                .any(|effect| effect.id == other_actor)
-        );
-        assert!(
-            game.world()
-                .actor_ref(id(OTHER))
-                .unwrap()
-                .spells
-                .contains(&id(SPELL))
-        );
+        assert!(game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == constant));
+        assert!(game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == other_actor));
+        assert!(game
+            .world()
+            .actor_ref(id(OTHER))
+            .unwrap()
+            .spells
+            .contains(&id(SPELL)));
         // MAG-26 releases a dispelled effect's object once its OnEffectFinish
         // has drained, so the probe is unreachable rather than readable. The
         // release itself is the evidence the callback ran and completed.
         assert_eq!(game.vm.get_var(object, "EffectProbe", "finished"), None);
-        assert!(
-            !game
-                .world()
-                .active_effects()
-                .any(|effect| effect.id == timed)
-        );
+        assert!(!game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == timed));
         cast(&mut game, DISPEL_SPELL, OTHER).unwrap();
         game.tick(20.0);
         // A second dispel finds nothing to finish, so nothing is rebound and
         // the released handle stays released.
         assert_eq!(game.vm.get_var(object, "EffectProbe", "finished"), None);
-        assert!(
-            !game
-                .world()
-                .active_effects()
-                .any(|effect| effect.id == timed)
-        );
+        assert!(!game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == timed));
     }
 }
 
@@ -230,12 +216,10 @@ fn mag_05_saved_dispel_does_not_repeat_its_start_action() {
     restored.load_state(&saved).unwrap();
     let buff = cast(&mut restored, SPELL, OTHER).unwrap()[0];
     restored.tick(1.0);
-    assert!(
-        restored
-            .world()
-            .active_effects()
-            .any(|effect| effect.id == buff)
-    );
+    assert!(restored
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == buff));
     assert_eq!(restored.world_mut().actor_value(id(OTHER), "health"), 120.0);
 }
 

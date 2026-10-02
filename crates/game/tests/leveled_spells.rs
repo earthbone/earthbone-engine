@@ -7,8 +7,8 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    World,
     npc::{self, Config, Stats},
+    World,
 };
 use std::collections::BTreeSet;
 
@@ -192,13 +192,11 @@ fn legacy_saved_list_placeholders_expand_once_and_preserve_granted_spells() {
     let expected_rng = expected.random_u64();
     let mut restored = world(fixture(), &[ROOT]);
     restored.load_state(&saved).unwrap();
-    assert!(
-        restored
-            .actor_ref(id(ACTOR))
-            .unwrap()
-            .spells
-            .contains(&id(ROOT))
-    );
+    assert!(restored
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .spells
+        .contains(&id(ROOT)));
     assert_eq!(restored.actor(id(ACTOR)).unwrap().spells, selected);
     assert_eq!(restored.actor(id(ACTOR)).unwrap().spells, selected);
     let saved = restored.save_state();
@@ -291,22 +289,18 @@ fn excessive_depth_and_expansion_return_errors() {
             )
         })
         .collect();
-    assert!(
-        world(deep, &[])
-            .select_leveled_spells(id(ROOT), 10)
-            .is_err()
-    );
+    assert!(world(deep, &[])
+        .select_leveled_spells(id(ROOT), 10)
+        .is_err());
     let wide: Vec<_> = (0..17)
         .map(|offset| {
             let next = if offset == 16 { LOW } else { ROOT + offset + 1 };
             list(ROOT + offset, 4, 0, &[(1, next, 1), (1, next, 1)])
         })
         .collect();
-    assert!(
-        world(wide, &[])
-            .select_leveled_spells(id(ROOT), 10)
-            .is_err()
-    );
+    assert!(world(wide, &[])
+        .select_leveled_spells(id(ROOT), 10)
+        .is_err());
 }
 
 #[test]

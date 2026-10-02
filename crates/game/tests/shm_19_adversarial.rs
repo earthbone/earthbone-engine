@@ -47,7 +47,7 @@ fn level_increase_uses_current_value_on_each_send_at_u16_limit() {
 
 #[test]
 fn unsupported_hook_kinds_all_fail_closed() {
-    use soe_commonlib_shim::events::{HookError, HookKind, request_hook};
+    use soe_commonlib_shim::events::{request_hook, HookError, HookKind};
 
     for kind in [HookKind::CallSite, HookKind::Branch, HookKind::Vtable] {
         assert_eq!(request_hook(kind), Err(HookError::Unsupported(kind)));

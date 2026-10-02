@@ -3,7 +3,7 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, f, i, ident, s};
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::vm::ThreadState;
 use soe_papyrus::{Opcode, Value};
 

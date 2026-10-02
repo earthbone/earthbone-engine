@@ -5,11 +5,11 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{
-    Game,
     save_generations::{Error, GenerationStore, RejectionReason},
+    Game,
 };
+use soe_papyrus::asm::{i, ScriptBuilder};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{ScriptBuilder, i};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -273,11 +273,9 @@ fn symlink_candidates_are_rejected_without_following_or_deleting_them() {
     ));
     assert!(game(3).write_generation(&directory.store(2)).is_err());
     assert_eq!(fs::read(&user_file).unwrap(), b"do not touch");
-    assert!(
-        fs::symlink_metadata(directory.generation(2))
-            .unwrap()
-            .is_symlink()
-    );
+    assert!(fs::symlink_metadata(directory.generation(2))
+        .unwrap()
+        .is_symlink());
     assert_loaded(&directory, 3);
 }
 
@@ -298,8 +296,8 @@ fn exhausted_generation_counter_preserves_existing_files() {
 #[cfg(feature = "save-fault-tests")]
 mod failures {
     use super::*;
-    use soe_game::save_generations::{Step, fault};
-    use soe_save::atomic::{Step as AtomicStep, fault as atomic_fault};
+    use soe_game::save_generations::{fault, Step};
+    use soe_save::atomic::{fault as atomic_fault, Step as AtomicStep};
     use std::cell::RefCell;
     use std::collections::BTreeMap;
     use std::io::{self, BufRead, Write};

@@ -27,9 +27,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     combat::{Error, MeleeHit},
     inventory::{Extra, Field, Stack},
+    Game,
 };
 
 fn id(object: u32) -> GlobalFormId {

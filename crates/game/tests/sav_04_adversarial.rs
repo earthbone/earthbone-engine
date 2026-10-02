@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
-use soe_game::{Game, vanilla_save::RestoreError};
+use soe_esm::{plugin::FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_game::{vanilla_save::RestoreError, Game};
 use soe_papyrus::asm::ScriptBuilder;
 use soe_save::{Compression, GlobalData, Header, Save, WString};
 

@@ -4,7 +4,7 @@
 //! AddItem transaction checks over selected LVLI inventory and metadata.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Pending, World, inventory::Field};
+use soe_game::{inventory::Field, Pending, World};
 use soe_papyrus::{ObjectId, Value};
 
 const ITEM: u32 = 0x800;
@@ -182,14 +182,12 @@ fn late_capacity_failure_discards_earlier_staged_items_and_metadata() {
     assert!(!world.add_leveled_item_notified(id(HOLDER), id(LIST), 1, 1, &mut allocator()));
     assert_eq!(world.item_count(id(HOLDER), id(ITEM)), 0);
     assert_eq!(world.item_count(id(HOLDER), id(OTHER)), i32::MAX);
-    assert!(
-        world
-            .reference_ref(id(HOLDER))
-            .unwrap()
-            .inventory
-            .stacks(id(ITEM))
-            .is_empty()
-    );
+    assert!(world
+        .reference_ref(id(HOLDER))
+        .unwrap()
+        .inventory
+        .stacks(id(ITEM))
+        .is_empty());
     assert!(world.pending.is_empty());
     assert_eq!(world.save_state(), saved);
 }
@@ -283,8 +281,8 @@ fn special_mixed_flags_preserve_each_precedence_and_selected_metadata() {
 #[test]
 fn papyrus_add_item_uses_receiver_zone_and_preserves_count_semantics() {
     use soe_game::Game;
+    use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
     use soe_papyrus::Opcode::{CallMethod, Return};
-    use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, none, s};
 
     for (flags, zone, player, expected_item, expected_other) in
         [(0, 5, 20, 6, 0), (0, 20, 5, 6, 0), (8, 20, 1, 0, 3)]

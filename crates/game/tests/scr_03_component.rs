@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, quest};
+use soe_game::{quest, Game};
 
 const TAG: fn(&[u8; 4]) -> Tag = Tag::new;
 pub const QUEST: u32 = 0x800;

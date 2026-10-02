@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::magic::EffectId;
+use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const SOURCE: u32 = 0x100;
@@ -143,19 +143,15 @@ fn mag_66_grab_actor_survives_engine_reload_and_finishes_once() {
     );
 
     let shared = loaded.shared_world();
-    assert!(
-        shared
-            .borrow_mut()
-            .dispel_effect(effect, &mut |name, class| {
-                loaded.vm.create_object_of(name, class)
-            })
-    );
-    assert!(
-        !shared
-            .borrow_mut()
-            .dispel_effect(effect, &mut |name, class| {
-                loaded.vm.create_object_of(name, class)
-            })
-    );
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(effect, &mut |name, class| {
+            loaded.vm.create_object_of(name, class)
+        }));
+    assert!(!shared
+        .borrow_mut()
+        .dispel_effect(effect, &mut |name, class| {
+            loaded.vm.create_object_of(name, class)
+        }));
     assert!(loaded.world().grab_actor_effect_on(id(TARGET)).is_none());
 }

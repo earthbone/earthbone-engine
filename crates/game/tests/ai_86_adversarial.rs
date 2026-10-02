@@ -3,7 +3,7 @@
 
 use soe_esm::records::gameplay::{Comparison, Condition};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, conditions};
+use soe_game::{conditions, Game};
 
 #[test]
 fn ai_86_both_unavailable_contracts_report_diagnostics_for_all_comparison_shapes() {

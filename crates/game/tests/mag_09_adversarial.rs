@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::world::magic::MagicError;
+use soe_game::Game;
 
 const ACTOR: u32 = 0x100;
 const TARGET: u32 = 0x101;

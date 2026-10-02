@@ -5,9 +5,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    Game,
     combat::MeleeHit,
     inventory::{Extra, Field, Stack},
+    Game,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -133,25 +133,23 @@ fn fixture(condition: bool) -> Game {
         .restore(
             id(WEAPON),
             1,
-            vec![
-                Stack::new(
-                    1,
-                    vec![
-                        Extra {
-                            kind: 155,
-                            fields: vec![
-                                Field::Form(Some(id(INSTANCE_ENCHANTMENT))),
-                                Field::Short(100),
-                            ],
-                        },
-                        Extra {
-                            kind: 40,
-                            fields: vec![Field::FloatBits(10.0_f32.to_bits())],
-                        },
-                    ],
-                )
-                .unwrap(),
-            ],
+            vec![Stack::new(
+                1,
+                vec![
+                    Extra {
+                        kind: 155,
+                        fields: vec![
+                            Field::Form(Some(id(INSTANCE_ENCHANTMENT))),
+                            Field::Short(100),
+                        ],
+                    },
+                    Extra {
+                        kind: 40,
+                        fields: vec![Field::FloatBits(10.0_f32.to_bits())],
+                    },
+                ],
+            )
+            .unwrap()],
         )
         .unwrap();
     game

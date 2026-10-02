@@ -3,8 +3,8 @@
 use soe_esm::{FileHeader, LoadOrder, Plugin};
 use soe_game::World;
 use soe_save::{
+    reference::{flags, PlayerLocation},
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
-    reference::{PlayerLocation, flags},
 };
 
 fn ref_id(raw: u32) -> RefId {

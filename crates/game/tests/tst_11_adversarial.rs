@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::Game;
 use soe_game::harness::{self, Scenario};
+use soe_game::Game;
 
 #[test]
 fn tst_11_duplicate_expected_lines_need_distinct_actual_occurrences() {

@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, crafting::Error};
+use soe_game::{crafting::Error, Game};
 
 const PLAYER: u32 = 0x14;
 const ACTOR: u32 = 0x800;

@@ -4,7 +4,7 @@
 //! CMB-08 arrow and bolt release transaction.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, combat::Error};
+use soe_game::{combat::Error, Game};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
