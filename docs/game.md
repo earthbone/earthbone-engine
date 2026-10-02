@@ -78,9 +78,10 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
 - `world/shim_extras`: CommonLib extra-data views over reference teleport
-  destinations and inventory outfit/poison extras. Missing reference IDs and
-  north rotation have no authoritative runtime field and are reported as
-  unsupported by the shim adapter.
+  destinations, inventory outfit/poison extras, resolved XAPR activation
+  parents, and the zero north-rotation default for interior cells. Exterior
+  worldspace north rotation is not represented by the runtime records and
+  returns no value.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
