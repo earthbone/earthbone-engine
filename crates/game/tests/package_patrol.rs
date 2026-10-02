@@ -22,6 +22,7 @@ const B: u32 = 0x805;
 const C: u32 = 0x806;
 const IDLE: u32 = 0x807;
 const FURNITURE: u32 = 0x808;
+const SEARCH_BASE: u32 = 0x809;
 
 #[derive(Clone, Copy)]
 struct Settings {
@@ -39,6 +40,7 @@ struct Settings {
     radius: f32,
     dwell: f32,
     x: f32,
+    object_type: Option<u32>,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             radius: 0.0,
             dwell: 1.0,
             x: 0.0,
+            object_type: None,
         }
     }
 }
@@ -67,6 +70,9 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn template(settings: Settings, target: u32) -> Record {
+    if let Some(kind) = settings.object_type {
+        return template_target(settings, 2, kind);
+    }
     template_target(
         settings,
         if settings.linked { 3 } else { 0 },
@@ -110,12 +116,19 @@ fn markers(plugin: &mut Plugin, settings: Settings, namespace: u32, offset: f32)
         (B, 220.0, Some(if settings.non_root_cycle { B } else { C })),
         (C, 330.0, settings.cyclic.then_some(A)),
     ] {
-        let base = if settings.furniture && object == A {
+        let base = if settings.object_type.is_some() && object == A {
+            SEARCH_BASE
+        } else if settings.furniture && object == A {
             namespace | FURNITURE
         } else {
             0
         };
-        let mut rec = placed(*b"REFR", namespace | object, base, x + offset);
+        let marker_tag = if settings.object_type == Some(25) && object == A {
+            *b"ACHR"
+        } else {
+            *b"REFR"
+        };
+        let mut rec = placed(marker_tag, namespace | object, base, x + offset);
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"INAM"), 0x9876u32.to_le_bytes());
         }
@@ -139,6 +152,64 @@ fn markers(plugin: &mut Plugin, settings: Settings, namespace: u32, offset: f32)
 fn order(settings: Settings) -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(template(settings, A));
+    if let Some(kind) = settings.object_type {
+        let tag = match kind {
+            1 => *b"ACTI",
+            2 | 16 | 17 => *b"ARMO",
+            3 => *b"BOOK",
+            4 => *b"CONT",
+            5 => *b"DOOR",
+            6 => *b"INGR",
+            7 => *b"LIGH",
+            9 => *b"FLOR",
+            10 | 26 | 27 => *b"FURN",
+            11 | 18..=20 => *b"WEAP",
+            12 => *b"AMMO",
+            13 => *b"KEYM",
+            14 | 15 => *b"ALCH",
+            21..=24 => *b"SPEL",
+            25 => *b"NPC_",
+            28 => *b"SHOU",
+            _ => *b"MISC",
+        };
+        let mut base = Record::new(T(&tag), SEARCH_BASE);
+        match kind {
+            15 => base = base.sub(T(b"ENIT"), [0, 0, 0, 0, 2, 0, 0, 0]),
+            14 => base = base.sub(T(b"ENIT"), [0; 8]),
+            16 => {
+                let mut body = vec![0; 16];
+                body[12..16].copy_from_slice(&1u32.to_le_bytes());
+                base = base.sub(T(b"BOD2"), body);
+            }
+            18..=20 => {
+                let mut data = vec![0; 100];
+                data[0] = match kind {
+                    18 => 0,
+                    19 => 1,
+                    _ => 7,
+                };
+                base = base.sub(T(b"DNAM"), data);
+            }
+            21..=24 => {
+                let mut data = vec![0; 36];
+                let delivery: u32 = match kind {
+                    22 => 2,
+                    21 | 23 => 1,
+                    _ => 0,
+                };
+                data[20..24].copy_from_slice(&delivery.to_le_bytes());
+                base = base.sub(T(b"SPIT"), data);
+            }
+            26 | 27 => {
+                let animation = if kind == 26 { 2u16 } else { 1u16 };
+                let mut data = animation.to_le_bytes().to_vec();
+                data.extend_from_slice(&[0, 0]);
+                base = base.sub(T(b"FNPR"), data);
+            }
+            _ => {}
+        }
+        plugin.push_top(base);
+    }
     plugin.push_top(package::finish(package::close_header(
         package::build_record(PACK, "Patrol", 0, Schedule::default()),
         Some(TEMPLATE),
@@ -496,6 +567,101 @@ fn ai_91_alias_route_start_keeps_winning_namespace_and_saved_target() {
     assert_eq!(state(&game).patrol.as_ref().unwrap().start, selected);
     assert_eq!(position(&game), 1110.0);
 
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    let Some(patrol) = state(&game).patrol else {
+        panic!("search Patrol did not start: {:?}", state(&game).procedure);
+    };
+    assert_eq!(patrol.start, selected);
+}
+
+#[test]
+fn ai_91_object_type_route_starts_save_the_selected_reference() {
+    for kind in [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26,
+        25, 27, 28,
+    ] {
+        let mut game = game(Settings {
+            object_type: Some(kind),
+            ..Settings::default()
+        });
+        game.tick(0.1);
+        let Some(patrol) = state(&game).patrol else {
+            panic!("Object Type {kind}: {:?}", state(&game).procedure);
+        };
+        assert_eq!(patrol.start, id(A), "Object Type {kind}");
+        assert_eq!(patrol.current, id(A), "Object Type {kind}");
+        let saved = game.world().save_state();
+        game.world_mut().load_state(&saved).unwrap();
+        assert_eq!(
+            state(&game).patrol.unwrap().start,
+            id(A),
+            "Object Type {kind}"
+        );
+    }
+}
+
+#[test]
+fn ai_91_form_list_route_start_saves_the_authored_first_reference() {
+    const LIST: u32 = 0x80a;
+    let settings = Settings::default();
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(template_target(settings, 1, LIST));
+    plugin.push_top(package::finish(package::close_header(
+        package::build_record(PACK, "Patrol", 0, Schedule::default()),
+        Some(TEMPLATE),
+    )));
+    plugin.push_top(
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
+    );
+    plugin.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
+    plugin.push_top(Record::new(T(b"FLST"), LIST).sub(T(b"LNAM"), A.to_le_bytes()));
+    markers(&mut plugin, settings, 0, 0.0);
+    let mut order = LoadOrder::new();
+    order
+        .add("Patrol.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
+    let mut game = Game::new(order);
+    assert!(game.world_mut().drive_actor(id(ACTOR)));
+    game.tick(20.0);
+    assert_eq!(state(&game).patrol.unwrap().start, id(A));
+    let saved = game.world().save_state();
+    game.world_mut().load_state(&saved).unwrap();
+    assert_eq!(state(&game).patrol.unwrap().start, id(A));
+}
+
+#[test]
+fn ai_91_search_route_start_keeps_the_winning_namespace_and_saved_target() {
+    let settings = Settings {
+        object_type: Some(8),
+        ..Settings::default()
+    };
+    let mut order = order(Settings::default());
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Patrol.esm".into()],
+        ..FileHeader::default()
+    });
+    patch.push_top(template_target(settings, 2, 8));
+    patch.push_top(Record::new(T(b"MISC"), SEARCH_BASE));
+    markers(&mut patch, settings, 0x0100_0000, 1000.0);
+    order
+        .add("Route.esp", Plugin::parse(&patch.to_bytes()).unwrap())
+        .unwrap();
+    let mut game = Game::new(order);
+    assert!(game.world_mut().drive_actor(id(ACTOR)));
+    game.tick(0.1);
+    let selected = GlobalFormId { file: 1, object: A };
+    let Some(patrol) = state(&game).patrol else {
+        panic!("search Patrol did not start: {:?}", state(&game).procedure);
+    };
+    assert_eq!(patrol.start, selected);
     let saved = game.world().save_state();
     game.world_mut().load_state(&saved).unwrap();
     assert_eq!(state(&game).patrol.unwrap().start, selected);

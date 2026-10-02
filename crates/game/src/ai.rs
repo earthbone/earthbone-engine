@@ -1458,11 +1458,11 @@ fn find_reference(
         .map(|(_, reference)| reference)
 }
 
-fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
+pub(super) fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
     let tag = world.tag_of(base);
     let expected = match kind {
         1 => T(b"ACTI"),
-        2 => T(b"ARMO"),
+        2 | 16 | 17 => T(b"ARMO"),
         3 => T(b"BOOK"),
         4 => T(b"CONT"),
         5 => T(b"DOOR"),
@@ -1470,11 +1470,14 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
         7 => T(b"LIGH"),
         8 => T(b"MISC"),
         9 => T(b"FLOR"),
-        10 => T(b"FURN"),
-        11 => T(b"WEAP"),
+        10 | 26 | 27 => T(b"FURN"),
+        11 | 18..=20 => T(b"WEAP"),
         12 => T(b"AMMO"),
         13 => T(b"KEYM"),
         14 | 15 => T(b"ALCH"),
+        21..=24 => T(b"SPEL"),
+        25 => T(b"NPC_"),
+        28 => T(b"SHOU"),
         _ => return false,
     };
     if tag != Some(expected) {
@@ -1488,6 +1491,65 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
             .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
             .is_some_and(|bytes| u32::from_le_bytes(bytes) & 2 != 0);
         return food == (kind == 15);
+    }
+    if kind == 16 {
+        let armor_type = world
+            .record(base)
+            .and_then(|record| {
+                record
+                    .find(T(b"BOD2"))
+                    .and_then(|data| data.get(12..16))
+                    .or_else(|| record.find(T(b"BODT")).and_then(|data| data.get(8..12)))
+            })
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return armor_type.is_some_and(|armor_type| armor_type == 1 || armor_type == 2);
+    }
+    if (18..=20).contains(&kind) {
+        let weapon_type = world
+            .record(base)
+            .and_then(|record| record.find(T(b"DNAM")))
+            .and_then(|data| data.first().copied());
+        return weapon_type.is_some_and(|weapon_type| match kind {
+            18 => weapon_type == 0,
+            19 => (1..=6).contains(&weapon_type),
+            20 => weapon_type == 7 || weapon_type == 9,
+            _ => false,
+        });
+    }
+    if (21..=24).contains(&kind) {
+        let delivery = world
+            .record(base)
+            .and_then(|record| record.find(T(b"SPIT")))
+            .and_then(|data| data.get(20..24))
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return delivery.is_some_and(|delivery| match kind {
+            21 => true,
+            22 => delivery == 2,
+            23 => delivery == 1,
+            24 => delivery == 0,
+            _ => false,
+        });
+    }
+    if kind == 25 {
+        return true;
+    }
+    if kind == 26 || kind == 27 {
+        let animation = world
+            .record(base)
+            .into_iter()
+            .flat_map(|record| record.all(T(b"FNPR")))
+            .filter_map(|data| data.get(..2))
+            .filter_map(|bytes| <[u8; 2]>::try_from(bytes).ok())
+            .map(u16::from_le_bytes);
+        return animation.into_iter().any(|animation| {
+            if kind == 26 {
+                animation == 2
+            } else {
+                animation == 1
+            }
+        });
     }
     true
 }

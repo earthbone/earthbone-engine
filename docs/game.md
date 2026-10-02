@@ -6355,23 +6355,32 @@ PTDA alias through the package's owning quest and selects the alias's reference
 as the route start. That resolved global form identity is saved with Patrol
 progress, so an alias into an overriding plugin retains its namespace after
 reload. Object ID targets resolve in the package's defining plugin. A target
-that names a FormList searches its entries in authored order. Object Type 8,
-Miscellaneous, searches winning MISC bases in load-order order. Both paths save
-the selected reference identity with Patrol progress. Other Object Type values
-and Find-derived starts remain unsupported. AI-33's Find procedure, which owns
-that selected-reference result, is not present in this worktree.
+that names a FormList searches its entries in authored order. Object Type
+targets search matching winning base records in load-order order, then use the
+first placed reference of that base. The xEdit Object Type enum values 1
+through 28 map to their record categories. Food versus alchemy, combat armor,
+weapon classes, spell delivery, and bed versus chair furniture use their
+authored subtype fields. Actor targets require a placed actor reference, and
+an actor used as a route marker defaults to zero dwell if it has no XPRD.
+Both object-list and Object Type paths save the selected global reference
+identity with Patrol progress. AI-33's Find procedure, which owns a separate
+selected-reference result, is not present in this worktree.
 
-xEdit `wbDefinitionsTES5.pas` defines Object Type 8 as Miscellaneous and PTDA
-Object ID as a form link. The UESP PACK description confirms the target and
-count fields. The CK package target pages were not present in the local corpus.
+xEdit `wbDefinitionsTES5.pas` defines the Object Type categories, their
+subtypes, and PTDA Object ID as a form link. The UESP PACK description
+confirms the target and count fields. The CK package target pages were not
+present in the local corpus.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
 field contexts, invalid state, and
-`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`. The
-adversarial AI-91 tests check Object ID, FormList, and Object Type 8 selection
-and save/load of each selected start.
+`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`,
+`ai_91_form_list_route_start_saves_the_authored_first_reference` and
+`ai_91_object_type_route_starts_save_the_selected_reference`, and
+`ai_91_search_route_start_keeps_the_winning_namespace_and_saved_target`. The
+Object Type test covers each selectable enum category and saves and reloads its
+selected start.
 These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.
