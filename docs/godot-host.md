@@ -453,7 +453,9 @@ Interiors appear under their own tree group. Selecting a row calls
 `CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
 the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
 host renderer. It clears the previous selection first, so the viewport contains one cell.
-The viewport camera frames the rendered bounds after selection.
+The viewport camera frames the rendered bounds after selection. The installed-data host
+check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
+checks that the second selection replaces the first cell's render instances.
 
 This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
 cell records, expose reference selection, or add transform gizmos. The Godot project opens
