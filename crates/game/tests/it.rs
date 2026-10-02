@@ -1254,6 +1254,8 @@ mod shm_15_adversarial;
 mod shm_15_world_state;
 #[path = "shm_16_adversarial.rs"]
 mod shm_16_adversarial;
+#[path = "shm_16_breaker_adversarial.rs"]
+mod shm_16_breaker_adversarial;
 #[path = "shm_17_conditions.rs"]
 mod shm_17_conditions;
 #[path = "shm_18_adversarial.rs"]
