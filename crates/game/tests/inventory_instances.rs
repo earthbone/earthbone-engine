@@ -7,8 +7,8 @@ use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    inventory::{Error, Extra, Field, Inventory, Stack, StackSource},
     World,
+    inventory::{Error, Extra, Field, Inventory, Stack, StackSource},
 };
 
 fn id(object: u32) -> GlobalFormId {
@@ -102,25 +102,29 @@ fn invalid_quantities_and_duplicate_count_fields_do_not_replace_inventory() {
     assert!(inv.add(item, -1).is_err());
     assert_eq!(inv, before);
     assert!(Stack::new(0, vec![]).is_err());
-    assert!(Stack::new(
-        1,
-        vec![Extra {
-            kind: 36,
-            fields: vec![Field::Short(1)]
-        }]
-    )
-    .is_err());
-    assert!(Stack::new(
-        1,
-        vec![
-            Extra {
-                kind: 22,
-                fields: vec![]
-            };
-            2
-        ]
-    )
-    .is_err());
+    assert!(
+        Stack::new(
+            1,
+            vec![Extra {
+                kind: 36,
+                fields: vec![Field::Short(1)]
+            }]
+        )
+        .is_err()
+    );
+    assert!(
+        Stack::new(
+            1,
+            vec![
+                Extra {
+                    kind: 22,
+                    fields: vec![]
+                };
+                2
+            ]
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -200,12 +204,14 @@ fn version_eleven_counts_load_as_plain_items() {
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.item_count(id(0x900), id(0x801)), 17);
-    assert!(loaded
-        .reference_ref(id(0x900))
-        .unwrap()
-        .inventory
-        .stacks(id(0x801))
-        .is_empty());
+    assert!(
+        loaded
+            .reference_ref(id(0x900))
+            .unwrap()
+            .inventory
+            .stacks(id(0x801))
+            .is_empty()
+    );
     assert_eq!(loaded.state_hash(), w.state_hash());
 }
 
@@ -242,12 +248,14 @@ fn signed_leveled_bookkeeping_survives_saves_without_becoming_transferable_gold(
         loaded.reference_ref(holder).unwrap().inventory.stacks(item),
         &[marker]
     );
-    assert!(loaded
-        .reference_ref(id(0x901))
-        .unwrap()
-        .inventory
-        .stacks(item)
-        .is_empty());
+    assert!(
+        loaded
+            .reference_ref(id(0x901))
+            .unwrap()
+            .inventory
+            .stacks(item)
+            .is_empty()
+    );
 }
 
 #[test]
@@ -377,11 +385,13 @@ fn plain_selection_materializes_only_selected_quantity() {
         1
     );
     let remainder = inventory.select(item, StackSource::Plain, 2).unwrap();
-    assert!(inventory
-        .take_selected(&remainder)
-        .unwrap()
-        .stacks()
-        .is_empty());
+    assert!(
+        inventory
+            .take_selected(&remainder)
+            .unwrap()
+            .stacks()
+            .is_empty()
+    );
     assert_eq!(inventory.count(item), 3);
 }
 
@@ -519,14 +529,15 @@ fn rejected_selected_transfers_emit_no_events_and_leave_source_selection_valid()
     let mut vm = soe_papyrus::Vm::default();
     let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
     for recipient in [holder, id(0xBAD), target] {
-        assert!(w
-            .remove_selected_notified(holder, &selected, Some(recipient), &mut alloc)
-            .is_err());
+        assert!(
+            w.remove_selected_notified(holder, &selected, Some(recipient), &mut alloc)
+                .is_err()
+        );
         assert_eq!(w.state_hash(), before);
         assert!(w.pending.is_empty());
     }
-    assert!(w
-        .update_item(
+    assert!(
+        w.update_item(
             holder,
             &selected,
             vec![Extra {
@@ -534,7 +545,8 @@ fn rejected_selected_transfers_emit_no_events_and_leave_source_selection_valid()
                 fields: vec![Field::Form(Some(item)), Field::Short(1)]
             }]
         )
-        .is_err());
+        .is_err()
+    );
     assert_eq!(w.state_hash(), before);
     assert_eq!(
         w.remove_selected_notified(holder, &selected, None, &mut alloc)
@@ -543,9 +555,10 @@ fn rejected_selected_transfers_emit_no_events_and_leave_source_selection_valid()
     );
     assert_eq!(w.pending.len(), 1);
     let committed = w.state_hash();
-    assert!(w
-        .remove_selected_notified(holder, &selected, None, &mut alloc)
-        .is_err());
+    assert!(
+        w.remove_selected_notified(holder, &selected, None, &mut alloc)
+            .is_err()
+    );
     assert_eq!(w.pending.len(), 1);
     assert_eq!(w.state_hash(), committed);
 }

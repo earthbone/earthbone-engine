@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use soe_game::determinism::{compare, dump_if_requested, from_text, TickHash};
 use soe_game::Game;
+use soe_game::determinism::{TickHash, compare, dump_if_requested, from_text};
 
 #[allow(dead_code)]
 #[path = "quest_flow.rs"]

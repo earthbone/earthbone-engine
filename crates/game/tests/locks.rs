@@ -5,7 +5,7 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Handle, Pending};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{Opcode, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -138,18 +138,21 @@ fn blocked_activation_does_not_unlock_but_default_only_still_requires_a_key() {
     assert_eq!(events(&game), ["OnActivate"]);
     game.world_mut().pending.clear();
     game.world_mut().remove_item(player, id(KEY), 1, None);
-    assert!(!game
-        .world_mut()
-        .activate(id(DOOR), player, false, &mut |_, _| panic!(
-            "allocated known form"
-        )));
+    assert!(
+        !game
+            .world_mut()
+            .activate(id(DOOR), player, false, &mut |_, _| panic!(
+                "allocated known form"
+            ))
+    );
     assert!(events(&game).is_empty());
     game.world_mut().add_item(player, id(KEY), 1);
-    assert!(game
-        .world_mut()
-        .activate(id(DOOR), player, false, &mut |_, _| panic!(
-            "allocated known form"
-        )));
+    assert!(
+        game.world_mut()
+            .activate(id(DOOR), player, false, &mut |_, _| panic!(
+                "allocated known form"
+            ))
+    );
     assert_eq!(events(&game), ["OnLockStateChanged"]);
 }
 

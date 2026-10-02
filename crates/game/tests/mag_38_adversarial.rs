@@ -11,13 +11,13 @@ use crate::common::legacy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
-use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -348,10 +348,12 @@ fn mag_38_expiry_removes_the_effects_copy_and_clears_its_hand() {
 
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)), 0);
     assert_eq!(game.world_mut().hand_weapon(id(ACTOR), Hand::Right), None);
-    assert!(!game
-        .world()
-        .active_effects()
-        .any(|effect| effect.effect == id(EFFECT)));
+    assert!(
+        !game
+            .world()
+            .active_effects()
+            .any(|effect| effect.effect == id(EFFECT))
+    );
 }
 
 #[test]

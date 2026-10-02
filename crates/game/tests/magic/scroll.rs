@@ -92,11 +92,13 @@ fn mag_18_rejected_scroll_cast_keeps_selected_item_and_effects_unchanged() {
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(SPELL)), 2);
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(!game
-        .world()
-        .pending
-        .iter()
-        .any(|pending| matches!(pending, Pending::Event { name, .. } if name == "OnSpellCast")));
+    assert!(
+        !game
+            .world()
+            .pending
+            .iter()
+            .any(|pending| matches!(pending, Pending::Event { name, .. } if name == "OnSpellCast"))
+    );
 }
 
 #[test]

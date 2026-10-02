@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_game::{Game, quest};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

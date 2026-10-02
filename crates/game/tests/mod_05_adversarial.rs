@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::npc::{self, Config, Stats};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::Game;
+use soe_game::npc::{self, Config, Stats};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_CASE: AtomicUsize = AtomicUsize::new(0);

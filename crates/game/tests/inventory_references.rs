@@ -7,8 +7,8 @@ use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    inventory::{Extra, Field, Stack},
     Handle, Pending, World,
+    inventory::{Extra, Field, Stack},
 };
 use soe_papyrus::{ObjectId, Value};
 
@@ -345,8 +345,8 @@ fn container_handle_extra_does_not_claim_the_item_reference_identity() {
 #[test]
 fn papyrus_add_item_preserves_reference_identity_and_rejects_explicit_zero_count() {
     use soe_game::Game;
-    use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
     use soe_papyrus::Opcode::{CallMethod, Return};
+    use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, none, s};
 
     let mut game = Game::new(order(1));
     let function = FunctionBuilder::new("Run", "None")

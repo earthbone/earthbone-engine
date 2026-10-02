@@ -4,8 +4,8 @@
 //! MAG-35 must validate the winning associated light record before mutation.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::magic::MagicError;
 use soe_game::Game;
+use soe_game::world::magic::MagicError;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;

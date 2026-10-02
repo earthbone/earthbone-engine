@@ -3,8 +3,8 @@
 
 //! SCR-12 head-tracking state round-trip regression.
 
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc, Game};
+use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_game::{Game, npc};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 

@@ -10,8 +10,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    perks::{Error, Purchase},
     Game,
+    perks::{Error, Purchase},
 };
 use std::collections::BTreeSet;
 
@@ -57,10 +57,10 @@ fn state(game: &Game) -> (i32, BTreeSet<GlobalFormId>) {
 #[test]
 fn prg_16_authored_trait_and_level_do_not_gate_purchase() {
     let mut baseline = game(vec![
-        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0]),
     ]);
     let mut authored = game(vec![
-        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [200, 90, 1, 1, 0])
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [200, 90, 1, 1, 0]),
     ]);
     let expected = Ok(Purchase {
         perk: id(FIRST),
@@ -107,10 +107,10 @@ fn prg_16_num_ranks_byte_does_not_override_the_chain_length() {
 #[test]
 fn prg_16_hidden_value_does_not_gate_or_alter_purchase() {
     let mut shown = game(vec![
-        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 0]),
     ]);
     let mut hidden = game(vec![
-        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 1])
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 1, 1]),
     ]);
     let expected = Ok(Purchase {
         perk: id(FIRST),

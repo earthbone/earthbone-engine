@@ -4,14 +4,14 @@
 //! AI-59 magic and alchemy CTDA predicates.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
 use soe_game::{
+    Game, World,
     combat::Hand,
     conditions,
     perks::{DispatchError, EntryPointContext, EntryPointDispatcher, EntryPointInvocation},
-    Game, World,
 };
 
 const OWNER: u32 = 0x800;

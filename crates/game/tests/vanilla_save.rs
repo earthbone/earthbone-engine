@@ -63,17 +63,17 @@ use std::{
 };
 
 use soe_esm::{
-    plugin::{flags, FileHeader},
     GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    plugin::{FileHeader, flags},
 };
 use soe_game::{
+    Game, World,
     vanilla_save::{RestoreError, SavedFormMap},
     world::DYNAMIC_FILE,
-    Game, World,
 };
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode, Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 use soe_save::{
     Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save, WString,

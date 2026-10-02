@@ -12,13 +12,13 @@ use crate::common::legacy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
-use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -323,9 +323,11 @@ fn mag_27_cure_disease_removes_every_disease_but_keeps_ordinary_effects_after_re
     let mut restored = game(records);
     restored.load_state(&saved).unwrap();
     cast(&mut restored, CURE_SPELL, OTHER).unwrap();
-    assert!(!restored
-        .world_mut()
-        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+    assert!(
+        !restored
+            .world_mut()
+            .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD))
+    );
     assert!(restored.world().has_magic_effect(id(OTHER), id(NORMAL)));
 }
 

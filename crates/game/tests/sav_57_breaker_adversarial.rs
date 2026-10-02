@@ -3,8 +3,8 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin};
 use soe_game::{
-    save::{DependencyChange, DependencyKind, SavedStateKind},
     Game,
+    save::{DependencyChange, DependencyKind, SavedStateKind},
 };
 use soe_papyrus::asm::ScriptBuilder;
 use soe_save::{Compression, FileLocationTable, GlobalData, Header, Save, WString};

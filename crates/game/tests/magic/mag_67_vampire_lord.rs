@@ -81,9 +81,11 @@ fn mag_67_vampire_lord_uses_authored_race_and_race_abilities_then_restores_owned
             assert!(actor.spells.contains(&id(VAMPIRE_ABILITY)));
             assert!(actor.spells.contains(&id(EXISTING_ABILITY)));
         }
-        assert!(world
-            .active_effects()
-            .any(|effect| effect.spell == id(VAMPIRE_ABILITY)));
+        assert!(
+            world
+                .active_effects()
+                .any(|effect| effect.spell == id(VAMPIRE_ABILITY))
+        );
     }
 
     let saved = game.save_state().unwrap();
@@ -92,19 +94,23 @@ fn mag_67_vampire_lord_uses_authored_race_and_race_abilities_then_restores_owned
     restored.load_state(&saved).unwrap();
     assert_eq!(restored.world().state_hash(), before_reload);
     let shared = restored.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .dispel_effect(transformation, &mut |name, class| restored
-            .vm
-            .create_object_of(name, class),));
+    assert!(
+        shared
+            .borrow_mut()
+            .dispel_effect(transformation, &mut |name, class| restored
+                .vm
+                .create_object_of(name, class),)
+    );
     let mut world = restored.world_mut();
     let actor = world.actor(id(TARGET)).unwrap();
     assert_eq!(actor.race, Some(id(OLD_RACE)));
     assert!(!actor.spells.contains(&id(VAMPIRE_ABILITY)));
     assert!(actor.spells.contains(&id(EXISTING_ABILITY)));
-    assert!(!world
-        .active_effects()
-        .any(|effect| effect.spell == id(VAMPIRE_ABILITY)));
+    assert!(
+        !world
+            .active_effects()
+            .any(|effect| effect.spell == id(VAMPIRE_ABILITY))
+    );
 }
 
 #[test]

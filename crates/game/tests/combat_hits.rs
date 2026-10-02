@@ -7,18 +7,18 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    Game, Handle,
     combat::{
-        records::{Armor, Weapon},
         Difficulty, Error, MeleeHit,
+        records::{Armor, Weapon},
     },
     inventory::{Extra, Stack},
     world::magic::MagicError,
-    Game, Handle,
 };
 use soe_papyrus::{
-    asm::{i, ident, FunctionBuilder, ScriptBuilder},
     Opcode::*,
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, i, ident},
 };
 
 fn id(object: u32) -> GlobalFormId {
@@ -817,12 +817,13 @@ fn unresolved_or_wrong_type_template_rejects_without_damage_or_events() {
         equip(&game, 0x14, 0xA01);
         warm_combat_actor_base(&mut game);
         let before = game.save_state().unwrap();
-        assert!(game
-            .melee_hit(MeleeHit {
+        assert!(
+            game.melee_hit(MeleeHit {
                 weapon: id(0xA01),
                 ..hit(0x14, 0x901)
             })
-            .is_err());
+            .is_err()
+        );
         assert_eq!(game.save_state().unwrap(), before);
     }
 }
@@ -1264,12 +1265,13 @@ fn equip_initializes_an_unloaded_actor_before_recording_armor() {
     let game = uninitialized_fixture(vec![armor(0xB00, 100, 1 << 2, 1)]);
     assert!(game.world().actor_ref(id(0x901)).is_none());
     equip(&game, 0x901, 0xB00);
-    assert!(game
-        .world()
-        .actor_ref(id(0x901))
-        .unwrap()
-        .equipped
-        .contains(&id(0xB00)));
+    assert!(
+        game.world()
+            .actor_ref(id(0x901))
+            .unwrap()
+            .equipped
+            .contains(&id(0xB00))
+    );
 }
 
 #[test]
@@ -1308,25 +1310,29 @@ fn replacing_armor_clears_worn_metadata_and_survives_save_load() {
         .restore(
             id(0xB00),
             1,
-            vec![Stack::new(
-                1,
-                vec![Extra {
-                    kind: 22,
-                    fields: vec![],
-                }],
-            )
-            .unwrap()],
+            vec![
+                Stack::new(
+                    1,
+                    vec![Extra {
+                        kind: 22,
+                        fields: vec![],
+                    }],
+                )
+                .unwrap(),
+            ],
         )
         .unwrap();
     equip(&game, 0x901, 0xB01);
-    assert!(!game
-        .world()
-        .reference_ref(id(0x901))
-        .unwrap()
-        .inventory
-        .stacks(id(0xB00))
-        .iter()
-        .any(Stack::worn));
+    assert!(
+        !game
+            .world()
+            .reference_ref(id(0x901))
+            .unwrap()
+            .inventory
+            .stacks(id(0xB00))
+            .iter()
+            .any(Stack::worn)
+    );
     let saved = game.save_state().unwrap();
     let mut restored = fixture(records);
     restored.load_state(&saved).unwrap();
@@ -1334,14 +1340,16 @@ fn replacing_armor_clears_worn_metadata_and_survives_save_load() {
     let actor = world.actor_ref(id(0x901)).unwrap();
     assert!(!actor.equipped.contains(&id(0xB00)));
     assert!(actor.equipped.contains(&id(0xB01)));
-    assert!(!restored
-        .world()
-        .reference_ref(id(0x901))
-        .unwrap()
-        .inventory
-        .stacks(id(0xB00))
-        .iter()
-        .any(Stack::worn));
+    assert!(
+        !restored
+            .world()
+            .reference_ref(id(0x901))
+            .unwrap()
+            .inventory
+            .stacks(id(0xB00))
+            .iter()
+            .any(Stack::worn)
+    );
 }
 
 #[test]
@@ -1355,14 +1363,16 @@ fn reequipping_armor_preserves_worn_metadata_and_saved_state() {
         .restore(
             id(0xB00),
             1,
-            vec![Stack::new(
-                1,
-                vec![Extra {
-                    kind: 22,
-                    fields: vec![],
-                }],
-            )
-            .unwrap()],
+            vec![
+                Stack::new(
+                    1,
+                    vec![Extra {
+                        kind: 22,
+                        fields: vec![],
+                    }],
+                )
+                .unwrap(),
+            ],
         )
         .unwrap();
     let before = game.save_state().unwrap();

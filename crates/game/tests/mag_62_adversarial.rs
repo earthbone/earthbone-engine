@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::common::mag_adversarial as common;
-use common::{cast, effect, game, id, spell, ACTOR, OTHER, SPELL};
+use common::{ACTOR, OTHER, SPELL, cast, effect, game, id, spell};
 
 #[test]
 fn mag_62_etherealize_restriction_survives_save_load_and_ends_with_effect() {

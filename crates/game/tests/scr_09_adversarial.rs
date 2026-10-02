@@ -4,7 +4,7 @@
 #[path = "scr_09_actor_queries.rs"]
 mod actor_queries;
 
-use actor_queries::{actor_bool, fixture, id, Motion, Observation};
+use actor_queries::{Motion, Observation, actor_bool, fixture, id};
 
 #[test]
 fn scr_09_detection_query_is_observer_specific_and_missing_actor_is_an_error() {
@@ -23,18 +23,22 @@ fn scr_09_detection_query_is_observer_specific_and_missing_actor_is_an_error() {
     game.world_mut()
         .evaluate_detection(&[observation], 1.0)
         .unwrap();
-    assert!(game
-        .world()
-        .is_actor_detected_by(id(0x900), id(0x901))
-        .unwrap());
-    assert!(!game
-        .world()
-        .is_actor_detected_by(id(0x900), id(0x902))
-        .unwrap());
-    assert!(game
-        .world()
-        .is_actor_detected_by(id(0x903), id(0x901))
-        .is_err());
+    assert!(
+        game.world()
+            .is_actor_detected_by(id(0x900), id(0x901))
+            .unwrap()
+    );
+    assert!(
+        !game
+            .world()
+            .is_actor_detected_by(id(0x900), id(0x902))
+            .unwrap()
+    );
+    assert!(
+        game.world()
+            .is_actor_detected_by(id(0x903), id(0x901))
+            .is_err()
+    );
 }
 
 #[test]

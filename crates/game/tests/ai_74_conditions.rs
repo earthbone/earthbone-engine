@@ -4,10 +4,10 @@
 //! AI-74: CTDA state queries from the named xEdit and CK references.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{ai, conditions, Game};
+use soe_game::{Game, ai, conditions};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

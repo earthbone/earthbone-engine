@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    quest::state::{StoryEvent, StoryParameter},
     Game,
+    quest::state::{StoryEvent, StoryParameter},
 };
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::*,
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 const fn tag(bytes: [u8; 4]) -> Tag {
@@ -194,10 +194,11 @@ fn scr_34_story_event_routing_error_is_logged_and_wait_returns_false() {
         message.contains("Keyword.SendStoryEventAndWait")
             && (message.contains("malformed story node") || message.contains("condition on node"))
     }));
-    assert!(game
-        .world()
-        .quest(id(QUEST))
-        .is_none_or(|quest| !quest.running));
+    assert!(
+        game.world()
+            .quest(id(QUEST))
+            .is_none_or(|quest| !quest.running)
+    );
 }
 
 #[test]
@@ -213,8 +214,9 @@ fn scr_34_send_story_event_logs_routing_error_without_starting_a_quest() {
         message.contains("Keyword.SendStoryEvent")
             && (message.contains("malformed story node") || message.contains("condition on node"))
     }));
-    assert!(game
-        .world()
-        .quest(id(QUEST))
-        .is_none_or(|quest| !quest.running));
+    assert!(
+        game.world()
+            .quest(id(QUEST))
+            .is_none_or(|quest| !quest.running)
+    );
 }

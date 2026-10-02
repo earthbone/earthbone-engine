@@ -6,9 +6,9 @@
 
 use crate::common::installed;
 
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::npc::{self, flags as npc_flags, Config, Npc, Stats};
+use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::Game;
+use soe_game::npc::{self, Config, Npc, Stats, flags as npc_flags};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -114,7 +114,10 @@ fn the_prisoner_from_skyrim_esm() {
         let values = npc.base_values();
         eprintln!(
             "{edid} {}: level {} essential {} protected {} female {} race {:?} template {:?} flags {:#x}",
-            npc.name.as_ref().and_then(|t| t.plain().map(str::to_string)).unwrap_or_default(),
+            npc.name
+                .as_ref()
+                .and_then(|t| t.plain().map(str::to_string))
+                .unwrap_or_default(),
             npc.level_for(1),
             npc.is_essential(),
             npc.is_protected(),

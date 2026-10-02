@@ -3,8 +3,8 @@
 
 //! AI-12 checks condition filtering, alias uniqueness and the bounded scan.
 
-use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_game::{Game, quest};
 
 const QUEST: u32 = 0x800;
 const MATCH_BASE: u32 = 0x801;

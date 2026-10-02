@@ -4,8 +4,8 @@
 //! CMB-15 AttackDamageMult composition and modifier validation edge cases.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::combat::{Error, MeleeHit};
 use soe_game::Game;
+use soe_game::combat::{Error, MeleeHit};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

@@ -7,9 +7,8 @@ use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    conditions,
+    Game, conditions,
     perks::{Error, Purchase},
-    Game,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -202,7 +201,7 @@ fn effect_conditions_do_not_become_purchase_prerequisites() {
 #[test]
 fn points_and_playability_are_checked_before_spending() {
     let mut game = game(vec![
-        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 0, 0])
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 0, 0]),
     ]);
     let before = state(&game);
     assert_eq!(
@@ -220,7 +219,7 @@ fn points_and_playability_are_checked_before_spending() {
         [0, 0, 1, 1, 1],
     ] {
         let mut game = self::game(vec![
-            Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), data)
+            Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), data),
         ]);
         assert_eq!(
             game.purchase_perk(id(FIRST)),

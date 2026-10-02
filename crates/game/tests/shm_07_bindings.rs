@@ -7,7 +7,7 @@ use soe_commonlib_shim::world::{
     DefaultObjects as DefaultObjectsApi, UnsupportedHook,
 };
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game};
+use soe_game::{Game, quest};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 

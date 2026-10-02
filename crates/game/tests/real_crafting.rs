@@ -6,7 +6,7 @@
 
 use crate::common::installed;
 
-use soe_esm::{records::gameplay::Recipe, GlobalFormId, Tag};
+use soe_esm::{GlobalFormId, Tag, records::gameplay::Recipe};
 use soe_game::Game;
 use std::collections::BTreeMap;
 
@@ -128,13 +128,15 @@ fn installed_forge_executes_vanilla_and_hearthfires_recipes() {
             skill_use: None,
             light_level: None,
         };
-        assert!(soe_game::conditions::evaluate_one(
-            &mut game.world_mut(),
-            &game.vm,
-            context,
-            &condition
-        )
-        .unwrap());
+        assert!(
+            soe_game::conditions::evaluate_one(
+                &mut game.world_mut(),
+                &game.vm,
+                context,
+                &condition
+            )
+            .unwrap()
+        );
         assert_eq!(
             game.world_mut()
                 .reference(player)

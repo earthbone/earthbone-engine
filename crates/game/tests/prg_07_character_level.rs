@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    npc::{self, Config, Stats},
     Game,
+    npc::{self, Config, Stats},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -95,12 +95,16 @@ fn prg_07_invalid_experience_and_choice_leave_progression_unchanged() {
     let mut world = game.world_mut();
     world.actor(player).unwrap();
 
-    assert!(world
-        .advance_character_experience(player, f32::NAN)
-        .is_err());
-    assert!(world
-        .choose_level_up_attribute(player, "onehanded")
-        .is_err());
+    assert!(
+        world
+            .advance_character_experience(player, f32::NAN)
+            .is_err()
+    );
+    assert!(
+        world
+            .choose_level_up_attribute(player, "onehanded")
+            .is_err()
+    );
     assert_eq!(world.actor_ref(player).unwrap().level, 1);
     assert_eq!(world.actor_ref(player).unwrap().character_experience, 0.0);
     assert_eq!(world.level_up_choices(player), Some(0));

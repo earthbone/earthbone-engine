@@ -4,11 +4,11 @@
 //! SCR-29 Game native arguments, diagnostics and host requests.
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::{BinkOptions, GameUiError, GameUiRequest};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::world::{BinkOptions, GameUiError, GameUiRequest};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call_global(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let script = format!("Scr29Probe{name}");
@@ -163,13 +163,15 @@ fn scr_29_advance_skill_reports_invalid_skill_and_preserves_arguments() {
     );
     let player = game.player();
     assert!(game.world_mut().base_actor_value(player, "OneHanded") > 0.0);
-    assert!(game
-        .world()
-        .skill_experience(player, "OneHanded")
-        .is_some_and(|experience| experience > 0.0));
+    assert!(
+        game.world()
+            .skill_experience(player, "OneHanded")
+            .is_some_and(|experience| experience > 0.0)
+    );
     assert_eq!(game.world().native_errors.len(), 1);
-    assert!(game
-        .world_mut()
-        .advance_skill(player, "Health", 2.5)
-        .is_err());
+    assert!(
+        game.world_mut()
+            .advance_skill(player, "Health", 2.5)
+            .is_err()
+    );
 }

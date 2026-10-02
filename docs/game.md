@@ -1057,10 +1057,10 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
 | `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
 | `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
-| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
+| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Returns the two engine budget categories documented below. |
+| `Utility.GetBudgetName` | CK reports a budget name by index. Returns the engine category name, or `None` for an invalid index. |
+| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Returns the measured Papyrus instructions or exterior cell loads for the latest update. |
+| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Compares the measured count with its configured cap. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 | `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 
@@ -1183,14 +1183,15 @@ derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
-  and `Exterior cell loads per update`. `GetCurrentBudget` returns the matching
-  limit from `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
-  `EXTERIOR_CELL_LOADS_PER_UPDATE`. `OverBudget` returns false because these
-  limits are scheduling caps and the runtime does not expose usage counters.
-  Invalid indices return an empty name, zero and false. The CK Utility page
-  documents these global signatures, and SKSE's vanilla `Utility.psc` declares
-  them as global natives.
+- `GetBudgetCount` reports two engine categories: `Papyrus instructions per
+  slice` and `Exterior cell loads per update`. `GetCurrentBudget` returns the
+  measured instruction count from the most recent VM slice or exterior cell
+  load count from the most recent host streaming update. `OverBudget` compares
+  that measurement with `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid indices return `None`, zero and
+  false for name, integer and boolean queries. The CK Utility page documents
+  these global signatures, and SKSE's vanilla `Utility.psc` declares them as
+  global natives.
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
 `Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while

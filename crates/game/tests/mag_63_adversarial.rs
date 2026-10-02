@@ -110,7 +110,9 @@ fn mag_63_banish_at_exact_summon_level_dismisses_saved_summon() {
         .expect("saved summon reference exists");
     assert!(reference.deleted);
     assert!(!reference.enabled);
-    assert!(world
-        .active_effects()
-        .all(|effect| effect.summoned != Some(summoned)));
+    assert!(
+        world
+            .active_effects()
+            .all(|effect| effect.summoned != Some(summoned))
+    );
 }

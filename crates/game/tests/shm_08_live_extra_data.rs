@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use soe_commonlib_shim::extra::{ExtraDataList, ExtraDataType, UnsupportedExtraHook};
-use soe_esm::{GlobalFormId, LoadOrder, CREATED_FILE};
+use soe_esm::{CREATED_FILE, GlobalFormId, LoadOrder};
 use soe_game::inventory::{Extra, Field, Stack};
 
 #[test]

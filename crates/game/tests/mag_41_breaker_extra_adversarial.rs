@@ -53,9 +53,11 @@ fn mag_41_rejects_a_deleted_reference_after_the_cast_starts() {
     let item = game.world_mut().place_at(id(ITEM), id(CASTER), false);
     game.world_mut().reference(item).unwrap().deleted = true;
 
-    assert!(!game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), item));
+    assert!(
+        !game
+            .world_mut()
+            .grab_telekinesis_reference(id(CASTER), item)
+    );
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), None);
 }
 
@@ -64,9 +66,10 @@ fn mag_41_wrong_caster_cannot_release_another_casters_handle() {
     let mut game = game_with_telekinesis();
     begin_telekinesis(&mut game);
     let item = game.world_mut().place_at(id(ITEM), id(CASTER), false);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), item));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(CASTER), item)
+    );
 
     assert!(!game.world_mut().release_telekinesis_reference(id(TARGET)));
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), Some(item));

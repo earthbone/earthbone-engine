@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use soe_esm::{plugin, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin};
 use soe_game::World;
 use soe_save::{
-    reference::{flags, PlayerLocation},
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
+    reference::{PlayerLocation, flags},
 };
 
 fn ref_id(raw: u32) -> RefId {

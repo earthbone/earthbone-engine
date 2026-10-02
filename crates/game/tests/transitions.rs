@@ -10,7 +10,7 @@
 //! survives is an assertion about that rule.
 
 use soe_esm::records::Transform;
-use soe_esm::{plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder};
+use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, plugin::flags};
 use soe_esm::{Plugin, Record, Tag};
 use soe_game::Game;
 

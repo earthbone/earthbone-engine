@@ -21,7 +21,7 @@ mod transitions;
 use soe_game::world::Threshold;
 use soe_game::{Game, Pending};
 use soe_papyrus::ObjectId;
-use transitions::{id, DOOR_OUT, START_CELL};
+use transitions::{DOOR_OUT, START_CELL, id};
 
 /// Cell B, the destination. `transitions.rs` exports the door ids but not the
 /// far cell, and the far cell is what a prefetch takes.
@@ -91,10 +91,11 @@ fn exterior_focus_changes_retain_neighbors_until_their_resource_unload() {
 fn invalid_streaming_delta_is_atomic() {
     let g = staged();
     let before = g.world().loaded_reference_count();
-    assert!(g
-        .world_mut()
-        .update_streaming_cells(id(CELL_B), &[id(CELL_B), id(0xDEAD)], &[id(START_CELL)])
-        .is_err());
+    assert!(
+        g.world_mut()
+            .update_streaming_cells(id(CELL_B), &[id(CELL_B), id(0xDEAD)], &[id(START_CELL)])
+            .is_err()
+    );
     assert_eq!(g.world().loaded_reference_count(), before);
     assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
     assert!(events(&g).is_empty());
@@ -108,10 +109,11 @@ fn neighboring_cells_keep_the_focus_and_validate_before_detaching() {
     assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
     assert!(g.world().cell_is_resident(id(CELL_B)));
     g.world_mut().pending.clear();
-    assert!(g
-        .world_mut()
-        .detach_streaming_cells(&[id(CELL_B), id(START_CELL)])
-        .is_err());
+    assert!(
+        g.world_mut()
+            .detach_streaming_cells(&[id(CELL_B), id(START_CELL)])
+            .is_err()
+    );
     assert!(g.world().cell_is_resident(id(CELL_B)));
     assert!(events(&g).is_empty());
     g.world_mut().detach_streaming_cells(&[id(CELL_B)]).unwrap();
@@ -147,11 +149,13 @@ fn blocked_activation_reports_failure_but_default_only_bypasses_it() {
     assert_eq!(names(&g), vec!["OnActivate"]);
     g.world_mut().pending.clear();
     let shared = g.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .activate(id(DOOR_OUT), player, false, &mut |name, class| g
-            .vm
-            .create_object_of(name, class)));
+    assert!(
+        shared
+            .borrow_mut()
+            .activate(id(DOOR_OUT), player, false, &mut |name, class| g
+                .vm
+                .create_object_of(name, class))
+    );
     assert_eq!(g.world().loaded_cell(), Some(id(CELL_B)));
     assert!(!names(&g).iter().any(|name| name == "OnActivate"));
 }
@@ -489,34 +493,39 @@ fn hst_07_approaching_a_load_door_selects_its_link_without_unrelated_cell_coordi
 
     // The unrelated interior's door overlaps the query while the local door is distant.
     g.world_mut().reference(id(DOOR_B)).unwrap().position = [2000.0; 3];
-    assert!(g
-        .world()
-        .nearby_interior_destination(id(START_CELL), [2000.0; 3], 10.0)
-        .is_none());
+    assert!(
+        g.world()
+            .nearby_interior_destination(id(START_CELL), [2000.0; 3], 10.0)
+            .is_none()
+    );
 }
 
 #[test]
 fn nearby_prefetch_respects_live_door_state_and_rejects_invalid_proximity() {
     let g = staged();
     for invalid in [f32::NAN, f32::INFINITY, -1.0] {
-        assert!(g
-            .world()
-            .nearby_interior_destination(id(START_CELL), [0.0; 3], invalid)
-            .is_none());
+        assert!(
+            g.world()
+                .nearby_interior_destination(id(START_CELL), [0.0; 3], invalid)
+                .is_none()
+        );
     }
-    assert!(g
-        .world()
-        .nearby_interior_destination(id(START_CELL), [f32::NAN; 3], 500.0)
-        .is_none());
+    assert!(
+        g.world()
+            .nearby_interior_destination(id(START_CELL), [f32::NAN; 3], 500.0)
+            .is_none()
+    );
     g.world_mut().reference(id(DOOR_OUT)).unwrap().enabled = false;
-    assert!(g
-        .world()
-        .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
-        .is_none());
+    assert!(
+        g.world()
+            .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
+            .is_none()
+    );
     g.world_mut().reference(id(DOOR_OUT)).unwrap().enabled = true;
     g.world_mut().reference(id(DOOR_OUT)).unwrap().deleted = true;
-    assert!(g
-        .world()
-        .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
-        .is_none());
+    assert!(
+        g.world()
+            .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
+            .is_none()
+    );
 }

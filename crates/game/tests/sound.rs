@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::sound::{prepare, prepare_for, SoundSettings};
 use soe_game::Game;
+use soe_game::sound::{SoundSettings, prepare, prepare_for};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const SOUND: u32 = 0x800;
@@ -308,13 +308,15 @@ fn conditional_descriptors_reject_missing_target_context() {
 #[test]
 fn invalid_draws_and_category_cycles_return_errors() {
     let mut order = order();
-    assert!(prepare(
-        &order,
-        id(SOUND),
-        [f32::NAN, 0.0, 0.0],
-        &SoundSettings::default()
-    )
-    .is_err());
+    assert!(
+        prepare(
+            &order,
+            id(SOUND),
+            [f32::NAN, 0.0, 0.0],
+            &SoundSettings::default()
+        )
+        .is_err()
+    );
     patch(
         &mut order,
         category(PARENT, 0).sub(T(b"PNAM"), CATEGORY.to_le_bytes()),

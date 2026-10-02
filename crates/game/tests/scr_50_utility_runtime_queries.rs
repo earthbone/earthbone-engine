@@ -3,9 +3,9 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let script_name = format!("Scr50{}", game.vm.time().to_bits());
@@ -48,10 +48,11 @@ fn scr_50_memory_queries_report_missing_tracking_provider() {
     let mut game = Game::new(LoadOrder::new());
     for name in ["GetCurrentMemory", "GetBudgetCount"] {
         assert_eq!(call(&mut game, name, &[]), Value::None);
-        assert!(game
-            .vm
-            .log
-            .contains(&format!("Utility.{name}: memory tracking is unavailable")));
+        assert!(
+            game.vm
+                .log
+                .contains(&format!("Utility.{name}: memory tracking is unavailable"))
+        );
     }
 }
 
@@ -62,19 +63,21 @@ fn scr_50_budget_name_validates_index_and_reports_missing_tracking() {
         call(&mut game, "GetBudgetName", &[Value::Bool(true)]),
         Value::None
     );
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetBudgetName expects an integer budget index"));
+    assert!(
+        game.vm
+            .log
+            .contains("Utility.GetBudgetName expects an integer budget index")
+    );
 
     assert_eq!(
         call(&mut game, "GetBudgetName", &[Value::Int(0)]),
         Value::None
     );
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetBudgetName: memory tracking is unavailable"));
+    assert!(
+        game.vm
+            .log
+            .contains("Utility.GetBudgetName: memory tracking is unavailable")
+    );
 }
 
 #[test]
@@ -84,16 +87,18 @@ fn scr_50_global_queries_reject_unexpected_arguments() {
         call(&mut game, "GetMaxFrameRate", &[Value::Int(1)]),
         Value::None
     );
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetMaxFrameRate expects 0 argument(s), got 1"));
+    assert!(
+        game.vm
+            .log
+            .contains("Utility.GetMaxFrameRate expects 0 argument(s), got 1")
+    );
     assert_eq!(
         call(&mut game, "GetBudgetCount", &[Value::Int(0)]),
         Value::None
     );
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetBudgetCount expects 0 argument(s), got 1"));
+    assert!(
+        game.vm
+            .log
+            .contains("Utility.GetBudgetCount expects 0 argument(s), got 1")
+    );
 }

@@ -49,9 +49,11 @@ fn begin_telekinesis(game: &mut soe_game::Game) {
 fn mag_41_cannot_grab_before_the_telekinesis_cast_starts() {
     let game = game_with_telekinesis();
     let item = game.world_mut().place_at(id(ITEM), id(CASTER), false);
-    assert!(!game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), item));
+    assert!(
+        !game
+            .world_mut()
+            .grab_telekinesis_reference(id(CASTER), item)
+    );
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), None);
 }
 
@@ -61,12 +63,16 @@ fn mag_41_rejects_disabled_references_and_actor_references() {
     begin_telekinesis(&mut game);
     let item = game.world_mut().place_at(id(ITEM), id(CASTER), false);
     game.world_mut().reference(item).unwrap().enabled = false;
-    assert!(!game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), item));
-    assert!(!game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), id(CASTER)));
+    assert!(
+        !game
+            .world_mut()
+            .grab_telekinesis_reference(id(CASTER), item)
+    );
+    assert!(
+        !game
+            .world_mut()
+            .grab_telekinesis_reference(id(CASTER), id(CASTER))
+    );
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), None);
 }
 
@@ -75,20 +81,23 @@ fn mag_41_a_rejected_replacement_cast_preserves_the_current_hold() {
     let mut game = game_with_telekinesis();
     begin_telekinesis(&mut game);
     let item = game.world_mut().place_at(id(ITEM), id(CASTER), false);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), item));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(CASTER), item)
+    );
     let shared = game.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .begin_concentration_cast(
-            id(0x3ff),
-            id(CASTER),
-            id(CASTER),
-            None,
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
-        .is_err());
+    assert!(
+        shared
+            .borrow_mut()
+            .begin_concentration_cast(
+                id(0x3ff),
+                id(CASTER),
+                id(CASTER),
+                None,
+                &mut |name, class| game.vm.create_object_of(name, class),
+            )
+            .is_err()
+    );
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), Some(item));
 }
 
@@ -98,14 +107,16 @@ fn mag_41_releasing_the_cast_releases_the_object_and_allows_a_new_hold() {
     begin_telekinesis(&mut game);
     let first = game.world_mut().place_at(id(ITEM), id(CASTER), false);
     let second = game.world_mut().place_at(id(ITEM), id(CASTER), false);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), first));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(CASTER), first)
+    );
     assert!(game.world_mut().release_concentration_cast());
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), None);
     begin_telekinesis(&mut game);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), second));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(CASTER), second)
+    );
     assert_eq!(game.world().telekinesis_reference(id(CASTER)), Some(second));
 }

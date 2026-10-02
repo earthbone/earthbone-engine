@@ -4,11 +4,11 @@
 //! Adversarial SCR-39 checks against the local Creation Kit contracts.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::ReferencePhysicsRequest;
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::world::ReferencePhysicsRequest;
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const REFERENCE: u32 = 0x802;
@@ -206,8 +206,9 @@ fn missing_reference_rejects_animation_and_physics_requests() {
         ],
     );
     assert!(game.world().animation_events.is_empty());
-    assert!(game
-        .world_mut()
-        .take_reference_physics_requests()
-        .is_empty());
+    assert!(
+        game.world_mut()
+            .take_reference_physics_requests()
+            .is_empty()
+    );
 }

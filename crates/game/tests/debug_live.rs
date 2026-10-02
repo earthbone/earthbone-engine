@@ -18,9 +18,9 @@ use crate::common::installed;
 use std::path::PathBuf;
 
 use soe_esm::{GlobalFormId, Tag};
+use soe_game::Game;
 use soe_game::debug::{Console, Outcome};
 use soe_game::world::Handle;
-use soe_game::Game;
 
 const MASTERS: [&str; 5] = [
     "Skyrim.esm",

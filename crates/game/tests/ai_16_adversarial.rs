@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{package, Game};
+use soe_game::{Game, package};
 use soe_papyrus::Value;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

@@ -6,7 +6,7 @@ mod acceptance;
 
 #[cfg(test)]
 mod adversarial {
-    use super::acceptance::{fixture, wasm_component, ACTIVATOR, QUEST};
+    use super::acceptance::{ACTIVATOR, QUEST, fixture, wasm_component};
     use soe_esm::GlobalFormId;
 
     #[test]

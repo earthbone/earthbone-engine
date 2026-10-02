@@ -222,5 +222,8 @@ fn installed_inventory_survey(actors: bool) {
         }
     }
     assert!(references > 1000 && entries > 1000 && stacks > 1000);
-    eprintln!("{} saves, actors={actors}: {references} inventories, {entries} items, {stacks} distinct stacks, {missing} missing item definitions, {unsupported} unsupported contents, {zero_worn} zero-total worn items", paths.len());
+    eprintln!(
+        "{} saves, actors={actors}: {references} inventories, {entries} items, {stacks} distinct stacks, {missing} missing item definitions, {unsupported} unsupported contents, {zero_worn} zero-total worn items",
+        paths.len()
+    );
 }

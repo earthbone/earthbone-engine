@@ -5,10 +5,10 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    World,
     inventory::{Extra, Field, Stack},
     npc,
     world::RngStream,
-    World,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -352,14 +352,16 @@ fn restored_inventory_is_preserved_even_if_authored_outfit_now_differs() {
         .restore(
             id(A),
             2,
-            vec![Stack::new(
-                1,
-                vec![Extra {
-                    kind: 33,
-                    fields: vec![Field::Form(Some(id(BASE)))],
-                }],
-            )
-            .unwrap()],
+            vec![
+                Stack::new(
+                    1,
+                    vec![Extra {
+                        kind: 33,
+                        fields: vec![Field::Form(Some(id(BASE)))],
+                    }],
+                )
+                .unwrap(),
+            ],
         )
         .unwrap();
     let bytes = old.save_state();

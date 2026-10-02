@@ -6,13 +6,13 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{
-    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
-    Tag,
+    Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
+    plugin::flags,
 };
-use soe_game::{npc, Game};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::{Game, npc};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TRACK_CRIME: u32 = 0x40;
@@ -154,18 +154,20 @@ fn scr_13_send_trespass_alarm_records_the_crime_and_rejects_invalid_actor() {
             .crime_gold_nonviolent,
         75
     );
-    assert!(game
-        .world_mut()
-        .actor(guard)
-        .unwrap()
-        .witnessed_crimes
-        .contains(&criminal));
+    assert!(
+        game.world_mut()
+            .actor(guard)
+            .unwrap()
+            .witnessed_crimes
+            .contains(&criminal)
+    );
 
     call(&mut game, guard_object, "SendTrespassAlarm", &[Value::None]);
-    assert!(game
-        .traces()
-        .iter()
-        .any(|trace| trace.contains("akCriminal must be an Actor")));
+    assert!(
+        game.traces()
+            .iter()
+            .any(|trace| trace.contains("akCriminal must be an Actor"))
+    );
     assert_eq!(
         game.world_mut()
             .faction(GlobalFormId {

@@ -3,7 +3,7 @@
 
 use soe_esm::records::navm::{DoorLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{ai, Game};
+use soe_game::{Game, ai};
 
 const CELL: u32 = 0x800;
 const BASE: u32 = 0x801;
@@ -93,9 +93,11 @@ fn ai_09_moving_closed_door_outside_its_linked_triangle_unblocks_and_invalidates
     {
         let mut world = game.world_mut();
         let graph = ai::nav_graph(&mut world);
-        assert!(graph
-            .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
-            .is_none());
+        assert!(
+            graph
+                .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+                .is_none()
+        );
         let actor = world.actor(id(ACTOR)).unwrap();
         actor.ai.path = vec![[4.0, 4.0, 0.0]];
         actor.ai.path_cells = vec![Some(id(CELL))];
@@ -106,9 +108,11 @@ fn ai_09_moving_closed_door_outside_its_linked_triangle_unblocks_and_invalidates
 
     let mut world = game.world_mut();
     let graph = ai::nav_graph(&mut world);
-    assert!(graph
-        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
-        .is_some());
+    assert!(
+        graph
+            .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+            .is_some()
+    );
     let actor = world.actor(id(ACTOR)).unwrap();
     assert!(actor.ai.path.is_empty());
     assert!(actor.ai.path_cells.is_empty());
@@ -128,7 +132,9 @@ fn ai_09_unresolved_navmesh_door_reference_does_not_close_its_triangle() {
     let graph = ai::nav_graph(&mut world);
     let door_key = (u64::from(id(0x900).file) << 32) | u64::from(id(0x900).object);
     assert_eq!(graph.door_nodes(door_key).len(), 1);
-    assert!(graph
-        .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
-        .is_some());
+    assert!(
+        graph
+            .find_path_between([7.0, 2.0, 0.0], [2.0, 8.0, 0.0])
+            .is_some()
+    );
 }

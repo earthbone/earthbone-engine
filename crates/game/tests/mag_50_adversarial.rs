@@ -5,9 +5,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    Game,
     combat::MeleeHit,
     inventory::{Extra, Field, Stack},
-    Game,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -138,14 +138,16 @@ fn fixture() -> Game {
         .restore(
             id(WEAPON),
             1,
-            vec![Stack::new(
-                1,
-                vec![Extra {
-                    kind: 62,
-                    fields: vec![Field::Form(Some(id(POISON))), Field::Word(1)],
-                }],
-            )
-            .unwrap()],
+            vec![
+                Stack::new(
+                    1,
+                    vec![Extra {
+                        kind: 62,
+                        fields: vec![Field::Form(Some(id(POISON))), Field::Word(1)],
+                    }],
+                )
+                .unwrap(),
+            ],
         )
         .unwrap();
     game
@@ -176,10 +178,11 @@ fn mag_50_cure_poison_removes_poison_effect_and_preserves_unrelated_buff() {
         is_power_attack: false,
     })
     .unwrap();
-    assert!(game
-        .world()
-        .active_effects()
-        .any(|effect| effect.spell == id(POISON)));
+    assert!(
+        game.world()
+            .active_effects()
+            .any(|effect| effect.spell == id(POISON))
+    );
 
     cast(&mut game, BUFF_SPELL);
     let buff = game
@@ -192,14 +195,17 @@ fn mag_50_cure_poison_removes_poison_effect_and_preserves_unrelated_buff() {
 
     cast(&mut game, CURE_SPELL);
 
-    assert!(!game
-        .world()
-        .active_effects()
-        .any(|effect| effect.spell == id(POISON)));
-    assert!(game
-        .world()
-        .active_effects()
-        .any(|effect| effect.id == buff));
+    assert!(
+        !game
+            .world()
+            .active_effects()
+            .any(|effect| effect.spell == id(POISON))
+    );
+    assert!(
+        game.world()
+            .active_effects()
+            .any(|effect| effect.id == buff)
+    );
     assert_eq!(game.world_mut().actor_value(id(TARGET), "magicka"), 110.0);
 }
 

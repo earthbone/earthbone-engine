@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::magic::EffectId;
 use soe_game::Game;
+use soe_game::world::magic::EffectId;
 use soe_papyrus::asm::ScriptBuilder;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -132,9 +132,11 @@ fn mag_33_transfers_only_a_live_summons_runtime_owner() {
         world.npc(id(SUMMON_BASE)).unwrap().config.flags,
         authored_flags
     );
-    assert!(world
-        .active_effects()
-        .any(|active| active.id == command && active.target == summon));
+    assert!(
+        world
+            .active_effects()
+            .any(|active| active.id == command && active.target == summon)
+    );
 }
 
 #[test]
@@ -155,11 +157,13 @@ fn mag_33_restores_runtime_owner_when_command_ends() {
     game.world_mut().reference(summon).unwrap().owner = None;
     let command = cast(&mut game, COMMAND_SPELL, OTHER_CASTER, summon)[0];
     let shared = game.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .dispel_effect(command, &mut |name, class| game
-            .vm
-            .create_object_of(name, class)));
+    assert!(
+        shared
+            .borrow_mut()
+            .dispel_effect(command, &mut |name, class| game
+                .vm
+                .create_object_of(name, class))
+    );
 
     assert_eq!(game.world().reference_ref(summon).unwrap().owner, None);
     assert_eq!(

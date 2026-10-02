@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const CELL: u32 = 0x210;
@@ -174,10 +174,11 @@ fn scr_38_trigger_count_returns_occupancy_and_diagnoses_non_triggers() {
         call(&mut game, id(ORDINARY), "GetTriggerObjectCount"),
         Value::Int(0)
     );
-    assert!(game
-        .traces()
-        .iter()
-        .any(|line| line.contains("GetTriggerObjectCount called on a non-trigger")));
+    assert!(
+        game.traces()
+            .iter()
+            .any(|line| line.contains("GetTriggerObjectCount called on a non-trigger"))
+    );
 }
 
 #[test]

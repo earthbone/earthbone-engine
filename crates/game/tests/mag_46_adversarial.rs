@@ -209,8 +209,10 @@ fn mag_46_guide_returns_finite_points_for_the_live_objective_target() {
             object: DESTINATION
         }
     );
-    assert!(route
-        .points
-        .iter()
-        .all(|point| point.iter().all(|n| n.is_finite())));
+    assert!(
+        route
+            .points
+            .iter()
+            .all(|point| point.iter().all(|n| n.is_finite()))
+    );
 }

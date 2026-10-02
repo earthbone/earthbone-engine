@@ -63,34 +63,36 @@ fn mag_47_feed_consumes_corpse_once_and_rejects_a_repeated_cast() {
         let corpse = world.reference_ref(id(0x102)).unwrap();
         assert!(corpse.deleted && !corpse.enabled);
     }
-    assert!(game
-        .shared_world()
-        .borrow_mut()
-        .cast_spell(
-            id(0x300),
-            id(0x101),
-            Some(id(0x101)),
-            Some(id(0x102)),
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
-        .is_err());
+    assert!(
+        game.shared_world()
+            .borrow_mut()
+            .cast_spell(
+                id(0x300),
+                id(0x101),
+                Some(id(0x101)),
+                Some(id(0x102)),
+                &mut |name, class| game.vm.create_object_of(name, class),
+            )
+            .is_err()
+    );
 }
 
 #[test]
 fn mag_47_feed_does_not_consume_a_living_target_or_other_corpse() {
     let mut game = fixture();
     game.world_mut().actor(id(0x102)).unwrap().dead = true;
-    assert!(game
-        .shared_world()
-        .borrow_mut()
-        .cast_spell(
-            id(0x300),
-            id(0x101),
-            Some(id(0x101)),
-            Some(id(0x101)),
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
-        .is_err());
+    assert!(
+        game.shared_world()
+            .borrow_mut()
+            .cast_spell(
+                id(0x300),
+                id(0x101),
+                Some(id(0x101)),
+                Some(id(0x101)),
+                &mut |name, class| game.vm.create_object_of(name, class),
+            )
+            .is_err()
+    );
     {
         let world = game.world();
         let corpse = world.reference_ref(id(0x102)).unwrap();

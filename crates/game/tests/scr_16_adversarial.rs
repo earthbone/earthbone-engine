@@ -4,11 +4,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_papyrus::Opcode::{CallMethod, CallStatic, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const BASE: u32 = 0x800;

@@ -9,11 +9,11 @@
 //! too, so the attacker appears in the list and the host excludes it by owner.
 
 use soe_esm::records::Transform;
-use soe_esm::{plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder};
+use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, plugin::flags};
 use soe_esm::{Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::combat::Hand;
 use soe_game::world::DEFAULT_COMBAT_DISTANCE;
-use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");

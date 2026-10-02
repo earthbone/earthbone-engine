@@ -6,8 +6,8 @@ use crate::common::installed;
 use std::collections::BTreeSet;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::footsteps::Footsteps;
 use soe_game::World;
+use soe_game::footsteps::Footsteps;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -223,11 +223,13 @@ fn trait_templates_resolve_links_in_the_template_owner_and_reject_cycles() {
     });
     patch.push_top(Record::new(T(b"RACE"), 0x100).sub(T(b"RNAM"), 0x101_u32.to_le_bytes()));
     order.add("Cycle.esp", patch).unwrap();
-    assert!(Footsteps::new(&order)
-        .actor_sets(Some(id(0x10)), None, &BTreeSet::new())
-        .unwrap_err()
-        .to_string()
-        .contains("cycle"));
+    assert!(
+        Footsteps::new(&order)
+            .actor_sets(Some(id(0x10)), None, &BTreeSet::new())
+            .unwrap_err()
+            .to_string()
+            .contains("cycle")
+    );
 }
 
 #[test]
@@ -243,9 +245,11 @@ fn malformed_addon_fields_and_missing_sets_are_errors() {
         });
         patch.push_top(record);
         order.add("Broken.esp", patch).unwrap();
-        assert!(Footsteps::new(&order)
-            .actor_sets(Some(id(0x10)), None, &BTreeSet::from([id(0x201)]))
-            .is_err());
+        assert!(
+            Footsteps::new(&order)
+                .actor_sets(Some(id(0x10)), None, &BTreeSet::from([id(0x201)]))
+                .is_err()
+        );
     }
 }
 
@@ -329,7 +333,9 @@ fn installed_skin_and_boot_sets_follow_the_authored_links() {
         "{races} race skins resolved {} distinct sets",
         distinct.len()
     );
-    eprintln!("Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets");
+    eprintln!(
+        "Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets"
+    );
 }
 
 #[test]
@@ -485,9 +491,11 @@ fn invalid_skin_changes_and_tampered_race_overrides_are_atomic() {
     let mut world = World::new(order());
     let initial = world.state_hash();
     assert!(world.set_race_skin(id(0x100), Some(id(0x400))).is_err());
-    assert!(world
-        .set_actor_base_skin(id(0x100), Some(id(0x200)))
-        .is_err());
+    assert!(
+        world
+            .set_actor_base_skin(id(0x100), Some(id(0x200)))
+            .is_err()
+    );
     assert_eq!(world.state_hash(), initial);
     world.set_race_skin(id(0x100), Some(id(0x201))).unwrap();
     let before = world.state_hash();

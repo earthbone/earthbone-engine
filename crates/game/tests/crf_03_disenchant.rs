@@ -5,7 +5,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::inventory::{Extra, Field, StackSource};
-use soe_game::{crafting::DisenchantError, Game};
+use soe_game::{Game, crafting::DisenchantError};
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;
@@ -123,21 +123,25 @@ fn crf_03_disenchant_learns_effects_and_consumes_only_selected_instance() {
     assert_eq!(result.enchantment, id(&game, INSTANCE_ENCHANTMENT));
     assert_eq!(result.learned_effects, vec![id(&game, EFFECT_B)]);
     assert_eq!(game.world_mut().item_count(player, sword), 1);
-    assert!(game
-        .world()
-        .learned_enchantment_effects
-        .contains(&id(&game, EFFECT_B)));
-    assert!(!game
-        .world()
-        .learned_enchantment_effects
-        .contains(&id(&game, EFFECT_A)));
-    assert!(game
-        .world_mut()
-        .reference(player)
-        .unwrap()
-        .inventory
-        .selected_stack(&selected)
-        .is_err());
+    assert!(
+        game.world()
+            .learned_enchantment_effects
+            .contains(&id(&game, EFFECT_B))
+    );
+    assert!(
+        !game
+            .world()
+            .learned_enchantment_effects
+            .contains(&id(&game, EFFECT_A))
+    );
+    assert!(
+        game.world_mut()
+            .reference(player)
+            .unwrap()
+            .inventory
+            .selected_stack(&selected)
+            .is_err()
+    );
 }
 
 #[test]
@@ -229,9 +233,11 @@ fn crf_03_disenchant_learned_effects_survive_save_load() {
     let effect_a = id(&restored, EFFECT_A);
     let player = id(&restored, PLAYER);
     let sword = id(&restored, SWORD);
-    assert!(restored
-        .world()
-        .learned_enchantment_effects
-        .contains(&effect_a));
+    assert!(
+        restored
+            .world()
+            .learned_enchantment_effects
+            .contains(&effect_a)
+    );
     assert_eq!(restored.world_mut().item_count(player, sword), 0);
 }

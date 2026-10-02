@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::magic::{EffectId, MagicError};
-use soe_game::world::World;
 use soe_game::Game;
+use soe_game::world::World;
+use soe_game::world::magic::{EffectId, MagicError};
 use soe_papyrus::asm::ScriptBuilder;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

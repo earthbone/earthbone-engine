@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_commonlib_shim::world_types::{unsupported_hook, SettingValue};
+use soe_commonlib_shim::world_types::{SettingValue, unsupported_hook};
 use soe_esm::{GlobalFormId, LoadOrder};
 use soe_game::world::World;
 

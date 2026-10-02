@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
 use soe_game::World;
 use soe_save::{
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,

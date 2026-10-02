@@ -4,10 +4,10 @@
 //! SCR-53 coverage for the `Weapon.Fire` Papyrus binding and world contract.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::FireError, Game};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::{Game, combat::FireError};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -111,10 +111,11 @@ fn scr_53_weapon_fire_native_logs_unavailable_execution_without_damage_or_events
     let mut game = fixture();
     let ammo = Value::Object(game.object_of_form(id(0x201)));
     assert_eq!(call_fire(&mut game, 0x200, 0x300, ammo), Value::None);
-    assert!(game
-        .vm
-        .log
-        .contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"));
+    assert!(
+        game.vm
+            .log
+            .contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution")
+    );
     assert!(game.world().pending.is_empty());
     assert!(game.world().spell_casts.is_empty());
 }
@@ -126,10 +127,11 @@ fn scr_53_weapon_fire_native_reports_bad_optional_ammo_argument() {
         call_fire(&mut game, 0x200, 0x300, Value::string("bad ammo")),
         Value::None
     );
-    assert!(game
-        .vm
-        .log
-        .contains("weapon fire ammo argument is not a form"));
+    assert!(
+        game.vm
+            .log
+            .contains("weapon fire ammo argument is not a form")
+    );
     assert!(game.world().pending.is_empty());
 }
 
@@ -137,9 +139,10 @@ fn scr_53_weapon_fire_native_reports_bad_optional_ammo_argument() {
 fn scr_53_weapon_fire_native_rejects_a_non_reference_source() {
     let mut game = fixture();
     assert_eq!(call_fire(&mut game, 0x200, 0x100, Value::None), Value::None);
-    assert!(game
-        .vm
-        .log
-        .contains("weapon fire source is not a reference"));
+    assert!(
+        game.vm
+            .log
+            .contains("weapon fire source is not a reference")
+    );
     assert!(game.world().pending.is_empty());
 }

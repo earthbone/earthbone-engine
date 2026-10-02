@@ -65,10 +65,11 @@ fn cmb_23_arrow_recovery_requires_projectile_can_be_picked_up_flag() {
         !request.recoverable,
         "TES5Edit PROJ DATA says bit 0x0040 controls whether the projectile can be picked up"
     );
-    assert!(game
-        .world_mut()
-        .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
-        .is_none());
+    assert!(
+        game.world_mut()
+            .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
+            .is_none()
+    );
 }
 
 #[test]

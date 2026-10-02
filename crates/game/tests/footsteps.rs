@@ -6,7 +6,7 @@
 use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::footsteps::{material_name_hash, Footsteps, Gait};
+use soe_game::footsteps::{Footsteps, Gait, material_name_hash};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const SET: u32 = 0x800;
@@ -120,10 +120,12 @@ fn movement_groups_and_event_tags_select_distinct_impacts() {
             selected[0].sounds,
             [Some(id(0xD00 + index as u32)), Some(id(0xE00))]
         );
-        assert!(steps
-            .impacts(id(SET), gait, "FootRight", id(MATERIAL))
-            .unwrap()
-            .is_empty());
+        assert!(
+            steps
+                .impacts(id(SET), gait, "FootRight", id(MATERIAL))
+                .unwrap()
+                .is_empty()
+        );
     }
 }
 
@@ -202,11 +204,13 @@ fn material_parents_fall_back_and_cycles_are_reported() {
         Record::new(T(b"MATT"), MATERIAL + 1).sub(T(b"PNAM"), (MATERIAL + 1).to_le_bytes()),
     );
     order.add("Cycle.esp", addon).unwrap();
-    assert!(Footsteps::new(&order)
-        .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL + 1))
-        .unwrap_err()
-        .to_string()
-        .contains("cycle"));
+    assert!(
+        Footsteps::new(&order)
+            .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL + 1))
+            .unwrap_err()
+            .to_string()
+            .contains("cycle")
+    );
 }
 
 #[test]
@@ -215,9 +219,11 @@ fn malformed_counts_and_deleted_sound_descriptors_are_errors() {
     let mut addon = patch();
     addon.push_top(Record::new(T(b"SNDR"), 0xD00).with_flags(soe_esm::plugin::flags::DELETED));
     order.add("Deleted.esp", addon).unwrap();
-    assert!(Footsteps::new(&order)
-        .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL))
-        .is_err());
+    assert!(
+        Footsteps::new(&order)
+            .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL))
+            .is_err()
+    );
     let mut addon = patch();
     addon.push_top(
         Record::new(T(b"FSTS"), SET)
@@ -225,9 +231,11 @@ fn malformed_counts_and_deleted_sound_descriptors_are_errors() {
             .sub(T(b"DATA"), words(&[0xA00])),
     );
     order.add("Malformed.esp", addon).unwrap();
-    assert!(Footsteps::new(&order)
-        .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL))
-        .is_err());
+    assert!(
+        Footsteps::new(&order)
+            .impacts(id(SET), Gait::Walk, "FootLeft", id(MATERIAL))
+            .is_err()
+    );
 }
 
 #[test]

@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::detection::{Motion, Observation};
 use soe_game::Game;
+use soe_game::detection::{Motion, Observation};
 use soe_papyrus::asm::ScriptBuilder;
 
 const HUNTER: u32 = 0x100;

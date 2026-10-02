@@ -52,9 +52,10 @@ fn shm_18_actor_kill_channel_follows_live_death_and_suppresses_silent_kills() {
         }]
     );
 
-    assert!(game
-        .world_mut()
-        .kill_actor_silent(id(0x901), Some(id(0x900))));
+    assert!(
+        game.world_mut()
+            .kill_actor_silent(id(0x901), Some(id(0x900)))
+    );
     assert!(game.world_mut().kill_actor(id(0x902), None));
     assert_eq!(observed.borrow().len(), 1);
 }
@@ -78,9 +79,10 @@ fn shm_18_critical_hit_channel_validates_live_actor_and_weapon_forms() {
             sneak_hit: true,
         }]
     );
-    assert!(game
-        .world_mut()
-        .report_critical_hit(id(0x900), id(0x901), false)
-        .is_err());
+    assert!(
+        game.world_mut()
+            .report_critical_hit(id(0x900), id(0x901), false)
+            .is_err()
+    );
     assert_eq!(observed.borrow().len(), 1);
 }

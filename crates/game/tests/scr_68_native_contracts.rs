@@ -3,11 +3,11 @@
 
 //! Contract inventory and Clear behavior for Quest and reference aliases.
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::quest;
-use soe_game::{natives, Game, Handle};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::{Game, Handle, natives};
 use soe_papyrus::Opcode::{CallMethod, Return};
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{ObjectId, Value, Vm};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -188,8 +188,9 @@ fn scr_68_clear_preserves_and_reports_non_optional_aliases() {
     call_alias(&mut game, alias, "Clear");
 
     assert_eq!(game.world_mut().alias_ref(quest, 0), original);
-    assert!(game
-        .traces()
-        .iter()
-        .any(|entry| entry.contains("ReferenceAlias.Clear: alias is not optional")));
+    assert!(
+        game.traces()
+            .iter()
+            .any(|entry| entry.contains("ReferenceAlias.Clear: alias is not optional"))
+    );
 }

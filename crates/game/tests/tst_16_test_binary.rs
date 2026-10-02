@@ -110,9 +110,11 @@ fn tst_16_manifest_selects_one_integration_binary() {
 #[test]
 fn tst_16_registration_uses_union_merge_and_writer_instructions() {
     let attributes = include_str!("../../../.gitattributes");
-    assert!(attributes
-        .lines()
-        .any(|line| line == "crates/game/tests/it.rs merge=union"));
+    assert!(
+        attributes
+            .lines()
+            .any(|line| line == "crates/game/tests/it.rs merge=union")
+    );
     for instructions in [
         include_str!("../../../AGENTS.md"),
         include_str!("../../../CLAUDE.md"),

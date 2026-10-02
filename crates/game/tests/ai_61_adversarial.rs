@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
+use soe_game::{Game, conditions};
 
 #[test]
 fn ai_61_bound_weapon_accepts_voice_source_as_unbound() {

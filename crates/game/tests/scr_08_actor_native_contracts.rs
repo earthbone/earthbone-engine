@@ -4,12 +4,12 @@
 //! SCR-08 Actor queries that have an owning World state field.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
+use soe_game::npc::{self, Config, Stats};
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 fn id(object: u32) -> GlobalFormId {

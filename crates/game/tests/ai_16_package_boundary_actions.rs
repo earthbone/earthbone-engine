@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::{package, Game};
+use soe_game::{Game, package};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const BASE: u32 = 0x800;

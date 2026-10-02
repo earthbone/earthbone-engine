@@ -3,8 +3,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    quest::state::{StoryEvent, StoryParameter},
     Game,
+    quest::state::{StoryEvent, StoryParameter},
 };
 
 const fn t(bytes: [u8; 4]) -> Tag {

@@ -4,8 +4,8 @@
 //! SCR-05: placed-reference scripts bind when their parent cell loads.
 
 use soe_esm::{
-    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
-    Tag,
+    Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
+    plugin::flags,
 };
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::{BindReport, Game};

@@ -4,8 +4,8 @@
 //! CMB-32 sound events retain their actor owner and source cell.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::detection::{detection_value, DetectionSettings, Motion, Observation, Senses};
 use soe_game::World;
+use soe_game::detection::{DetectionSettings, Motion, Observation, Senses, detection_value};
 use soe_papyrus::Value;
 
 fn id(object: u32) -> GlobalFormId {
@@ -184,9 +184,11 @@ fn cmb_32_live_inputs_change_shared_awareness_without_changing_identity() {
         lit > hidden && heard > hidden,
         "light and sound increase shared detection"
     );
-    assert!(world
-        .stealth_pool(id(5))
-        .unwrap()
-        .observers
-        .contains_key(&id(6)));
+    assert!(
+        world
+            .stealth_pool(id(5))
+            .unwrap()
+            .observers
+            .contains_key(&id(6))
+    );
 }

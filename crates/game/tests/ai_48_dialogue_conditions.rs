@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
+use soe_game::{Game, conditions};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x900;
@@ -171,12 +171,13 @@ fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     game.start_quest(id(QUEST));
     let player = game.player();
     game.begin_dialogue(actor, player).unwrap();
-    assert!(game
-        .dialogue_choices()
-        .unwrap()
-        .available
-        .iter()
-        .any(|c| c.topic == id(TOPIC)));
+    assert!(
+        game.dialogue_choices()
+            .unwrap()
+            .available
+            .iter()
+            .any(|c| c.topic == id(TOPIC))
+    );
     game.choose_dialogue(id(TOPIC)).unwrap();
     assert!(conditions::supports_function(434));
     assert!(conditions::supports_function(435));

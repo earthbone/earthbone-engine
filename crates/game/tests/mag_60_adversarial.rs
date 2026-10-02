@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::combat::MeleeHit;
 use soe_game::Game;
+use soe_game::combat::MeleeHit;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;

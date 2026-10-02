@@ -91,12 +91,14 @@ fn mag_20_effect_grants_its_authored_equip_ability() {
     cast(&mut game, SPELL);
 
     assert!(game.world_mut().has_spell(id(ACTOR), id(ABILITY)));
-    assert!(!game
-        .world_mut()
-        .actor(id(ACTOR))
-        .unwrap()
-        .spells
-        .contains(&id(ABILITY)));
+    assert!(
+        !game
+            .world_mut()
+            .actor(id(ACTOR))
+            .unwrap()
+            .spells
+            .contains(&id(ABILITY))
+    );
 }
 
 #[test]

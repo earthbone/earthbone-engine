@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::{
-    save::{DependencyChange, DependencyKind, DependencySource, SavedStateKind},
     Game,
+    save::{DependencyChange, DependencyKind, DependencySource, SavedStateKind},
 };
 use soe_papyrus::asm::ScriptBuilder;
 use soe_save::{Compression, FileLocationTable, GlobalData, Header, Save, WString};
@@ -288,12 +288,14 @@ fn sav_57_installed_ess_report_marks_real_dependencies_unknown_without_mutation(
         finding.change != DependencyChange::Missing
             && finding.change != DependencyChange::KindChanged
     }));
-    assert!(plugins
-        .iter()
-        .all(|plugin| report.findings.iter().any(|finding| {
-            finding.kind == DependencyKind::Plugin
-                && finding.identity.eq_ignore_ascii_case(&plugin.name)
-                && finding.change == DependencyChange::ProvenanceUnknown
-        })));
+    assert!(
+        plugins
+            .iter()
+            .all(|plugin| report.findings.iter().any(|finding| {
+                finding.kind == DependencyKind::Plugin
+                    && finding.identity.eq_ignore_ascii_case(&plugin.name)
+                    && finding.change == DependencyChange::ProvenanceUnknown
+            }))
+    );
     assert_eq!(current.save_state().unwrap(), before);
 }

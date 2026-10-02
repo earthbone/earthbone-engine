@@ -4,10 +4,10 @@
 //! DLG-19: scene timer actions start at their phase and complete at expiry.
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule};
 use soe_game::quest;
-use soe_game::Game;
 use soe_papyrus::ObjectId;
 
 fn id(object: u32) -> GlobalFormId {
@@ -128,17 +128,20 @@ fn dlg_19_scene_timer_action_completes_after_its_duration() {
     assert_eq!(game.world().scene_phase(id(0x800)), Some(0));
     assert!(!game.world_mut().complete_scene_action(id(0x800), 0));
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(!game
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(
+        !game
+            .world_mut()
+            .advance_scene_phase(id(0x800), &mut allocate)
+    );
 
     game.tick(1.0);
     game.tick(1.0);
     let mut allocate = |_: &str, _: &str| ObjectId(1);
     assert!(!game.world_mut().complete_scene_action(id(0x800), 0));
-    assert!(game
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(
+        game.world_mut()
+            .advance_scene_phase(id(0x800), &mut allocate)
+    );
     assert_eq!(game.world().scene_phase(id(0x800)), Some(1));
 }
 
@@ -155,15 +158,19 @@ fn dlg_19_scene_timer_deadline_survives_save_load() {
     restored.load_state(&save).unwrap();
     restored.tick(1.0);
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(!restored
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(
+        !restored
+            .world_mut()
+            .advance_scene_phase(id(0x800), &mut allocate)
+    );
     restored.tick(0.25);
     restored.tick(0.75);
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(restored
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(
+        restored
+            .world_mut()
+            .advance_scene_phase(id(0x800), &mut allocate)
+    );
 }
 
 /// dlg_19_scene_package_action_restores_the_actor_package
@@ -200,9 +207,11 @@ fn dlg_19_scene_package_action_restores_the_actor_package() {
     restored.load_state(&save).unwrap();
     assert_eq!(restored.world().current_package(actor), Some(id(0x812)));
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(restored
-        .world_mut()
-        .advance_scene_phase(scene, &mut allocate));
+    assert!(
+        restored
+            .world_mut()
+            .advance_scene_phase(scene, &mut allocate)
+    );
     assert_eq!(restored.world().current_package(actor), Some(id(0x811)));
     assert_eq!(
         restored.world().actor_ref(actor).unwrap().ai.alias,
@@ -266,7 +275,8 @@ fn dlg_19_timer_action_with_zero_duration_completes_on_first_tick() {
     assert!(game.world_mut().start_scene(id(0x800), &mut allocate));
     game.tick(0.0);
     let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(game
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut allocate));
+    assert!(
+        game.world_mut()
+            .advance_scene_phase(id(0x800), &mut allocate)
+    );
 }

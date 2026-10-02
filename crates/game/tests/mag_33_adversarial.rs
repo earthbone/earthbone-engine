@@ -83,11 +83,13 @@ fn mag_33_recasting_command_does_not_lose_original_owner_to_second_caster() {
     };
     assert!(second_caster.is_empty());
     let shared = game.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .dispel_effect(first, &mut |name, class| game
-            .vm
-            .create_object_of(name, class)));
+    assert!(
+        shared
+            .borrow_mut()
+            .dispel_effect(first, &mut |name, class| game
+                .vm
+                .create_object_of(name, class))
+    );
     assert_eq!(
         game.world().reference_ref(summoned).unwrap().owner,
         Some(id(CASTER))

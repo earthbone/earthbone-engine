@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{world::Pending, Game};
+use soe_game::{Game, world::Pending};
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     ObjectId,
     Opcode::{CallMethod, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 static N: AtomicUsize = AtomicUsize::new(0);
@@ -62,11 +62,12 @@ fn scr_42_translation_progress_and_stop_report_failure() {
     let before = g.world().reference_ref(id(0x900)).unwrap().position;
     g.world_mut().tick_translations(2., &mut |_, _| ObjectId(1));
     assert_eq!(g.world().reference_ref(id(0x900)).unwrap().position, before);
-    assert!(!g
-        .world()
-        .pending
-        .iter()
-        .any(|e| matches!(e,Pending::Event{name,..} if name=="OnTranslationComplete")));
+    assert!(
+        !g.world()
+            .pending
+            .iter()
+            .any(|e| matches!(e,Pending::Event{name,..} if name=="OnTranslationComplete"))
+    );
 }
 #[test]
 fn scr_42_spline_translation_snaps_to_absolute_endpoint() {
@@ -81,9 +82,10 @@ fn scr_42_spline_translation_snaps_to_absolute_endpoint() {
         g.world().reference_ref(id(0x900)).unwrap().position,
         [10., 0., 0.]
     );
-    assert!(g
-        .world()
-        .pending
-        .iter()
-        .any(|e| matches!(e,Pending::Event{name,..} if name=="OnTranslationComplete")));
+    assert!(
+        g.world()
+            .pending
+            .iter()
+            .any(|e| matches!(e,Pending::Event{name,..} if name=="OnTranslationComplete"))
+    );
 }

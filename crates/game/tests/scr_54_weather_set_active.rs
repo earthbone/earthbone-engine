@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const WEATHER_A: u32 = 1;
 const WEATHER_B: u32 = 2;
@@ -108,9 +108,11 @@ fn scr_54_set_active_world_api_rejects_invalid_forms_without_mutating_request() 
         .world_mut()
         .set_active_weather(id(GLOBAL), false, true)
         .unwrap_err();
-    assert!(non_weather_error
-        .to_string()
-        .contains("requires a WTHR form"));
+    assert!(
+        non_weather_error
+            .to_string()
+            .contains("requires a WTHR form")
+    );
     assert_eq!(game.world().weather_request(), previous);
     let missing_error = game
         .world_mut()

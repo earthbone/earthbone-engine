@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::ai::Procedure;
 use soe_game::package::{self, Schedule};
-use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;

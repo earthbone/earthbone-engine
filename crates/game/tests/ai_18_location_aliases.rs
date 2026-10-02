@@ -3,8 +3,8 @@
 
 //! AI-18 checks specific-location alias filling and saved identity.
 
-use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::flags};
+use soe_game::{Game, quest};
 
 const QUEST: u32 = 0x800;
 const TARGET_LOCATION: u32 = 0x801;

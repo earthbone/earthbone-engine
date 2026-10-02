@@ -4,7 +4,7 @@
 //! Boundary checks for witnessed combat assaults.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::MeleeHit, Game};
+use soe_game::{Game, combat::MeleeHit};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -100,18 +100,20 @@ fn each_witnessed_assault_adds_the_fact_assault_price() {
             .crime_gold_violent,
         80
     );
-    assert!(game
-        .world_mut()
-        .actor(id(0x900))
-        .unwrap()
-        .witnessed_crimes
-        .contains(&id(0x14)));
-    assert!(game
-        .world_mut()
-        .actor(id(0x901))
-        .unwrap()
-        .witnessed_crimes
-        .contains(&id(0x14)));
+    assert!(
+        game.world_mut()
+            .actor(id(0x900))
+            .unwrap()
+            .witnessed_crimes
+            .contains(&id(0x14))
+    );
+    assert!(
+        game.world_mut()
+            .actor(id(0x901))
+            .unwrap()
+            .witnessed_crimes
+            .contains(&id(0x14))
+    );
 }
 
 #[test]
@@ -128,10 +130,11 @@ fn witnessed_assault_and_bounty_survive_engine_save_load() {
             .crime_gold_violent,
         40
     );
-    assert!(game
-        .world_mut()
-        .actor(id(0x901))
-        .unwrap()
-        .witnessed_crimes
-        .contains(&id(0x14)));
+    assert!(
+        game.world_mut()
+            .actor(id(0x901))
+            .unwrap()
+            .witnessed_crimes
+            .contains(&id(0x14))
+    );
 }

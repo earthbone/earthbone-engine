@@ -8,12 +8,12 @@ use crate::common::legacy;
 use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game, Handle, Pending};
+use soe_game::{Game, Handle, Pending, quest};
 use soe_papyrus::{
-    asm::{i, ident, none, s, FunctionBuilder, ScriptBuilder},
     ObjectId,
     Opcode::*,
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, i, ident, none, s},
 };
 
 fn id(object: u32) -> GlobalFormId {
@@ -213,9 +213,11 @@ fn silent_death_stays_silent_when_deferred_and_reloaded() {
         "Actor",
     );
     game.world_mut().start_deferred_kill(id(0x900));
-    assert!(!game
-        .world_mut()
-        .kill_actor_silent(id(0x900), Some(id(0x901))));
+    assert!(
+        !game
+            .world_mut()
+            .kill_actor_silent(id(0x900), Some(id(0x901)))
+    );
     let bytes = game.world().save_state();
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));
@@ -441,5 +443,7 @@ fn installed_npc_deaths_respect_essential_flags_and_persist() {
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);
     assert_eq!(world.save_state(), bytes);
-    eprintln!("Death lifecycle: {initialized} actors, {killed} deaths, {essential} essential, {suppressed} suppressed spawns");
+    eprintln!(
+        "Death lifecycle: {initialized} actors, {killed} deaths, {essential} essential, {suppressed} suppressed spawns"
+    );
 }

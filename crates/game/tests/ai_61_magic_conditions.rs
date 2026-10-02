@@ -4,10 +4,10 @@
 //! AI-61 magic CTDA predicates against authored spell and runtime state.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{combat::Hand, conditions, Game};
+use soe_game::{Game, combat::Hand, conditions};
 
 const ACTOR: u32 = 0x100;
 const ACTOR_BASE: u32 = 0x101;

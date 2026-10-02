@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn fixture() -> Game {
     let tag = Tag::new;
@@ -103,12 +103,16 @@ fn repeated_effect_shader_play_keeps_each_lifetime_refresh_for_the_same_pair() {
     let requests = game.world_mut().take_effect_shader_requests();
     assert_eq!(requests.len(), 2);
     assert!(requests.iter().all(|request| request.playing));
-    assert!(requests
-        .iter()
-        .all(|request| request.shader.object == 0x801));
-    assert!(requests
-        .iter()
-        .all(|request| request.target.object == 0x802));
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.shader.object == 0x801)
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.target.object == 0x802)
+    );
     assert_eq!(requests[0].duration, 2.0);
     assert_eq!(requests[1].duration, 8.0);
 }

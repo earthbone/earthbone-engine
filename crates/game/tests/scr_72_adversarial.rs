@@ -2,7 +2,7 @@
 #![allow(clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::{clock::GameClock, Game};
+use soe_game::{Game, clock::GameClock};
 
 #[test]
 fn scr_72_utility_calendar_and_registry_contracts_cover_boundaries() {

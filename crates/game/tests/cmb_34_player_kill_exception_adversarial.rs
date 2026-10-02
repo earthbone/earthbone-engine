@@ -18,7 +18,7 @@
 //! attacker at the same skill uses the non-player skill scale and deals 30.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::MeleeHit, npc::flags, Game};
+use soe_game::{Game, combat::MeleeHit, npc::flags};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

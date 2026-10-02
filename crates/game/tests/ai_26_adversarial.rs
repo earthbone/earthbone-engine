@@ -4,10 +4,10 @@
 //! Escort validates its target, walks to its authored location, and completes.
 
 use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Location, Schedule};
-use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x900;
@@ -206,21 +206,25 @@ fn ai_26_escort_round_trips_and_rejects_unknown_sections_and_future_world_versio
         .position(|name| name == b"AI-21")
         .unwrap();
     unknown_section[section..section + 5].copy_from_slice(b"AI-00");
-    assert!(restored
-        .world_mut()
-        .load_state(&unknown_section)
-        .unwrap_err()
-        .to_string()
-        .contains("unknown section AI-00 at actor"));
+    assert!(
+        restored
+            .world_mut()
+            .load_state(&unknown_section)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown section AI-00 at actor")
+    );
 
     let mut future = bytes;
     future[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION + 1).to_le_bytes());
-    assert!(restored
-        .world_mut()
-        .load_state(&future)
-        .unwrap_err()
-        .to_string()
-        .contains("world state version"));
+    assert!(
+        restored
+            .world_mut()
+            .load_state(&future)
+            .unwrap_err()
+            .to_string()
+            .contains("world state version")
+    );
 }
 
 #[test]

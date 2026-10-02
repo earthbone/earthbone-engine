@@ -3,9 +3,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::{
-    asm::{ident, none, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, none, s},
 };
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }

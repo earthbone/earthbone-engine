@@ -4,10 +4,10 @@
 //! AI-57 location alias, blocking and location reference count conditions.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, quest, Game};
+use soe_game::{Game, conditions, quest};
 
 const BASE: u32 = 0x800;
 const ACTOR: u32 = 0x801;

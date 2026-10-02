@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
+use soe_game::npc::{self, Config, Stats};
 use std::path::PathBuf;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

@@ -13,10 +13,10 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    Game,
     class::Class,
     npc::{self, Config, Stats},
     race::Attributes,
-    Game,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
-use soe_save::atomic::{fault, Step};
+use soe_save::atomic::{Step, fault};
 
 fn fixture() -> Game {
     Game::new(LoadOrder::new())

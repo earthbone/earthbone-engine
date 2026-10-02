@@ -3,8 +3,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    perks::{DispatchError, EntryPointContext, EntryPointDispatcher, EntryPointInvocation},
     Game, World,
+    perks::{DispatchError, EntryPointContext, EntryPointDispatcher, EntryPointInvocation},
 };
 
 const PERK: u32 = 0x800;

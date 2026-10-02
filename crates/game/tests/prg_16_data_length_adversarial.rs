@@ -23,8 +23,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    perks::{Error, Purchase},
     Game,
+    perks::{Error, Purchase},
 };
 use std::collections::BTreeSet;
 

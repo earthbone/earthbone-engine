@@ -4,10 +4,10 @@
 //! AI-85 condition functions 244, 255, 265, 266, 267, 304, 332 and 716.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
+use soe_game::{Game, conditions};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

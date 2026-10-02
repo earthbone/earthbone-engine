@@ -83,18 +83,20 @@ fn mag_32_disarm_drops_one_equipped_weapon_as_a_recoverable_reference() {
         assert_eq!(dropped.item.as_ref().map(|item| item.count()), Some(1));
     }
 
-    assert!(game
-        .world_mut()
-        .add_item_notified(id(ACTOR), dropped_id, 1, &mut |_, _| soe_papyrus::ObjectId(
-            999
-        ),));
+    assert!(
+        game.world_mut()
+            .add_item_notified(id(ACTOR), dropped_id, 1, &mut |_, _| soe_papyrus::ObjectId(
+                999
+            ),)
+    );
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(WEAPON)), 2);
-    assert!(game
-        .world()
-        .reference_ref(dropped_id)
-        .unwrap()
-        .item
-        .is_none());
+    assert!(
+        game.world()
+            .reference_ref(dropped_id)
+            .unwrap()
+            .item
+            .is_none()
+    );
     assert!(!game.world().reference_ref(dropped_id).unwrap().enabled);
 }
 

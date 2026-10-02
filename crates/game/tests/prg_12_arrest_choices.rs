@@ -5,8 +5,8 @@
 
 use soe_esm::plugin::flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::crime::{ArrestChoice, ArrestOptions, ArrestResult, Error};
 use soe_game::Game;
+use soe_game::crime::{ArrestChoice, ArrestOptions, ArrestResult, Error};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const FACTION: GlobalFormId = GlobalFormId {

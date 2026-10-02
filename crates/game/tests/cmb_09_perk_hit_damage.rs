@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::MeleeHit, Game};
+use soe_game::{Game, combat::MeleeHit};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

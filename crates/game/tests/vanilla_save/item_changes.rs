@@ -138,12 +138,13 @@ fn sav_38_item_restore_rejects_duplicate_late_change_without_partial_overrides()
     save.change_forms[2].form = reference(2);
     save.change_forms[2].type_field = 26;
     let before = game.world().name_of(id(0, 0x800));
-    assert!(game
-        .world_mut()
-        .restore_vanilla_items(&save)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate or already overridden item"));
+    assert!(
+        game.world_mut()
+            .restore_vanilla_items(&save)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate or already overridden item")
+    );
     assert_eq!(game.world().name_of(id(0, 0x800)), before);
     assert!(game.world().restored_item_extra(id(0, 0x800)).is_none());
 }

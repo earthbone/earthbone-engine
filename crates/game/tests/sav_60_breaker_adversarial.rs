@@ -6,7 +6,7 @@ use std::rc::Rc;
 use soe_esm::LoadOrder;
 use soe_game::Game;
 use soe_papyrus::{
-    asm::{i, none, FunctionBuilder, ScriptBuilder},
+    asm::{FunctionBuilder, ScriptBuilder, i, none},
     value::{ArrayRef, ElementKind, Value},
 };
 

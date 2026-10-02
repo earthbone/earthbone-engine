@@ -3,8 +3,8 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::CallStatic;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn request(game: &mut Game, path: &str) {
     let function = FunctionBuilder::new("Run", "None")
@@ -12,7 +12,12 @@ fn request(game: &mut Game, path: &str) {
         .param("path", "String")
         .ins(
             CallStatic,
-            vec![s("Debug"), s("TakeScreenshot"), ident("::nonevar"), ident("path")],
+            vec![
+                s("Debug"),
+                s("TakeScreenshot"),
+                ident("::nonevar"),
+                ident("path"),
+            ],
         )
         .build();
     game.load_script(
@@ -22,11 +27,7 @@ fn request(game: &mut Game, path: &str) {
     )
     .unwrap();
     game.vm
-        .call_global(
-            "Hst19Breaker2",
-            "Run",
-            &[soe_papyrus::Value::string(path)],
-        )
+        .call_global("Hst19Breaker2", "Run", &[soe_papyrus::Value::string(path)])
         .unwrap();
     assert!(game.run_until_idle(64));
 }

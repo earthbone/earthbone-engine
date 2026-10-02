@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallMethod, CallStatic, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 const MESSAGE: u32 = 10;

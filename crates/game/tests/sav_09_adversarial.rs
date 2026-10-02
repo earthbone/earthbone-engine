@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{vanilla_save::RestoreError, Game};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
+use soe_game::{Game, vanilla_save::RestoreError};
 use soe_save::{
-    reference::{flags as change_flags, PlayerLocation},
     ChangeForm, Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save,
     WString,
+    reference::{PlayerLocation, flags as change_flags},
 };
 
 fn id(object: u32) -> GlobalFormId {

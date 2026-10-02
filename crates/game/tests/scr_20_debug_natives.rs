@@ -4,9 +4,9 @@
 //! SCR-20 contracts for global Debug user-log, quit and cell-center natives.
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::{world::DebugHostRequest, Game};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::{Game, world::DebugHostRequest};
 use soe_papyrus::Opcode::{CallStatic, Return};
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{ThreadState, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -115,10 +115,11 @@ fn scr_20_trace_user_writes_only_to_an_open_named_log() {
         .1,
         Some(Value::Bool(false))
     );
-    assert!(game
-        .vm
-        .log
-        .contains("Debug.TraceUser log is not open: quest"));
+    assert!(
+        game.vm
+            .log
+            .contains("Debug.TraceUser log is not open: quest")
+    );
 }
 
 #[test]
@@ -153,10 +154,11 @@ fn scr_20_center_on_cell_queues_resolved_destination_and_rejects_unknown_name() 
         "None",
     );
     assert!(game.world().debug_host_requests.is_empty());
-    assert!(game
-        .vm
-        .log
-        .contains("Debug.CenterOnCell cell not found: MissingCell"));
+    assert!(
+        game.vm
+            .log
+            .contains("Debug.CenterOnCell cell not found: MissingCell")
+    );
 }
 
 #[test]
@@ -171,10 +173,12 @@ fn scr_20_center_on_cell_and_wait_suspends_until_host_completion() {
     assert!(matches!(state, ThreadState::Latent(_)));
     assert_eq!(result, None);
     let latent = match game.world().debug_host_requests.as_slice() {
-        [DebugHostRequest::CenterOnCell {
-            latent: Some(latent),
-            ..
-        }] => *latent,
+        [
+            DebugHostRequest::CenterOnCell {
+                latent: Some(latent),
+                ..
+            },
+        ] => *latent,
         _ => panic!("expected the host request to carry the latent waiter"),
     };
     game.vm.resolve_latent(latent, Value::Float(0.0));
@@ -189,10 +193,11 @@ fn scr_20_center_on_cell_and_wait_suspends_until_host_completion() {
     assert_eq!(state, ThreadState::Done);
     assert_eq!(result, Some(Value::Float(-1.0)));
     assert!(game.world().debug_host_requests.is_empty());
-    assert!(game
-        .vm
-        .log
-        .contains("Debug.CenterOnCellAndWait cell not found: MissingCell"));
+    assert!(
+        game.vm
+            .log
+            .contains("Debug.CenterOnCellAndWait cell not found: MissingCell")
+    );
 }
 
 #[test]

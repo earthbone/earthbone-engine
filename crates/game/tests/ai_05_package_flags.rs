@@ -4,10 +4,10 @@
 //! AI-05 package completion, combat interruption and door unlock flags.
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::ai::{self, TreeState};
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule};
-use soe_game::Game;
 use soe_papyrus::value::ObjectId;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

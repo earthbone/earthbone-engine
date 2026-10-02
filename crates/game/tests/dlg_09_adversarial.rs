@@ -49,12 +49,16 @@ fn dlg_09_completed_action_set_survives_save_and_duplicate_completion_is_ignored
     let mut restored = fixture();
     restored.load_state(&save).unwrap();
     assert!(!restored.world_mut().complete_scene_action(id(0x800), 0));
-    assert!(!restored
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut alloc));
+    assert!(
+        !restored
+            .world_mut()
+            .advance_scene_phase(id(0x800), &mut alloc)
+    );
     assert!(restored.world_mut().complete_scene_action(id(0x800), 1));
-    assert!(restored
-        .world_mut()
-        .advance_scene_phase(id(0x800), &mut alloc));
+    assert!(
+        restored
+            .world_mut()
+            .advance_scene_phase(id(0x800), &mut alloc)
+    );
     assert_eq!(restored.world().scene_phase(id(0x800)), Some(1));
 }

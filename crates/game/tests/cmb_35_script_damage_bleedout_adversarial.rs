@@ -28,7 +28,7 @@
 //! the clamp holds for that path too.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc::flags, Game};
+use soe_game::{Game, npc::flags};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

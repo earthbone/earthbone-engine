@@ -46,9 +46,10 @@ fn mag_41_replacing_telekinesis_concentration_releases_the_grabbed_reference() {
             .unwrap();
     }
     let held = game.world_mut().place_at(id(0x220), id(CASTER), false);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(CASTER), held));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(CASTER), held)
+    );
     {
         let shared = game.shared_world();
         shared

@@ -4,7 +4,7 @@
 use soe_commonlib_shim::form::FormId;
 use soe_commonlib_shim::world::{ReferenceKind, Unsupported};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{commonlib, Game};
+use soe_game::{Game, commonlib};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 

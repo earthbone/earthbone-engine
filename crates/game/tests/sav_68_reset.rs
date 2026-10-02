@@ -8,11 +8,11 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::{Game, World};
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

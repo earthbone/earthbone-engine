@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{quest, Game};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
+use soe_game::{Game, quest};
 use soe_papyrus::{
-    asm::{i, ident, s, FunctionBuilder, ScriptBuilder},
     Opcode,
+    asm::{FunctionBuilder, ScriptBuilder, i, ident, s},
 };
 use soe_save::{ChangeForm, Compression, GlobalData, Header, RefId, Save, WString};
 
@@ -274,9 +274,10 @@ fn sav_20_all_six_mapped_story_arguments_survive_reload_and_dispatch_once() {
     let quest_object = game.object_of_form(quest_id);
     game.load_script(&event_handler()).unwrap();
     game.vm.attach(quest_object, "Sav20StoryProbe").unwrap();
-    assert!(game
-        .vm
-        .has_script_method(quest_object, "Sav20StoryProbe", "OnStoryScript"));
+    assert!(
+        game.vm
+            .has_script_method(quest_object, "Sav20StoryProbe", "OnStoryScript")
+    );
     assert!(game.world().exists(id(3, 0x800)));
     assert!(game.world().exists(id(4, 0x800)));
 
@@ -284,25 +285,32 @@ fn sav_20_all_six_mapped_story_arguments_survive_reload_and_dispatch_once() {
     let messages = game.vm.log.messages();
     for form in [id(3, 0x800), id(4, 0x800)] {
         let runtime = game.world().runtime_id(form);
-        assert!(messages
-            .iter()
-            .any(|message| message.to_string().contains(&format!("{runtime:08X}"))));
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.to_string().contains(&format!("{runtime:08X}")))
+        );
     }
-    assert!(messages
-        .iter()
-        .any(|message| message.to_string().contains("-16")));
-    assert!(messages
-        .iter()
-        .any(|message| message.to_string().contains("42")));
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.to_string().contains("-16"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.to_string().contains("42"))
+    );
     assert_eq!(game.resume_vanilla_quest_story_events(), 0);
-    assert!(game
-        .world()
-        .quest(quest_id)
-        .unwrap()
-        .runtime
-        .run_data
-        .as_ref()
-        .unwrap()
-        .event
-        .is_none());
+    assert!(
+        game.world()
+            .quest(quest_id)
+            .unwrap()
+            .runtime
+            .run_data
+            .as_ref()
+            .unwrap()
+            .event
+            .is_none()
+    );
 }

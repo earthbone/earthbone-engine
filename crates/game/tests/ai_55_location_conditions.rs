@@ -4,10 +4,10 @@
 //! AI-55 location, cell, owner and package CTDA functions.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, package, quest, Game};
+use soe_game::{Game, conditions, package, quest};
 
 const BASE: u32 = 0x800;
 const ACTOR: u32 = 0x801;

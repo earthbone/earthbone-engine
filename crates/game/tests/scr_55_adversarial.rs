@@ -4,7 +4,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{natives, Game, World};
+use soe_game::{Game, World, natives};
 use soe_papyrus::Vm;
 
 #[test]

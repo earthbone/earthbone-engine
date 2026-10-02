@@ -2,11 +2,11 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use soe_esm::{
-    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
-    Tag,
+    Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag,
+    plugin::flags,
 };
-use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
+use soe_game::npc::{self, Config, Stats};
 use std::path::PathBuf;
 
 const BASE: u32 = 0x800;

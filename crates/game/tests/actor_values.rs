@@ -8,13 +8,13 @@ use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
+    Game,
     actor_values::Values,
     npc::{self, Config, Stats},
-    Game,
 };
 use soe_papyrus::{
-    asm::{f, ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::CallMethod,
+    asm::{FunctionBuilder, ScriptBuilder, f, ident, s},
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -366,9 +366,11 @@ fn race_starting_values_replace_non_autocalculated_dnam_cache() {
     assert_eq!(values[0].1, 100.0);
     assert_eq!(values[1].1, 30.0);
     assert_eq!(values[2].1, 100.0);
-    assert!(values
-        .iter()
-        .any(|(name, value)| name == "unarmeddamage" && *value == 4.0));
+    assert!(
+        values
+            .iter()
+            .any(|(name, value)| name == "unarmeddamage" && *value == 4.0)
+    );
 }
 
 #[test]
@@ -479,12 +481,13 @@ fn cyclic_template_sources_return_an_error() {
     let mut order = LoadOrder::new();
     order.add("Cycle.esm", plugin).unwrap();
     let game = Game::new(order);
-    assert!(game
-        .world()
-        .initial_actor_values(id(0, 0x800))
-        .unwrap_err()
-        .to_string()
-        .contains("cyclic"));
+    assert!(
+        game.world()
+            .initial_actor_values(id(0, 0x800))
+            .unwrap_err()
+            .to_string()
+            .contains("cyclic")
+    );
 }
 
 #[test]

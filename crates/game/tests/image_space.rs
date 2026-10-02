@@ -6,9 +6,9 @@ use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, CallStatic, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -253,11 +253,12 @@ fn animated_expiry_and_crossfade_pause_with_the_game_clock() {
     call(&mut game, Some(1), "ApplyCrossFade", &[]);
     game.tick_menu_mode(20.0, true);
     assert_eq!(weights(&game), vec![(5, 1.0), (1, 0.0)]);
-    assert!(game
-        .world()
-        .image_space_layers()
-        .iter()
-        .all(|layer| layer.age == 0.0));
+    assert!(
+        game.world()
+            .image_space_layers()
+            .iter()
+            .all(|layer| layer.age == 0.0)
+    );
     game.tick(1.0);
     assert_eq!(weights(&game), vec![(5, 1.0), (1, 1.0)]);
     game.tick(1.0);
@@ -271,10 +272,11 @@ fn invalid_apply_and_pop_leave_the_existing_stack_unchanged() {
     let before = game.world().save_state();
     assert!(game.world_mut().pop_image_space(id(1), id(6), 1.0).is_err());
     assert!(game.world_mut().apply_image_space(id(2), f32::NAN).is_err());
-    assert!(game
-        .world_mut()
-        .crossfade_image_space(None, f32::INFINITY)
-        .is_err());
+    assert!(
+        game.world_mut()
+            .crossfade_image_space(None, f32::INFINITY)
+            .is_err()
+    );
     assert_eq!(game.world().save_state(), before);
 }
 
@@ -302,12 +304,13 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     marker.extend_from_slice(&id(2).object.to_le_bytes());
     let offset = legacy::unique_offset(&corrupt, &marker) + 1 + std::mem::size_of::<f64>();
     corrupt[offset..offset + std::mem::size_of::<f64>()].copy_from_slice(&f64::NAN.to_le_bytes());
-    assert!(game
-        .world_mut()
-        .load_state(&corrupt)
-        .unwrap_err()
-        .to_string()
-        .contains("invalid image-space fade"));
+    assert!(
+        game.world_mut()
+            .load_state(&corrupt)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid image-space fade")
+    );
     assert_eq!(game.world().save_state(), before);
     game.world_mut().load_state(&legacy).unwrap();
     assert!(game.world().image_space_layers().is_empty());
@@ -347,10 +350,11 @@ fn scr_33_installed_imad_lifetimes_and_curves_sample_winning_records() {
             .unwrap();
     }
     for &id in &ids {
-        assert!(game
-            .world_mut()
-            .crossfade_image_space(Some(id), 0.0)
-            .is_ok());
+        assert!(
+            game.world_mut()
+                .crossfade_image_space(Some(id), 0.0)
+                .is_ok()
+        );
     }
     let saved = game.save_state().unwrap();
     game.load_state(&saved).unwrap();
@@ -381,10 +385,12 @@ fn mag_71_samples_authored_color_blur_depth_and_hdr_curves() {
     };
     let close = |actual: Vec<f32>, expected: &[f32]| {
         assert_eq!(actual.len(), expected.len());
-        assert!(actual
-            .iter()
-            .zip(expected)
-            .all(|(actual, expected)| (actual - expected).abs() < 0.000_001));
+        assert!(
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.000_001)
+        );
     };
     close(find(*b"TNAM"), &[0.5, 0.25, 0.125, 0.5]);
     close(find(*b"BNAM"), &[0.5]);

@@ -4,7 +4,7 @@
 //! CMB-18 witnessed assault bounty behavior.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::MeleeHit, Game};
+use soe_game::{Game, combat::MeleeHit};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -105,11 +105,13 @@ fn cmb_18_witnessed_player_assault_charges_owning_faction() {
 
     let mut world = game.world_mut();
     assert_eq!(world.faction(id(0x701)).unwrap().crime_gold_violent, 40);
-    assert!(world
-        .actor(id(0x901))
-        .unwrap()
-        .witnessed_crimes
-        .contains(&player));
+    assert!(
+        world
+            .actor(id(0x901))
+            .unwrap()
+            .witnessed_crimes
+            .contains(&player)
+    );
 }
 
 #[test]

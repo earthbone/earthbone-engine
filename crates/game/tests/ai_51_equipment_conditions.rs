@@ -4,14 +4,13 @@
 //! AI-51 equipment condition functions over equipment and item context.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
 use soe_game::{
-    conditions,
+    Game, World, conditions,
     inventory::*,
     perks::{DispatchError, EntryPointContext, EntryPointDispatcher, EntryPointInvocation},
-    Game, World,
 };
 
 const ACTOR: u32 = 0x800;

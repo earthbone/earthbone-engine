@@ -150,15 +150,18 @@ fn mag_61_hazard_expiry_ends_its_contact_effects() {
         .unwrap();
 
     game.tick(0.26);
-    assert!(game
-        .world()
-        .active_effects()
-        .any(|active| active.source == hazard));
+    assert!(
+        game.world()
+            .active_effects()
+            .any(|active| active.source == hazard)
+    );
 
     game.tick(2.74);
-    assert!(!game
-        .world()
-        .active_effects()
-        .any(|active| active.source == hazard));
+    assert!(
+        !game
+            .world()
+            .active_effects()
+            .any(|active| active.source == hazard)
+    );
     assert!(game.world().reference_ref(hazard).unwrap().deleted);
 }

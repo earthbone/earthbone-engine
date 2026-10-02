@@ -4,10 +4,10 @@
 //! AI-30 Guard package area holding, conditions and intrusion response.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::World;
 use soe_game::ai::Procedure;
 use soe_game::detection::{DetectionLevel, Motion, Observation};
-use soe_game::package::{self, condition, CompValue, Condition, Location, Schedule};
-use soe_game::World;
+use soe_game::package::{self, CompValue, Condition, Location, Schedule, condition};
 use soe_papyrus::vm::state::{Reader, Writer};
 
 const CELL: u32 = 0x800;

@@ -5,8 +5,8 @@
 //! xEdit identifies MGEF archetype 22, with duration on the SPEL EFIT entry.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::Game;
+use soe_game::world::magic::{EffectId, MagicError};
 
 const BASE: u32 = 0x100;
 const CASTER: u32 = 0x101;

@@ -7,8 +7,8 @@
 //! known-spell entry the native magic menu would list.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::combat::Hand;
 use soe_game::World;
+use soe_game::combat::Hand;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;

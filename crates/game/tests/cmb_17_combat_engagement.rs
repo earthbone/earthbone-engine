@@ -5,9 +5,9 @@
 
 use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::World;
 use soe_game::detection::{DetectionLevel, Motion, Observation};
 use soe_game::package::{self, Schedule};
-use soe_game::World;
 
 const CELL: u32 = 0x800;
 const HUNTER_BASE: u32 = 0x801;

@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const MUSIC_A: u32 = 0x801;
@@ -92,9 +92,11 @@ fn scr_37_music_type_methods_log_wrong_form_errors_without_mutation() {
     assert_eq!(game.world().active_music_types(), [id(MUSIC_A)]);
     let traces = game.traces();
     assert!(traces.iter().any(|trace| trace.contains("MusicType.Add")));
-    assert!(traces
-        .iter()
-        .any(|trace| trace.contains("MusicType.Remove")));
+    assert!(
+        traces
+            .iter()
+            .any(|trace| trace.contains("MusicType.Remove"))
+    );
     assert!(game.world_mut().add_music_type(id(WRONG_FORM)).is_err());
     assert!(game.world_mut().remove_music_type(id(WRONG_FORM)).is_err());
     assert_eq!(game.world().active_music_types(), [id(MUSIC_A)]);

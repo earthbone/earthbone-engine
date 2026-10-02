@@ -85,10 +85,11 @@ fn cmb_23_nonplayable_arrow_does_not_create_a_recoverable_reference() {
         .release_projectile(player, id(0x800), [0.0; 3], [0.0, 1.0, 0.0])
         .unwrap();
     assert!(!request.recoverable);
-    assert!(game
-        .world_mut()
-        .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
-        .is_none());
+    assert!(
+        game.world_mut()
+            .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
+            .is_none()
+    );
 }
 
 #[test]
@@ -99,8 +100,9 @@ fn cmb_23_nonplayable_ammo_record_does_not_create_a_recoverable_reference() {
         .release_projectile(player, id(0x800), [0.0; 3], [0.0, 1.0, 0.0])
         .unwrap();
     assert!(!request.recoverable);
-    assert!(game
-        .world_mut()
-        .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
-        .is_none());
+    assert!(
+        game.world_mut()
+            .place_recovered_arrow(&request, [12.0, 34.0, 56.0])
+            .is_none()
+    );
 }

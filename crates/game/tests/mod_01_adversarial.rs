@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag, plugin::flags};
 use soe_game::{
-    npc::{self, Config, Stats},
     Game,
+    npc::{self, Config, Stats},
 };
 use std::{fs, path::PathBuf};
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -144,12 +144,13 @@ fn mod_01_deterministic_rule_keeps_base_filter_and_rejects_missing_actor() {
         report.distributions_applied, 0,
         "deterministic rules must respect SPID base filters"
     );
-    assert!(!g
-        .world_mut()
-        .actor(id(REF))
-        .unwrap()
-        .spells
-        .contains(&id(SPELL)));
+    assert!(
+        !g.world_mut()
+            .actor(id(REF))
+            .unwrap()
+            .spells
+            .contains(&id(SPELL))
+    );
     assert!(
         g.world_mut().actor(id(0xdead)).is_none(),
         "an unresolved actor reference cannot receive a distribution"

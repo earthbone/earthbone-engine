@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Tag, plugin::flags};
+use soe_game::Game;
 use soe_game::quest::{self, flags as quest_flags};
 use soe_game::vmad::{ScriptEntry, Vmad};
-use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn fixture() -> (Game, GlobalFormId) {
     let form = GlobalFormId {

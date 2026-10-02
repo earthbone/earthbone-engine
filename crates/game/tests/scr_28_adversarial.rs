@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::LoadOrder;
-use soe_game::{world::HostRequest, Game};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::{Game, world::HostRequest};
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{Opcode::*, Value};
 
 fn call(game: &mut Game, name: &str, args: &[Value]) {
@@ -99,8 +99,9 @@ fn scr_28_fade_forwards_both_flags_and_rejects_invalid_timing_atomically() {
         ],
     );
     assert!(game.world().host_requests.is_empty());
-    assert!(game
-        .traces()
-        .iter()
-        .any(|trace| trace.contains("Game.FadeOutGame")));
+    assert!(
+        game.traces()
+            .iter()
+            .any(|trace| trace.contains("Game.FadeOutGame"))
+    );
 }

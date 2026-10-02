@@ -4,8 +4,8 @@
 use crate::common::legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::npc::{self, Config, Stats};
 use soe_game::World;
+use soe_game::npc::{self, Config, Stats};
 use std::path::Path;
 
 fn fixture() -> (World, GlobalFormId) {

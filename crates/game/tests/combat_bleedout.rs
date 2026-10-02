@@ -5,8 +5,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    npc::{flags, template},
     Game,
+    npc::{flags, template},
 };
 use soe_papyrus::Value;
 
@@ -127,14 +127,16 @@ fn bleedout_threshold_rejects_bad_class_data_and_signed_override() {
         Record::new(Tag(*b"WEAP"), 0x700),
     ] {
         let game = fixture(vec![npc(0x800, None, Some(0x700), None), record], None);
-        assert!(game
-            .world_mut()
-            .actor_bleedout_threshold(id(0x900))
-            .is_err());
+        assert!(
+            game.world_mut()
+                .actor_bleedout_threshold(id(0x900))
+                .is_err()
+        );
     }
     let game = fixture(vec![npc(0x800, Some(u16::MAX), None, None)], None);
-    assert!(game
-        .world_mut()
-        .actor_bleedout_threshold(id(0x900))
-        .is_err());
+    assert!(
+        game.world_mut()
+            .actor_bleedout_threshold(id(0x900))
+            .is_err()
+    );
 }

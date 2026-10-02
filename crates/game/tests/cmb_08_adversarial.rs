@@ -4,7 +4,7 @@
 //! CMB-08 release edge cases from the local AMMO and PROJ format contracts.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{combat::Error, Game};
+use soe_game::{Game, combat::Error};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

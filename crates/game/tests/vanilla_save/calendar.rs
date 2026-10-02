@@ -3,7 +3,7 @@
 //! Calendar imports use the six globals named by CommonLib Calendar.
 
 use super::*;
-use soe_game::clock::{Calendar, CALENDAR_GLOBALS};
+use soe_game::clock::{CALENDAR_GLOBALS, Calendar};
 
 fn calendar_order() -> LoadOrder {
     let mut order = order();
@@ -99,13 +99,10 @@ fn sav_08_restores_calendar_before_execution_and_preserves_it_in_engine_saves() 
         skill_use: None,
         light_level: None,
     };
-    assert!(soe_game::conditions::evaluate_one(
-        &mut game.world_mut(),
-        &game.vm,
-        context,
-        &condition
-    )
-    .unwrap());
+    assert!(
+        soe_game::conditions::evaluate_one(&mut game.world_mut(), &game.vm, context, &condition)
+            .unwrap()
+    );
     let bytes = game.save_state().unwrap();
     let hash = game.world().state_hash();
     let mut restored = Game::new(calendar_order());

@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{world::DYNAMIC_FILE, World};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
+use soe_game::{World, world::DYNAMIC_FILE};
 use soe_save::{
-    reference::PlayerLocation, ChangeForm, Compression, GlobalData, Header, RefId, Save, WString,
+    ChangeForm, Compression, GlobalData, Header, RefId, Save, WString, reference::PlayerLocation,
 };
 
 fn rid(raw: u32) -> RefId {

@@ -40,13 +40,16 @@ fn mag_41_grab_holds_one_eligible_reference_and_interruption_releases_it() {
 
     let object = game.world_mut().place_at(id(ITEM), id(ACTOR), false);
     let other = game.world_mut().place_at(id(OTHER_ITEM), id(ACTOR), false);
-    assert!(game
-        .world_mut()
-        .grab_telekinesis_reference(id(ACTOR), object));
+    assert!(
+        game.world_mut()
+            .grab_telekinesis_reference(id(ACTOR), object)
+    );
     assert_eq!(game.world().telekinesis_reference(id(ACTOR)), Some(object));
-    assert!(!game
-        .world_mut()
-        .grab_telekinesis_reference(id(ACTOR), other));
+    assert!(
+        !game
+            .world_mut()
+            .grab_telekinesis_reference(id(ACTOR), other)
+    );
 
     assert!(game.world_mut().release_concentration_cast());
     assert_eq!(game.world().telekinesis_reference(id(ACTOR)), None);

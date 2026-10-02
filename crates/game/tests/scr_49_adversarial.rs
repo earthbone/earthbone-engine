@@ -3,9 +3,9 @@
 use soe_esm::LoadOrder;
 use soe_game::Game;
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallStatic, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 fn call(g: &mut Game, name: &str, args: &[Value]) -> Value {
     let script = format!("Scr49Edge{name}");

@@ -35,8 +35,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    combat::{Error, MeleeHit},
     Game,
+    combat::{Error, MeleeHit},
 };
 
 fn id(object: u32) -> GlobalFormId {

@@ -16,8 +16,8 @@
 use std::collections::BTreeMap;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::detection::{DetectionLevel, Error as DetectionError, Motion, Observation};
 use soe_game::World;
+use soe_game::detection::{DetectionLevel, Error as DetectionError, Motion, Observation};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

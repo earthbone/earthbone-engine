@@ -4,7 +4,7 @@
 //! CRF-08 Smithing skill use from successful COBJ transactions.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc, Game};
+use soe_game::{Game, npc};
 use std::path::PathBuf;
 
 const PLAYER: u32 = 0x14;

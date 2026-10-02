@@ -4,12 +4,12 @@
 //! AI-69 quest and reference condition queries.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
-use soe_papyrus::asm::{i, ScriptBuilder};
+use soe_game::{Game, conditions};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{ScriptBuilder, i};
 
 const BASE: u32 = 0x800;
 const ACTOR: u32 = 0x801;

@@ -6,8 +6,8 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Pending};
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 

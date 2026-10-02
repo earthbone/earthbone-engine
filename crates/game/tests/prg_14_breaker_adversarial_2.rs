@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const fn tag(value: [u8; 4]) -> Tag {
     Tag::new(&value)
@@ -105,10 +105,11 @@ fn prg_14_two_native_events_before_pump_start_the_quest_once_with_first_context(
     fire(&mut game, 31, 44);
     game.vm.run(64);
 
-    assert!(game
-        .world()
-        .quest(id(QUEST))
-        .is_none_or(|quest| !quest.running));
+    assert!(
+        game.world()
+            .quest(id(QUEST))
+            .is_none_or(|quest| !quest.running)
+    );
     game.pump();
 
     let world = game.world();

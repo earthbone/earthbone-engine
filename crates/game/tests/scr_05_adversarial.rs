@@ -6,7 +6,7 @@ mod acceptance;
 
 #[cfg(test)]
 mod adversarial {
-    use super::acceptance::{cell_id, fixture, REFERENCE};
+    use super::acceptance::{REFERENCE, cell_id, fixture};
     use soe_esm::GlobalFormId;
 
     #[test]

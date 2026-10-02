@@ -5,7 +5,7 @@
 use super::*;
 
 fn fixture_order() -> LoadOrder {
-    use soe_game::npc::{self, template, Config, Stats};
+    use soe_game::npc::{self, Config, Stats, template};
     let mut plugin = Plugin::new(FileHeader::default());
     let player = npc::build_record(7, "Player", "Player", Config::default(), Stats::default());
     let original = npc::build_record(
@@ -495,7 +495,7 @@ fn a_bad_temporary_base_payload_does_not_allocate_or_install_earlier_bases() {
 }
 
 fn namespace_order() -> LoadOrder {
-    use soe_game::npc::{self, template, Config, Stats};
+    use soe_game::npc::{self, Config, Stats, template};
     use soe_game::vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
     let mut base = Plugin::new(FileHeader::default());
     let root = npc::build_record(

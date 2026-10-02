@@ -4,11 +4,11 @@
 //! SCR-29 Game native request ordering and argument boundary cases.
 
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::{BinkOptions, GameUiRequest};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_game::world::{BinkOptions, GameUiRequest};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());

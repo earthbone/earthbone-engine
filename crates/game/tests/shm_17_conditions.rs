@@ -2,8 +2,8 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use soe_commonlib_shim::conditions::{
-    ComparisonValue, ConditionContext, ConditionError, TESCondition, TESConditionItem,
-    CONDITIONITEMOBJECT, CONDITION_ITEM_DATA,
+    CONDITION_ITEM_DATA, CONDITIONITEMOBJECT, ComparisonValue, ConditionContext, ConditionError,
+    TESCondition, TESConditionItem,
 };
 use soe_commonlib_shim::{form::FormId, refr::ObjectRefHandle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};

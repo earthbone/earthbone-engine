@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const BASE: u32 = 0x800;
@@ -60,10 +60,11 @@ fn scr_17_missing_intimidation_confidence_fails_closed() {
     let mut game = game();
     let result = call(&mut game, "WillIntimidateSucceed", &[], &[], "Bool");
     assert_eq!(result, Value::Bool(false));
-    assert!(game
-        .vm
-        .log
-        .messages()
-        .iter()
-        .all(|m| !m.to_string().contains("WillIntimidateSucceed")));
+    assert!(
+        game.vm
+            .log
+            .messages()
+            .iter()
+            .all(|m| !m.to_string().contains("WillIntimidateSucceed"))
+    );
 }

@@ -4,10 +4,10 @@
 //! Source-based adversarial checks for AI-85 condition functions.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
+use soe_game::{Game, conditions};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use soe_esm::{plugin::flags, tag, FileHeader, LoadOrder, Plugin, Record};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, plugin::flags, tag};
 use soe_game::{
-    save::{DependencyChange, DependencyKind},
     Game,
+    save::{DependencyChange, DependencyKind},
 };
 use soe_papyrus::asm::ScriptBuilder;
 
@@ -100,16 +100,18 @@ fn sav_56_script_fingerprint_round_trips_and_changed_source_is_reported() {
             &ScriptBuilder::new("Fixture", "Int Function V()\n Return 2\nEndFunction").bytes(),
         )
         .unwrap();
-    assert!(changed
-        .preflight_dependencies(&bytes)
-        .unwrap()
-        .findings
-        .iter()
-        .any(|finding| {
-            finding.kind == DependencyKind::Script
-                && finding.identity == "Fixture"
-                && finding.change == DependencyChange::FingerprintChanged
-        }));
+    assert!(
+        changed
+            .preflight_dependencies(&bytes)
+            .unwrap()
+            .findings
+            .iter()
+            .any(|finding| {
+                finding.kind == DependencyKind::Script
+                    && finding.identity == "Fixture"
+                    && finding.change == DependencyChange::FingerprintChanged
+            })
+    );
 }
 
 #[test]

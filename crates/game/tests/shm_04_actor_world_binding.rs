@@ -6,7 +6,7 @@ use soe_commonlib_shim::refr::{
     Actor as ShimActor, ActorApiError, ActorEquipManager, ActorValue, HookError, ObjectRef,
 };
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc, World};
+use soe_game::{World, npc};
 
 const BASE: u32 = 0x800;
 const ACTOR: u32 = 0x900;
@@ -98,11 +98,13 @@ fn shm_04_actor_equip_manager_changes_shared_equipment_state() {
             )
             .unwrap();
     }
-    assert!(world
-        .actor_ref(id(ACTOR))
-        .unwrap()
-        .equipped
-        .contains(&id(ITEM)));
+    assert!(
+        world
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .equipped
+            .contains(&id(ITEM))
+    );
     {
         let mut manager = soe_game::commonlib::WorldActorEquipManager::new(&mut world);
         manager
@@ -112,11 +114,13 @@ fn shm_04_actor_equip_manager_changes_shared_equipment_state() {
             )
             .unwrap();
     }
-    assert!(!world
-        .actor_ref(id(ACTOR))
-        .unwrap()
-        .equipped
-        .contains(&id(ITEM)));
+    assert!(
+        !world
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .equipped
+            .contains(&id(ITEM))
+    );
 }
 
 #[test]

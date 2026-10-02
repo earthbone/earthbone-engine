@@ -4,9 +4,9 @@
 //! DialogueActivate starts its assigned conversation once inside dialogue range.
 
 use soe_esm::{Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, Schedule};
-use soe_game::Game;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x900;

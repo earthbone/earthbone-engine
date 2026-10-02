@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_save::{reference::flags, ChangeForm, RefId};
+use soe_save::{ChangeForm, RefId, reference::flags};
 
 fn moved(mask: u32, second: u16, version: u8) -> ChangeForm {
     let mut data = vec![0x40, 0x08, 0x00];

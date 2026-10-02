@@ -6,8 +6,8 @@ use super::legacy;
 use super::*;
 use soe_game::Handle;
 use soe_save::{
-    reference::{Field, PlayerLocation},
     ChangeForm,
+    reference::{Field, PlayerLocation},
 };
 
 #[test]
@@ -44,8 +44,13 @@ fn installed_lock_byte_mapping_matches_authored_levels() {
                 if entry.kind != 42 {
                     continue;
                 }
-                let [Field::Byte(level), Field::Byte(flags), Field::Reference(_), Field::Word(_), Field::Word(_)] =
-                    entry.fields.as_slice()
+                let [
+                    Field::Byte(level),
+                    Field::Byte(flags),
+                    Field::Reference(_),
+                    Field::Word(_),
+                    Field::Word(_),
+                ] = entry.fields.as_slice()
                 else {
                     panic!("lock schema")
                 };
@@ -60,7 +65,9 @@ fn installed_lock_byte_mapping_matches_authored_levels() {
             }
         }
     }
-    eprintln!("lock schema survey: {locks} locks, {authored} authored, {matched} level matches, byte pairs {bytes:?}");
+    eprintln!(
+        "lock schema survey: {locks} locks, {authored} authored, {matched} level matches, byte pairs {bytes:?}"
+    );
     assert!(locks >= 1000);
     assert!(authored >= 1000);
     assert!(
@@ -412,11 +419,13 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
         assert_eq!(world.save_state(), before);
     }
     world.load_state(&legacy).unwrap();
-    assert!(world
-        .reference_ref(id(0, 0x100))
-        .unwrap()
-        .lock_extra
-        .is_none());
+    assert!(
+        world
+            .reference_ref(id(0, 0x100))
+            .unwrap()
+            .lock_extra
+            .is_none()
+    );
     assert_eq!(world.key(id(0, 0x100)), Some(id(0, 0x800)));
 }
 
@@ -475,7 +484,10 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
             assert_eq!(world.key(id), loaded.key(id));
         }
     }
-    eprintln!("reference extras survey: {} saves, {references} references, {owners} ownership changes, {locks} locks, {leveled} leveled locks", paths.len());
+    eprintln!(
+        "reference extras survey: {} saves, {references} references, {owners} ownership changes, {locks} locks, {leveled} leveled locks",
+        paths.len()
+    );
     assert!(references >= 1000);
     assert!(owners >= 100);
     assert!(locks >= 1000);
@@ -584,11 +596,13 @@ fn later_unsupported_package_data_leaves_prepared_ownership_and_locks_unapplied(
     actor.data.splice(..0, [0; 8]);
     save.change_forms = vec![change(0x400100, 0x400811, 25, 1, 0x400801), actor];
     let before = world.save_state();
-    assert!(world
-        .restore_vanilla_reference_extras(&save)
-        .unwrap_err()
-        .to_string()
-        .contains("unsupported PackageData"));
+    assert!(
+        world
+            .restore_vanilla_reference_extras(&save)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported PackageData")
+    );
     assert_eq!(world.save_state(), before);
     assert!(world.pending.is_empty());
 }

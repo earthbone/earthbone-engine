@@ -161,9 +161,11 @@ fn sav_40_malformed_or_late_invalid_change_leaves_records_unchanged() {
         assert!(world.restore_vanilla_base_objects(&saved).is_err());
         assert_eq!(world.save_state(), before);
     }
-    assert!(world
-        .restore_vanilla_base_objects(&base_object_save(late_invalid))
-        .is_err());
+    assert!(
+        world
+            .restore_vanilla_base_objects(&base_object_save(late_invalid))
+            .is_err()
+    );
     assert_eq!(world.save_state(), before);
     assert_eq!(world.restored_base_object_extra(id(0, 0x800)), None);
     assert_eq!(world.name_of(id(0, 0x800)).as_deref(), Some("Saved Light"));

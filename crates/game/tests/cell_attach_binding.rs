@@ -3,15 +3,15 @@
 
 //! SCR-01 regression coverage for cell events under lazy reference binding.
 
-use crate::scr_05_lazy_cell_binding::{cell_id, fixture, REFERENCE};
-use soe_esm::{records::Transform, GlobalFormId};
+use crate::scr_05_lazy_cell_binding::{REFERENCE, cell_id, fixture};
+use soe_esm::{GlobalFormId, records::Transform};
 use soe_game::{
-    world::{Doorway, Threshold},
     Game, Handle, Pending,
+    world::{Doorway, Threshold},
 };
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::CallStatic,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 
 fn reference_id() -> GlobalFormId {
@@ -56,11 +56,12 @@ fn cell_events(game: &Game) -> Vec<String> {
 fn cell_attach_world_change_binds_before_delivering_events() {
     let mut game = game();
     game.world_mut().change_cell(Some(cell_id()));
-    assert!(game
-        .world()
-        .pending
-        .iter()
-        .any(|event| matches!(event, Pending::ReferenceEvent { .. })));
+    assert!(
+        game.world()
+            .pending
+            .iter()
+            .any(|event| matches!(event, Pending::ReferenceEvent { .. }))
+    );
     assert!(game.run_until_idle(8));
     assert_eq!(cell_events(&game), ["OnCellAttach", "OnLoad", "OnCellLoad"]);
 }

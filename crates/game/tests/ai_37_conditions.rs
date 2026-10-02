@@ -4,13 +4,12 @@
 //! AI-37 CTDA actor-value, skill-use and environment conditions.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
 use soe_game::{
-    conditions,
+    Game, World, conditions,
     perks::{EntryPointContext, EntryPointDispatcher, EntryPointInvocation},
-    Game, World,
 };
 
 fn id(object: u32) -> GlobalFormId {

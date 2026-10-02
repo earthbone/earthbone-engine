@@ -4,8 +4,8 @@
 //! Werewolf transformations use their authored race and own only state they add.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::magic::EffectId;
 use soe_game::Game;
+use soe_game::world::magic::EffectId;
 
 const ACTOR: u32 = 0x100;
 const BASE: u32 = 0x200;
@@ -142,9 +142,10 @@ fn mag_57_reversion_restores_only_race_and_abilities_owned_by_transform() {
     let mut game = game();
     let transform = cast(&mut game);
     let object = game.object_of_form(id(ACTOR));
-    assert!(game
-        .world_mut()
-        .dispel_effect(transform, &mut |_, _| object));
+    assert!(
+        game.world_mut()
+            .dispel_effect(transform, &mut |_, _| object)
+    );
 
     {
         let mut world = game.world_mut();
@@ -154,10 +155,12 @@ fn mag_57_reversion_restores_only_race_and_abilities_owned_by_transform() {
         assert!(actor.spells.contains(&id(EXISTING_SPELL)));
         assert!(!actor.shouts.contains(&id(WEREWOLF_SHOUT)));
     }
-    assert!(!game
-        .world()
-        .active_effects()
-        .any(|effect| effect.spell == id(ABILITY_SPELL)));
+    assert!(
+        !game
+            .world()
+            .active_effects()
+            .any(|effect| effect.spell == id(ABILITY_SPELL))
+    );
 }
 
 #[test]
@@ -187,9 +190,11 @@ fn mag_57_saved_transform_restores_owned_state_after_load() {
         Some(id(WEREWOLF_RACE))
     );
     let object = restored.object_of_form(id(ACTOR));
-    assert!(restored
-        .world_mut()
-        .dispel_effect(transform, &mut |_, _| object));
+    assert!(
+        restored
+            .world_mut()
+            .dispel_effect(transform, &mut |_, _| object)
+    );
     {
         let mut world = restored.world_mut();
         let actor = world.actor(id(ACTOR)).unwrap();

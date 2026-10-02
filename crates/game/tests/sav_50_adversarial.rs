@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{GlobalFormId, LoadOrder, Plugin, Record, Tag, plugin::FileHeader};
 use soe_game::World;
 use soe_save::{
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
@@ -180,9 +180,14 @@ fn sav_50_truncated_or_extra_payload_rejects_entire_restore() {
     for bad_change in malformed {
         let mut world = World::new(order(true));
         let before = world.save_state();
-        assert!(world
-            .restore_vanilla_base_objects(&save(vec![change(WOOP, 34, 1, vec![0; 6]), bad_change,]))
-            .is_err());
+        assert!(
+            world
+                .restore_vanilla_base_objects(&save(vec![
+                    change(WOOP, 34, 1, vec![0; 6]),
+                    bad_change,
+                ]))
+                .is_err()
+        );
         assert_eq!(world.save_state(), before);
         assert_eq!(world.restored_base_object_extra(id(WOOP)), None);
         assert_eq!(world.restored_base_object_extra(id(MGEF)), None);
@@ -194,12 +199,14 @@ fn sav_50_invalid_mgef_record_rejects_prior_woop_atomically() {
     let mut world = World::new(order(false));
     let before = world.save_state();
     assert_eq!(world.record(id(WOOP)).unwrap().flags, 0x10);
-    assert!(world
-        .restore_vanilla_base_objects(&save(vec![
-            change(WOOP, 34, 1, form_flags(0x03, 0xBEEF)),
-            change(MGEF, 35, 0, vec![]),
-        ]))
-        .is_err());
+    assert!(
+        world
+            .restore_vanilla_base_objects(&save(vec![
+                change(WOOP, 34, 1, form_flags(0x03, 0xBEEF)),
+                change(MGEF, 35, 0, vec![]),
+            ]))
+            .is_err()
+    );
     assert_eq!(world.save_state(), before);
     assert_eq!(world.record(id(WOOP)).unwrap().flags, 0x10);
     assert_eq!(world.restored_base_object_extra(id(WOOP)), None);
@@ -211,12 +218,14 @@ fn sav_50_duplicate_and_repeated_restore_reject_without_mutation() {
     let one = save(vec![change(WOOP, 34, 0, vec![])]);
     assert_eq!(world.restore_vanilla_base_objects(&one).unwrap(), 1);
     let after_first = world.save_state();
-    assert!(world
-        .restore_vanilla_base_objects(&save(vec![
-            change(MGEF, 35, 0, vec![]),
-            change(WOOP, 34, 2, vec![]),
-        ]))
-        .is_err());
+    assert!(
+        world
+            .restore_vanilla_base_objects(&save(vec![
+                change(MGEF, 35, 0, vec![]),
+                change(WOOP, 34, 2, vec![]),
+            ]))
+            .is_err()
+    );
     assert_eq!(world.save_state(), after_first);
     assert!(world.restore_vanilla_base_objects(&one).is_err());
     assert_eq!(world.save_state(), after_first);

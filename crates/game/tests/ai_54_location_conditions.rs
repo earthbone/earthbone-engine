@@ -4,10 +4,10 @@
 //! AI-54 location and shared blocking condition fixtures.
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    records::gameplay::{Comparison, Condition},
 };
-use soe_game::{conditions, Game};
+use soe_game::{Game, conditions};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR_BASE: u32 = 0x800;
@@ -261,9 +261,10 @@ fn ai_54_editor_location_conditions_match_keyword_and_alias_contracts() {
         Err(conditions::Error::Form(_))
     ));
 
-    assert!(game
-        .world_mut()
-        .force_alias(id(QUEST), 3, Some(id(SAME_CELL_REF))));
+    assert!(
+        game.world_mut()
+            .force_alias(id(QUEST), 3, Some(id(SAME_CELL_REF)))
+    );
     assert_eq!(
         evaluate(&game, ACTOR, &condition(181, 3, KEYWORD, 1.0), Some(QUEST)),
         Ok(true)
