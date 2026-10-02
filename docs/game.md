@@ -244,10 +244,13 @@ Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
 linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
 resolved `INAM` IDLE form emits its editor ID through the actor's animation
 event path once when the actor arrives. A marker whose base is FURN uses the
-existing Sit-marker reservation. The reservation is released before the route
-advances, and the Patrol dwell deadline prevents the idle event from firing
-again after save and restore. PDTO references and subtype fields are
-validated, but they do not start a conversation. AI-23's UseIdleMarker
+existing Sit-marker reservation. The first non-null DIAL reference in the
+marker's PDTO entries starts a dialogue session when the actor and player are
+eligible and no other session is open. Topic subtype entries are validated
+but do not select a dialogue session. The reservation is released before the
+route advances, and the Patrol dwell deadline prevents the idle event or topic
+action from firing again after save and restore. These field layouts follow
+xEdit `wbRefRecord(ACHR)` and Mutagen `Patrol.xml`. AI-23's UseIdleMarker
 reservation and interruption behavior is not in this worktree, and its
 reservation contract remains separate from Patrol's FURN reservation.
 

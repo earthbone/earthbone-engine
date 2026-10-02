@@ -22,6 +22,7 @@ const B: u32 = 0x805;
 const C: u32 = 0x806;
 const IDLE: u32 = 0x807;
 const FURNITURE: u32 = 0x808;
+const TOPIC: u32 = 0x809;
 
 #[derive(Clone, Copy)]
 struct Settings {
@@ -35,6 +36,7 @@ struct Settings {
     non_root_cycle: bool,
     action: bool,
     furniture: bool,
+    topic: bool,
     null_topic_and_image_space: bool,
     radius: f32,
     dwell: f32,
@@ -54,6 +56,7 @@ impl Default for Settings {
             non_root_cycle: false,
             action: false,
             furniture: false,
+            topic: false,
             null_topic_and_image_space: false,
             radius: 0.0,
             dwell: 1.0,
@@ -129,6 +132,11 @@ fn markers(plugin: &mut Plugin, settings: Settings, namespace: u32, offset: f32)
         if settings.null_topic_and_image_space {
             rec = rec.sub(T(b"PDTO"), [0; 8]);
         }
+        if settings.topic && object == A {
+            let mut data = 0_u32.to_le_bytes().to_vec();
+            data.extend_from_slice(&TOPIC.to_le_bytes());
+            rec = rec.sub(T(b"PDTO"), data);
+        }
         if let Some(next) = next {
             rec = rec.sub(T(b"XLKR"), (namespace | next).to_le_bytes());
         }
@@ -163,6 +171,9 @@ fn order(settings: Settings) -> LoadOrder {
                 .sub(T(b"MNAM"), 1u32.to_le_bytes())
                 .sub(T(b"FNPR"), [1_u8, 0, 0, 0]),
         );
+    }
+    if settings.topic {
+        plugin.push_top(Record::new(T(b"DIAL"), TOPIC).zsub(T(b"EDID"), "PatrolTopic"));
     }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, settings.x).sub(T(b"XLKR"), A.to_le_bytes()));
     markers(&mut plugin, settings, 0, 0.0);
@@ -584,6 +595,29 @@ fn ai_88_patrol_plays_idle_once_and_releases_furniture_before_advancing() {
     furniture.tick(1.0);
     assert_eq!(state(&furniture).patrol.as_ref().unwrap().current, id(B));
     assert_eq!(furniture.world().furniture_seat(id(ACTOR)), None);
+
+    let mut topic = game(Settings {
+        action: true,
+        furniture: true,
+        topic: true,
+        dwell: 1.0,
+        ..Settings::default()
+    });
+    topic.player();
+    topic.tick(1.0);
+    assert_eq!(
+        topic
+            .world()
+            .dialogue_session()
+            .and_then(|session| session.topic),
+        Some(id(TOPIC)),
+        "the marker's DIAL topic starts a dialogue session"
+    );
+    assert_eq!(topic.world().animation_events.len(), 1);
+    assert!(topic.world().furniture_seat(id(ACTOR)).is_some());
+    topic.tick(1.0);
+    assert_eq!(state(&topic).patrol.as_ref().unwrap().current, id(B));
+    assert_eq!(topic.world().furniture_seat(id(ACTOR)), None);
 }
 
 #[test]
