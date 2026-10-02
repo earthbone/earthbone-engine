@@ -606,7 +606,7 @@ fn scripts() -> Vec<Vec<u8>> {
     vec![alias, reference_alias, watcher, listener, scene]
 }
 
-fn game() -> Game {
+pub(super) fn game() -> Game {
     let bytes = test_plugin().to_bytes();
     let plugin = Plugin::parse(&bytes).unwrap();
     let mut order = LoadOrder::new();
@@ -681,7 +681,7 @@ fn type_of(v: &Value) -> &'static str {
 
 /// Call `name` on `target` through a one-off script, the way a vanilla
 /// script's `CallMethod` would, and hand back the result.
-fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
+pub(super) fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
     let n = PROBES.fetch_add(1, Ordering::SeqCst);
     let script = format!("Probe{n}");
     let mut fun = FunctionBuilder::new("Run", "Var")
@@ -860,7 +860,7 @@ fn scr_21_debug_channel_notify_logs_channel_and_message() {
     assert!(game.vm.log.contains("[combat] hit"));
 }
 
-fn obj(game: &mut Game, edid: &str) -> Value {
+pub(super) fn obj(game: &mut Game, edid: &str) -> Value {
     let id = game.form(edid).unwrap_or_else(|| panic!("no form {edid}"));
     Value::Object(game.object_of_form(id))
 }
@@ -870,7 +870,7 @@ fn is(game: &mut Game, v: &Value, edid: &str) -> bool {
     v.as_object() == Some(game.object_of_form(id))
 }
 
-fn errors(game: &Game) -> Vec<String> {
+pub(super) fn errors(game: &Game) -> Vec<String> {
     game.traces()
         .into_iter()
         .filter(|t| t.contains("no function") || t.contains("no global") || t.contains("error"))
