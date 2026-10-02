@@ -125,6 +125,14 @@ fn mag_71_composes_authored_render_channels_with_active_stack_weights() {
                     channel: *b"\x02IAD",
                     values: vec![2.0],
                 },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"CIAD",
+                    values: vec![2.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"BIAD",
+                    values: vec![2.0],
+                },
             ],
         },
         ImageSpaceRenderLayer {
@@ -150,6 +158,6 @@ fn mag_71_composes_authored_render_channels_with_active_stack_weights() {
         rendered.depth_range,
         1.0 + 50.0 / soe_game::world::UNITS_PER_METRE
     );
-    assert_eq!(rendered.exposure, 1.25);
-    assert_eq!(rendered.bloom, 0.5);
+    assert!((rendered.bloom_threshold - 1.525).abs() < 0.00001);
+    assert_eq!(rendered.bloom_scale, 1.0);
 }

@@ -3068,8 +3068,9 @@ cinematic saturation, brightness and contrast using each layer's active
 strength. This is the host composition policy, since local xEdit and CommonLib
 sources do not define exact weighted stacking.
 
-`ModifierRenderer` applies tint, blur sampling, double vision and the selected
-HDR and cinematic channels in `godot/mag_71_image_space.gdshader`. DOF
+`ModifierRenderer` applies tint, blur sampling, double vision, bloom threshold
+and scale, and the selected cinematic channels in
+`godot/mag_71_image_space.gdshader`. DOF
 strength, distance and range update the camera's `CameraAttributesPractical`.
 The pass is attached to the existing player CanvasLayer and hides when no
 visible color channels are active. It creates no per-reference node or server
@@ -3078,12 +3079,13 @@ resource.
 The base reader retains all authored HNAM, CNAM, TNAM and DNAM values in its
 snapshot. The host maps the supported subset to stock Godot controls. The
 `mag_71_rendered_image_space_test.gd` pixel fixture loads the production shader
-and checks tint, blur, depth-of-field and HDR exposure against a checkerboard
+and checks tint, blur, depth-of-field and bloom threshold against a checkerboard
 scene. The Rust test
 `mag_71_composes_authored_render_channels_with_active_stack_weights` checks
-that evaluated samples retain their layer weights before rendering. These
-fixtures verify visible host output for selected parameters. They do not claim
-pixel parity with Skyrim or implement target-based radial blur.
+weighted composition for synthetic curve samples. The pixel fixture still sets
+shader parameters directly, so an end-to-end rendered authored IMAD fixture
+through the active stack remains unverified. These fixtures do not claim pixel
+parity with Skyrim or implement target-based radial blur.
 
 Sources read under `engine-refs`:
 

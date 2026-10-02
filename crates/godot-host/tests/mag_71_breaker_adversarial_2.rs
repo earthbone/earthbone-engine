@@ -17,7 +17,7 @@ fn mag_71_authored_bloom_threshold_changes_the_screen_pass_cutoff() {
     let shader = include_str!("../../../godot/mag_71_image_space.gdshader");
 
     let threshold_use = shader.find("source - vec3(bloom_threshold)");
-    let bloom_use = shader.find("glow * bloom");
+    let bloom_use = shader.find("glow * bloom_scale");
 
     assert!(threshold_use.is_some());
     assert!(bloom_use.is_some());

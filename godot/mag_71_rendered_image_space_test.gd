@@ -101,10 +101,20 @@ func _run() -> void:
 		"authored depth curve blurred the out-of-focus plane")
 	camera.attributes = null
 
-	shader_material.set_shader_parameter("exposure", 1.8)
-	var hdr_frame := await _pixels(viewport)
-	_check(hdr_frame.get_pixel(64, 64).get_luminance() > baseline.get_pixel(64, 64).get_luminance() + 0.04,
-		"authored HDR exposure changed rendered luminance")
+	shader_material.set_shader_parameter("bloom_scale", 2.0)
+	shader_material.set_shader_parameter("bloom_threshold", 0.1)
+	var low_threshold_frame := await _pixels(viewport)
+	shader_material.set_shader_parameter("bloom_scale", 0.5)
+	var low_scale_frame := await _pixels(viewport)
+	_check(low_threshold_frame.get_pixel(64, 64).get_luminance() >
+		low_scale_frame.get_pixel(64, 64).get_luminance() + 0.04,
+		"authored bloom scale changed the rendered glow strength")
+	shader_material.set_shader_parameter("bloom_scale", 2.0)
+	shader_material.set_shader_parameter("bloom_threshold", 0.45)
+	var high_threshold_frame := await _pixels(viewport)
+	_check(low_threshold_frame.get_pixel(64, 64).get_luminance() >
+		high_threshold_frame.get_pixel(64, 64).get_luminance() + 0.04,
+		"authored bloom threshold changed the rendered glow cutoff")
 
 	viewport.free()
 	await process_frame

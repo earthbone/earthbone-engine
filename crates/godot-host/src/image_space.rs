@@ -23,8 +23,8 @@ pub struct RenderedModifiers {
     pub depth_strength: f32,
     pub depth_distance: f32,
     pub depth_range: f32,
-    pub exposure: f32,
-    pub bloom: f32,
+    pub bloom_threshold: f32,
+    pub bloom_scale: f32,
     pub saturation: f32,
     pub brightness: f32,
     pub contrast: f32,
@@ -39,8 +39,8 @@ impl Default for RenderedModifiers {
             depth_strength: 0.0,
             depth_distance: 0.0,
             depth_range: 1.0,
-            exposure: 1.0,
-            bloom: 0.0,
+            bloom_threshold: 0.7,
+            bloom_scale: 0.0,
             saturation: 1.0,
             brightness: 1.0,
             contrast: 1.0,
@@ -72,15 +72,15 @@ impl RenderedModifiers {
                     b"YNAM" => {
                         rendered.depth_range += first / soe_game::world::UNITS_PER_METRE;
                     }
-                    b"\x03IAD" => rendered.exposure += first - weight,
-                    b"CIAD" => rendered.exposure += first,
-                    b"\x02IAD" | b"BIAD" => rendered.bloom += first,
+                    b"\x02IAD" => rendered.bloom_threshold += first - 0.7 * weight,
+                    b"BIAD" => rendered.bloom_threshold += first,
+                    b"\x03IAD" | b"CIAD" => rendered.bloom_scale += first,
                     b"\x11IAD" => rendered.saturation += first - weight,
-                    b"RIAD" => rendered.saturation += first,
+                    b"QIAD" => rendered.saturation += first,
                     b"\x12IAD" => rendered.brightness += first - weight,
-                    b"SIAD" => rendered.brightness += first,
+                    b"RIAD" => rendered.brightness += first,
                     b"\x13IAD" => rendered.contrast += first - weight,
-                    b"TIAD" => rendered.contrast += first,
+                    b"SIAD" => rendered.contrast += first,
                     _ => {}
                 }
             }
@@ -90,8 +90,8 @@ impl RenderedModifiers {
         rendered.double_vision = rendered.double_vision.clamp(0.0, 0.1);
         rendered.depth_strength = rendered.depth_strength.clamp(0.0, 1.0);
         rendered.depth_range = rendered.depth_range.max(0.01);
-        rendered.exposure = rendered.exposure.max(0.0);
-        rendered.bloom = rendered.bloom.max(0.0);
+        rendered.bloom_threshold = rendered.bloom_threshold.max(0.0);
+        rendered.bloom_scale = rendered.bloom_scale.max(0.0);
         rendered.saturation = rendered.saturation.max(0.0);
         rendered.brightness = rendered.brightness.max(0.0);
         rendered.contrast = rendered.contrast.max(0.0);
@@ -226,8 +226,7 @@ pub mod renderer {
             let enabled = values.tint[3] > 0.0
                 || values.blur_radius > 0.0
                 || values.double_vision > 0.0
-                || values.exposure != 1.0
-                || values.bloom > 0.0
+                || values.bloom_scale > 0.0
                 || values.saturation != 1.0
                 || values.brightness != 1.0
                 || values.contrast != 1.0;
@@ -243,8 +242,8 @@ pub mod renderer {
             );
             material.set_shader_parameter("blur_radius", &values.blur_radius.to_variant());
             material.set_shader_parameter("double_vision", &values.double_vision.to_variant());
-            material.set_shader_parameter("exposure", &values.exposure.to_variant());
-            material.set_shader_parameter("bloom", &values.bloom.to_variant());
+            material.set_shader_parameter("bloom_threshold", &values.bloom_threshold.to_variant());
+            material.set_shader_parameter("bloom_scale", &values.bloom_scale.to_variant());
             material.set_shader_parameter("saturation", &values.saturation.to_variant());
             material.set_shader_parameter("brightness", &values.brightness.to_variant());
             material.set_shader_parameter("contrast", &values.contrast.to_variant());

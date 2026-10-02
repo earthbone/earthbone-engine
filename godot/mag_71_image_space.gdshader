@@ -5,8 +5,8 @@ uniform sampler2D screen_texture : hint_screen_texture, filter_linear;
 uniform vec4 tint_color : source_color = vec4(0.0);
 uniform float blur_radius = 0.0;
 uniform float double_vision = 0.0;
-uniform float exposure = 1.0;
-uniform float bloom = 0.0;
+uniform float bloom_threshold = 0.7;
+uniform float bloom_scale = 0.0;
 uniform float saturation = 1.0;
 uniform float brightness = 1.0;
 uniform float contrast = 1.0;
@@ -28,8 +28,8 @@ void fragment() {
 	if (double_vision > 0.0) {
 		source = mix(source, (source + texture(screen_texture, SCREEN_UV + offset).rgb) * 0.5, 0.5);
 	}
-	vec3 glow = max(source - vec3(0.7), vec3(0.0));
-	source = (source + glow * bloom) * exposure;
+	vec3 glow = max(source - vec3(bloom_threshold), vec3(0.0));
+	source += glow * bloom_scale;
 	source = (source - vec3(0.5)) * contrast + vec3(0.5);
 	source *= brightness;
 	float luminance = dot(source, vec3(0.299, 0.587, 0.114));

@@ -46,7 +46,7 @@ fn mag_71_cinematic_add_curves_follow_their_authored_channels_and_weights() {
 
     assert!((rendered.saturation - 1.35).abs() < 0.00001);
     assert!((rendered.brightness - 1.4).abs() < 0.00001);
-    assert!((rendered.contrast - 1.65).abs() < 0.00001);
+    assert!((rendered.contrast - 1.45).abs() < 0.00001);
 }
 
 #[test]
