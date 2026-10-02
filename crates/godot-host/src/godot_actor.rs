@@ -321,6 +321,7 @@ impl SkinnedActorNode {
 
     fn update_surface_stats(&mut self) {
         self.stats.set("shapes", self.surfaces.len() as i64);
+        self.stats.set("invisible", self.invisible);
         self.stats.set("skeletons", self.surfaces.len() as i64);
         self.stats.set(
             "mesh_bones",
@@ -659,6 +660,7 @@ impl SkinnedActorNode {
             return;
         }
         self.invisible = invisible;
+        self.stats.set("invisible", invisible);
         let mut server = RenderingServer::singleton();
         for shape in &self.shapes {
             server.instance_set_visible(shape.instance, visible_for_invisibility(invisible));

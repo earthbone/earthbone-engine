@@ -397,8 +397,17 @@ reuse the same cached state. Animated and ragdoll poses share these mesh
 instances, so the visibility change applies in either render mode. A later
 process update restores visibility after the effect expires or breaks. The
 game tests cover detection and break actions, while host unit tests cover the
-RenderingServer visibility mapping. Live Godot coverage of actors outside
-`SkinnedActorNode` remains open.
+RenderingServer visibility mapping. `godot/mag_34_invisibility_test.gd` binds
+the player appearance, casts the installed Invisibility spell, and checks the
+host visibility state before and after expiry. Run it with `SOE_GODOT_BIN`,
+`SKYRIM_DATA`, and the built extension:
+
+```text
+"$SOE_GODOT_BIN" --path godot --script mag_34_invisibility_test.gd --resolution 640x360
+```
+
+This live check covers the supported `SkinnedActorNode` path. Other actor
+rendering paths are not implemented by the host.
 
 ## Runtime summoned lights, MAG-35
 

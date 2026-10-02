@@ -66,19 +66,37 @@ fn mag_35_expiry_removes_only_the_light_owned_by_that_effect() {
         let mut world = world.borrow_mut();
         world
             .cast_spell(
-                id(SPELL_SHORT), id(CASTER), Some(id(CASTER)), Some(id(TARGET_A)),
+                id(SPELL_SHORT),
+                id(CASTER),
+                Some(id(CASTER)),
+                Some(id(TARGET_A)),
                 &mut |_, _| soe_papyrus::ObjectId(1),
             )
             .unwrap();
         world
             .cast_spell(
-                id(SPELL_LONG), id(CASTER), Some(id(CASTER)), Some(id(TARGET_B)),
+                id(SPELL_LONG),
+                id(CASTER),
+                Some(id(CASTER)),
+                Some(id(TARGET_B)),
                 &mut |_, _| soe_papyrus::ObjectId(1),
             )
             .unwrap();
     }
-    let reference_a = game.world().active_effects().find(|effect| effect.target == id(TARGET_A)).unwrap().summoned.unwrap();
-    let reference_b = game.world().active_effects().find(|effect| effect.target == id(TARGET_B)).unwrap().summoned.unwrap();
+    let reference_a = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.target == id(TARGET_A))
+        .unwrap()
+        .summoned
+        .unwrap();
+    let reference_b = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.target == id(TARGET_B))
+        .unwrap()
+        .summoned
+        .unwrap();
 
     game.tick(1.0);
     assert!(game.world().reference_ref(reference_a).unwrap().deleted);
