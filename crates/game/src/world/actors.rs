@@ -578,7 +578,17 @@ impl World {
         name: &str,
         delta: f32,
     ) -> Result<(), crate::actor_values::Error> {
-        self.change_actor_value(id, name, delta, crate::actor_values::Values::modify)
+        let tracks_dragon_souls =
+            name.eq_ignore_ascii_case("dragonsouls") && self.is_player_reference(id);
+        let before = tracks_dragon_souls.then(|| self.actor_value(id, name));
+        self.change_actor_value(id, name, delta, crate::actor_values::Values::modify)?;
+        if let Some(before) = before {
+            let gained = self.actor_value(id, name) - before;
+            if gained > 0.0 {
+                self.commonlib_dragon_souls_gained(gained);
+            }
+        }
+        Ok(())
     }
 
     /// Current maximum, including permanent and temporary modifiers.

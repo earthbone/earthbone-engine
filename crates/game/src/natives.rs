@@ -1142,10 +1142,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "ObjectReference", "AddToMap", |world, call, me| {
         let fast_travel = call.arg(0).as_bool();
-        if let Some(r) = world.reference(me) {
-            r.on_map = true;
-            r.fast_travel = fast_travel;
-        }
+        world.add_to_map(me, fast_travel);
         none()
     });
     method!(

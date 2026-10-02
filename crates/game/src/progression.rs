@@ -155,6 +155,7 @@ impl World {
             return Err(Error::Experience);
         }
         let mut level = actor.level;
+        let previous_level = level;
         let mut experience = actor.character_experience + amount;
         let mut choices = actor.level_up_choices;
         if !experience.is_finite() {
@@ -181,6 +182,9 @@ impl World {
         actor.level_up_choices = choices;
         if self.is_player_reference(actor_id) {
             self.player_level = level;
+            if level > previous_level {
+                let _ = self.commonlib_level_increase();
+            }
         }
         Ok(())
     }

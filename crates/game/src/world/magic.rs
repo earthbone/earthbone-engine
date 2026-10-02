@@ -1599,7 +1599,13 @@ impl World {
         let disarms = prepared
             .iter()
             .filter(|prepared| prepared.disarm)
-            .map(|prepared| (prepared.effect.target, prepared.effect.magnitude))
+            .map(|prepared| {
+                (
+                    prepared.effect.caster,
+                    prepared.effect.target,
+                    prepared.effect.magnitude,
+                )
+            })
             .collect();
         let cost = self.spell_cost(spell, caster)?;
         let actor = self.actor(caster).ok_or(MagicError::Target)?;
@@ -3008,7 +3014,13 @@ impl World {
         let disarms: Vec<_> = ordinary
             .iter()
             .filter(|prepared| prepared.disarm)
-            .map(|prepared| (prepared.effect.target, prepared.effect.magnitude))
+            .map(|prepared| {
+                (
+                    prepared.effect.caster,
+                    prepared.effect.target,
+                    prepared.effect.magnitude,
+                )
+            })
             .collect();
         for effect in locks {
             if let Some(level) = effect.lock_level {
@@ -3039,7 +3051,7 @@ impl World {
         &mut self,
         prepared: Vec<PreparedEffect>,
         alloc: Alloc<'_>,
-        disarms: Vec<(GlobalFormId, f32)>,
+        disarms: Vec<(Option<GlobalFormId>, GlobalFormId, f32)>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         let mut feed_targets = std::collections::BTreeSet::new();
@@ -3265,8 +3277,8 @@ impl World {
             }
             applied.push(id);
         }
-        for (target, magnitude) in disarms {
-            self.disarm_equipped_weapon(target, magnitude, alloc);
+        for (source, target, magnitude) in disarms {
+            self.disarm_equipped_weapon(source, target, magnitude, alloc);
         }
         for corpse in feed_targets {
             self.feed_corpse(corpse)?;
@@ -3275,7 +3287,13 @@ impl World {
     }
 
     /// Drop one eligible hand weapon into a loose reference at the target.
-    fn disarm_equipped_weapon(&mut self, target: GlobalFormId, magnitude: f32, alloc: Alloc<'_>) {
+    fn disarm_equipped_weapon(
+        &mut self,
+        source: Option<GlobalFormId>,
+        target: GlobalFormId,
+        magnitude: f32,
+        alloc: Alloc<'_>,
+    ) {
         let Some(level) = self.actor(target).map(|actor| actor.level) else {
             return;
         };
@@ -3312,6 +3330,9 @@ impl World {
         }
         if let Some(reference) = self.reference(target) {
             reference.inventory.unequip(weapon);
+        }
+        if let Some(source) = source {
+            self.commonlib_disarmed(source, target);
         }
         self.inventory_event(target, weapon, -1, None, alloc);
     }
