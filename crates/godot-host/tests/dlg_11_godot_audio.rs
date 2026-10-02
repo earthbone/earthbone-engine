@@ -178,6 +178,7 @@ fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
     let output = Command::new(godot)
         .args(["--headless", "--path"])
         .arg(&project)
+        .args(["--quit-after", "3600"])
         .args(["--script"])
         .arg(script)
         .env("DLG_11_TEST_DATA", &data)

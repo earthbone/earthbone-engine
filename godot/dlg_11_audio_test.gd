@@ -46,6 +46,11 @@ func _run() -> void:
 	camera.make_current()
 	var bank := ClassDB.instantiate("SoundBank") as Node3D
 	get_root().add_child(bank)
+	for method in ["open_data", "play_voice", "stop_voice", "last_error"]:
+		if not bank.has_method(method):
+			printerr("FAIL: SoundBank lacks ", method, ", rebuild the release extension")
+			quit(1)
+			return
 	await process_frame
 	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive")
 	if failures != 0:

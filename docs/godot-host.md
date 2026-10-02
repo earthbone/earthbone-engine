@@ -1476,6 +1476,9 @@ Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script rejects an extension missing the voice methods before playback.
+The automated launch quits after 3,600 frames, so a script error cannot leave
+the gate waiting indefinitely. A missing completion marker fails the test.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
 line. Without installed data it uses a generated WAV. The capture proves
