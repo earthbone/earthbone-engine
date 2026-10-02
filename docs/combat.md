@@ -97,8 +97,9 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors and unsupported weapon
-skills/types. Supported enchantments execute as described under CMB-24, and
+these defaults. ModAttackDamage and ModIncomingDamage (CMB-09) evaluate owned
+winning PERK records and apply supported eligible effects. Unsupported weapon
+skills/types still reject the contact. Supported enchantments execute as described under CMB-24, and
 weapon poison executes as described under CMB-25. Tempered item quality
 scales damage instead of rejecting, CMB-10. A weapon's resistance flags
 scale damage instead of rejecting too, CMB-26: only a reserved DNAM Resist
@@ -258,7 +259,7 @@ knowledge of the attacker in `ActorState::witnessed_crimes`.
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
 weapons/ammunition, dual-wield and bash power attacks, weapon-only blocking,
-perk entry points, unsupported enchantment rules, poison modifiers, bleedout,
+other perk entry points, unsupported enchantment rules, poison modifiers, bleedout,
 stagger, other crime pathways and combat AI remain unfinished. The API is an
 execution increment and does not establish playable combat or completion of
 the broader gameplay-foundations goal.
@@ -328,8 +329,8 @@ Open gaps, not attempted by this increment:
   possibly reflecting an engine bug (it appears to use the attacker's
   weapon damage rather than the defender's), so it was not ported.
 - The Shield Wall perk family and other block-related perks. Perked actors
-  are already globally rejected by `validate_combat_actor`, ahead of and
-  independent from this row.
+  can still hit through CMB-09's damage entry points, but block-specific perk
+  behavior is not evaluated by this contact path.
 - Fortify Block enchantments and potions.
 - `fBlockPowerAttackMult`. `MeleeHit.is_power_attack` exists now (CMB-21),
   but `combat_block`'s reduction formula still does not read it, so no
@@ -1071,9 +1072,8 @@ Stamina cost has no named GMST on either UESP `Skyrim:Combat` or UESP
 `power attack stamina cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk effect)`. `POWER_ATTACK_STAMINA_BASE` (40.0) and
 `POWER_ATTACK_STAMINA_PER_WEIGHT` (2.0) in `world/combat.rs` are that
 formula's two plain numeric constants, cited at their declaration rather
-than invented GMST names. `validate_combat_actor` already rejects an
-attacker carrying any perk entry ahead of this row, so the perk term is
-always 1 here and is not itself computed. "Attack cost multiplier" is the
+than invented GMST names. CMB-09 handles damage entry points only, so the
+stamina-cost perk term remains unapplied. "Attack cost multiplier" is the
 selected `ATKD` entry's Stamina Mult, read as `PowerAttack::stamina_mult`.
 
 The cost is deducted from the attacker's Stamina actor value through the
