@@ -122,7 +122,7 @@ impl StaggerTracker {
                 return Some(StaggerGraphEvent::Start);
             }
         }
-        if self.active && deadline.is_some_and(|until| until <= now) {
+        if self.active && deadline.is_none_or(|until| until <= now) {
             self.active = false;
             return Some(StaggerGraphEvent::Stop);
         }

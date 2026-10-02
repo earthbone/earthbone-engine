@@ -3,6 +3,7 @@
 
 //! Adversarial checks for shared stagger events delivered to actor graphs.
 
+use soe_bsa::Vfs;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
 use soe_godot_host::{
@@ -12,7 +13,6 @@ use soe_godot_host::{
 };
 use soe_hkx::interp::Interpreter;
 use std::path::Path;
-use soe_bsa::Vfs;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -85,7 +85,9 @@ fn cmb_27_shared_hit_plays_authored_reaction_then_returns_without_redamage() {
     assert_eq!(game.world_mut().actor_value(target, "health"), 90.0);
     assert!(contact
         .event(&mut game, "HitFrame", |_| {
-            Err(soe_game::combat::Error::Unsupported("duplicate frame queried"))
+            Err(soe_game::combat::Error::Unsupported(
+                "duplicate frame queried",
+            ))
         })
         .unwrap()
         .is_none());
