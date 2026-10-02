@@ -125,6 +125,15 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
+/// Version 37 appends named section tables to world, actor and reference
+/// records. It is the last version bump. New saved state uses a section in
+/// `save_section_registry` at the level that owns it.
+/// Version 37 also carries the provenance-aware native game save envelope and
+/// Fallout 4 struct values in saved Papyrus state. AI-88 retains each actor's
+/// reserved furniture marker in an actor section.
+/// Version 37 also retains INFO, SMQN and SCEN runtime fields, reference
+/// persistence, world record flags, pending quest lifecycle tasks and
+/// unresolved records.
 /// Version 37 appends named sections at world, actor and reference levels,
 /// after each record's saved fields. Versions before 37 have no section
 /// tables. This is the last version this constant will reach. New saved state

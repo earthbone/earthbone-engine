@@ -590,7 +590,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: Version 23 predates list metadata. Remove its list marker.
+    // CONTEXT: Version 23 predates list and projectile fields. Remove its list marker.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     bytes.truncate(bytes.len() - world_sections.out.len());

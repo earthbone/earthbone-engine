@@ -9,8 +9,8 @@ use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
     normalize_unresolved_id, raw_words, BaseObjectRecordExtra, DialogueRecordExtra,
-    ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
-    StaticObjectRecordExtra, UnresolvedRecord, UnresolvedRecordId,
+    ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, ProjectileRecordExtra,
+    RecordOverride, StaticObjectRecordExtra, UnresolvedRecord, UnresolvedRecordId,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -176,6 +176,12 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"CELL"
+                                | b"LCTN"
+                                | b"ECZN"
+                                | b"PFLA"
+                                | b"PHZD"
+                                | b"PBAR"
                                 | b"PACK"
                                 | b"NAVM"
                         )
@@ -213,6 +219,12 @@ impl World {
                                 | b"INFO"
                                 | b"SMQN"
                                 | b"SCEN"
+                                | b"CELL"
+                                | b"LCTN"
+                                | b"ECZN"
+                                | b"PFLA"
+                                | b"PHZD"
+                                | b"PBAR"
                                 | b"PACK"
                                 | b"NAVM"
                         ) && !rec.is_deleted()
@@ -262,6 +274,7 @@ impl World {
             } else {
                 None
             };
+            let projectile = None;
             let dialogue =
                 if version >= 37 && [T(b"INFO"), T(b"SMQN"), T(b"SCEN")].contains(&original.tag) {
                     let form_flags = if r.bool()? {
@@ -328,6 +341,68 @@ impl World {
             if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
                 record.flags = flags;
             }
+            if matches!(record.tag.as_bytes(), b"CELL" | b"LCTN" | b"ECZN") {
+                if (plain_full && record.tag != T(b"CELL"))
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || list.is_some()
+                    || projectile.is_some()
+                    || dialogue.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                {
+                    return Err(bad("spatial record has unrelated override metadata"));
+                }
+                let unchanged = |candidate: &soe_esm::Record| {
+                    candidate
+                        .subrecords
+                        .iter()
+                        .filter(|sub| {
+                            record.tag != T(b"CELL")
+                                || !matches!(&sub.tag.0, b"DATA" | b"FULL" | b"XOWN")
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                if unchanged(original) != unchanged(&record) {
+                    return Err(bad("spatial override changed unrelated subrecords"));
+                }
+                if let Some((flags, _)) = pending_form_flags {
+                    record.flags = flags;
+                }
+                if links.keys().any(|raw| {
+                    !record
+                        .all(T(b"XOWN"))
+                        .any(|bytes| bytes == raw.to_le_bytes())
+                }) {
+                    return Err(bad("spatial link is not used by XOWN"));
+                }
+                let value = RecordOverride {
+                    origin,
+                    text_origin,
+                    temporary_for,
+                    record,
+                    links,
+                    plain_full,
+                    npc: NpcRecordExtra {
+                        original_race,
+                        body_tint,
+                        pending_form_flags,
+                    },
+                    list,
+                    projectile,
+                    base_object: None,
+                    static_object: None,
+                    saved_form_flags: None,
+                    dialogue,
+                    pack: None,
+                    navmesh: None,
+                };
+                if values.insert(id, value).is_some() {
+                    return Err(bad("duplicate record override"));
+                }
+                continue;
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
@@ -377,6 +452,9 @@ impl World {
                     | b"LVLN"
                     | b"LVLI"
                     | b"LVSP"
+                    | b"PFLA"
+                    | b"PHZD"
+                    | b"PBAR"
                     | b"CLAS"
                     | b"FACT"
                     | b"RELA"
@@ -511,6 +589,19 @@ impl World {
                     soe_esm::records::gameplay::MagicEffect::from_record(&record, localized)
                         .map_err(|e| VmError::State(e.to_string()))?;
                 }
+            } else if matches!(&record.tag.0, b"PFLA" | b"PHZD" | b"PBAR") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved projectile override"));
+                }
             } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
                 if temporary_for.is_some()
                     || text_origin != id
@@ -639,6 +730,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                projectile,
                 base_object: None,
                 static_object: None,
                 saved_form_flags: None,
@@ -992,6 +1084,58 @@ impl World {
         }
         Ok(())
     }
+}
+
+pub(super) fn write_projectile_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.projectile.as_ref().map(|extra| (id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, *id);
+        w.u32(extra.flags);
+        w.bytes(&extra.payload);
+    }
+}
+
+pub(super) fn read_projectile_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 10 {
+        return Err(bad("projectile section count exceeds remaining bytes"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        let extra = ProjectileRecordExtra {
+            flags: r.u32()?,
+            payload: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate projectile section record"));
+        }
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("projectile section names a missing override"))?;
+        if !matches!(&value.record.tag.0, b"PFLA" | b"PHZD" | b"PBAR")
+            || value.projectile.replace(extra).is_some()
+        {
+            return Err(bad("projectile section has mismatched record metadata"));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn write_pack_navmesh_section(

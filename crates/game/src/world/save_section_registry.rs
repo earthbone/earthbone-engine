@@ -15,10 +15,31 @@ use super::{ActorState, RefState, World};
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
+fn write_spatial_payloads(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::spatial_restore::write_spatial_payloads(world, writer);
+}
+
+fn read_spatial_payloads(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::spatial_restore::read_spatial_payloads(world, reader)
+}
+
+fn read_projectile_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::record_save::read_projectile_section(world, reader)
+}
+
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-28", write: write_spatial_payloads, read: read_spatial_payloads },
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
@@ -35,6 +56,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-24", write: super::record_save::write_projectile_section, read: read_projectile_section },
     Section { name: "SAV-58", write: write_empty_section, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },

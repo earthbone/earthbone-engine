@@ -46,6 +46,10 @@ pub enum RestoreError {
     Npc { id: GlobalFormId, reason: String },
     #[error("cannot restore list {id}: {reason}")]
     List { id: GlobalFormId, reason: String },
+    #[error("cannot restore projectile {id}: {reason}")]
+    Projectile { id: GlobalFormId, reason: String },
+    #[error("cannot restore spatial record {id}: {reason}")]
+    SpatialRecord { id: GlobalFormId, reason: String },
     #[error("cannot restore base object {id}: {reason}")]
     BaseObject { id: GlobalFormId, reason: String },
     #[error("cannot restore static object {id}: {reason}")]

@@ -105,7 +105,6 @@ impl ChangeForm {
             payload: self.payload()?.into_owned(),
         }))
     }
-
     /// Return the known PCON change-form envelope without interpreting its
     /// source-opaque payload.
     pub fn pcon_change(&self) -> Option<PconChange> {
@@ -1290,7 +1289,7 @@ mod sav_25_projectile_truncation_tests {
             form.write(&mut bytes);
 
             for end in 0..bytes.len() {
-                let mut cursor = Cursor::new(&bytes[..end], "truncated projectile change form");
+                let mut cursor = Cursor::new(&bytes[..end], "truncated change form");
                 assert!(
                     ChangeForm::read(&mut cursor).is_err(),
                     "kind {kind}, end {end}"

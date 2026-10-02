@@ -88,14 +88,18 @@ mod objects;
 mod outfits;
 mod package_navmesh_restore;
 mod performance;
+mod projectile_restore;
 pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::{BaseObjectRecordExtra, NpcRecordExtra, StaticObjectRecordExtra};
-pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
+pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{
+    BaseObjectRecordExtra, NavmeshRecordExtra, PackRecordExtra, ProjectileRecordExtra,
+    StaticObjectRecordExtra,
+};
 pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod projectiles;
 mod quest_restore;
@@ -111,6 +115,7 @@ mod reference_extras;
 mod reference_restore;
 mod refs;
 mod shim_extras;
+mod spatial_restore;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
 pub use refs::RefPlacement;
 mod leveled_items;
@@ -725,6 +730,7 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    spatial_change_payloads: BTreeMap<GlobalFormId, Vec<u8>>,
     created_base_records: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     unresolved_records:
         BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
@@ -1096,6 +1102,7 @@ impl World {
             critical_hit_events: EventSource::default(),
             order,
             record_overrides: BTreeMap::new(),
+            spatial_change_payloads: BTreeMap::new(),
             created_base_records: BTreeMap::new(),
             unresolved_records: BTreeMap::new(),
             editor_ids,

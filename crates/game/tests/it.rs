@@ -924,6 +924,8 @@ mod real_crafting;
 mod real_files;
 #[path = "real_transition.rs"]
 mod real_transition;
+#[path = "sav_01_adversarial.rs"]
+mod sav_01_adversarial;
 #[path = "sav_04_adversarial.rs"]
 mod sav_04_adversarial;
 #[path = "sav_06_actor_value_modifiers.rs"]
@@ -948,6 +950,12 @@ mod sav_18_breaker_adversarial;
 mod sav_18_wait_deadlines;
 #[path = "sav_20_adversarial.rs"]
 mod sav_20_adversarial;
+#[path = "sav_24_adversarial.rs"]
+mod sav_24_adversarial;
+#[path = "sav_28_adversarial.rs"]
+mod sav_28_adversarial;
+#[path = "sav_28_spatial_restore.rs"]
+mod sav_28_spatial_restore;
 #[path = "sav_40_adversarial.rs"]
 mod sav_40_adversarial;
 #[path = "sav_42_adversarial.rs"]
