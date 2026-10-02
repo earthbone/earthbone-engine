@@ -3,12 +3,16 @@
 
 use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{ai, package, world::PackRecordExtra, World};
-use soe_save::{
-    ChangeForm, Compression, GlobalData, Header, RefId, Save, WString,
-};
+use soe_save::{ChangeForm, Compression, GlobalData, Header, RefId, Save, WString};
 
-const PACK_ID: GlobalFormId = GlobalFormId { file: 0, object: 0x840 };
-const NAVM_ID: GlobalFormId = GlobalFormId { file: 0, object: 0x841 };
+const PACK_ID: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x840,
+};
+const NAVM_ID: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x841,
+};
 
 fn reference(raw: u32) -> RefId {
     RefId::from_bytes([(raw >> 16) as u8, (raw >> 8) as u8, raw as u8])
@@ -148,7 +152,17 @@ fn runtime_package_and_navmesh_queries_keep_markers_after_engine_roundtrip() {
             never_run: true,
         })
     );
-    assert!(loaded.restored_navmesh_extra(NAVM_ID).unwrap().value_changed);
-    assert!(loaded.restored_navmesh_extra(NAVM_ID).unwrap().full_name_changed);
+    assert!(
+        loaded
+            .restored_navmesh_extra(NAVM_ID)
+            .unwrap()
+            .value_changed
+    );
+    assert!(
+        loaded
+            .restored_navmesh_extra(NAVM_ID)
+            .unwrap()
+            .full_name_changed
+    );
     assert_eq!(loaded.name_of(NAVM_ID).as_deref(), Some("Original navmesh"));
 }
