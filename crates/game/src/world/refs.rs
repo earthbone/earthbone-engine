@@ -520,6 +520,33 @@ impl World {
         true
     }
 
+    /// Records a host-controlled actor's held or thrown pose in shared
+    /// reference state. Actor movement remains transient host physics, while
+    /// the latest placement is part of the existing reference save data.
+    pub fn set_host_actor_pose(
+        &mut self,
+        id: GlobalFormId,
+        position: [f32; 3],
+        rotation: [f32; 3],
+    ) -> bool {
+        if !position
+            .iter()
+            .chain(rotation.iter())
+            .all(|value| value.is_finite())
+        {
+            return false;
+        }
+        let Some(state) = self.reference(id) else {
+            return false;
+        };
+        if !state.is_actor || !state.enabled || state.deleted {
+            return false;
+        }
+        state.position = position;
+        state.rotation = rotation;
+        true
+    }
+
     pub fn base_of(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
         self.reference(id).and_then(|r| r.base)
     }
