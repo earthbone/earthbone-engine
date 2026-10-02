@@ -99,6 +99,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Point lights for active magic effects that placed LIGH references.
+    runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -212,7 +214,42 @@ struct EffectShaderInstance {
     mesh: Gd<SphereMesh>,
     material: Gd<StandardMaterial3D>,
     remaining: Option<f32>,
+    elapsed: f32,
+    color_alpha: f32,
+    fade: [f32; 4],
     cell: Option<GlobalFormId>,
+}
+
+/// One runtime light attached to a RenderingServer scenario, without a node.
+struct RuntimeLight {
+    light: Rid,
+    instance: Rid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LightRenderData {
+    radius: f32,
+    color: [f32; 3],
+    negative: bool,
+}
+
+fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
+    if record.tag != soe_esm::Tag::new(b"LIGH") {
+        return None;
+    }
+    let data = record.find(soe_esm::Tag::new(b"DATA"))?;
+    if data.len() < 48 {
+        return None;
+    }
+    let radius = u32::from_le_bytes(data[4..8].try_into().ok()?) as f32;
+    if !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    Some(LightRenderData {
+        radius: radius * crate::units::METRES_PER_UNIT,
+        color: [data[8], data[9], data[10]].map(|channel| f32::from(channel) / 255.0),
+        negative: u32::from_le_bytes(data[12..16].try_into().ok()?) & (1 << 2) != 0,
+    })
 }
 
 impl Drop for CellStreamerNode {
@@ -346,6 +383,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -369,6 +407,7 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.clear_terrain_lod();
         self.collision.free();
         self.tethers.free();
@@ -397,6 +436,23 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    pub(crate) fn grab_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.grab_movable_reference(reference)
+    }
+
+    pub(crate) fn move_telekinesis_reference(
+        &mut self,
+        reference: GlobalFormId,
+        position: [f32; 3],
+    ) -> bool {
+        self.collision.grabbed_reference() == Some(reference)
+            && self.collision.move_grabbed_reference(position)
+    }
+
+    pub(crate) fn release_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
+        self.collision.release_movable_reference(reference)
+    }
+
     /// Apply queued game requests and advance finite shader durations.
     pub(crate) fn sync_effect_shaders(
         &mut self,
@@ -431,6 +487,7 @@ impl CellStreamerNode {
             );
             if let Some(effect) = self.effect_shaders.get_mut(&key) {
                 effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.elapsed = 0.0;
                 effect.cell = world
                     .reference_ref(request.target)
                     .and_then(|reference| reference.cell);
@@ -443,9 +500,32 @@ impl CellStreamerNode {
             let mut material = StandardMaterial3D::new_gd();
             material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
             material.set_transparency(Transparency::ALPHA);
-            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            let color = request.appearance.color;
+            let color_alpha = f32::from(color[3]) / 255.0;
+            material.set_albedo(Color::from_rgba(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+                color_alpha,
+            ));
             material.set_feature(Feature::EMISSION, true);
-            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            material.set_emission(Color::from_rgb(
+                f32::from(color[0]) / 255.0,
+                f32::from(color[1]) / 255.0,
+                f32::from(color[2]) / 255.0,
+            ));
+            if let (Some(source), Some(path)) = (
+                self.data_source.as_ref(),
+                request.appearance.fill_texture.as_deref(),
+            ) {
+                if let Some(texture) = source
+                    .effect_shader_texture(path)
+                    .and_then(|texture| image_texture_from(&texture))
+                {
+                    material.set_texture(TextureParam::ALBEDO, &texture);
+                }
+            }
+            material.set_blend_mode(effect_blend_mode(request.appearance.blend));
             let rid = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(rid, transform);
             server.instance_geometry_set_material_override(rid, material.get_rid());
@@ -456,6 +536,9 @@ impl CellStreamerNode {
                     mesh,
                     material,
                     remaining: (request.duration >= 0.0).then_some(request.duration),
+                    elapsed: 0.0,
+                    color_alpha,
+                    fade: request.appearance.fade,
                     cell: world
                         .reference_ref(request.target)
                         .and_then(|reference| reference.cell),
@@ -478,6 +561,13 @@ impl CellStreamerNode {
                 Vector3::new(position.x, position.y, position.z),
             );
             server.instance_set_transform(effect.rid, transform);
+            effect.elapsed += delta.max(0.0);
+            let alpha =
+                effect.color_alpha * effect_alpha(effect.elapsed, effect.remaining, effect.fade);
+            let color = effect.material.get_albedo();
+            effect
+                .material
+                .set_albedo(Color::from_rgba(color.r, color.g, color.b, alpha));
             effect.cell = world
                 .reference_ref(*target)
                 .and_then(|reference| reference.cell);
@@ -595,6 +685,7 @@ impl CellStreamerNode {
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
+            self.collision.apply_reference_physics_requests(world);
             self.collision.poll_movable(world);
         }
         let mut changed = std::collections::HashSet::new();
@@ -603,7 +694,9 @@ impl CellStreamerNode {
                 return;
             };
             let iso = Iso::placement(placement.position, placement.rotation, placement.scale);
-            let key = (placement.visible, iso);
+            let visible =
+                placement.visible && !crate::godot_physics::is_opened_door(world, reference);
+            let key = (visible, iso);
             if self.ref_cache.insert(reference, key) != Some(key) {
                 changed.insert(reference);
             }
@@ -623,6 +716,7 @@ impl CellStreamerNode {
             }
         }
         let mut server = RenderingServer::singleton();
+        self.sync_runtime_lights(world, &mut server);
         for instance in &mut self.instances {
             let BatchTable::Triangles(members) = &instance.table else {
                 if let (BatchTable::Instances(members), InstanceMesh::Multi(multi)) =
@@ -637,11 +731,9 @@ impl CellStreamerNode {
                         if !changed.contains(reference) {
                             continue;
                         }
-                        let scale = if placement.visible {
-                            placement.scale
-                        } else {
-                            0.0
-                        };
+                        let visible = placement.visible
+                            && !crate::godot_physics::is_opened_door(world, *reference);
+                        let scale = if visible { placement.scale } else { 0.0 };
                         let transform =
                             placement_to_godot(target.rotation.rows, placement.position, scale);
                         multi.set_instance_transform(index as i32, transform3d_from(transform));
@@ -660,7 +752,9 @@ impl CellStreamerNode {
                 if changed.contains(&member.reference) {
                     touched = true;
                 }
-                targets.push((index, placement.visible, target_iso));
+                let visible = placement.visible
+                    && !crate::godot_physics::is_opened_door(world, member.reference);
+                targets.push((index, visible, target_iso));
             }
             if !touched {
                 continue;
@@ -682,6 +776,139 @@ impl CellStreamerNode {
 
     fn tether_endpoints(&self) -> Vec<GlobalFormId> {
         self.tethers.endpoints()
+    }
+
+    fn sync_runtime_lights(&mut self, world: &soe_game::World, server: &mut Gd<RenderingServer>) {
+        let mut active: Vec<_> = world
+            .active_effects()
+            .filter_map(|effect| effect.summoned)
+            .filter(|reference| {
+                world
+                    .reference_ref(*reference)
+                    .and_then(|reference| reference.base)
+                    .and_then(|base| world.record(base))
+                    .is_some_and(|record| light_render_data(record).is_some())
+            })
+            .collect();
+        active.sort_unstable();
+        let active: std::collections::HashSet<_> = active.into_iter().collect();
+        self.runtime_lights.retain(|reference, light| {
+            if active.contains(reference)
+                && world
+                    .ref_placement(*reference)
+                    .is_some_and(|placement| placement.visible)
+            {
+                return true;
+            }
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+            false
+        });
+        let Some(scenario) = self.scenario() else {
+            return;
+        };
+        for reference in active {
+            let Some(placement) = world
+                .ref_placement(reference)
+                .filter(|placement| placement.visible)
+            else {
+                continue;
+            };
+            let Some(base) = world.reference_ref(reference).and_then(|value| value.base) else {
+                continue;
+            };
+            let Some(render) = world.record(base).and_then(light_render_data) else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY,
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(light) = self.runtime_lights.get(&reference) {
+                server.instance_set_transform(light.instance, transform);
+                continue;
+            }
+            let light = server.omni_light_create();
+            server.light_set_color(
+                light,
+                Color::from_rgb(render.color[0], render.color[1], render.color[2]),
+            );
+            server.light_set_param(
+                light,
+                godot::classes::rendering_server::LightParam::RANGE,
+                render.radius,
+            );
+            server.light_set_negative(light, render.negative);
+            let instance = server.instance_create2(light, scenario);
+            server.instance_set_transform(instance, transform);
+            self.runtime_lights
+                .insert(reference, RuntimeLight { light, instance });
+        }
+    }
+
+    fn free_runtime_lights(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, light) in self.runtime_lights.drain() {
+            server.free_rid(light.instance);
+            server.free_rid(light.light);
+        }
+    }
+}
+
+fn effect_alpha(elapsed: f32, remaining: Option<f32>, fade: [f32; 4]) -> f32 {
+    let [fade_in, full_alpha_time, fade_out, persistent_ratio] = fade;
+    let fade_in_alpha = if fade_in > 0.0 {
+        (elapsed / fade_in).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let peak = if full_alpha_time > 0.0 && elapsed > fade_in + full_alpha_time {
+        persistent_ratio.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let fade_out_alpha = remaining.map_or(1.0, |left| {
+        if fade_out > 0.0 && left < fade_out {
+            (left / fade_out).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    });
+    fade_in_alpha.min(peak) * fade_out_alpha
+}
+
+fn effect_blend_mode(blend: (u32, u32)) -> godot::classes::base_material_3d::BlendMode {
+    use godot::classes::base_material_3d::BlendMode;
+    match blend {
+        (2 | 5, 2) | (2, 5) => BlendMode::ADD,
+        (2, 0) => BlendMode::MUL,
+        _ => BlendMode::MIX,
+    }
+}
+
+#[cfg(test)]
+mod mag_14_tests {
+    use super::{effect_alpha, effect_blend_mode};
+    use godot::classes::base_material_3d::BlendMode;
+
+    #[test]
+    fn mag_14_authored_fade_in_and_persistent_alpha_are_applied() {
+        assert_eq!(effect_alpha(0.0, None, [2.0, 1.0, 0.0, 0.25]), 0.0);
+        assert_eq!(effect_alpha(1.0, None, [2.0, 1.0, 0.0, 0.25]), 0.5);
+        assert_eq!(effect_alpha(4.0, None, [2.0, 1.0, 0.0, 0.25]), 0.25);
+    }
+
+    #[test]
+    fn mag_14_authored_blend_values_select_host_blend_mode() {
+        assert_eq!(effect_blend_mode((5, 6)), BlendMode::MIX);
+        assert_eq!(effect_blend_mode((2, 2)), BlendMode::ADD);
+        assert_eq!(effect_blend_mode((2, 0)), BlendMode::MUL);
     }
 }
 
@@ -1680,6 +1907,7 @@ impl CellStreamerNode {
         self.free_instances();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
@@ -2485,6 +2713,38 @@ fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
     let sky = direction_to_skyrim(d);
     let moved = delta.apply_direction(Vec3::new(sky[0], sky[1], sky[2]));
     direction_to_godot([moved.x, moved.y, moved.z])
+}
+
+#[cfg(test)]
+mod mag_35_runtime_light_tests {
+    use super::light_render_data;
+    use soe_esm::{Record, Tag};
+
+    fn light_record(radius: u32, color: [u8; 3], flags: u32) -> Record {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        data[8..11].copy_from_slice(&color);
+        data[12..16].copy_from_slice(&flags.to_le_bytes());
+        Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), data)
+    }
+
+    #[test]
+    fn mag_35_runtime_light_uses_authored_radius_color_and_negative_flag() {
+        let data = light_render_data(&light_record(700, [255, 128, 0], 1 << 2))
+            .expect("valid authored light data");
+        assert!((data.radius - 700.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert_eq!(data.color, [1.0, 128.0 / 255.0, 0.0]);
+        assert!(data.negative);
+    }
+
+    #[test]
+    fn mag_35_runtime_light_ignores_wrong_record_short_data_and_zero_radius() {
+        let wrong = Record::new(Tag::new(b"STAT"), 1).sub(Tag::new(b"DATA"), vec![0; 48]);
+        let short = Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), vec![0; 16]);
+        assert!(light_render_data(&wrong).is_none());
+        assert!(light_render_data(&short).is_none());
+        assert!(light_render_data(&light_record(0, [1, 2, 3], 0)).is_none());
+    }
 }
 
 /// A `MultiMesh` sharing `group`'s local-space geometry across a

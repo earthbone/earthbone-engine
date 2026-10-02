@@ -29,6 +29,9 @@ pub mod appearance;
 pub mod class;
 pub mod clock;
 pub mod combat;
+pub mod commonlib;
+pub mod commonlib_api;
+pub mod commonlib_world;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
@@ -55,10 +58,12 @@ pub mod race;
 pub mod save;
 pub mod save_generations;
 pub mod services;
+pub mod shim_world;
 pub mod sound;
 pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
+pub mod wasm;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -66,6 +71,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use soe_commonlib_shim::conditions::{
+    ComparisonValue, ConditionContext, ConditionError, ConditionRuntime, CONDITIONITEMOBJECT,
+    CONDITION_ITEM_DATA,
+};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
 use soe_papyrus::value::ElementKind;
 use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
@@ -73,9 +82,10 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 pub use clock::GameClock;
 pub use natives::Registered;
 pub use world::StoryError;
-pub use world::{Handle, Pending, RefPlacement, World};
+pub use world::{Handle, HostRequest, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
+use wasm::WasmMods;
 
 /// What [`Game::bind`] found in the load order's `VMAD` subrecords.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -143,11 +153,21 @@ fn data_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+fn is_placed_reference(tag: Tag) -> bool {
+    [
+        b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PBEA", b"PMIS", b"PARW", b"PHZD",
+    ]
+    .iter()
+    .any(|bytes| tag == Tag::new(bytes))
+}
+
 pub struct Game {
     pub vm: Vm,
     world: Rc<RefCell<World>>,
     pub registered: Registered,
     bound: Option<BindReport>,
+    bound_forms: BTreeSet<GlobalFormId>,
+    bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
@@ -160,6 +180,7 @@ pub struct Game {
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
+    wasm_mods: WasmMods,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -227,6 +248,8 @@ impl Game {
             world,
             registered,
             bound: None,
+            bound_forms: BTreeSet::new(),
+            bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
             oar_submods: Vec::new(),
@@ -234,6 +257,7 @@ impl Game {
             mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
+            wasm_mods: WasmMods::new(),
         }
     }
 
@@ -436,6 +460,52 @@ impl Game {
         self.world.clone()
     }
 
+    /// Deliver one host animation event to Papyrus listeners and latent waits.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_event(source, name, &mut |object, class| {
+                vm.create_object_of(object, class)
+            });
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Fail animation waits when their host graph unloads before completion.
+    pub fn report_animation_unloaded(&mut self, target: GlobalFormId) {
+        let completions = {
+            let mut world = self.world.borrow_mut();
+            world.animation_graph_unloaded(target);
+            world.take_animation_completions()
+        };
+        for completion in completions {
+            self.vm
+                .resolve_latent(completion.latent, Value::Bool(completion.succeeded));
+        }
+        self.run_until_idle(64);
+    }
+
+    /// Drain host graph events after a host frame and deliver them in order.
+    pub fn deliver_animation_reports(&mut self) {
+        let notices = self.world.borrow_mut().take_animation_host_notices();
+        for notice in notices {
+            match notice {
+                world::AnimationHostNotice::Event { source, name } => {
+                    self.report_animation_event(source, &name);
+                }
+                world::AnimationHostNotice::Unloaded { target } => {
+                    self.report_animation_unloaded(target);
+                }
+            }
+        }
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.world.borrow().form(editor_id)
     }
@@ -451,8 +521,8 @@ impl Game {
         self.object_of(Handle::Form(id))
     }
 
-    /// Attach every script the load order names and fill its properties.
-    /// Runs once, later calls return the first report.
+    /// Attach non-reference scripts in the load order and fill their properties.
+    /// Placed-reference scripts are attached by [`Game::bind_cell`].
     pub fn bind(&mut self) -> BindReport {
         if let Some(r) = &self.bound {
             return r.clone();
@@ -464,13 +534,13 @@ impl Game {
             let mut out = Vec::new();
             for (file_index, file) in order.files().iter().enumerate() {
                 for (i, rec) in file.plugin.records.iter().enumerate() {
-                    if rec.tag == Tag::new(b"MGEF") {
-                        continue;
-                    }
                     let Some(raw) = rec.find(Tag::new(b"VMAD")) else {
                         continue;
                     };
                     let id = order.resolve(file_index, rec.form_id);
+                    if is_placed_reference(rec.tag) {
+                        continue;
+                    }
                     let rref = RecordRef {
                         file: file_index,
                         record: i,
@@ -486,23 +556,180 @@ impl Game {
             out
         };
         let _bind_span = soe_trace::Span::with_payload("game.bind", "game", carriers.len() as u64);
-        for (id, rref, _tag, vmad) in carriers {
+        for (id, rref, tag, vmad) in carriers {
             let _span = soe_trace::Span::new("game.bind_form", "game");
-            report.forms_with_scripts += 1;
-            let object = self.object_of(Handle::Form(id));
-            self.attach_all(object, id, rref.file, &vmad.scripts, &mut report);
-            for alias in &vmad.aliases {
-                let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
-                let handle = Handle::Alias {
-                    quest: id,
-                    id: alias_id,
-                };
-                let object = self.object_of(handle);
-                self.attach_all(object, id, rref.file, &alias.scripts, &mut report);
+            if tag == Tag::new(b"MGEF") {
+                for entry in &vmad.scripts {
+                    if entry.status != 3 && !self.vm.has_script(&entry.name) {
+                        report.scripts_missing.push((entry.name.clone(), id));
+                    }
+                }
+            } else {
+                self.bind_carrier(id, rref.file, &vmad, &mut report);
             }
         }
         self.bound = Some(report.clone());
         report
+    }
+
+    /// Build a cell's references and attach the VMAD scripts they carry.
+    /// Each cell and form is bound once. Missing script files are listed in
+    /// the returned report with their owning form.
+    pub fn load_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        self.world.borrow_mut().load_cell(cell);
+        self.bind_cell(cell)
+    }
+
+    /// Attach scripts on placed references in an attached cell, including neighbors.
+    /// Calls for the same cell return an empty report after the first call.
+    pub fn bind_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        if !self.world.borrow().cell_is_attached(cell)
+            && self.world.borrow().loaded_cell() != Some(cell)
+        {
+            return BindReport::default();
+        }
+        if !self.bound_cells.insert(cell) {
+            return BindReport::default();
+        }
+        let ids = self.world.borrow_mut().cell_reference_ids(cell);
+        let mut report = BindReport::default();
+        for id in ids {
+            self.bind_reference(id, &mut report);
+        }
+        report
+    }
+
+    fn bind_reference(&mut self, id: GlobalFormId, report: &mut BindReport) {
+        if self.bound_forms.contains(&id) {
+            return;
+        }
+        let carrier = {
+            let world = self.world.borrow();
+            let order = world.order();
+            order.winner_ref(id).and_then(|rref| {
+                let record = order.record(rref);
+                if !is_placed_reference(record.tag) {
+                    return None;
+                }
+                let raw = record.find(Tag::new(b"VMAD"))?;
+                let vmad = Vmad::parse(raw, record.tag).ok()?;
+                Some((rref.file, vmad))
+            })
+        };
+        if let Some((file, mut vmad)) = carrier {
+            // CONTEXT: Restored instances retain their saved property values.
+            if let Some(object) = self.world.borrow().object_id(Handle::Form(id)) {
+                let attached = self.vm.scripts_on(object);
+                vmad.scripts.retain(|entry| {
+                    !attached
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&entry.name))
+                });
+            }
+            self.bound_forms.insert(id);
+            self.bind_carrier(id, file, &vmad, report);
+        }
+    }
+
+    fn prepare_cell_events(&mut self) {
+        let cells = self.world.borrow().attached_cell_ids();
+        for cell in cells {
+            self.bind_cell(cell);
+        }
+        let pending = std::mem::take(&mut self.world.borrow_mut().pending);
+        let mut resolved = Vec::with_capacity(pending.len());
+        let mut report = BindReport::default();
+        for event in pending {
+            match event {
+                Pending::ReferenceEvent { reference, name } => {
+                    self.bind_reference(reference, &mut report);
+                    if let Some(object) = self.world.borrow().object_id(Handle::Form(reference)) {
+                        resolved.push(Pending::Event {
+                            object,
+                            name,
+                            args: Vec::new(),
+                        });
+                    }
+                }
+                Pending::Event { object, name, args } => {
+                    if matches!(
+                        name.as_str(),
+                        "OnCellAttach" | "OnCellLoad" | "OnLoad" | "OnCellDetach" | "OnUnload"
+                    ) {
+                        let reference = self.world.borrow().form_of(object);
+                        if let Some(reference) = reference {
+                            self.bind_reference(reference, &mut report);
+                        }
+                    }
+                    resolved.push(Pending::Event { object, name, args });
+                }
+                event => resolved.push(event),
+            }
+        }
+        self.world.borrow_mut().pending.splice(0..0, resolved);
+    }
+
+    /// Change the focus cell and bind its scripts before exposing queued events.
+    pub fn change_cell(&mut self, to: Option<GlobalFormId>) -> world::CellTransition {
+        let transition = self.world.borrow_mut().change_cell(to);
+        self.prepare_cell_events();
+        transition
+    }
+
+    /// Commit a prefetched doorway and bind the arriving references for events.
+    pub fn commit_doorway(&mut self, way: &world::Doorway) -> world::CellTransition {
+        let transition = self.world.borrow_mut().commit_doorway(way);
+        self.prepare_cell_events();
+        transition
+    }
+
+    /// Apply host cell arrivals and departures, binding every attached cell.
+    ///
+    /// # Errors
+    /// Returns the World's residency validation error without binding scripts.
+    pub fn update_streaming_cells(
+        &mut self,
+        focus: GlobalFormId,
+        entered: &[GlobalFormId],
+        departed: &[GlobalFormId],
+    ) -> soe_esm::Result<world::CellTransition> {
+        let transition = self
+            .world
+            .borrow_mut()
+            .update_streaming_cells(focus, entered, departed)?;
+        self.prepare_cell_events();
+        Ok(transition)
+    }
+
+    /// Attach and bind neighboring cells while retaining the player focus.
+    ///
+    /// # Errors
+    /// Returns the World's attachment validation error without binding scripts.
+    pub fn attach_streaming_cells(&mut self, cells: &[GlobalFormId]) -> soe_esm::Result<usize> {
+        let loaded = self.world.borrow_mut().attach_streaming_cells(cells)?;
+        self.prepare_cell_events();
+        Ok(loaded)
+    }
+
+    fn bind_carrier(
+        &mut self,
+        id: GlobalFormId,
+        file: usize,
+        vmad: &Vmad,
+        report: &mut BindReport,
+    ) {
+        report.forms_with_scripts += 1;
+        let object = self.object_of(Handle::Form(id));
+        self.attach_all(object, id, file, &vmad.scripts, report);
+        for alias in &vmad.aliases {
+            let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
+            let handle = Handle::Alias {
+                quest: id,
+                id: alias_id,
+            };
+            let object = self.object_of(handle);
+            self.attach_all(object, id, file, &alias.scripts, report);
+        }
     }
 
     fn attach_all(
@@ -623,8 +850,9 @@ impl Game {
     /// Conditions use the actor base and race from the loaded records. The
     /// supported conditions are `IsFemale`, `IsActorBase` and `IsRace`.
     /// Every condition in a submod must pass. A matching replacement is an
-    /// HKX file with the same filename as `original_animation` under that
-    /// submod directory.
+    /// HKX file with the same filename as `original_animation` under the
+    /// submod's animation directory. OAR's `overrideAnimationsFolder` selects
+    /// a sibling directory for that path.
     ///
     /// # Errors
     ///
@@ -652,6 +880,9 @@ impl Game {
         let order = world.order();
 
         for sub_mod in &self.oar_submods {
+            if sub_mod.disabled {
+                continue;
+            }
             if !sub_mod.condition_groups.iter().all(|group| {
                 group
                     .iter()
@@ -659,7 +890,7 @@ impl Game {
             }) {
                 continue;
             }
-            if let Some(path) = find_oar_clip(&sub_mod.directory, file_name) {
+            if let Some(path) = find_oar_clip(&sub_mod.animation_directory, file_name) {
                 return Some(path);
             }
         }
@@ -712,6 +943,12 @@ impl Game {
         self.world
             .borrow_mut()
             .set_stage(id, stage, &mut |n, c| vm.create_object_of(n, c))
+    }
+
+    /// Load and initialize a WebAssembly component mod using the versioned
+    /// component interface in `wit/mod-api.wit`.
+    pub fn load_wasm_mod(&mut self, bytes: &[u8]) -> Result<(), wasm::Error> {
+        self.wasm_mods.load(bytes)
     }
 
     /// Queue the activation without running the VM. `activate` is this
@@ -858,8 +1095,22 @@ impl Game {
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
+    }
+
+    fn dispatch_wasm_activate(&mut self, target: GlobalFormId, activator: GlobalFormId) {
+        let commands = self.wasm_mods.activate(target, activator);
+        for command in commands {
+            match command {
+                wasm::Command::SetStage(quest, stage) => {
+                    self.set_stage(quest, stage);
+                }
+            }
+        }
     }
 
     /// Activate through the usual default processing and event path, retaining
@@ -873,6 +1124,9 @@ impl Game {
             true,
             &mut |n, c| vm.create_object_of(n, c),
         );
+        if ok {
+            self.dispatch_wasm_activate(target, activator);
+        }
         self.run_until_idle(64);
         ok
     }
@@ -1075,17 +1329,28 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        {
+            let mut world = self.world.borrow_mut();
+            world.menu_mode = menu_mode;
+            world.frame_rate.record_frame(real_seconds);
+        }
         let mut game_hours = 0.0;
         if !menu_mode {
             self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
+            let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
-            w.advance_clock(real_seconds);
+            w.advance_clock_scaled(real_seconds, slow_time_scale);
             w.tick_image_space(real_seconds);
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
             });
+            w.tick_shader_particles(real_seconds);
+            w.tick_effect_shaders(real_seconds);
+            if let Err(error) = w.tick_visual_effects(real_seconds) {
+                vm.log.push(vm.time(), error.to_string());
+            }
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
@@ -1096,7 +1361,12 @@ impl Game {
             }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            if w.debug_ai_enabled {
+                w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
+                    vm.create_object_of(n, c)
+                });
+            }
         }
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
@@ -1153,11 +1423,29 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        self.prepare_cell_events();
+        self.dispatch_story_manager_events();
+        let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
+        let mut routed = 0;
+        for event in story_events {
+            let result = {
+                let vm = &mut self.vm;
+                self.world.borrow_mut().send_story_event(vm, &event)
+            };
+            match result {
+                Ok(quests) => routed += quests.len(),
+                Err(error) => self
+                    .vm
+                    .log
+                    .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
+            }
+        }
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
-        let n = pending
-            .iter()
-            .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
-            .count();
+        let n = routed
+            + pending
+                .iter()
+                .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
+                .count();
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
@@ -1165,12 +1453,15 @@ impl Game {
                     self.world.borrow_mut().pending.push(event);
                 }
                 Pending::ActorDeath {
-                    killer, recipients, ..
+                    actor,
+                    killer,
+                    recipients,
                 } => {
                     let (objects, argument) = {
                         let vm = &mut self.vm;
                         let mut world = self.world.borrow_mut();
                         let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+                        world.resolve_soul_trap_death(actor, &mut alloc);
                         let argument = world.form_value(killer, &mut alloc);
                         let objects: Vec<_> = recipients
                             .into_iter()
@@ -1213,8 +1504,42 @@ impl Game {
                         }
                     }
                 }
+                Pending::BindReference { object, base } => {
+                    let definition = {
+                        let world = self.world.borrow();
+                        world.order().winner_ref(base).and_then(|rref| {
+                            let record = world.order().record(rref);
+                            let raw = record.find(Tag::new(b"VMAD"))?;
+                            Some((rref.file, Vmad::parse(raw, record.tag)))
+                        })
+                    };
+                    if let Some((file, definition)) = definition {
+                        match definition {
+                            Ok(vmad) => {
+                                let mut report = BindReport::default();
+                                self.attach_all(object, base, file, &vmad.scripts, &mut report);
+                                for (script, _) in report.scripts_missing {
+                                    self.vm.log.push(
+                                        self.vm.time(),
+                                        format!("reference script missing: {script}"),
+                                    );
+                                }
+                            }
+                            Err(error) => self
+                                .vm
+                                .log
+                                .push(self.vm.time(), format!("reference VMAD: {error}")),
+                        }
+                    }
+                }
                 Pending::Event { object, name, args } => {
                     self.vm.send_event(object, &name, &args);
+                }
+                Pending::ReferenceEvent { reference, name } => {
+                    self.bind_reference(reference, &mut BindReport::default());
+                    if let Some(object) = self.world.borrow().object_id(Handle::Form(reference)) {
+                        self.vm.send_event(object, &name, &[]);
+                    }
                 }
                 Pending::Call {
                     object,
@@ -1248,25 +1573,55 @@ impl Game {
         n
     }
 
-    /// Report one event emitted by a reference's behavior graph to Papyrus
-    /// listeners and any `WaitForAnimationEvent` calls.
-    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
-        let vm = &mut self.vm;
-        self.world
-            .borrow_mut()
-            .animation_event(source, name, &mut |script, class| {
-                vm.create_object_of(script, class)
-            });
+    /// Preserve the original unload entry point for callers of `Game`.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.report_animation_unloaded(source);
     }
 
-    /// Complete waits false when the reference's behavior graph unloads.
-    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
-        self.world.borrow_mut().animation_graph_unloaded(source);
+    fn dispatch_story_manager_events(&mut self) {
+        let events = self.world.borrow_mut().take_story_manager_events();
+        for event in events {
+            let (code, parameters) = match event.kind {
+                quest::state::StoryManagerEventKind::CraftItem => (
+                    *b"CRFT",
+                    event
+                        .parameters
+                        .into_iter()
+                        .enumerate()
+                        .map(
+                            |(index, reference)| quest::state::StoryParameter::Reference {
+                                kind: match index {
+                                    0 => 0,
+                                    1 => 2,
+                                    _ => 1,
+                                },
+                                reference,
+                            },
+                        )
+                        .collect(),
+                ),
+            };
+            let story_event = quest::state::StoryEvent {
+                id: 0,
+                code,
+                parameters,
+            };
+            if let Err(error) = self.send_story_event(&story_event) {
+                self.vm.log.push(
+                    self.vm.time(),
+                    format!("Story Manager event routing: {error}"),
+                );
+            }
+        }
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let loaded_cell = self.world.borrow().loaded_cell();
+        if let Some(cell) = loaded_cell {
+            self.bind_cell(cell);
+        }
         for _ in 0..max_rounds {
             self.pump();
             self.vm.run(self.budget);
@@ -1286,6 +1641,69 @@ impl Game {
             .iter()
             .map(|e| e.message.clone())
             .collect()
+    }
+}
+
+impl ConditionRuntime for Game {
+    fn evaluate_item(
+        &mut self,
+        item: &CONDITION_ITEM_DATA,
+        context: ConditionContext,
+    ) -> Result<bool, ConditionError> {
+        let mut world = self.world.borrow_mut();
+        let owner = world
+            .from_runtime_id(context.owner.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let subject = world
+            .from_runtime_id(context.subject.0)
+            .ok_or(ConditionError::UnavailableState)?;
+        let target = context
+            .target
+            .and_then(|handle| world.from_runtime_id(handle.0));
+        let quest = context.quest.and_then(|id| world.from_runtime_id(id.0));
+        let comparison = match item.comparison {
+            ComparisonValue::Number(value) => soe_esm::records::gameplay::Comparison::Number(value),
+            ComparisonValue::Global(id) => soe_esm::records::gameplay::Comparison::Global(id.0),
+        };
+        if item.object != CONDITIONITEMOBJECT::SelfRef {
+            return Err(ConditionError::UnsupportedTarget(item.object as u32));
+        }
+        let condition = soe_esm::records::gameplay::Condition {
+            flags: item.flags,
+            comparison,
+            function: item.function,
+            parameters: item.parameters,
+            run_on: item.run_on,
+            reference: item.reference.0,
+            parameter_3: item.parameter_3,
+            strings: [None, None],
+        };
+        let context = conditions::Context {
+            owner,
+            subject,
+            target,
+            quest,
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        conditions::evaluate_one(&mut world, &self.vm, context, &condition).map_err(|error| {
+            match error {
+                conditions::Error::Function(function) => {
+                    ConditionError::UnsupportedFunction(function)
+                }
+                conditions::Error::Target(target) => ConditionError::UnsupportedTarget(target),
+                conditions::Error::Form(_) | conditions::Error::Variable(_) => {
+                    ConditionError::UnavailableState
+                }
+                _ => ConditionError::InvalidCondition,
+            }
+        })
     }
 }
 

@@ -5,7 +5,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use soe_save::quest::FormFlags;
@@ -55,6 +55,7 @@ fn sav_39_every_source_flag_combination_roundtrips_exactly() {
             );
             assert_eq!(decoded.value_changed, flags & 2 != 0);
             assert_eq!(decoded.full_name_changed, flags & 4 != 0);
+            assert_eq!(decoded.unnamed_flags, flags & !0b111);
         }
     }
 }
@@ -75,9 +76,16 @@ fn sav_39_every_truncated_flag_payload_is_rejected() {
 }
 
 #[test]
-fn sav_39_rejects_undefined_flags_and_trailing_payload() {
+fn sav_39_retains_unnamed_flags_and_rejects_trailing_payload() {
     for kind in KINDS {
-        assert!(form(kind, 8, Vec::new()).light_static_change().is_err());
+        let unnamed_flags = 1 << 3;
+        let decoded = form(kind, unnamed_flags, Vec::new())
+            .light_static_change()
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.unnamed_flags, unnamed_flags);
+        assert_eq!(decoded.change_flags(), unnamed_flags);
+        assert_eq!(decoded.data_bytes(), Vec::<u8>::new());
         assert!(form(kind, 0, vec![0xA5]).light_static_change().is_err());
     }
 }
@@ -106,13 +114,21 @@ fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
 
 #[test]
 fn sav_39_external_corpus_accounts_for_all_light_static_changes() {
-    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
-        eprintln!("SOE_TEST_SAVES unset, skipping LIGH/STAT/MSTT corpus survey");
-        return;
-    };
+    let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves",
+            )
+        },
+        PathBuf::from,
+    );
     let mut paths = Vec::new();
-    collect(Path::new(&root), &mut paths);
+    collect(&root, &mut paths);
     paths.sort();
+    if paths.is_empty() {
+        eprintln!("no external saves found, skipping SAV-39 corpus accounting");
+        return;
+    }
     assert!(paths.len() >= 50, "survey requires at least 50 saves");
 
     let mut counts = BTreeMap::from([("LIGH", 0usize), ("STAT", 0), ("MSTT", 0)]);

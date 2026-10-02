@@ -65,6 +65,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "fuzz-nif-grammar"
+path = "fuzz_targets/fuzz_nif_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "fuzz-hkx"
 path = "fuzz_targets/fuzz_hkx.rs"
 test = false

@@ -196,6 +196,8 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         None => h.u8(0),
     }
     h.i32(s.destruction_stage);
+    h.bool(s.no_favor_allowed);
+    h.bool(s.destruction_cleared);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
@@ -282,6 +284,7 @@ fn faction_state(h: &mut StateHasher, f: &FactionState) {
     h.i32(f.infamy_nonviolent);
     h.bool(f.player_expelled);
     h.bool(f.player_enemy);
+    h.bool(f.player_attacked);
     h.bool(f.tracks_crime);
 }
 
@@ -420,6 +423,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.bool(a.dead);
     h.bool(a.in_combat);
     h.bool(a.teammate);
+    h.bool(a.can_do_favors);
     h.bool(a.ghost);
     h.bool(a.essential);
     h.bool(a.protected);
@@ -452,8 +456,10 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.swimming,
         a.running,
         a.riding_mount,
+        a.being_ridden,
         a.weapon_drawn,
         a.sprinting,
+        a.flying,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -528,10 +534,22 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.bool(a.stagger_end_time.is_some());
+    if let Some(until) = a.stagger_end_time {
+        h.f64(until);
+    }
+    h.f64(a.stagger_magnitude);
+    opt_form(h, a.stagger_direction);
+    h.bool(a.trespassing);
     h.u32(a.days_in_jail);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
+    }
+    match a.head_tracking {
+        None => h.u32(0),
+        Some(false) => h.u32(1),
+        Some(true) => h.u32(2),
     }
 }
 
@@ -579,6 +597,9 @@ impl World {
 
         let mut h = StateHasher::new();
         h.u64(self.rng);
+        for state in self.rng_streams {
+            h.u64(state);
+        }
         let rng = h.finish();
 
         let mut h = StateHasher::new();
@@ -609,6 +630,21 @@ impl World {
             form(h, *id);
             actor_state(h, a);
         });
+        h.len(self.follower_services.len());
+        for (actor, service) in &self.follower_services {
+            form(&mut h, *actor);
+            form(&mut h, service.package);
+            form(&mut h, service.faction);
+            match service.previous_faction_rank {
+                Some(rank) => {
+                    h.u8(1);
+                    h.i32(rank);
+                }
+                None => h.u8(0),
+            }
+            h.bool(service.previous_teammate);
+            h.bool(service.previous_can_do_favors);
+        }
         let mut templates = soe_papyrus::vm::state::Writer::new();
         self.write_actor_templates(&mut templates);
         h.bytes(&templates.out);
@@ -653,6 +689,25 @@ impl World {
         let form_lists = h.finish();
 
         let mut h = StateHasher::new();
+        h.len(self.pending_story_events.len());
+        for event in &self.pending_story_events {
+            h.u32(event.id);
+            h.bytes(&event.code);
+            h.len(event.parameters.len());
+            for parameter in &event.parameters {
+                match parameter {
+                    crate::quest::state::StoryParameter::Reference { kind, reference } => {
+                        h.u8(0);
+                        h.u32(*kind);
+                        opt_form(&mut h, *reference);
+                    }
+                    crate::quest::state::StoryParameter::Integer(value) => {
+                        h.u8(1);
+                        h.u32(*value);
+                    }
+                }
+            }
+        }
         h.len(self.pending.len());
         for p in &self.pending {
             match p {
@@ -683,6 +738,16 @@ impl World {
                     h.u8(2);
                     h.u64(object.0);
                     form(&mut h, *effect);
+                }
+                Pending::BindReference { object, base } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    form(&mut h, *base);
+                }
+                Pending::ReferenceEvent { reference, name } => {
+                    h.u8(6);
+                    form(&mut h, *reference);
+                    h.str(name);
                 }
                 Pending::Event { object, name, args } => {
                     h.u8(0);
@@ -766,7 +831,41 @@ impl World {
             h.u64(latent.0);
             h.bool(*result);
         }
+        h.len(self.animation_requests.len());
+        for request in &self.animation_requests {
+            form(&mut h, request.target);
+            h.str(&request.animation);
+        }
+        h.len(self.animation_waits.len());
+        for wait in &self.animation_waits {
+            form(&mut h, wait.target);
+            h.str(&wait.event);
+            h.u64(wait.latent.0);
+        }
+        h.len(self.animation_host_notices.len());
+        for notice in &self.animation_host_notices {
+            match notice {
+                super::AnimationHostNotice::Event { source, name } => {
+                    h.u8(0);
+                    form(&mut h, *source);
+                    h.str(name);
+                }
+                super::AnimationHostNotice::Unloaded { target } => {
+                    h.u8(1);
+                    form(&mut h, *target);
+                }
+            }
+        }
+        h.len(self.animation_completions.len());
+        for completion in &self.animation_completions {
+            h.u64(completion.latent.0);
+            h.bool(completion.succeeded);
+        }
         h.bool(self.player_controls);
+        for enabled in self.player_control_flags {
+            h.bool(enabled);
+        }
+        h.i32(self.player_control_pov_type);
         let output = h.finish();
 
         let mut h = StateHasher::new();
@@ -878,6 +977,9 @@ impl World {
             self.fast_travel,
             self.player_ai_driven,
             self.in_chargen,
+            self.chargen_disable_saving,
+            self.chargen_disable_waiting,
+            self.chargen_show_controls_disabled_message,
             self.beast_form,
         ] {
             h.bool(flag);
@@ -928,13 +1030,39 @@ impl World {
                 super::magic::SpellCastKind::Concentration => 1,
             });
         }
+        h.len(self.visual_effects.len());
+        h.u64(self.next_visual_effect);
+        for instance in self.visual_effects.values() {
+            h.u64(instance.id.0);
+            form(&mut h, instance.effect);
+            form(&mut h, instance.target);
+            match instance.remaining {
+                None => h.u8(0),
+                Some(seconds) => {
+                    h.u8(1);
+                    h.f64(seconds);
+                }
+            }
+            opt_form(&mut h, instance.facing);
+        }
+        h.len(self.visual_effect_attachments.len());
+        for attachment in self.visual_effect_attachments.values() {
+            form(&mut h, attachment.effect);
+            form(&mut h, attachment.target);
+            opt_form(&mut h, attachment.art);
+            opt_form(&mut h, attachment.shader);
+            h.u32(attachment.flags);
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
+        self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_weather_image_space(&mut magic);
+        self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
         for (id, effects) in &self.brewed_potions {
@@ -949,6 +1077,7 @@ impl World {
         }
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
+        super::reference_restore::write_created_base_section(self, &mut records);
         h.bytes(&records.out);
         let scenes = h.finish();
 
@@ -956,6 +1085,7 @@ impl World {
         // directly rather than through the sorting helper the `HashMap` fields
         // need.
         let mut h = StateHasher::new();
+        h.u64(self.player_character_id());
         h.len(self.mod_data.added_keywords.len());
         for (id, kws) in &self.mod_data.added_keywords {
             form(&mut h, *id);
@@ -1196,6 +1326,15 @@ mod tests {
             actor(w).sleep_outfit = Some(id(9));
         });
         moves("killer", actors, |w| actor(w).killer = Some(id(9)));
+        moves("stagger_end_time", actors, |w| {
+            actor(w).stagger_end_time = Some(1.0);
+        });
+        moves("stagger_magnitude", actors, |w| {
+            actor(w).stagger_magnitude = 0.5;
+        });
+        moves("stagger_direction", actors, |w| {
+            actor(w).stagger_direction = Some(id(9));
+        });
         moves("graph_floats", actors, |w| {
             actor(w).graph_floats.insert("speed".into(), 1.0);
         });
@@ -1310,6 +1449,15 @@ mod tests {
         moves("fast_travel", flags, |w| w.fast_travel = false);
         moves("player_ai_driven", flags, |w| w.player_ai_driven = true);
         moves("in_chargen", flags, |w| w.in_chargen = true);
+        moves("chargen_disable_saving", flags, |w| {
+            w.chargen_disable_saving = true;
+        });
+        moves("chargen_disable_waiting", flags, |w| {
+            w.chargen_disable_waiting = true;
+        });
+        moves("chargen_show_controls_disabled_message", flags, |w| {
+            w.chargen_show_controls_disabled_message = true;
+        });
         moves("beast_form", flags, |w| w.beast_form = true);
         moves("words_taught", flags, |w| {
             w.words_taught.insert(id(9));

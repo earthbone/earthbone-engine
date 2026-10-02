@@ -27,6 +27,17 @@ settles its scripts. World::melee_hit retains the queued events for save/load
 or callers that control VM scheduling. Neither entry point performs collision
 detection or selects a hand. The caller identifies the equipped weapon.
 
+## Papyrus `Weapon.Fire`
+
+The `Weapon.Fire(ObjectReference akSource, Ammo akAmmo = None)` native reads
+the base weapon, source reference and optional ammo from the shared form table.
+It returns a typed error for missing or mistyped forms and logs that error to
+the VM. A valid request reports unsupported ranged projectile execution and
+does not change health, inventory or the event queue. `Weapon.Fire` therefore
+does not execute ranged combat yet. The local SKSE vanilla `Weapon.psc` page
+documents this signature and the source-reference contract. A projectile
+execution system is a prerequisite for completing this native.
+
 ## Record and runtime inputs
 
 Weapon DATA supplies base damage, and DNAM supplies animation, governing
@@ -96,6 +107,17 @@ are open execution requirements, not silently omitted modifiers. Protected
 and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
 An essential attacker can still attack an ordinary target.
+
+Live Enhance Weapon effects (MGEF archetype 39) contribute their associated
+ENCH to ordinary equipped melee hits by their target actor. A single
+unconditioned ENCH Value Modifier entry for detrimental Health adds its
+magnitude, scaled by the active effect magnitude, to weapon damage before
+armor and resistance. The contribution is read while the active effect is
+live, so expiry stops it without changing weapon records or inventory stacks.
+Unarmed hits and attempts with unequipped weapons do not receive the
+contribution. Other ENCH effects, conditions and multiple entries are rejected
+before hit state changes. See [active magic](game.md#active-magic-applications),
+MAG-60.
 
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
 record's load-order context until a terminal template supplies the combat
@@ -386,6 +408,12 @@ PlayerNode exposes registration, start, cancellation and animation-contact
 entry points. Cell replacement clears registrations and cancels the swing.
 Collision owners must unregister bodies before freeing them. No dependency or
 per-reference node is added.
+
+PlayerNode routes the `Right Attack/Block` press edge through
+`MeleeContact::begin_from_attack_press`, which arms the player's right hand
+once and ignores held frames. The CMB-04 integration test gathers that edge
+from a control map, arms the contact through the same entry point, and applies
+one hit to the shared Game.
 
 The CMB-03 tests exercise the decoded annotation through the behavior
 interpreter into Game and assert the exact frame, hand and single damage
@@ -818,21 +846,20 @@ composition, explicit zero, unarmed damage, save/load, overflow and rejection
 without health or event changes. They also check every PERK-driven combat
 modifier actor value on both attacker and target.
 
-The skill Mod and PowerMod values are not applied because they are PERK
-inputs, not intrinsic percentage multipliers. Actors with any OneHanded,
-TwoHanded, Marksman, LightArmor or HeavyArmor modifier or power modifier
-actor value are rejected before damage or events change. These checks use the
-canonical actor-value names in the shared store. The installed five-master
-survey finds PerkSkillBoosts at 0:0CF788 and AlchemySkillBoosts at 0:0A725C.
-Both use function 14, multiply by one plus actor value times coefficient.
-OneHanded, TwoHanded and Marksman modifier entries use ModAttackDamage with
-coefficient 0.01. LightArmor and HeavyArmor modifier entries instead use
-ModIncomingDamage with coefficient -0.01. Their conditions and priorities
-come from the winning PERK records. Hardcoding those effects into armor
-rating would ignore record edits and apply the wrong term. The
-`combat_modifier_survey` example prints the relevant subrecords using the
-existing plugin reader, without copying installed assets. Applying these
-PERK effects requires the CMB-09 entry point evaluator.
+The skill Mod and PowerMod values are PERK inputs, not intrinsic percentage
+multipliers. The winning PERK records apply OneHanded, TwoHanded and Marksman
+modifier entries through ModAttackDamage, and LightArmor and HeavyArmor
+modifier entries through ModIncomingDamage. Both use function 14, which
+multiplies by one plus the selected actor value times its record coefficient.
+Their conditions, ordering and coefficients come from the winning PERK records
+and the CMB-09 dispatcher. PowerMod actor values have no ordinary-hit effect
+unless a dispatched entry reads them. CommonLibSSE and skymp identify the
+actor-value indices, and TES5Edit defines the PERK entry point operands. The
+installed five-master survey finds PerkSkillBoosts at 0:0CF788 and
+AlchemySkillBoosts at 0:0A725C. The `combat_modifier_survey` example prints
+the relevant subrecords using the existing plugin reader, without copying
+installed assets. The shared combat calculation validates the final damage
+after each ordered operation, before health or events commit.
 
 `docs/combat-perks.md` records the dispatch prerequisites and the ordering
 evidence still needed.
@@ -845,11 +872,13 @@ magnitude is that health damage scaled by the weapon's own DNAM Stagger
 fraction, `health_damage * weapon.stagger`. A hit above `fStaggerThreshold`
 sets `ActorState::stagger_end_time` to `World::clock.real_seconds` plus
 `fStaggerDuration`, the same real-time clock `ai::wait_until` uses for its
-own deadlines, not the calendar `game_days` clock. `World::is_staggered(id)`
-reads that deadline lazily against the current clock, mirroring the
-`is_player` and `is_reference` query methods rather than adding an active
-per-tick clear. `HitResult::staggered` reports whether this particular hit
-crossed the threshold.
+own deadlines, not the calendar `game_days` clock. A qualifying hit passes
+its computed magnitude and attacker as direction source to the shared
+stagger lifecycle, which retains them with the deadline.
+`World::is_staggered(id)` reads that deadline lazily against the current clock,
+mirroring the `is_player` and `is_reference` query methods rather than adding
+an active per-tick clear. `HitResult::staggered` reports whether this
+particular hit crossed the threshold.
 
 The local `TES5Edit/Core/wbDefinitionsTES5.pas` WEAP definition places the
 Stagger float as DNAM's last field, the four bytes at offset 96 to 100 of
@@ -879,10 +908,9 @@ stagger-related event anywhere. Host and render code reads
 `ActorState::stagger_end_time` or calls `World::is_staggered` directly
 instead of waiting on a fabricated event.
 
-`validate_combat_actor` already rejects any actor carrying a non-empty
-`perks` set before `melee_hit` reaches the stagger computation, so a perked
-actor's stagger immunity or resistance is out of scope the same way every
-other perk-gated combat modifier is, pending CMB-09's perk dispatch path.
+Stagger thresholds do not use perk membership. The evaluated combat modifier
+entries can change hit damage before stagger magnitude is calculated, but they
+do not change the weapon's Stagger fraction or duration.
 
 `ActorState::stagger_end_time` is a new `Option<f64>` field, so SOEW moved
 from version 28 to 29. `write_actor_state` writes it unconditionally and
@@ -1217,8 +1245,9 @@ Left out of this row:
   value to check against, matching the task pack's note that all original
   files use -1.
 - Perked resistance modifiers (Mod Target Damage Resistance, actor value 37)
-  are out of scope pending CMB-09's perk dispatch path, the same gap
-  CMB-15's armor-side perk modifiers document above.
+  are outside the CMB-09 damage entry points 35 and 36. TES5Edit defines it as
+  a separate PERK entry point, and UESP's MGEF layout identifies the resistance
+  actor value field. This path does not dispatch that entry point.
 
 ## Weapon poison consumption, CMB-25
 

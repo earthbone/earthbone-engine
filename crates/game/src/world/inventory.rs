@@ -9,7 +9,7 @@
 use super::{Alloc, Handle, Pending, World, T};
 use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
 use soe_esm::{GlobalFormId, Record, Tag};
-use soe_papyrus::Value;
+use soe_papyrus::{ObjectId, Value};
 
 enum FormListAddition {
     Base(GlobalFormId, i32),
@@ -97,6 +97,32 @@ impl World {
             alloc,
         );
         Ok(())
+    }
+
+    /// Add an inventory event filter to one Papyrus listener.
+    /// Filters on the same listener stack and match either a form or members
+    /// of a form list when inventory events are queued.
+    pub fn add_inventory_event_filter(&mut self, listener: ObjectId, filter: GlobalFormId) {
+        self.inventory_filters
+            .entry(listener)
+            .or_default()
+            .push(filter);
+    }
+
+    /// Remove a form filter from one Papyrus listener.
+    pub fn remove_inventory_event_filter(
+        &mut self,
+        listener: ObjectId,
+        filter: Option<GlobalFormId>,
+    ) {
+        if let Some(filters) = self.inventory_filters.get_mut(&listener) {
+            filters.retain(|candidate| Some(*candidate) != filter);
+        }
+    }
+
+    /// Remove every inventory event filter from one Papyrus listener.
+    pub fn remove_all_inventory_event_filters(&mut self, listener: ObjectId) {
+        self.inventory_filters.remove(&listener);
     }
 
     /// Select a quantity from one stack or the plain remainder of a holder's items.
@@ -391,7 +417,7 @@ impl World {
             return false;
         };
         let mut updated = reference.inventory.clone();
-        let previous_rng = self.rng;
+        let previous_rng = self.rng_streams;
         let Ok(mut selected) =
             self.roll_leveled_inventory_context(list, level, count, Some(self.player_level))
         else {
@@ -403,12 +429,12 @@ impl World {
             .collect();
         for &(item, count) in &changes {
             if updated.receive(item, selected.take(item, count)).is_err() {
-                self.rng = previous_rng;
+                self.rng_streams = previous_rng;
                 return false;
             }
         }
         let Some(reference) = self.reference(holder) else {
-            self.rng = previous_rng;
+            self.rng_streams = previous_rng;
             return false;
         };
         reference.inventory = updated;
@@ -651,7 +677,7 @@ impl World {
             }
             target.inventory.clone()
         };
-        let previous_rng = self.rng;
+        let previous_rng = self.rng_streams;
         let mut updated = target_inventory;
         let mut prepared = Vec::new();
         let mut references = Vec::new();
@@ -659,26 +685,26 @@ impl World {
             match addition {
                 FormListAddition::Base(item, total) => {
                     if updated.add(item, total).is_err() {
-                        self.rng = previous_rng;
+                        self.rng_streams = previous_rng;
                         return false;
                     }
                     prepared.push(PreparedFormListAddition::Base(item, total));
                 }
                 FormListAddition::Reference(reference) => {
                     if references.contains(&reference) {
-                        self.rng = previous_rng;
+                        self.rng_streams = previous_rng;
                         return false;
                     }
                     references.push(reference);
                     let Some(addition) = self.reference_addition(holder, reference) else {
-                        self.rng = previous_rng;
+                        self.rng_streams = previous_rng;
                         return false;
                     };
                     if updated
                         .receive(addition.base, addition.bundle.clone())
                         .is_err()
                     {
-                        self.rng = previous_rng;
+                        self.rng_streams = previous_rng;
                         return false;
                     }
                     prepared.push(PreparedFormListAddition::Reference(addition));
@@ -690,7 +716,7 @@ impl World {
                         count,
                         Some(self.player_level),
                     ) else {
-                        self.rng = previous_rng;
+                        self.rng_streams = previous_rng;
                         return false;
                     };
                     let changes: Vec<_> = selected
@@ -702,7 +728,7 @@ impl World {
                             .receive(*item, selected.take(*item, *total))
                             .is_err()
                         {
-                            self.rng = previous_rng;
+                            self.rng_streams = previous_rng;
                             return false;
                         }
                     }
@@ -711,7 +737,7 @@ impl World {
             }
         }
         let Some(target) = self.reference(holder) else {
-            self.rng = previous_rng;
+            self.rng_streams = previous_rng;
             return false;
         };
         target.inventory = updated;

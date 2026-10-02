@@ -7,6 +7,58 @@ use crate::clock::Calendar;
 use soe_esm::{GlobalFormId, Tag};
 
 impl World {
+    /// Return the time-driven sun position in Skyrim world units. This
+    /// engine model places the sun on a 100,000-unit orbit, east at 06:00,
+    /// overhead at 12:00 and west at 18:00.
+    pub fn sun_position(&self) -> [f32; 3] {
+        let hour = self.calendar().hour.rem_euclid(24.0);
+        let angle = (hour - 6.0) * std::f64::consts::PI / 12.0;
+        let direction = [angle.cos(), 0.0, angle.sin()];
+        let player = self.player.and_then(|id| self.refs.get(&id));
+        let origin = player.map_or([0.0; 3], |r| r.position);
+        [
+            origin[0] + direction[0] as f32 * 100_000.0,
+            origin[1],
+            origin[2] + direction[2] as f32 * 100_000.0,
+        ]
+    }
+
+    /// Whether the host camera points within one degree of the sun.
+    pub fn player_is_sungazing(&self) -> bool {
+        let sun = self.sun_position();
+        let origin = self
+            .player
+            .and_then(|id| self.refs.get(&id))
+            .map_or([0.0; 3], |r| r.position);
+        let mut to_sun = [sun[0] - origin[0], sun[1] - origin[1], sun[2] - origin[2]];
+        let sun_len = (to_sun.iter().map(|v| v * v).sum::<f32>()).sqrt();
+        let look_len = (self.camera_look.iter().map(|v| v * v).sum::<f32>()).sqrt();
+        if !sun_len.is_finite() || !look_len.is_finite() || sun_len == 0.0 || look_len == 0.0 {
+            return false;
+        }
+        for value in &mut to_sun {
+            *value /= sun_len;
+        }
+        let dot = to_sun
+            .iter()
+            .zip(self.camera_look)
+            .map(|(a, b)| a * (b / look_len))
+            .sum::<f32>();
+        dot >= 0.999_847_7
+    }
+
+    /// Queue a host camera effect. Invalid strengths or durations are ignored.
+    pub fn shake_camera(&mut self, source: GlobalFormId, strength: f32, duration: f32) {
+        if !strength.is_finite() || !duration.is_finite() || duration < 0.0 {
+            return;
+        }
+        self.camera_shakes.push(crate::world::CameraShake {
+            source,
+            strength: strength.clamp(0.0, 1.0),
+            duration,
+        });
+    }
+
     pub(crate) fn calendar_global(&self, name: &str) -> Option<(GlobalFormId, f32)> {
         let id = self.form(name)?;
         let record = self.record(id)?;
@@ -37,9 +89,13 @@ impl World {
 
     /// Advance calendar globals before timers and packages observe this tick.
     pub fn advance_clock(&mut self, real_seconds: f64) {
+        self.advance_clock_scaled(real_seconds, 1.0);
+    }
+
+    pub(crate) fn advance_clock_scaled(&mut self, real_seconds: f64, game_time_scale: f64) {
         let mut calendar = self.calendar();
-        let elapsed_hours = real_seconds.max(0.0) * self.clock.timescale / 3600.0;
-        self.clock.advance(real_seconds);
+        let elapsed_hours = real_seconds.max(0.0) * self.clock.timescale * game_time_scale / 3600.0;
+        self.clock.advance_scaled(real_seconds, game_time_scale);
         if elapsed_hours == 0.0 {
             return;
         }

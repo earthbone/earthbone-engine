@@ -329,13 +329,17 @@ env -C <repo> PATH=$HOME/.cargo/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly \
   cargo fuzz run fuzz-dds-grammar -- -max_total_time=300
 ```
 
-**No mesh grammar target, and the reason.** A valid `NIF` is a block graph with
-a string table and version-dependent layouts, so a grammar that produces one is
-a large piece of work rather than a session's. A shallow version would mostly
-generate files the parser rejects, which is what `fuzz-nif` already covers with
-plain bytes. Left undone deliberately rather than done badly. The mesh reader
-did get a real defect fixed today by other means, the partition-local bone
-indices, found by rendering rather than by fuzzing.
+**NIF grammar follow-up.** `fuzz-nif-grammar` now builds a complete Skyrim SE
+stream-100 header and tables, a root `NiNode`, and a packed `BSTriShape` with
+one triangle. The bounded grammar varies positions, UVs, normals, colors, and
+node flags, then requires parsing and mesh extraction to succeed. The writer
+follows local `engine-refs/nifxml/nif.xml` block definitions, avoiding the
+rejected shallow inputs this earlier note warned against. Run
+`cargo fuzz coverage fuzz-nif-grammar` to generate an HTML coverage report.
+This target focuses on the node, shape, packed-vertex, and mesh paths. Other
+block families remain covered by the byte target and crate tests. A 15 second
+run on 2026-09-29 completed 497,357 executions with `cov: 1045`, `ft: 1063`
+from 17,307 instrumented counters.
 
 **What these cannot catch.** The DDS target never builds a legal payload on
 purpose, so it exercises truncation and bad geometry far more than correct
@@ -477,3 +481,46 @@ save-corpus paths, since `SKYRIM_DATA` was unset for this run, an instrumented
 build under `SKYRIM_DATA` would raise the numbers above without proving the
 gated assertions themselves are strong. That gap is entry 5's mutation score
 row, still not started because `cargo-mutants` is not installed here.
+
+## 2026-09-29, TST-03 mutation score
+
+The earlier note records the tool state on 2026-09-18. For TST-03,
+`cargo-mutants` 27.1.0 was installed under `/tmp/tst03-cargo-mutants` and not
+added to the workspace. Scratch-copy runs reused the environment's shared
+`CARGO_TARGET_DIR` and reported mutated crates as fresh, so those outcomes were
+discarded. The scored runs used `--in-place`, retained the configured target
+directory and flags, and restored the source after every mutation.
+
+Papyrus covered `vm/execution.rs`, `vm/dispatch.rs` and `value.rs`, following
+the module split described in `docs/papyrus.md`. ESM covered `load_order.rs`
+and `cell_index.rs`. After the `tst_03_...` cases, Papyrus caught 182 of 220
+viable mutants, 38 survived and 20 were unviable. ESM caught 97 of 106 viable
+mutants, 9 survived and 24 were unviable. These are scoped results, not
+whole-crate scores.
+
+`tests/tst_03_mutation.rs` exercises element-kind defaults, scalar conversions,
+array identity, value comparisons, leading-number parsing, static dispatch and
+integer addition. `tests/tst_03_load_order.rs` checks empty and populated form
+queries, created FormID formatting and packing. The TST-03 case in
+`tests/cell_index.rs` checks deleted and world counts, same-class id ties and
+interior preference when an exterior cell with a duplicate editor id is
+visited first.
+
+**Papyrus survivors.** The `Value::equals` boolean-pair arm deletion is
+equivalent because it produces the same result as the numeric fallback for
+boolean operands. The leading-character boolean mutation in
+`parse_leading_float` is equivalent for returned values because invalid
+prefixes parse to zero and valid numeric prefixes follow the same scan. The
+remaining 36 mutants are coverage gaps in script-qualified lookup and object
+chains, native and builtin dispatch, scheduler budget boundaries, opcode
+comparison and arithmetic edges, jump bounds, and casts. No implementation
+defect was established by this run.
+
+**ESM survivors.** Three `CellIndex::add_cell` comparison mutations are
+equivalent under the sorted winner iteration: the current candidate cannot
+have a lower id than the stored id, and the new tests cover interior priority
+over an exterior cell. The two count mutants return the fixture's actual
+single deleted reference and single world. Four `runtime_id` mutations replace
+bitwise OR with XOR across disjoint namespace and object-id bit ranges, which
+produces the same packed ids. No implementation defect was established by this
+run.

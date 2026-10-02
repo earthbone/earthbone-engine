@@ -42,25 +42,29 @@ fn sav_33_all_item_types_and_named_flag_combinations_reencode_exactly() {
 
 #[test]
 fn sav_33_unnamed_flags_and_tail_bytes_are_retained() {
-    let flags = flags::FORM | flags::VALUE | 0x8000_0020;
-    let data = vec![1, 2, 3, 4, 5, 6, 0xA5, 0x5A];
-    let decoded = form(23, flags, data.clone())
-        .item_change()
-        .unwrap()
-        .unwrap();
+    for record_type in [12, 23, 24] {
+        let change_flags = flags::FORM | flags::VALUE | 0x8000_0020;
+        let data = vec![1, 2, 3, 4, 5, 6, 0xA5, 0x5A];
+        let decoded = form(record_type, change_flags, data.clone())
+            .item_change()
+            .unwrap()
+            .unwrap();
 
-    assert_eq!(decoded.unnamed_flags, 0x8000_0020);
-    assert_eq!(decoded.change_flags(), flags);
-    assert_eq!(decoded.data_bytes(), data);
+        assert_eq!(decoded.unnamed_flags, 0x8000_0020);
+        assert_eq!(decoded.change_flags(), change_flags);
+        assert_eq!(decoded.data_bytes(), data);
+    }
 }
 
 #[test]
 fn sav_33_truncated_form_flags_are_rejected() {
-    for len in 0..6 {
-        let error = form(12, flags::FORM, vec![0; len])
-            .item_change()
-            .unwrap_err();
-        assert!(matches!(error, soe_save::Error::Truncated { .. }));
+    for record_type in [12, 23, 24] {
+        for len in 0..6 {
+            let error = form(record_type, flags::FORM, vec![0; len])
+                .item_change()
+                .unwrap_err();
+            assert!(matches!(error, soe_save::Error::Truncated { .. }));
+        }
     }
 }
 

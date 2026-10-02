@@ -411,6 +411,11 @@ fn vanilla_dependency_report(
             if let Some(name) = papyrus.string(script.name) {
                 saved_scripts.insert(name.to_owned());
             }
+            if let Some(parent) = papyrus.string(script.parent) {
+                if !parent.is_empty() {
+                    saved_scripts.insert(parent.to_owned());
+                }
+            }
         }
         for instance in &papyrus.instances {
             if let Some(name) = papyrus.string(instance.script) {
@@ -518,6 +523,8 @@ impl Game {
         self.world.borrow_mut().load_state(world_bytes)?;
         self.vm.load_state(vm_bytes)?;
         self.bound = None;
+        self.bound_cells.clear();
+        self.bound_forms.clear();
         Ok(())
     }
 }

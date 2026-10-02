@@ -60,6 +60,8 @@ const TURN_QUEST: u32 = 0xA17;
 const FEED_SCENE: u32 = 0xA18;
 const HUNT_PACKAGE: u32 = 0xA19;
 const HAND_SPELL: u32 = 0xA1A;
+const COMBAT_EFFECT: u32 = 0xA1B;
+const COMBAT_SPELL: u32 = 0xA1C;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -140,7 +142,11 @@ fn test_plugin() -> Plugin {
         p.push_top(
             Record::new(T(b"NPC_"), id)
                 .zsub(EDID, edid)
-                .sub(T(b"ACBS"), acbs(0)),
+                .sub(T(b"ACBS"), acbs(0))
+                .sub(
+                    T(b"AIDT"),
+                    [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ),
         );
     }
     p.push_top(Record::new(T(b"SHOU"), SHOUT_A).zsub(EDID, "ShoutDrainVitality"));
@@ -152,6 +158,31 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"SPEL"), HAND_SPELL)
             .zsub(EDID, "TestFlames")
             .sub(T(b"SPIT"), spit(0)),
+    );
+    let mut effect = vec![0_u8; 152];
+    effect[0..4].copy_from_slice(&4_u32.to_le_bytes());
+    effect[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+    effect[64..68].copy_from_slice(&0_u32.to_le_bytes());
+    effect[68..72].copy_from_slice(&24_u32.to_le_bytes());
+    effect[80..84].copy_from_slice(&1_u32.to_le_bytes());
+    effect[84..88].copy_from_slice(&3_u32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"MGEF"), COMBAT_EFFECT)
+            .zsub(EDID, "Scr17CombatEffect")
+            .sub(T(b"DATA"), effect),
+    );
+    let mut targeted = vec![0_u8; 36];
+    targeted[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    targeted[20..24].copy_from_slice(&3_u32.to_le_bytes());
+    let mut effect_entry = 12.0_f32.to_le_bytes().to_vec();
+    effect_entry.extend_from_slice(&0_u32.to_le_bytes());
+    effect_entry.extend_from_slice(&0_u32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"SPEL"), COMBAT_SPELL)
+            .zsub(EDID, "Scr17CombatSpell")
+            .sub(T(b"SPIT"), targeted)
+            .sub(T(b"EFID"), le(COMBAT_EFFECT))
+            .sub(T(b"EFIT"), effect_entry),
     );
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
@@ -256,6 +287,11 @@ fn scripts() -> Vec<Vec<u8>> {
             &[("abIsWerewolf", "Bool")],
             "lycanthropy changed",
         ))
+        .function(event_tracing(
+            "OnVampireFeed",
+            &[("akTarget", "Actor")],
+            "vampire feed started",
+        ))
         .function(
             FunctionBuilder::new("TurnToVampire", "None")
                 .ins(
@@ -299,6 +335,10 @@ fn game() -> Game {
         game.load_script(&script).unwrap();
     }
     game.bind();
+    game.load_cell(soe_esm::GlobalFormId {
+        file: 0,
+        object: INSIDE,
+    });
     game
 }
 
@@ -698,6 +738,51 @@ fn ui_03_equip_spell_native_and_the_magic_menu_share_one_hand_state() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// SCR-15: `GetEquippedSpell` reads the selected hand through the spell-hand
+/// state used by `EquipSpell`. Unsupported source values return no form.
+#[test]
+fn scr_15_get_equipped_spell_reads_the_requested_hand() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let spell = obj(&mut g, "TestFlames");
+
+    call(&mut g, &vampire, "AddSpell", &[spell.clone()]);
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(0)],
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(0)]),
+        spell,
+        "source zero reads the left hand"
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
+        Value::None,
+        "reading the other hand does not alias the left hand"
+    );
+
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
+        spell,
+        "source one reads the right hand"
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(4)]),
+        Value::None,
+        "an unsupported source returns no spell"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// SetRace "Sets the actor's race", which GetRace reads back. SetEyeTexture
 /// "Forces a new eye texture on the actor" and AttachAshPile "Attaches an ash
 /// pile to this actor using the passed-in form as a base".
@@ -889,8 +974,7 @@ fn perk_points_add_and_clamp_at_255() {
 }
 
 /// GetWarmthRating "Obtains the total warmth rating for the actor" is zero
-/// without the survival plugin, and the sun positions are zero without a sky
-/// model. They are registered so the DLC scripts calling them run on.
+/// without the survival plugin. SCR-26 supplies the sky functions.
 #[test]
 fn the_systems_without_an_engine_answer_quietly() {
     let mut g = game();
@@ -899,14 +983,286 @@ fn the_systems_without_an_engine_answer_quietly() {
         call(&mut g, &vampire, "GetWarmthRating", &[]),
         Value::Float(0.0)
     );
-    for name in ["GetSunPositionX", "GetSunPositionY", "GetSunPositionZ"] {
-        assert_eq!(call_global(&mut g, "Game", name, &[]), Value::Float(0.0));
-    }
     call_global(&mut g, "Game", "SendWereWolfTransformation", &[]);
     call(&mut g, &vampire, "ClearExtraArrows", &[]);
     let player = obj(&mut g, "PlayerRef");
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK `UnequipAll` forces the actor to unequip every currently equipped item.
+#[test]
+fn scr_16_unequip_all_clears_equipment_and_hand_assignments() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let id = form(&g, "PlayerRef");
+    let armor = form(&g, "FarmClothes");
+    let spell = form(&g, "TestFlames");
+    g.world_mut().add_item(id, armor, 1);
+    g.world_mut().equip_item(id, armor).unwrap();
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        actor.spells.insert(spell);
+        actor.equipped.insert(spell);
+        actor.left_spell = Some(spell);
+        actor.right_weapon = Some(armor);
+    }
+    call(&mut g, &player, "UnequipAll", &[]);
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        assert!(actor.equipped.is_empty());
+        assert_eq!(actor.left_spell, None);
+        assert_eq!(actor.right_spell, None);
+        assert_eq!(actor.left_weapon, None);
+        assert_eq!(actor.right_weapon, None);
+    }
+    assert_eq!(g.world_mut().item_count(id, armor), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// RemoveAllSpells removes known spells and clears their equipped hand state.
+#[test]
+fn scr_16_remove_all_spells_preserves_non_spell_equipment() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let id = form(&g, "PlayerRef");
+    let spell = form(&g, "TestFlames");
+    let armor = form(&g, "FarmClothes");
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        actor.spells.insert(spell);
+        actor.equipped.insert(spell);
+        actor.equipped.insert(armor);
+        actor.left_spell = Some(spell);
+        actor.right_spell = Some(spell);
+    }
+    call(&mut g, &player, "RemoveAllSpells", &[]);
+    {
+        let mut world = g.world_mut();
+        let actor = world.actor(id).unwrap();
+        assert!(actor.spells.is_empty());
+        assert!(!actor.equipped.contains(&spell));
+        assert!(actor.equipped.contains(&armor));
+        assert_eq!(actor.left_spell, None);
+        assert_eq!(actor.right_spell, None);
+    }
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// CK `StartVampireFeed` raises the actor's `OnVampireFeed` with the target.
+#[test]
+fn scr_16_start_vampire_feed_delivers_actor_event() {
+    let mut g = game();
+    g.start();
+    let vampire = obj(&mut g, "VampireRef");
+    let player = obj(&mut g, "PlayerRef");
+    let player_id = form(&g, "PlayerRef");
+    g.world_mut().actor(player_id).unwrap().ai.sleeping = true;
+    call(&mut g, &vampire, "StartVampireFeed", &[player]);
+    g.pump();
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace == "vampire feed started"));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: DoCombatSpellApply uses the actor as caster and applies the target
+/// actor spell effect through the world magic system.
+#[test]
+fn scr_17_do_combat_spell_apply_changes_target_and_rejects_bad_arguments() {
+    let mut g = game();
+    let caster = obj(&mut g, "VampireRef");
+    let target = obj(&mut g, "PlayerRef");
+    let spell_id = form(&g, "Scr17CombatSpell");
+    let spell = Value::Object(g.object_of_form(spell_id));
+    let target_id = form(&g, "PlayerRef");
+    g.world_mut()
+        .set_actor_value(target_id, "health", 100.0)
+        .unwrap();
+    call(
+        &mut g,
+        &caster,
+        "DoCombatSpellApply",
+        &[spell.clone(), target.clone()],
+    );
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g.world().active_effects().next().is_some());
+    call(&mut g, &caster, "DoCombatSpellApply", &[spell, Value::None]);
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a target form")));
+    call(
+        &mut g,
+        &caster,
+        "DoCombatSpellApply",
+        &[Value::None, target],
+    );
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a spell form")));
+}
+
+/// SCR-17: MoveToPackageLocation moves an actor to the current package center
+/// and updates its cell.
+#[test]
+fn scr_17_move_to_package_location_moves_to_selected_center() {
+    let mut g = game();
+    let actor = obj(&mut g, "VampireRef");
+    let id = form(&g, "VampireRef");
+    let cell = form(&g, "DragonPeak");
+    let destination = [512.0, 640.0, 32.0];
+    {
+        let mut world = g.world_mut();
+        let state = world.actor(id).unwrap();
+        state.ai.center = Some(destination);
+        state.ai.center_cell = Some(cell);
+        let reference = world.reference(id).unwrap();
+        reference.position = [0.0, 0.0, 0.0];
+    }
+    call(&mut g, &actor, "MoveToPackageLocation", &[]);
+    let mut world = g.world_mut();
+    assert_eq!(world.reference(id).unwrap().position, destination);
+    assert_eq!(world.reference(id).unwrap().cell, Some(cell));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: MoveToPackageLocation leaves the actor in place and logs a missing
+/// package location instead of fabricating a destination.
+#[test]
+fn scr_17_move_to_package_location_reports_missing_location() {
+    let mut g = game();
+    let actor = obj(&mut g, "VampireRef");
+    let id = form(&g, "VampireRef");
+    let original = g.world_mut().reference(id).unwrap().position;
+    call(&mut g, &actor, "MoveToPackageLocation", &[]);
+    assert_eq!(g.world_mut().reference(id).unwrap().position, original);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("MoveToPackageLocation has no package location")));
+}
+
+/// SCR-17: WillIntimidateSucceed uses the existing condition system's
+/// Speechcraft versus Confidence approximation and rejects extra arguments.
+#[test]
+fn scr_17_will_intimidate_succeed_uses_speechcraft_and_confidence() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(false)
+    );
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 50.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[Value::Int(1)]),
+        Value::Bool(false)
+    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments")));
+}
+
+/// SCR-26: sun queries read calendar and player state, gaze uses the host
+/// camera direction, and ShakeCamera queues the CK-defined effect parameters.
+#[test]
+fn scr_26_game_sky_and_camera_bindings() {
+    let mut g = game();
+    let player = obj(&mut g, "PlayerRef");
+    let position: Vec<f32> = ["GetSunPositionX", "GetSunPositionY", "GetSunPositionZ"]
+        .into_iter()
+        .map(|name| match call_global(&mut g, "Game", name, &[]) {
+            Value::Float(value) => value,
+            other => panic!("{name} returned {other:?}"),
+        })
+        .collect();
+    assert!(position.iter().all(|value| value.is_finite()));
+    assert!(position.iter().any(|value| value.abs() > 1.0));
+    let expected = g.world().sun_position();
+    for (actual, expected) in position.iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.01);
+    }
+    g.world_mut().clock.game_days += 0.25;
+    let noon_x = call_global(&mut g, "Game", "GetSunPositionX", &[]).as_float();
+    assert!((noon_x - position[0]).abs() > 1.0);
+
+    let sun = g.world().sun_position();
+    let player_id = form(&g, "PlayerRef");
+    let origin = [0.0; 3];
+    let mut look = [sun[0] - origin[0], sun[1] - origin[1], sun[2] - origin[2]];
+    let length = (look.iter().map(|value| value * value).sum::<f32>()).sqrt();
+    for value in &mut look {
+        *value /= length;
+    }
+    g.world_mut().camera_look = look;
+    assert_eq!(
+        call_global(&mut g, "Game", "IsPlayerSungazing", &[]),
+        Value::Bool(true)
+    );
+    g.world_mut().camera_look = [0.0, 1.0, 0.0];
+    assert_eq!(
+        call_global(&mut g, "Game", "IsPlayerSungazing", &[]),
+        Value::Bool(false)
+    );
+
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[player.clone(), Value::Float(1.5), Value::Float(0.7)],
+    );
+    let shakes = g.world().camera_shakes.clone();
+    assert_eq!(shakes.len(), 1);
+    assert_eq!(shakes[0].source, form(&g, "PlayerRef"));
+    assert_eq!(shakes[0].strength, 1.0);
+    assert_eq!(shakes[0].duration, 0.7);
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(0.25)],
+    );
+    assert_eq!(g.world().camera_shakes.len(), 2);
+    assert_eq!(g.world().camera_shakes[1].source, player_id);
+    assert!((g.world().camera_shakes[1].strength - 0.25).abs() < f32::EPSILON);
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::Int(1), Value::Float(0.5), Value::Float(0.5)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(f32::NAN), Value::Float(0.5)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeCamera",
+        &[Value::None, Value::Float(0.5), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().camera_shakes.len(), 2);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -1109,23 +1465,13 @@ fn place_actor_at_me_makes_one_actor() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// The shader, effect and music calls the DLC scripts make most often are
-/// registered and quiet, so a vanilla flow runs past them rather than
-/// stopping on an unresolved call.
+/// VisualEffect and reference calls remain quiet stubs. EffectShader playback
+/// is covered by the SCR-24 contract tests.
 #[test]
 fn the_effect_systems_take_their_calls_quietly() {
     let mut g = game();
-    let shader = obj(&mut g, "BloodShader");
     let effect = obj(&mut g, "VampireChangeFX");
-    let music = obj(&mut g, "SoulCairnMusic");
     let vampire = obj(&mut g, "VampireRef");
-    call(
-        &mut g,
-        &shader,
-        "Play",
-        &[vampire.clone(), Value::Float(2.0)],
-    );
-    call(&mut g, &shader, "Stop", &[vampire.clone()]);
     call(
         &mut g,
         &effect,
@@ -1133,8 +1479,6 @@ fn the_effect_systems_take_their_calls_quietly() {
         &[vampire.clone(), Value::Float(2.0)],
     );
     call(&mut g, &effect, "Stop", &[vampire.clone()]);
-    call(&mut g, &music, "Add", &[]);
-    call(&mut g, &music, "Remove", &[]);
     call(&mut g, &vampire, "Reset", &[]);
     call(&mut g, &vampire, "StopTranslation", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
@@ -1144,10 +1488,10 @@ fn the_effect_systems_take_their_calls_quietly() {
 
 /// GetOwningQuest on a quest-owned fragment script. A scene names its parent
 /// quest in PNAM and a package its owner quest in QNAM, which is what the
-/// 1,815 DLC call sites are asking for. A topic info takes its quest from
-/// the DIAL above it and answers None until the dialogue view lands.
+/// 1,815 DLC call sites are asking for. A topic info follows its dialogue
+/// group to the DIAL that owns it.
 #[test]
-fn fragment_scripts_find_their_owning_quest() {
+fn scr_62_scene_and_package_find_their_owning_quest() {
     let mut g = game();
     let scene = obj(&mut g, "FeedScene");
     let package = obj(&mut g, "HuntPackage");

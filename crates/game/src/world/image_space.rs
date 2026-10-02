@@ -1,15 +1,272 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! ImageSpaceModifier lifetimes from the shipped Papyrus class and xEdit IMAD.
+//! Image-space lifetimes and base data from the shipped Papyrus class, xEdit
+//! IMAD/IMGS/CELL/WTHR definitions and CommonLibSSE-NG ImageSpaceData.
 
 use std::collections::BTreeSet;
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::VmError;
 
 use super::save::{read_form_id, write_form_id, FormReader};
 use super::{World, T};
+
+pub(crate) const SECTION: super::save_sections::Section<World> = super::save_sections::Section {
+    name: "MAG-72",
+    write: write_weather_selection,
+    read: read_weather_selection,
+};
+
+fn write_weather_selection(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    if world.weather_image_space.is_some() {
+        world.write_weather_image_space(writer);
+    }
+}
+
+fn read_weather_selection(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.weather_image_space = world.read_weather_image_space(reader)?;
+    Ok(())
+}
+
+/// Winning IMGS values, in the order of xEdit HNAM, CNAM, TNAM and DNAM.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BaseImageSpace {
+    pub hdr: [f32; 9],
+    pub cinematic: [f32; 3],
+    pub tint: [f32; 4],
+    pub depth: [f32; 3],
+    pub depth_flags: u16,
+    pub sky_blur_radius: u16,
+}
+
+impl Default for BaseImageSpace {
+    fn default() -> Self {
+        Self {
+            hdr: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0],
+            cinematic: [1.0; 3],
+            tint: [0.0; 4],
+            depth: [0.0; 3],
+            depth_flags: 0,
+            sky_blur_radius: 0,
+        }
+    }
+}
+
+/// Four Skyrim WTHR/IMSP entries, in sunrise, day, sunset, night order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeatherSelection {
+    pub weather: GlobalFormId,
+    pub from: u8,
+    pub to: u8,
+    pub blend: f32,
+}
+
+fn floats<const N: usize>(bytes: &[u8]) -> Result<[f32; N], VmError> {
+    if bytes.len() != N * 4 {
+        return Err(VmError::State("invalid IMGS field size".into()));
+    }
+    let mut values = [0.0; N];
+    for (value, chunk) in values.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        *value = f32::from_le_bytes(*chunk);
+        if !value.is_finite() {
+            return Err(VmError::State("non-finite IMGS field".into()));
+        }
+    }
+    Ok(values)
+}
+
+impl BaseImageSpace {
+    fn blend(&self, other: &Self, weight: f32) -> Self {
+        let mut out = self.clone();
+        for (dst, (a, b)) in out.hdr.iter_mut().zip(self.hdr.iter().zip(other.hdr)) {
+            *dst = a * (1.0 - weight) + b * weight;
+        }
+        for (dst, (a, b)) in out
+            .cinematic
+            .iter_mut()
+            .zip(self.cinematic.iter().zip(other.cinematic))
+        {
+            *dst = a * (1.0 - weight) + b * weight;
+        }
+        for (dst, (a, b)) in out.tint.iter_mut().zip(self.tint.iter().zip(other.tint)) {
+            *dst = a * (1.0 - weight) + b * weight;
+        }
+        for (dst, (a, b)) in out.depth.iter_mut().zip(self.depth.iter().zip(other.depth)) {
+            *dst = a * (1.0 - weight) + b * weight;
+        }
+        if weight >= 0.5 {
+            out.depth_flags = other.depth_flags;
+            out.sky_blur_radius = other.sky_blur_radius;
+        }
+        out
+    }
+}
+
+impl World {
+    /// Select one authored weather and two of its four time entries.
+    ///
+    /// # Errors
+    /// Rejects a missing weather, malformed IMSP or invalid blend before changing state.
+    pub fn select_weather_image_space(
+        &mut self,
+        selection: Option<WeatherSelection>,
+    ) -> Result<(), VmError> {
+        self.validate_weather_selection(selection)?;
+        self.weather_image_space = selection;
+        Ok(())
+    }
+
+    fn validate_weather_selection(
+        &self,
+        selection: Option<WeatherSelection>,
+    ) -> Result<(), VmError> {
+        if let Some(value) = selection {
+            if value.from >= 4
+                || value.to >= 4
+                || !value.blend.is_finite()
+                || !(0.0..=1.0).contains(&value.blend)
+            {
+                return Err(VmError::State(
+                    "invalid weather image-space selection".into(),
+                ));
+            }
+            let record = self
+                .record(value.weather)
+                .filter(|r| r.tag == T(b"WTHR") && !r.is_deleted())
+                .ok_or_else(|| VmError::State("missing WTHR image-space source".into()))?;
+            if record.find(T(b"IMSP")).is_none_or(|data| data.len() != 16) {
+                return Err(VmError::State("invalid WTHR IMSP size".into()));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn write_weather_image_space(&self, writer: &mut Writer) {
+        writer.bool(self.weather_image_space.is_some());
+        if let Some(selection) = self.weather_image_space {
+            write_form_id(writer, selection.weather);
+            writer.u8(selection.from);
+            writer.u8(selection.to);
+            writer.f32(selection.blend);
+        }
+    }
+
+    pub(crate) fn read_weather_image_space(
+        &self,
+        reader: &mut FormReader<'_, '_>,
+    ) -> Result<Option<WeatherSelection>, VmError> {
+        let selection = reader
+            .bool()?
+            .then(|| -> Result<WeatherSelection, VmError> {
+                Ok(WeatherSelection {
+                    weather: read_form_id(reader)?,
+                    from: reader.u8()?,
+                    to: reader.u8()?,
+                    blend: reader.f32()?,
+                })
+            })
+            .transpose()?;
+        self.validate_weather_selection(selection)?;
+        Ok(selection)
+    }
+
+    /// The explicitly selected WTHR image space, falling back to the loaded CELL/XCIM.
+    ///
+    /// # Errors
+    /// Rejects malformed winning IMGS data or an invalid selected weather.
+    pub fn base_image_space(&self) -> Result<Option<BaseImageSpace>, VmError> {
+        let cell = if let Some(id) = self.loaded_cell {
+            self.record(id)
+                .filter(|r| r.tag == T(b"CELL") && !r.is_deleted())
+                .and_then(|r| r.find(T(b"XCIM")))
+                .map(|data| {
+                    let raw: [u8; 4] = data
+                        .try_into()
+                        .map_err(|_| VmError::State("invalid CELL XCIM size".into()))?;
+                    Ok(self.resolve_from(id, u32::from_le_bytes(raw)))
+                })
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let cell_base = cell
+            .map(|id| self.read_base_image_space(id))
+            .transpose()?
+            .flatten();
+        let Some(selection) = self.weather_image_space else {
+            return Ok(cell_base);
+        };
+        let record = self
+            .record(selection.weather)
+            .filter(|r| r.tag == T(b"WTHR") && !r.is_deleted())
+            .ok_or_else(|| VmError::State("missing WTHR image-space source".into()))?;
+        let data = record
+            .find(T(b"IMSP"))
+            .filter(|data| data.len() == 16)
+            .ok_or_else(|| VmError::State("invalid WTHR IMSP size".into()))?;
+        let slot = |index: u8| -> Result<Option<BaseImageSpace>, VmError> {
+            let start = usize::from(index) * 4;
+            let raw = u32::from_le_bytes(
+                data[start..start + 4]
+                    .try_into()
+                    .map_err(|_| VmError::State("invalid WTHR IMSP entry".into()))?,
+            );
+            self.resolve_from(selection.weather, raw)
+                .map(|id| self.read_base_image_space(id))
+                .transpose()
+                .map(Option::flatten)
+        };
+        let from = slot(selection.from)?.or_else(|| cell_base.clone());
+        let to = slot(selection.to)?.or_else(|| cell_base.clone());
+        Ok(match (from, to) {
+            (Some(a), Some(b)) => Some(a.blend(&b, selection.blend)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        })
+    }
+
+    fn read_base_image_space(&self, id: GlobalFormId) -> Result<Option<BaseImageSpace>, VmError> {
+        let Some(record) = self
+            .record(id)
+            .filter(|r| r.tag == T(b"IMGS") && !r.is_deleted())
+        else {
+            return Ok(None);
+        };
+        let mut base = BaseImageSpace::default();
+        if let Some(data) = record.find(T(b"ENAM")) {
+            let old = floats::<14>(data)?;
+            base.hdr[..5].copy_from_slice(&old[..5]);
+            base.hdr[6..8].copy_from_slice(&old[5..7]);
+            base.cinematic.copy_from_slice(&old[7..10]);
+            base.tint.copy_from_slice(&old[10..14]);
+        }
+        if let Some(data) = record.find(T(b"HNAM")) {
+            base.hdr = floats::<9>(data)?;
+        }
+        if let Some(data) = record.find(T(b"CNAM")) {
+            base.cinematic = floats::<3>(data)?;
+        }
+        if let Some(data) = record.find(T(b"TNAM")) {
+            base.tint = floats::<4>(data)?;
+        }
+        if let Some(data) = record.find(T(b"DNAM")) {
+            if data.len() != 16 {
+                return Err(VmError::State("invalid IMGS depth size".into()));
+            }
+            base.depth = floats::<3>(&data[..12])?;
+            base.depth_flags = u16::from_le_bytes([data[12], data[13]]);
+            base.sky_blur_radius = u16::from_le_bytes([data[14], data[15]]);
+        }
+        Ok(Some(base))
+    }
+}
 
 /// One runtime application. Authored curves remain in its winning IMAD record.
 #[derive(Debug, Clone, PartialEq)]

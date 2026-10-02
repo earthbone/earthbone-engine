@@ -56,6 +56,19 @@ draws that full list for each selected BTO block.
   particle birth and death timing.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
+- `serialize`: writes Skyrim SE files containing `NiNode` blocks and opaque
+  collision blocks, including the header tables, block sizes and root footer.
+  It rejects other typed block kinds and strings outside Windows-1252.
+
+The byte writer is scoped to the collision graph produced by `soe-physics`.
+It is not a general writer for parsed meshes. Its node fields follow the
+`NiNode` and `NiAVObject` layouts in
+`../engine-refs/nifxml/nif.xml`, and its NIF header follows
+`tests/common/mod.rs`, which was written independently from that schema.
+The EDT-17 shape fields were checked against nifly's
+`src/bhk.cpp::bhkConvexVerticesShape::Sync` and TES5Edit's
+`Core/wbDataFormatNif.pas` definitions. PyNifly was named as another source
+for this row but is not present in the local reference corpus.
 
 ## The neutral mesh
 
@@ -243,6 +256,15 @@ skin-instance block types and parses all skeleton NIFs in the installed
 vanilla mesh archives when `SKYRIM_DATA` is set.
 `tests/fmt_19_dynamic_tri_shape.rs` checks dynamic position values, vertex
 count validation and truncated dynamic position arrays.
+
+`fuzz/fuzz_targets/fuzz_nif_grammar.rs` uses a bounded stream-100 grammar
+from `fuzz/src/nif_grammar.rs`. It writes a complete header, type and size
+tables, string table, root reference, `NiNode`, and `BSTriShape` with three
+packed vertices and one triangle. The generated fields vary vertex positions,
+UVs, normals, colors, and node flags. The grammar follows nifxml's local
+`nif.xml` block definitions and expects parsing and mesh extraction to accept
+every generated file. `tst_07` tests assert the generated block decoders and
+mesh path are reached.
 
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside

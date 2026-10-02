@@ -85,6 +85,17 @@ when a runtime struct is created.
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
 
+`tests/tst_10_champollion.rs` compares function names, parameter types and
+instruction counts from every PEX in that archive with Champollion's assembly
+output. Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
+Champollion executable. Differences are written per script to
+`$CARGO_TARGET_DIR/tst-10-champollion-differences.txt`, or to the path in
+`SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
+When either environment variable is unset, the corpus test skips. The assembly
+fields follow Champollion's `AsmCoder` output in
+`engine-refs/Champollion/Decompiler/AsmCoder.cpp`. The test uses the decoder as
+an external tool and does not port its implementation.
+
 ## VM design
 
 **Frames on threads.** A thread owns a stack of frames. A script function call
@@ -132,6 +143,10 @@ recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
 `defer()` to allocate a latent id.
 
+`NativeRegistry::method_bindings` and `global_bindings` return sorted,
+lowercase `(class, name)` pairs for registered bindings. The game crate uses
+these read-only views to audit native contracts.
+
 **Base classes.** `create_object_of(name, class)` gives an object a class
 with no script attached, and `NativeCall::create_object` does the same from
 inside a native. Method lookup falls through the attached scripts to that
@@ -159,6 +174,11 @@ of an identifier or string operand for the name slots without a lookup. The
 first `start` of the installed game reached 63 natives through 1,095 calls
 after the fix and none before it. `NativeRegistry::calls` counts calls per
 `class.function` so a host can see which natives real scripts hit.
+
+`NativeRegistry::method_bindings` and `global_bindings` expose read-only
+iterators over the registered keys, normalized to lowercase. The game crate
+uses the method and global iterators to compare its Cell and `Clear` inventory
+against the local Creation Kit contract corpus.
 
 **Redeclared natives.** `Alias.pex` declares `RegisterForUpdate` and its
 relatives as natives of its own, `ReferenceAlias.pex` declares `GetReference`,
@@ -410,6 +430,23 @@ SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts 
 
 `SKYRIM_DATA=<Data>` works once a loose `Data/Scripts` exists.
 
+### Instruction count gates
+
+`benches/tst_04_perf_gate.rs` contains two synthetic workloads. PEX parsing
+reads a serialized function with 256 NOP instructions and has a 500,000
+instruction hard limit. VM execution runs a Papyrus loop for 10,000 iterations
+and has a 2,000,000 instruction hard limit. Both limits count Callgrind's
+`EventKind::Ir`, and exceeding either recorded ceiling fails the benchmark
+command. Setup that builds the PEX bytes or VM thread is outside the measured
+region. `tests/tst_04_perf_gate.rs` checks the parser reads the full body and
+that the VM loop returns the expected sum.
+
+The `performance` CI workflow runs it with
+`cargo bench --locked -p soe-papyrus --bench tst_04_perf_gate`. The benchmark
+uses `iai-callgrind` 0.16.1 and the absolute hard-limit API documented by its
+upstream library docs. Running requires Valgrind and a matching
+`iai-callgrind-runner` 0.16.1 in PATH.
+
 ## Live run (2026-09-14)
 
 `real_scripts_from_the_game_load_when_present` always skipped on a plain Steam
@@ -429,8 +466,12 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
   scripts. `Is` checks object classes and attached script inheritance. Struct
   creation uses the declared PEX member defaults, member writes enforce the
   member type and const flag, and invalid field operands log an error without
-  changing the struct. The remaining Fallout 4 array mutators still abort the
-  thread with the line number when executed. Skyrim never emits these opcodes.
+  changing the struct. `Is` requires a Bool destination and identifier type
+  operand. Struct get and set require a nonempty string member operand, and a
+  get destination must have the declared member type. Invalid operands log an
+  error and yield the opcode's default result where it has a destination. The
+  remaining Fallout 4 array mutators still abort the thread with the line
+  number when executed. Skyrim never emits these opcodes.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was
@@ -459,6 +500,10 @@ integer instructions, wait calls and the instruction at which state is saved.
 It checks PEX model and byte round trips, then resumes in a fresh VM and compares
 state and results against uninterrupted execution and an independent integer
 sum. The test uses the workspace's existing proptest dependency.
+
+`tests/tst_03_mutation.rs` checks value-kind defaults, scalar conversions,
+array identity, comparisons between value kinds and leading-number parsing. It
+also runs an assembled static call whose callee performs integer addition.
 
 State loading now rejects a frame instance index outside the instance table
 before replacing live state. A regression test corrupts a saved frame and checks
@@ -516,6 +561,10 @@ instances for game-side CTDA queries. The conditional bit comes from the PEX
 user-flag table, not a fixed bit number. Both the declaring script and variable
 must carry that flag. Auto properties use their compiled backing name, such
 as `::activeHouseLocation_var`, and do not execute a property getter.
+
+Native callbacks receive the same read-only lookup through
+`NativeCall::conditional_vars`, so gameplay natives can evaluate live CTDA
+variables without borrowing the VM while it is executing the callback.
 
 The lookup follows inheritance and preserves multiple matching values so the
 caller can report ambiguity. CK's Papyrus introduction specifies conditional

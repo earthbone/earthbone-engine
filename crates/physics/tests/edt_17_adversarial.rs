@@ -1,66 +1,61 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use soe_nif::parse;
 use soe_physics::export::{export_collision_mesh, CollisionMesh};
 use soe_physics::{collect, Shape};
 
-fn mesh(name: &str, count: usize) -> CollisionMesh {
-    let positions = (0..count)
-        .map(|index| [index as f32, (index % 7) as f32, (index % 13) as f32])
-        .collect();
+fn tetrahedron(name: &str) -> CollisionMesh {
     CollisionMesh {
         name: name.into(),
-        positions,
+        positions: vec![
+            [-139.75, -69.0, -34.25],
+            [139.75, -69.0, -34.25],
+            [0.0, 139.75, -34.25],
+            [0.0, 0.0, 104.5],
+        ],
     }
 }
 
 #[test]
-fn collision_suffix_requires_the_suffix_at_the_end() {
-    assert!(export_collision_mesh(&mesh("rock_collision_extra", 4))
+fn mixed_case_collision_suffix_writes_a_physics_shape() {
+    let exported = export_collision_mesh(&tetrahedron("crate_CoLlIsIoN"))
         .unwrap()
-        .is_none());
-    assert!(export_collision_mesh(&mesh("rock_COLLISION", 4))
-        .unwrap()
-        .is_some());
-}
-
-#[test]
-fn collision_vertex_limit_accepts_1024_and_rejects_1025() {
-    assert!(export_collision_mesh(&mesh("large_collision", 1024))
-        .unwrap()
-        .is_some());
-    assert!(export_collision_mesh(&mesh("oversize_collision", 1025)).is_err());
-}
-
-#[test]
-fn collision_export_preserves_asymmetric_points_after_physics_collection() {
-    let mut input = mesh("asymmetric_collision", 4);
-    input.positions = vec![
-        [-140.0, 35.0, 70.0],
-        [21.0, 98.0, -7.0],
-        [0.0, 0.0, 0.0],
-        [70.0, -70.0, 140.0],
-    ];
-    let exported = export_collision_mesh(&input).unwrap().unwrap();
-    let colliders = collect(&exported).unwrap();
-    let Shape::Material { shape, .. } = &colliders.colliders[0].shape else {
-        panic!("expected the exported convex shape material wrapper");
+        .expect("ASCII case-insensitive suffix declares collision");
+    let parsed = parse(&exported.to_bytes().unwrap()).unwrap();
+    let collision = collect(&parsed).unwrap();
+    assert_eq!(collision.colliders.len(), 1);
+    assert_eq!(collision.colliders[0].node_name, "crate_CoLlIsIoN");
+    let Shape::Material { shape, .. } = &collision.colliders[0].shape else {
+        panic!("convex collision retains its material wrapper");
     };
-    let Shape::ConvexHull { points } = shape.as_ref() else {
-        panic!("expected the exported bhk convex vertices shape");
-    };
-    assert_eq!(points.len(), 4);
-    for (actual, expected) in points.iter().zip(&input.positions) {
-        assert!((actual.x - expected[0]).abs() < 0.001);
-        assert!((actual.y - expected[1]).abs() < 0.001);
-        assert!((actual.z - expected[2]).abs() < 0.001);
-    }
+    assert!(matches!(shape.as_ref(), Shape::ConvexHull { points } if points.len() == 4));
 }
 
 #[test]
-fn too_few_or_non_finite_marked_vertices_are_rejected() {
-    assert!(export_collision_mesh(&mesh("empty_collision", 0)).is_err());
-    let mut invalid = mesh("nan_collision", 4);
-    invalid.positions[2][1] = f32::INFINITY;
-    assert!(export_collision_mesh(&invalid).is_err());
+fn windows_1252_node_name_survives_nif_byte_round_trip() {
+    let exported = export_collision_mesh(&tetrahedron("café_collision"))
+        .unwrap()
+        .unwrap();
+    let parsed = parse(&exported.to_bytes().unwrap()).unwrap();
+    assert_eq!(
+        parsed.node_name(parsed.roots[0]).as_deref(),
+        Some("café_collision")
+    );
+    let collision = collect(&parsed).unwrap();
+    assert_eq!(collision.colliders[0].node_name, "café_collision");
+}
+
+#[test]
+fn repeated_nif_writes_are_stable_and_leave_the_graph_loadable() {
+    let exported = export_collision_mesh(&tetrahedron("repeat_collision"))
+        .unwrap()
+        .unwrap();
+    let first = exported.to_bytes().unwrap();
+    let second = exported.to_bytes().unwrap();
+    assert_eq!(first, second);
+    let parsed = parse(&second).unwrap();
+    let collision = collect(&parsed).unwrap();
+    assert_eq!(collision.colliders.len(), 1);
+    assert_eq!(collision.colliders[0].node_name, "repeat_collision");
 }

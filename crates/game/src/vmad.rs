@@ -21,7 +21,10 @@
 //! host file name, then a begin, end and change fragment in that fixed order
 //! for each flag bit set. SCEN follows xEdit's `wbVMADFragmentedSCEN` and
 //! FallrimTools' `FragmentScen`: begin and end entries precede a counted
-//! list of phase entries. PERK tails remain in `trailing`.
+//! list of phase entries. PERK follows xEdit's `wbVMADFragmentedPERK`: a
+//! signed extra bind data version, host file name, then counted entries with
+//! their 32-bit fragment indices and retained marker bytes. Champollion
+//! describes PEX functions, not this record tail.
 
 use soe_esm::{Error, Result, Tag};
 
@@ -176,6 +179,23 @@ pub struct SceneFragments {
     pub phases: Vec<ScenePhaseFragment>,
 }
 
+/// One PERK fragment, identified by the entry point it implements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerkFragment {
+    pub index: u32,
+    pub marker: u8,
+    pub script: String,
+    pub function: String,
+}
+
+/// PERK fragment host and its ordered entry-point callbacks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerkFragments {
+    pub version: i8,
+    pub file: String,
+    pub fragments: Vec<PerkFragment>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vmad {
     pub version: i16,
@@ -188,7 +208,8 @@ pub struct Vmad {
     pub info_fragments: Option<InfoFragments>,
     pub pack_fragments: Option<PackFragments>,
     pub scene_fragments: Option<SceneFragments>,
-    /// Undecoded fragment tail of PERK and other unsupported records.
+    pub perk_fragments: Option<PerkFragments>,
+    /// Undecoded fragment tail of unsupported records.
     pub trailing: Vec<u8>,
 }
 
@@ -204,6 +225,7 @@ impl Default for Vmad {
             info_fragments: None,
             pack_fragments: None,
             scene_fragments: None,
+            perk_fragments: None,
             trailing: Vec::new(),
         }
     }
@@ -525,6 +547,32 @@ impl Vmad {
             });
             return Ok(vmad);
         }
+        if tag == Tag::new(b"PERK") {
+            let version = r.u8()? as i8;
+            let file = r.wstring()?;
+            let count = r.u16()? as usize;
+            if count > (data.len() - r.pos) / 9 {
+                return Err(bad("PERK fragment count exceeds the remaining data"));
+            }
+            let mut fragments = Vec::with_capacity(count.min(64));
+            for _ in 0..count {
+                fragments.push(PerkFragment {
+                    index: r.u32()?,
+                    marker: r.u8()?,
+                    script: r.wstring()?,
+                    function: r.wstring()?,
+                });
+            }
+            if r.pos != data.len() {
+                return Err(bad("trailing PERK fragment bytes"));
+            }
+            vmad.perk_fragments = Some(PerkFragments {
+                version,
+                file,
+                fragments,
+            });
+            return Ok(vmad);
+        }
         if tag != Tag::new(b"QUST") {
             vmad.trailing = data[r.pos..].to_vec();
             return Ok(vmad);
@@ -646,6 +694,20 @@ impl Vmad {
                 out.push(phase.marker);
                 write_wstring(&mut out, &phase.script);
                 write_wstring(&mut out, &phase.function);
+            }
+        } else if let Some(perk) = self
+            .perk_fragments
+            .as_ref()
+            .filter(|_| tag == Tag::new(b"PERK"))
+        {
+            out.push(perk.version as u8);
+            write_wstring(&mut out, &perk.file);
+            out.extend_from_slice(&(perk.fragments.len() as u16).to_le_bytes());
+            for fragment in &perk.fragments {
+                out.extend_from_slice(&fragment.index.to_le_bytes());
+                out.push(fragment.marker);
+                write_wstring(&mut out, &fragment.script);
+                write_wstring(&mut out, &fragment.function);
             }
         } else {
             out.extend_from_slice(&self.trailing);

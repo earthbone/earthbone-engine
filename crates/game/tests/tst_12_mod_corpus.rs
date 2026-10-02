@@ -21,6 +21,9 @@ struct ModReport {
 const ASSET_EXTENSIONS: &[&str] = &[
     "nif", "dds", "hkx", "pex", "fuz", "lip", "wav", "xwm", "ogg",
 ];
+const ASSET_PATH_FIELDS: &[&[u8; 4]] = &[
+    b"MODL", b"DMDL", b"ICON", b"MICO", b"ICO2", b"MIC2", b"XMRK", b"ANAM",
+];
 
 fn files_under(root: &Path) -> Vec<PathBuf> {
     let mut pending = vec![root.to_path_buf()];
@@ -52,11 +55,7 @@ fn mod_roots(root: &Path) -> Vec<PathBuf> {
         .filter(|path| path.is_dir())
         .collect();
     children.sort();
-    if children.is_empty() {
-        vec![root.to_path_buf()]
-    } else {
-        children
-    }
+    children
 }
 
 fn relative_key(root: &Path, path: &Path) -> String {
@@ -160,6 +159,11 @@ fn asset_references(plugin: &Plugin) -> Vec<String> {
     let mut references = BTreeSet::new();
     for record in &plugin.records {
         for subrecord in &record.subrecords {
+            // xEdit defines EDID and FULL as editor and display strings. Only
+            // inspect subrecords known to carry asset filenames.
+            if !ASSET_PATH_FIELDS.iter().any(|tag| subrecord.tag.0 == **tag) {
+                continue;
+            }
             for value in subrecord.data.split(|byte| *byte == 0) {
                 let Ok(value) = std::str::from_utf8(value) else {
                     continue;
@@ -337,7 +341,11 @@ struct TempDir(PathBuf);
 impl TempDir {
     #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     fn new(case: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("soe-tst-12-{}-{case}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "soe-tst-12-{}-{}-{case}",
+            module_path!(),
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -416,6 +424,64 @@ fn tst_12_reports_missing_assets_per_mod() {
         rendered.contains(
             "AssetMod: 1 files, 0 parser failures, 0 unresolved natives, 1 missing assets"
         ),
+        "{rendered}"
+    );
+    assert!(rendered.contains("meshes/custom/missing.nif"), "{rendered}");
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[test]
+fn tst_12_reports_all_finding_categories_per_mod() {
+    let temp = TempDir::new("finding-categories");
+    let broken = temp.0.join("BrokenMod");
+    let native = temp.0.join("NativeMod");
+    let missing = temp.0.join("MissingAssetMod");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::create_dir_all(native.join("Scripts")).unwrap();
+    std::fs::create_dir_all(&missing).unwrap();
+    std::fs::write(broken.join("bad.esp"), b"not a plugin").unwrap();
+
+    let bytes = ScriptBuilder::new("NativeModScript", "")
+        .function(
+            FunctionBuilder::new("MissingNative", "None")
+                .native()
+                .build(),
+        )
+        .bytes();
+    std::fs::write(native.join("Scripts/NativeModScript.pex"), bytes).unwrap();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(Tag::new(b"STAT"), 0x800).zsub(Tag::new(b"MODL"), "meshes/custom/missing.nif"),
+    );
+    std::fs::write(missing.join("MissingAsset.esp"), plugin.to_bytes()).unwrap();
+
+    let reports = run_corpus(&temp.0);
+    let rendered = render(&reports);
+    assert_eq!(
+        reports
+            .iter()
+            .map(|report| report.name.as_str())
+            .collect::<Vec<_>>(),
+        ["BrokenMod", "MissingAssetMod", "NativeMod"]
+    );
+    assert!(
+        rendered.contains("BrokenMod: 1 files, 1 parser failures"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "MissingAssetMod: 1 files, 0 parser failures, 0 unresolved natives, 1 missing assets"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("NativeMod: 1 files, 0 parser failures, 1 unresolved natives"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("bad.esp"), "{rendered}");
+    assert!(
+        rendered.contains("NativeModScript.MissingNative"),
         "{rendered}"
     );
     assert!(rendered.contains("meshes/custom/missing.nif"), "{rendered}");

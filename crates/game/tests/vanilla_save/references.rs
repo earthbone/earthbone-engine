@@ -64,7 +64,7 @@ fn fixture_order_with_flags(flags: u32) -> LoadOrder {
 }
 
 #[test]
-fn sav_15_saved_reference_masks_are_retained_without_unverified_application() {
+fn sav_15_saved_reference_mask_preserves_authored_flags() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     let mut save = fixture();
     set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
@@ -115,7 +115,7 @@ fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
 }
 
 #[test]
-fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
+fn sav_15_saved_actor_reference_masks_leave_actor_flags_authored() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     let mut save = fixture();
     let player = &mut save.change_forms[0];
@@ -123,7 +123,7 @@ fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
     player.version = 78;
     player.data.splice(
         35..35,
-        mask.to_le_bytes().into_iter().chain(0_u16.to_le_bytes()),
+        mask.to_le_bytes().into_iter().chain(0x50_u16.to_le_bytes()),
     );
 
     let mut world = World::new(fixture_order());
@@ -134,7 +134,7 @@ fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
 }
 
 #[test]
-fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
+fn sav_15_installed_vanilla_reference_mask_leaves_controlled_authored_flags() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA unset, skipping SAV-15 vanilla-reference case");
         return;
@@ -161,6 +161,82 @@ fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
         restored.persistent,
         authored & soe_esm::plugin::flags::PERSISTENT != 0
     );
+}
+
+#[test]
+fn sav_15_saved_mask_leaves_enable_and_persistence_bits_authored() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
+    for authored in [
+        0,
+        soe_esm::plugin::flags::INITIALLY_DISABLED,
+        soe_esm::plugin::flags::PERSISTENT,
+        mask,
+    ] {
+        let mut save = fixture();
+        set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
+        let mut world = World::new(fixture_order_with_flags(authored));
+        world.restore_vanilla_reference_placements(&save).unwrap();
+        let restored = world.reference_ref(id(0, 0xA00)).unwrap();
+        assert_eq!(
+            restored.enabled,
+            authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+        );
+        assert_eq!(
+            restored.persistent,
+            authored & soe_esm::plugin::flags::PERSISTENT != 0
+        );
+    }
+}
+
+#[test]
+fn sav_15_saved_mask_does_not_enable_deleted_winners() {
+    let mask = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let authored = soe_esm::plugin::flags::DELETED;
+    let mut save = fixture();
+    set_form_mask(&mut save.change_forms[1], mask, 0, 78);
+    let mut world = World::new(fixture_order_with_flags(authored));
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    assert!(!world.reference_ref(id(0, 0xA00)).unwrap().enabled);
+}
+
+#[test]
+fn sav_54_reference_mask_words_leave_enable_and_persistence_authored() {
+    let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+    let persistent = soe_esm::plugin::flags::PERSISTENT;
+    for authored in [0, disabled, persistent, disabled | persistent] {
+        for (mask, set_word) in [
+            (0, 0),
+            (disabled, 0),
+            (persistent, 0),
+            (disabled | persistent, 0),
+            (0, u16::MAX),
+            (u32::MAX, 0x0050),
+        ] {
+            let mut save = fixture();
+            set_form_mask(&mut save.change_forms[1], mask, set_word, 78);
+            let mut world = World::new(fixture_order_with_flags(authored));
+            let report = world.restore_vanilla_reference_placements(&save).unwrap();
+            assert_eq!(
+                report.remaining[&id(0, 0xA00)].form_flags,
+                Some((mask, set_word))
+            );
+
+            let reference = world.reference_ref(id(0, 0xA00)).unwrap();
+            assert_eq!(reference.enabled, authored & disabled == 0);
+            assert_eq!(reference.persistent, authored & persistent != 0);
+            assert_eq!(
+                world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
+                authored & persistent != 0
+            );
+
+            let bytes = world.save_state();
+            let mut loaded = World::new(fixture_order_with_flags(authored));
+            loaded.load_state(&bytes).unwrap();
+            let restored = loaded.reference_ref(id(0, 0xA00)).unwrap();
+            assert_eq!(restored.enabled, authored & disabled == 0);
+            assert_eq!(restored.persistent, authored & persistent != 0);
+        }
+    }
 }
 
 fn change(
@@ -310,12 +386,28 @@ fn every_saved_created_namespace_entry_reserves_allocation_space() {
 #[test]
 fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
     let mut save = fixture();
-    let created_base = 0x800900;
-    let mut object_table = vec![4];
-    reference(created_base).write(&mut object_table);
-    object_table.extend(7_u32.to_le_bytes());
-    object_table.push(0);
-    object_table.extend([0, 0, 0]);
+    let created_base = 0x800902;
+    let mut object_table = Vec::new();
+    for (object, effect) in [
+        (0x900, None),
+        (0x901, None),
+        (0x902, Some(0x400900)),
+        (0x903, None),
+    ] {
+        object_table.push(4);
+        reference(0x800000 | object).write(&mut object_table);
+        object_table.extend(7_u32.to_le_bytes());
+        if let Some(effect) = effect {
+            object_table.push(4);
+            reference(effect).write(&mut object_table);
+            object_table.extend(12.5_f32.to_le_bytes());
+            object_table.extend(30_u32.to_le_bytes());
+            object_table.extend(2_u32.to_le_bytes());
+            object_table.extend(4.25_f32.to_le_bytes());
+        } else {
+            object_table.push(0);
+        }
+    }
     save.table_1.push(GlobalData {
         kind: GlobalData::CREATED_OBJECTS,
         data: object_table,
@@ -337,21 +429,54 @@ fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
 
     let mut world = World::new(fixture_order());
     let report = world.restore_vanilla_reference_placements(&save).unwrap();
-    let base = id(DYNAMIC_FILE, 0x900);
-    assert!(report.missing_bases.contains(&base));
+    let base = id(DYNAMIC_FILE, 0x902);
+    assert!(!report.missing_bases.contains(&base));
+    for (object, tag) in [
+        (0x900, Tag(*b"ENCH")),
+        (0x901, Tag(*b"ENCH")),
+        (0x902, Tag(*b"ALCH")),
+    ] {
+        assert_eq!(world.record(id(DYNAMIC_FILE, object)).unwrap().tag, tag);
+    }
+    let record = world.record(base).unwrap();
+    assert_eq!(record.tag, Tag(*b"ALCH"));
+    assert_eq!(record.find(Tag(*b"ENIT")), Some(&[0; 20][..]));
+    assert_eq!(
+        world.resolve_from(
+            base,
+            u32::from_le_bytes(record.find(Tag(*b"EFID")).unwrap().try_into().unwrap())
+        ),
+        Some(id(0, 0x900))
+    );
     assert_eq!(
         world.reference_ref(id(DYNAMIC_FILE, 0x800)).unwrap().base,
         Some(base)
     );
     assert_eq!(
         world.place_at(id(0, 0x900), id(0, 0x14), false),
-        id(DYNAMIC_FILE, 0x901)
+        id(DYNAMIC_FILE, 0x904)
     );
 
     let inventory = world.restore_vanilla_inventories(&save).unwrap();
     assert_eq!(inventory.references, 3);
-    assert!(inventory.missing_items.contains(&base));
+    assert!(!inventory.missing_items.contains(&base));
     assert_eq!(world.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+
+    let bytes = world.save_state();
+    let mut loaded = World::new(fixture_order());
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(loaded.state_hash(), world.state_hash());
+    assert_eq!(loaded.record(base).unwrap().tag, Tag(*b"ALCH"));
+    assert_eq!(loaded.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+    let loaded_record = loaded.record(base).unwrap();
+    let effect = u32::from_le_bytes(
+        loaded_record
+            .find(Tag(*b"EFID"))
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    );
+    assert_eq!(loaded.resolve_from(base, effect), Some(id(0, 0x900)));
 }
 
 #[test]

@@ -7,8 +7,7 @@
 //! test at the end reads every `PACK` of the installed `Skyrim.esm` and
 //! evaluates the Prisoner's stack.
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{
@@ -603,6 +602,7 @@ fn ai_32_flee_routes_away_from_its_live_threat_and_resumes_after_save() {
         let state = world.actor(actor).unwrap();
         state.in_combat = true;
         state.combat_target = Some(threat);
+        state.values.set_base("aggression", 2.0).unwrap();
         (
             world.reference(actor).unwrap().position,
             world.reference(threat).unwrap().position,
@@ -1122,6 +1122,7 @@ fn evaluate_package_from_a_script_switches_at_once() {
     let guard = game.form("GuardRef").unwrap();
     let quest = game.form("GuardQuest").unwrap();
     game.bind();
+    game.load_cell(id(CELL_A));
     tick(&mut game, 0.1);
     assert_eq!(package_name(&game, guard), "GuardSandbox");
     game.set_stage(quest, 10);
@@ -1228,7 +1229,11 @@ fn mod_06_distributed_package_is_selected_and_survives_save_load() {
     let mut order = LoadOrder::new();
     order.add("Packages.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    let root = std::env::temp_dir().join(format!("soe-mod-06-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "soe-mod-06-{}-{}",
+        module_path!(),
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
@@ -1351,6 +1356,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Patrol => "Patrol".to_string(),
             Procedure::Guard => "Guard".to_string(),
             Procedure::Sit => "Sit".to_string(),
+            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::UseMagic => "UseMagic".to_string(),
             Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
@@ -1358,7 +1364,6 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Follow => "Follow".to_string(),
             Procedure::Escort => "Escort".to_string(),
             Procedure::Orbit { .. } => "Orbit".to_string(),
-            Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::DialogueActivate => "DialogueActivate".to_string(),
             Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
             Procedure::HoldPosition => "HoldPosition".to_string(),
@@ -1376,11 +1381,11 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
                 | Procedure::Guard
+                | Procedure::ForceGreet
                 | Procedure::Hover
                 | Procedure::Follow
                 | Procedure::Escort
                 | Procedure::Orbit { .. }
-                | Procedure::ForceGreet
                 | Procedure::DialogueActivate
                 | Procedure::UseIdleMarker { .. }
                 | Procedure::HoldPosition

@@ -6,7 +6,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     inventory::{Extra, Field, Stack},
-    npc, World,
+    npc,
+    world::RngStream,
+    World,
 };
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -169,10 +171,10 @@ fn repeated_list_entries_roll_separately_before_deduplication() {
     let mut expected = fixture(records.clone());
     expected.roll_leveled_items(id(LIST), 20, 1).unwrap();
     expected.roll_leveled_items(id(LIST), 20, 1).unwrap();
-    let expected_rng = expected.random_u64();
+    let expected_rng = expected.random_u64_for(RngStream::LeveledItems);
     let mut world = fixture(records);
     world.reference(id(ACTOR)).unwrap();
-    assert_eq!(world.random_u64(), expected_rng);
+    assert_eq!(world.random_u64_for(RngStream::LeveledItems), expected_rng);
 }
 
 #[test]

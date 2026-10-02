@@ -4,7 +4,7 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
 use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
@@ -155,6 +155,13 @@ impl World {
         }
     }
 
+    /// Whether any actor has witnessed a crime committed by `actor`.
+    pub fn is_actor_victim(&self, actor: GlobalFormId) -> bool {
+        self.actors
+            .values()
+            .any(|witness| witness.witnessed_crimes.contains(&actor))
+    }
+
     /// Records a crime `perpetrator` commits, seen by `witness`. Prices it
     /// from `perpetrator`'s own crime faction's `CRVA` table
     /// (`Actor.GetCrimeFaction`) and adds the result to that faction's
@@ -236,7 +243,11 @@ fn sentence_days(bounty: i32) -> u32 {
 }
 
 /// Save the player's jail-day count in the PRG-13 actor section.
-pub(crate) fn write_days_in_jail(actor: &super::ActorState, writer: &mut Writer) {
+pub(crate) fn write_days_in_jail(
+    actor: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut ArrayPool,
+) {
     writer.u32(actor.days_in_jail);
 }
 
@@ -244,6 +255,7 @@ pub(crate) fn write_days_in_jail(actor: &super::ActorState, writer: &mut Writer)
 pub(crate) fn read_days_in_jail(
     actor: &mut super::ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &ArrayTable,
 ) -> Result<(), VmError> {
     actor.days_in_jail = reader.u32()?;
     Ok(())

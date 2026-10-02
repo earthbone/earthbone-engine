@@ -9,10 +9,10 @@ use std::collections::BTreeSet;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::Value;
 
-use super::{le_u32, Alloc, Pending, World};
+use super::{le_u32, Alloc, Pending, World, T};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
-    Difficulty, Error, Hand, HitResult, MeleeHit,
+    Difficulty, Error, FireError, Hand, HitResult, MeleeHit,
 };
 use crate::crime::CrimeType;
 use crate::inventory::{Extra, Field, StackSource};
@@ -24,8 +24,7 @@ const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 /// UESP's Combat and Damage pages give power attack stamina cost as an
 /// unnamed formula, no GMST is named on either page: "power attack stamina
 /// cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk
-/// effect)". `validate_combat_actor` already rejects an attacker carrying
-/// any perk entry, so the perk term is always 1 here. "Attack cost
+/// effect)". Stamina-cost perk effects are not applied here. "Attack cost
 /// multiplier" is the race's Attacks entry Stamina Mult field, read through
 /// `PowerAttack`. See docs/combat.md CMB-21.
 const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
@@ -56,6 +55,67 @@ struct EnchantmentCharge {
 }
 
 impl World {
+    /// Validate a Papyrus `Weapon.Fire` request against the shared form table.
+    ///
+    /// # Errors
+    /// Missing or mistyped forms, malformed weapon records, or unavailable
+    /// ranged projectile execution.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn fire_weapon(
+        &mut self,
+        weapon: GlobalFormId,
+        source: GlobalFormId,
+        ammo: Option<GlobalFormId>,
+    ) -> Result<(), FireError> {
+        if !matches!(self.tag_of(source), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR")) {
+            return Err(FireError::Source);
+        }
+        let record = self
+            .record(weapon)
+            .filter(|record| record.tag == T(b"WEAP"))
+            .ok_or(FireError::Weapon(weapon))?;
+        Weapon::from_record(record)?;
+        if let Some(ammo) = ammo {
+            if self
+                .record(ammo)
+                .is_none_or(|record| record.tag != T(b"AMMO"))
+            {
+                return Err(FireError::Ammo(ammo));
+            }
+        }
+        Err(FireError::Unsupported("ranged projectile execution"))
+    }
+
+    /// Notify listeners that the caller's combat path confirmed a critical hit.
+    /// This reports an outcome, it does not calculate critical chance or
+    /// damage modifiers.
+    ///
+    /// # Errors
+    /// Missing aggressor or a weapon form that is not a winning WEAP record.
+    pub fn report_critical_hit(
+        &mut self,
+        aggressor: GlobalFormId,
+        weapon: GlobalFormId,
+        sneak_hit: bool,
+    ) -> Result<(), Error> {
+        self.actor(aggressor).ok_or(Error::Actor(aggressor))?;
+        if self
+            .record(weapon)
+            .is_none_or(|record| record.tag != Tag(*b"WEAP"))
+        {
+            return Err(Error::Unsupported("critical hit requires a WEAP form"));
+        }
+        let event = soe_commonlib_shim::events::CriticalHit {
+            aggressor: World::event_form_id(aggressor),
+            weapon: World::event_form_id(weapon),
+            sneak_hit,
+        };
+        self.critical_hit_events.send(&event);
+        Ok(())
+    }
+
     /// Return the selected difficulty tier.
     #[must_use]
     pub const fn difficulty(&self) -> Difficulty {
@@ -123,6 +183,37 @@ impl World {
             .retain(|equipped| !conflicts.contains(equipped));
         state.equipped.insert(item);
         Ok(())
+    }
+
+    /// Return the actor's equipped shield, if its worn armor occupies the
+    /// shield biped slot (BOD2 bit 9).
+    ///
+    /// # Errors
+    /// Missing actor or malformed equipped armor record.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn equipped_shield(&mut self, actor: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let equipped = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for item in equipped {
+            if self.item_count(actor, item) <= 0
+                || self
+                    .record(item)
+                    .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
+                continue;
+            }
+            if self.combat_armor_record(item)?.slots & (1 << 9) != 0 {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
     }
 
     /// Set whether an actor currently holds a block stance, matching the
@@ -196,6 +287,12 @@ impl World {
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
         let sneak_attacked = !hit.is_bash && self.sneak_attack_qualifies(hit.attacker, hit.target);
+        if self.is_ethereal(hit.attacker) {
+            return Err(Error::Unsupported("ethereal action"));
+        }
+        if self.is_ethereal(hit.target) {
+            return Err(Error::Unsupported("ethereal target"));
+        }
         // Reading the target's actor base below may initialize it lazily, and
         // save_state persists that entry (CMB-36). Validate the equipped
         // weapon's quality extras first (CMB-10), a read-only pass, so a
@@ -268,6 +365,7 @@ impl World {
         // record, the row summary's "shield becomes the weapon" reading.
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
+        let mut enhance_stamina_damage = 0.0_f32;
         let mut bash_stamina_cost = None;
         let mut poison_stack: PoisonStack = None;
         let mut weapon_enchantment = None;
@@ -420,6 +518,10 @@ impl World {
                         * f64::from(self.sneak_attack_multiplier(weapon.animation)?),
                 )?;
             }
+            let (enhance_damage, stamina_damage) =
+                self.enhance_weapon_contribution(hit.attacker)?;
+            enhance_stamina_damage = stamina_damage;
+            weapon_damage = finite(f64::from(weapon_damage) + f64::from(enhance_damage))?;
             (
                 weapon_damage,
                 weapon.stagger,
@@ -553,6 +655,7 @@ impl World {
             .values
             .clone();
         values.damage("health", health_damage)?;
+        values.damage("stamina", enhance_stamina_damage)?;
         // A protected or essential target's health is clamped at its bleedout
         // threshold instead of falling through it, matching the installed
         // runtime's comparison at 0x1406cf330 (docs/combat.md, CMB-13).
@@ -573,6 +676,13 @@ impl World {
             self.validate_weapon_enchantment_after_hit(prepared, &values)?;
         }
         let lethal = values.get("health").current() <= 0.0;
+        let attacked_factions = if self.player == Some(hit.attacker) {
+            self.actor(hit.target)
+                .map(|actor| actor.factions.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![
@@ -609,9 +719,9 @@ impl World {
                 target.in_combat = false;
                 target.combat_target = None;
             }
-            if staggered {
-                target.stagger_end_time = stagger_deadline;
-            }
+        }
+        if let Some(deadline) = stagger_deadline.filter(|_| staggered) {
+            self.begin_stagger(hit.target, stagger_magnitude, Some(hit.attacker), deadline);
         }
         // Committed last, alongside the target's own state, so a bash that
         // errors anywhere above never reaches this line.
@@ -623,6 +733,11 @@ impl World {
         if let Some(values) = attacker_stamina {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values = values;
+            }
+        }
+        for faction in attacked_factions {
+            if let Some(state) = self.faction(faction) {
+                state.player_attacked = true;
             }
         }
         // Poison (CMB-25) applies and clears last, after every other part of
@@ -693,6 +808,98 @@ impl World {
         }
     }
 
+    /// Damage from supported enchantments attached by active MGEF archetype 39
+    /// effects. The owning actor and equipped melee weapon are both required.
+    fn enhance_weapon_contribution(&self, attacker: GlobalFormId) -> Result<(f32, f32), Error> {
+        let mut health_damage = 0.0_f32;
+        let mut stamina_damage = 0.0_f32;
+        for active in self
+            .active_effects
+            .values()
+            .filter(|active| active.target == attacker)
+        {
+            let effect = self.magic_effect(active.effect)?;
+            if effect.data.archetype != 39 {
+                continue;
+            }
+            let enchantment = self
+                .resolve_from(active.effect, effect.data.associated_item)
+                .ok_or(Error::Equipment)?;
+            let record = self.record(enchantment).ok_or(Error::Equipment)?;
+            if record.tag != Tag(*b"ENCH") {
+                return Err(Error::Unsupported("enhance weapon association"));
+            }
+            let mut magnitude = None;
+            let mut actor_value = None;
+            let mut pending_effect = false;
+            for subrecord in &record.subrecords {
+                match subrecord.tag.as_bytes() {
+                    b"EFID" => {
+                        if pending_effect || magnitude.is_some() {
+                            return Err(Error::Unsupported("multiple enhance weapon effects"));
+                        }
+                        if subrecord.data.len() != 4 {
+                            return Err(
+                                soe_esm::Error::Invalid("invalid ENCH EFID length".into()).into()
+                            );
+                        }
+                        let raw =
+                            u32::from_le_bytes(subrecord.data[..4].try_into().map_err(|_| {
+                                soe_esm::Error::Invalid("invalid ENCH EFID".into())
+                            })?);
+                        let base = self
+                            .resolve_from(enchantment, raw)
+                            .ok_or(Error::Equipment)?;
+                        let base = self.magic_effect(base)?;
+                        if base.data.archetype != 0
+                            || !matches!(base.data.primary_actor_value, 24 | 25)
+                            || base.data.flags & (1 << 2) == 0
+                            || !base.conditions.is_empty()
+                        {
+                            return Err(Error::Unsupported("enhance weapon enchantment effect"));
+                        }
+                        actor_value = Some(base.data.primary_actor_value);
+                        pending_effect = true;
+                    }
+                    b"EFIT" => {
+                        if subrecord.data.len() != 12 || !pending_effect || magnitude.is_some() {
+                            return Err(soe_esm::Error::Invalid("invalid ENCH EFIT".into()).into());
+                        }
+                        let raw =
+                            f32::from_le_bytes(subrecord.data[..4].try_into().map_err(|_| {
+                                soe_esm::Error::Invalid("invalid ENCH EFIT magnitude".into())
+                            })?);
+                        if !raw.is_finite() || raw < 0.0 {
+                            return Err(Error::Number);
+                        }
+                        magnitude = Some(raw);
+                        pending_effect = false;
+                    }
+                    b"CTDA" | b"CIS1" | b"CIS2" => {
+                        return Err(Error::Unsupported("enhance weapon enchantment conditions"));
+                    }
+                    _ => {}
+                }
+            }
+            if pending_effect {
+                return Err(Error::Unsupported("incomplete weapon enchantment"));
+            }
+            let entry_magnitude =
+                magnitude.ok_or(Error::Unsupported("empty weapon enchantment"))?;
+            let contribution = entry_magnitude * active.magnitude;
+            match actor_value.ok_or(Error::Unsupported("empty weapon enchantment"))? {
+                24 => {
+                    health_damage = finite(f64::from(health_damage) + f64::from(contribution))?;
+                }
+                25 => {
+                    stamina_damage = finite(f64::from(stamina_damage) + f64::from(contribution))?;
+                }
+                _ => return Err(Error::Unsupported("enhance weapon actor value")),
+            }
+        }
+        Ok((health_damage, stamina_damage))
+    }
+
     /// Whether an actor is inside its stagger window right now. Lazily
     /// derived from `ActorState::stagger_end_time` against the real-time
     /// clock, the same expiry pattern `ai::wait_until` uses, so nothing
@@ -706,26 +913,26 @@ impl World {
         })
     }
 
+    /// Commit one stagger application with its authored magnitude and source
+    /// direction. Callers validate the duration before reaching this point.
+    pub(super) fn begin_stagger(
+        &mut self,
+        target: GlobalFormId,
+        magnitude: f64,
+        direction: Option<GlobalFormId>,
+        deadline: f64,
+    ) {
+        if let Some(actor) = self.actors.get_mut(&target) {
+            actor.stagger_magnitude = magnitude;
+            actor.stagger_direction = direction;
+            actor.stagger_end_time = Some(deadline);
+        }
+    }
+
     fn validate_combat_actor(&mut self, id: GlobalFormId) -> Result<(), Error> {
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
-        }
-        for name in [
-            "onehandedmodifier",
-            "twohandedmodifier",
-            "marksmanmodifier",
-            "onehandedpowermodifier",
-            "twohandedpowermodifier",
-            "marksmanpowermodifier",
-            "lightarmormodifier",
-            "heavyarmormodifier",
-            "lightarmorpowermodifier",
-            "heavyarmorpowermodifier",
-        ] {
-            if actor.values.entries.contains_key(name) {
-                return Err(Error::Unsupported("combat actor-value multipliers"));
-            }
         }
         Ok(())
     }
@@ -1084,7 +1291,7 @@ impl World {
         Ok(quality)
     }
 
-    fn combat_setting(&self, name: &'static str) -> Result<f64, Error> {
+    pub(super) fn combat_setting(&self, name: &'static str) -> Result<f64, Error> {
         match self.game_setting(name) {
             Some(Value::Float(value)) if value.is_finite() && value >= 0.0 => Ok(f64::from(value)),
             _ => Err(Error::Setting(name)),

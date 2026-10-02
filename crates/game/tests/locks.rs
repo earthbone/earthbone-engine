@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "common/installed.rs"]
-mod installed;
+use crate::common::installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Handle, Pending};
@@ -56,6 +55,8 @@ fn events(game: &Game) -> Vec<String> {
             Pending::Call { .. }
             | Pending::CallScript { .. }
             | Pending::BindEffect { .. }
+            | Pending::BindReference { .. }
+            | Pending::ReferenceEvent { .. }
             | Pending::DeferredDeath { .. }
             | Pending::ActorDeath { .. } => None,
         })

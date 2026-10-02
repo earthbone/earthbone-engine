@@ -607,6 +607,8 @@ pub struct Intent {
     /// A game movement speed scaled by stick strength, in units per second.
     pub speed: f32,
     pub jump: bool,
+    /// True while the actor is moving under sprint input, unless sneaking.
+    pub sprinting: bool,
     /// The crouch state that should hold now, not an edge.
     pub crouch: bool,
     pub activate: bool,
@@ -665,6 +667,7 @@ impl Driver {
             speed: speed * input.move_x.hypot(input.move_y).min(1.0),
             // A sneaking character cannot jump, which is vanilla.
             jump: input.jump_pressed && !self.sneaking,
+            sprinting: moving && input.sprint && !self.sneaking,
             crouch: self.sneaking,
             activate: input.activate_pressed,
         }
@@ -943,6 +946,30 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
             ..forward()
         };
         assert_eq!(drive(&mut d, sprinting).speed, RUN_SPEED);
+    }
+
+    #[test]
+    fn ai_65_sprint_signal_tracks_movement_and_sneak_state() {
+        let mut d = Driver::new();
+        let sprinting = InputState {
+            sprint: true,
+            ..forward()
+        };
+        assert!(drive(&mut d, sprinting).sprinting);
+        assert!(
+            !drive(
+                &mut d,
+                InputState {
+                    sprint: true,
+                    ..Default::default()
+                }
+            )
+            .sprinting
+        );
+        d.sneaking = true;
+        assert!(!drive(&mut d, sprinting).sprinting);
+        d.sneaking = false;
+        assert!(!drive(&mut d, forward()).sprinting);
     }
 
     #[test]

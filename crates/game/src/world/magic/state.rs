@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW version 5 stores active applications after the version 4 world body.
-//! Loaded actor values already contain recoverable modifiers.
+//! SOEW active applications retain the frozen version 37 body. Authored taper
+//! values use the `MAG-19` world section, granted perks use `MAG-21`, command
+//! owners use `MAG-33` and Reanimate owners use `MAG-43`. Loaded actor values
+//! already contain recoverable modifiers. The frozen repository writer and
+//! `save_sections` define this engine-owned layout.
 
 use std::collections::BTreeMap;
 
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, PriorOwner, World};
+use super::{ActiveEffect, CloakState, EffectId, PriorOwner, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
@@ -20,6 +23,86 @@ pub(crate) const SECTION: crate::world::save_sections::Section<World> =
         write: write_command_owners,
         read: read_command_owners,
     };
+
+pub(crate) const REANIMATE_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-43",
+        write: write_reanimate_owners,
+        read: read_reanimate_owners,
+    };
+
+pub(crate) const PERK_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-21",
+        write: write_granted_perks,
+        read: read_granted_perks,
+    };
+
+pub(crate) const TAPER_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-19",
+        write: write_taper_values,
+        read: read_taper_values,
+    };
+
+fn write_taper_values(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let tapered: Vec<_> = world
+        .active_effects
+        .values()
+        .filter(|effect| {
+            effect.taper_weight != 1.0 || effect.taper_curve != 0.0 || effect.taper_duration != 0.0
+        })
+        .collect();
+    if tapered.is_empty() {
+        return;
+    }
+    w.len(tapered.len());
+    for effect in tapered {
+        w.u64(effect.id.0);
+        w.f32(effect.taper_weight);
+        w.f32(effect.taper_curve);
+        w.f64(effect.taper_duration);
+    }
+}
+
+fn read_taper_values(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 24 {
+        return Err(VmError::State(
+            "MAG-19 taper count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let weight = r.f32()?;
+        let curve = r.f32()?;
+        let duration = r.f64()?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-19 duplicate effect identity".into()));
+        }
+        if !weight.is_finite()
+            || !curve.is_finite()
+            || !duration.is_finite()
+            || duration < 0.0
+            || (duration > 0.0 && curve <= -1.0)
+        {
+            return Err(VmError::State("MAG-19 invalid taper values".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-19 missing active effect".into()))?;
+        effect.taper_weight = weight;
+        effect.taper_curve = curve;
+        effect.taper_duration = duration;
+    }
+    Ok(())
+}
 
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
@@ -48,6 +131,150 @@ impl World {
             }
         }
     }
+
+    pub(crate) fn write_cloaks(&self, w: &mut Writer) {
+        w.len(self.cloak_effects.len());
+        for (id, state) in &self.cloak_effects {
+            w.u64(id.0);
+            w.f64(state.elapsed);
+            w.len(state.owned.len());
+            for owned in &state.owned {
+                w.u64(owned.0);
+            }
+        }
+    }
+
+    pub(crate) fn read_cloaks(&mut self, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        let count = r.len()?;
+        let mut cloaks = BTreeMap::new();
+        for _ in 0..count {
+            let id = EffectId(r.u64()?);
+            let elapsed = r.f64()?;
+            let owned_count = r.len()?;
+            let mut owned = Vec::with_capacity(owned_count);
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..owned_count {
+                let owned_id = EffectId(r.u64()?);
+                if owned_id.0 == 0 || !seen.insert(owned_id) {
+                    return Err(VmError::State("invalid cloak owned effect identity".into()));
+                }
+                owned.push(owned_id);
+            }
+            if !elapsed.is_finite()
+                || !(0.0..1.0).contains(&elapsed)
+                || id.0 == 0
+                || cloaks.insert(id, CloakState { elapsed, owned }).is_some()
+            {
+                return Err(VmError::State("invalid cloak effect state".into()));
+            }
+        }
+        self.cloak_effects = cloaks;
+        Ok(())
+    }
+
+    pub(crate) fn validate_cloaks(&self) -> Result<(), VmError> {
+        for (id, state) in &self.cloak_effects {
+            let parent = self
+                .active_effects
+                .get(id)
+                .ok_or_else(|| VmError::State("cloak state names a missing effect".into()))?;
+            if !self
+                .magic_effect(parent.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+                || state
+                    .owned
+                    .iter()
+                    .any(|owned| !self.active_effects.contains_key(owned))
+            {
+                return Err(VmError::State("invalid cloak effect ownership".into()));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn write_reanimate_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let owners: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| {
+            effect
+                .reanimated_previous_owner
+                .map(|owner| (effect.id, owner))
+        })
+        .collect();
+    w.len(owners.len());
+    for (id, owner) in owners {
+        w.u64(id.0);
+        write_opt_form_id(w, owner);
+    }
+}
+
+fn read_reanimate_owners(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 9 {
+        return Err(VmError::State(
+            "MAG-43 owner count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let owner = read_opt_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-43 duplicate effect identity".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-43 missing active effect".into()))?;
+        effect.reanimated_previous_owner = Some(owner);
+    }
+    Ok(())
+}
+
+fn write_granted_perks(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let granted: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| effect.granted_perk.map(|perk| (effect.id, perk)))
+        .collect();
+    w.len(granted.len());
+    for (id, perk) in granted {
+        w.u64(id.0);
+        write_form_id(w, perk);
+    }
+}
+
+fn read_granted_perks(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 14 {
+        return Err(VmError::State(
+            "MAG-21 grant count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let perk = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-21 duplicate effect identity".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-21 missing active effect".into()))?;
+        effect.granted_perk = Some(perk);
+    }
+    Ok(())
 }
 
 fn write_command_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
@@ -130,7 +357,7 @@ pub(in crate::world) fn read_magic(
             || magnitude < 0.0
             || !elapsed.is_finite()
             || elapsed < 0.0
-            || duration.is_some_and(|d| !d.is_finite() || d < elapsed)
+            || duration.is_some_and(|d| !d.is_finite())
         {
             return Err(VmError::State("invalid active effect state".into()));
         }
@@ -157,8 +384,13 @@ pub(in crate::world) fn read_magic(
             target,
             magnitude,
             duration,
+            taper_weight: 1.0,
+            taper_curve: 0.0,
+            taper_duration: 0.0,
             elapsed,
             summoned,
+            granted_perk: None,
+            reanimated_previous_owner: None,
             restore_owner: None,
             recover,
             changes,

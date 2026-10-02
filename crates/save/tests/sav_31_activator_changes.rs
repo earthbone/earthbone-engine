@@ -168,8 +168,15 @@ fn sav_31_external_corpus_accounts_for_each_target_change() {
     let mut counts = BTreeMap::from([("ACTI", 0usize), ("TACT", 0), ("DOOR", 0)]);
     let mut variants = BTreeMap::new();
     let mut payload_bytes = 0usize;
+    let mut scanned_target_changes = 0usize;
     for path in &paths {
         let save = Save::open(path).unwrap();
+        let expected_in_save = save
+            .change_forms
+            .iter()
+            .filter(|form| matches!(form.record_type(), "ACTI" | "TACT" | "DOOR"))
+            .count();
+        let mut accounted_in_save = 0usize;
         for form in &save.change_forms {
             let Some(count) = counts.get_mut(form.record_type()) else {
                 continue;
@@ -185,20 +192,21 @@ fn sav_31_external_corpus_accounts_for_each_target_change() {
             assert_eq!(flags, form.change_flags);
             assert_eq!(encoded, form.payload().unwrap().as_ref());
             *count += 1;
+            accounted_in_save += 1;
             payload_bytes += encoded.len();
             *variants
                 .entry((save.form_version, form.version, form.record_type(), flags))
                 .or_insert(0usize) += 1;
         }
+        assert_eq!(accounted_in_save, expected_in_save, "{}", path.display());
+        scanned_target_changes += expected_in_save;
     }
     eprintln!(
-        "SAV-31 {} saves, {payload_bytes} payload bytes, counts={counts:?}, variants={variants:?}",
-        paths.len()
+        "SAV-31 {} saves, {scanned_target_changes} target changes, {payload_bytes} payload bytes, counts={counts:?}, variants={variants:?}",
+        paths.len(),
     );
-    assert_eq!(
-        variants.values().sum::<usize>(),
-        counts.values().sum::<usize>()
-    );
+    assert_eq!(variants.values().sum::<usize>(), scanned_target_changes);
+    assert_eq!(counts.values().sum::<usize>(), scanned_target_changes);
 }
 
 #[test]

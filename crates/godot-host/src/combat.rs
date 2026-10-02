@@ -5,6 +5,7 @@
 
 #[cfg(feature = "godot")]
 use std::collections::HashMap;
+use std::collections::HashSet;
 #[cfg(feature = "godot")]
 use std::hash::BuildHasher;
 
@@ -105,6 +106,27 @@ struct Swing {
 #[derive(Debug, Default)]
 pub struct MeleeContact {
     swing: Option<Swing>,
+}
+
+/// Tracks projectile instance IDs that already reported a contact.
+#[derive(Debug, Default)]
+pub struct AimedProjectileContacts {
+    consumed: HashSet<i64>,
+}
+
+impl AimedProjectileContacts {
+    /// Resolve a projectile's first contact and ignore repeated signal delivery.
+    pub fn contact(&mut self, projectile_id: i64, resolve: impl FnOnce() -> bool) -> bool {
+        if !self.consumed.insert(projectile_id) {
+            return false;
+        }
+        resolve()
+    }
+
+    /// Forget a projectile after its host node is freed.
+    pub fn forget(&mut self, projectile_id: i64) {
+        self.consumed.remove(&projectile_id);
+    }
 }
 
 /// Armed bow or crossbow release, canceled without consuming ammunition.
@@ -283,6 +305,27 @@ impl RangedRelease {
 }
 
 impl MeleeContact {
+    /// Arm the player's right-hand swing for a newly pressed attack action.
+    ///
+    /// The host supplies a press edge. Following held frames pass `false`,
+    /// so they cannot replace an armed swing.
+    ///
+    /// # Errors
+    /// The player's right hand has no usable melee weapon, or another swing
+    /// is still armed.
+    pub fn begin_from_attack_press(
+        &mut self,
+        game: &mut Game,
+        pressed: bool,
+    ) -> Result<bool, Error> {
+        if !pressed {
+            return Ok(false);
+        }
+        let player = game.player();
+        self.begin(game, player, Hand::Right)?;
+        Ok(true)
+    }
+
     /// Arm one ordinary swing with the weapon currently assigned to its hand.
     /// A second start cannot replace an attack before cancellation or contact.
     ///
