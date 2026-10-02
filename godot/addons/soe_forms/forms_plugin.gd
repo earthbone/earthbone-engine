@@ -8,6 +8,7 @@ var signature_filter: LineEdit
 var text_filter: LineEdit
 var status: Label
 var results: Tree
+var override_chain: Tree
 var form_table: SoeFormTable
 var form_inspector: EditorInspectorPlugin
 var page_index := 0
@@ -56,6 +57,12 @@ func _enter_tree() -> void:
 	results.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	results.item_selected.connect(_select_form)
 	dock.add_child(results)
+	var chain_label := Label.new()
+	chain_label.text = "Override chain"
+	dock.add_child(chain_label)
+	override_chain = load("res://addons/soe_forms/override_chain_view.gd").new()
+	override_chain.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dock.add_child(override_chain)
 	status = Label.new()
 	dock.add_child(status)
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, dock)
@@ -89,6 +96,7 @@ func _refresh(_changed: String) -> void:
 
 func _show_page() -> void:
 	results.clear()
+	override_chain.clear()
 	var root := results.create_item()
 	for form_id in form_table.search(
 		signature_filter.text.strip_edges(), text_filter.text, page_index * PAGE_SIZE, PAGE_SIZE
@@ -114,6 +122,7 @@ func _select_form() -> void:
 	if item == null:
 		return
 	var form_resource := form_table.selected_form(item.get_metadata(0))
+	override_chain.show_chain(form_table.override_chain(item.get_metadata(0)))
 	if form_resource != null:
 		EditorInterface.edit_resource(form_resource)
 		status.text = "Inspector resources created: %d" % form_table.resources_created()

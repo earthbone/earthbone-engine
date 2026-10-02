@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeSet, path::PathBuf};
 
-use soe_esm::{GlobalFormId, tag};
+use soe_esm::{tag, GlobalFormId};
 use soe_godot_host::data_source::DataSource;
 
 fn installed_source() -> Option<DataSource> {
@@ -28,7 +28,11 @@ fn edt_03_cell_tree_ids_round_trip_and_are_unique() {
     let cells = source.editor_cells();
     let mut ids = BTreeSet::new();
     for cell in &cells {
-        assert!(ids.insert(cell.id.as_str()), "duplicate cell ID {}", cell.id);
+        assert!(
+            ids.insert(cell.id.as_str()),
+            "duplicate cell ID {}",
+            cell.id
+        );
         let id = parse_id(&cell.id);
         assert_eq!(id.to_string(), cell.id, "cell ID is not canonical");
         assert_eq!(source.shared_order().winner(id).unwrap().tag, tag::CELL);

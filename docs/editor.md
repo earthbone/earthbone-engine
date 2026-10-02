@@ -321,7 +321,10 @@ caller can fetch a winning record when selected instead of building a Godot reso
 every form. `EditorDocument::override_chain` returns the selected form's versions in load
 order, with each source plugin and record and a winner flag. The final version is the winner,
 including when the selected form has only one version. This is the record-chain data for the
-conflict dock. The Godot editor's
+conflict dock. `SoeFormTable::override_chain` exposes each version's plugin name, signature,
+editor ID and winner flag to the Godot plugin. Selecting a search result fills the dock's
+override-chain tree in load-order order, including losing versions. The final row is marked as
+the winner. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector APIs used by `godot/addons/soe_forms`. The dock passes search results as IDs
 and asks the host bridge for a `Resource` only when a result is selected. That wrapper shows
@@ -330,6 +333,10 @@ the resolved identity, record signature, editor ID and winning plugin. The forms
 using that wrapper's `winning_plugin` property. The wrapper does not own or edit a copy of
 the record. `godot/edt_13_inspector_test.gd` selects a wrapper through Godot's editor API
 and checks that the Inspector dock displays its winning plugin name.
+Mutagen's `docs/loadorder/Winning-Overrides.md` defines the final
+load-order version as the winner. Wrye Bash's `[dev]-PBash-Patching-Procedure.md` describes
+patchers that can merge tagged fields, a separate operation from this whole-record conflict
+view. The dock does not run patchers.
 
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
