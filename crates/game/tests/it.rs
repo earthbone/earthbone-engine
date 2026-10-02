@@ -20,6 +20,10 @@ mod actor_templates;
 mod actor_values;
 #[path = "actor_values_live.rs"]
 mod actor_values_live;
+#[path = "ai_04_adversarial.rs"]
+mod ai_04_adversarial;
+#[path = "ai_04_breaker_adversarial.rs"]
+mod ai_04_breaker_adversarial;
 #[path = "ai_04_package_fragments.rs"]
 mod ai_04_package_fragments;
 #[path = "ai_05_breaker_adversarial.rs"]
@@ -152,6 +156,8 @@ mod ai_45_adversarial;
 mod ai_45_crime_conditions;
 #[path = "ai_46_adversarial.rs"]
 mod ai_46_adversarial;
+#[path = "ai_46_breaker_adversarial.rs"]
+mod ai_46_breaker_adversarial;
 #[path = "ai_46_crime_conditions.rs"]
 mod ai_46_crime_conditions;
 #[path = "ai_47_adversarial.rs"]
@@ -326,6 +332,8 @@ mod ai_89_adversarial;
 mod ai_89_mounted_patrol;
 #[path = "ai_90_adversarial.rs"]
 mod ai_90_adversarial;
+#[path = "ai_90_breaker_adversarial.rs"]
+mod ai_90_breaker_adversarial;
 #[path = "ai_91_adversarial.rs"]
 mod ai_91_adversarial;
 #[path = "anm_09_adversarial.rs"]
