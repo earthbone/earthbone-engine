@@ -10,3 +10,6 @@ fuzz/target/
 fuzz/artifacts/
 performance-results/
 __pycache__/
+# Reply files a Codex writer leaves at the worktree root.
+/writer-*.last
+/writer_reply.json
