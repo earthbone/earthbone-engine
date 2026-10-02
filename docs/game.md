@@ -359,11 +359,12 @@ so a form with no script still answers its class's natives. The VM gained
 **Destructible references.** `ObjectReference.DamageObject` reads the base
 record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
-`OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
+`OnDestructionStageChanged` with the prior and current stage numbers. DSTD flags can cap damage,
 disable the reference, mark it destroyed, or ignore external damage. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
-current stage, so later stages without a replacement keep the last model. A
-host can use that path in place of the base model.
+current stage, so later stages without a replacement keep the last model. The
+Godot host hides the base model and draws that stage model through its
+RenderingServer path while the reference is resident.
 `GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1` without queuing a
@@ -775,13 +776,15 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse 100
-Skyrim units behind the cart along its local Y axis, copies the cart rotation,
-and moves the horse into the cart's cell. The CK page specifies positioning
-relative to the cart but no offset, so this is the runtime's simple placement
-rule. `CellStreamerNode` owns pin joints between supplied rigid body RIDs, but
-the Papyrus runtime does not yet connect cart and horse references to those
-host bodies or pivots.
+**ObjectReference.TetherToHorse.** The native places the supplied horse at
+the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
+horse into the cart's cell. It queues a transient host request for the cart and
+horse references using the CK page's chassis and horse connection pivots. The
+host resolves those forms to resident rigid body RIDs and connects them with a
+pin joint. The CK page names `HorseSpine2` as the horse connection and gives
+pivots in Havok units. This runtime connects the reference body as a whole and
+does not resolve that bone or build the cart's wheel and pole constraints.
+Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure
@@ -3198,9 +3201,9 @@ that resolves a form builds that one reference, so an unrelated
 `ObjectReference.Is3DLoaded` uses that host-fed cell set for an instantiated
 reference. It returns false for disabled references and after their cell
 streams out, and does not depend on room-bound rendering culling.
-Cell prefetch adds its reference IDs to a derived loaded-3D set, and cell
-release removes those IDs. The set is rebuilt from streaming events and is
-not saved.
+Cell attachment adds its reference IDs to a derived loaded-3D set, and cell
+release removes those IDs. Prefetch alone does not mark 3D loaded. The set is
+rebuilt from streaming events and is not saved.
 
 `GetTriggerObjectCount` reads the actor occupants tracked for supported XPRM
 box and sphere references. It returns zero for an empty supported trigger,
@@ -7652,6 +7655,12 @@ continues to follow death or unconscious state. Removing a ragdoll preserves
 the actor's independent unconscious state. The CK pages do not define an impulse
 unit conversion or explosion game-setting evaluation, so those details remain
 outside this implementation.
+
+`cmb_38_area_magnitude_and_radius_follow_the_ck_argument_contract` checks the
+documented magnitude and radius inputs. `godot/cmb_38_ragdoll_test.gd` loads a
+vanilla actor, toggles its Jolt ragdoll through the host bridge, and checks
+that queued push and area impulses change the root body's velocity before
+removal restores the animated representation.
 
 Source pages read: `engine-refs/ck-wiki/PushActorAway_-_ObjectReference.wikitext`,
 `KnockAreaEffect_-_ObjectReference.wikitext`,
