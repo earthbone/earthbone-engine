@@ -23,6 +23,8 @@ pub trait WorldState {
     fn reference_position(&mut self, form: FormKey) -> Option<[f32; 3]>;
     fn actor_value(&mut self, form: FormKey, name: &str) -> Option<f32>;
     fn actor_is_dead(&mut self, form: FormKey) -> Option<bool>;
+    /// Resolve a stable world form key to the runtime handle value.
+    fn runtime_form_id(&mut self, form: FormKey) -> Option<u32>;
 }
 
 /// An operation the Rust runtime cannot provide with the same contract.
@@ -209,6 +211,12 @@ impl<'a, W: WorldState> PlayerCharacter<'a, W> {
 
     pub fn form_key(&mut self) -> Option<FormKey> {
         self.world.player()
+    }
+
+    /// Return the player's reference handle in the runtime's resolved FormID space.
+    pub fn handle(&mut self) -> Option<ObjectRefHandle> {
+        let player = self.world.player()?;
+        self.world.runtime_form_id(player).map(ObjectRefHandle)
     }
 
     pub fn actor_value(&mut self, name: &str) -> Option<f32> {

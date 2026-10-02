@@ -2,6 +2,7 @@
 #pragma once
 #include "RE/Reference.h"
 #include "RE/WorldTypes.h"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -12,6 +13,16 @@ namespace RE {
 struct FormKey { std::uint16_t file; std::uint32_t object; };
 struct ProjectileHandle { std::uint32_t value; };
 struct Position { float x; float y; float z; };
+struct PlayerWorldStateCallbacks {
+    void* context;
+    bool (*player)(void*, FormKey*);
+    std::size_t (*loaded_actor_count)(void*);
+    bool (*loaded_actor)(void*, std::size_t, FormKey*);
+    bool (*reference_position)(void*, FormKey, Position*);
+    bool (*actor_value)(void*, FormKey, const char*, float*);
+    bool (*actor_is_dead)(void*, FormKey, bool*);
+    std::uint32_t (*runtime_form_id)(void*, FormKey);
+};
 class PlayerWorldState {
 public:
     virtual ~PlayerWorldState() = default;
@@ -20,11 +31,51 @@ public:
     virtual std::optional<Position> reference_position(FormKey form) = 0;
     virtual std::optional<float> actor_value(FormKey form, const char* name) = 0;
     virtual std::optional<bool> actor_is_dead(FormKey form) = 0;
+    virtual std::uint32_t runtime_form_id(FormKey form) = 0;
+};
+class CallbackPlayerWorldState final : public PlayerWorldState {
+public:
+    explicit CallbackPlayerWorldState(const PlayerWorldStateCallbacks& callbacks) : callbacks_(callbacks) {}
+    std::optional<FormKey> player() override {
+        FormKey value{};
+        return callbacks_.player(callbacks_.context, &value) ? std::optional<FormKey>{value} : std::nullopt;
+    }
+    std::vector<FormKey> loaded_actors() const override {
+        std::vector<FormKey> values;
+        const auto count = callbacks_.loaded_actor_count(callbacks_.context);
+        values.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            FormKey value{};
+            if (callbacks_.loaded_actor(callbacks_.context, index, &value)) values.push_back(value);
+        }
+        return values;
+    }
+    std::optional<Position> reference_position(FormKey form) override {
+        Position value{};
+        return callbacks_.reference_position(callbacks_.context, form, &value) ? std::optional<Position>{value} : std::nullopt;
+    }
+    std::optional<float> actor_value(FormKey form, const char* name) override {
+        float value{};
+        return callbacks_.actor_value(callbacks_.context, form, name, &value) ? std::optional<float>{value} : std::nullopt;
+    }
+    std::optional<bool> actor_is_dead(FormKey form) override {
+        bool value{};
+        return callbacks_.actor_is_dead(callbacks_.context, form, &value) ? std::optional<bool>{value} : std::nullopt;
+    }
+    std::uint32_t runtime_form_id(FormKey form) override {
+        return callbacks_.runtime_form_id(callbacks_.context, form);
+    }
+private:
+    const PlayerWorldStateCallbacks& callbacks_;
 };
 class PlayerCharacter {
 public:
     explicit PlayerCharacter(PlayerWorldState& world) : world_(world) {}
     std::optional<FormKey> form_key() { return world_.player(); }
+    std::optional<ObjectRefHandle> handle() {
+        const auto id = world_.player();
+        return id ? std::optional<ObjectRefHandle>{ObjectRefHandle{world_.runtime_form_id(*id)}} : std::nullopt;
+    }
     std::optional<Position> position() {
         const auto id = world_.player();
         return id ? world_.reference_position(*id) : std::nullopt;

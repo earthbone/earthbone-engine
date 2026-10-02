@@ -352,13 +352,14 @@ The SHM-03 test compiles the generated headers, and its game-side test calls the
 actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust.
 SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
 `World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
-player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
+player and process-list reads through C++ callbacks that query a live Rust `World`. SHM-20 compiles the five typed event
 payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
 rejection marker. A game integration test checks that live quest start and failed-stop transitions
 reach the MIT sink with current state. No surveyed plugin has been compiled against the headers or
-loaded, and the generated declarations are not linked to engine behavior or a C++ to Rust ABI.
+loaded. The SHM-14 callback table is a source-level provider path, not a binary-compatible
+CommonLib ABI for existing Skyrim plugins.
 The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
@@ -370,11 +371,14 @@ SHM-14 adds `RE/World.h` and the matching MIT Rust boundary in `world.rs`.
 world provider. `ProcessLists` lists actor forms whose runtime actor state is
 built. The game crate implements that provider against its `World` form table.
 `ObjectRefHandle` and `ProjectileHandle` retain their 32-bit CommonLib-shaped
-representation. The current interface addresses live references by `FormKey`
-so file and object identity remain distinct. Projectile runtime access returns
+representation. C++ consumers can use `CallbackPlayerWorldState`, a callback-table
+adapter over the MIT `PlayerWorldState` contract. The game's Rust adapter resolves
+player handles to runtime FormIDs and reads player state and actor lists from
+the existing `World`. Its C++ integration fixture sends callback queries over
+private pipes to the live Rust world service. Projectile runtime access returns
 the typed `ProjectileRuntime` unsupported-hook result. Binary patch hooks are
-also identified as unsupported. These declarations remain a source-level API,
-with no C++ to Rust ABI or binary hook mechanism.
+also identified as unsupported. The callback table is an explicit source-level
+bridge and does not make existing Skyrim binary plugins compatible.
 
 The contracts follow the local alandtse CommonLibSSE-NG declarations in
 `include/RE/B/BSPointerHandle.h`, `include/RE/P/PlayerCharacter.h`,
@@ -385,9 +389,10 @@ type while adapting reads to engine-owned state.
 ## Untested SHM-14 contracts and survey limits
 
 The SHM-01 and SHM-14 tests compile generated umbrella headers with a C++20 compiler and check
-C++ signatures for the Rust methods they project. SHM-14 also exercises player and process-list
-reads against a synthetic live `World`. No sample plugin has been compiled against the headers,
-and the declarations have no C++ to Rust ABI. The counts are token counts,
+C++ signatures for the Rust methods they project. SHM-14's game test sends callback requests from
+C++ to a Rust service borrowing the live `World`. It checks reference handles, player state, process
+lists and the unsupported projectile result. The bridge is exercised in the integration fixture,
+not yet in the plugin loader. No sample plugin has been compiled against the headers. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
