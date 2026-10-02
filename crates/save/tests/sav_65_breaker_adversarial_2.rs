@@ -31,7 +31,7 @@ fn sav_65_invalid_refid_kind_and_nonfinite_float_bits_remain_verbatim() {
     assert_eq!(entry.form.raw(), 0xC01234);
     assert_eq!(entry.times_used, u32::MAX);
     assert_eq!(entry.effects[0].effect.kind(), RefKind::Invalid);
-    assert_eq!(entry.effects[0].effect.raw(), 0xFFFE_DC);
+    assert_eq!(entry.effects[0].effect.raw(), 0x00FF_FEDC);
     assert_eq!(entry.effects[0].magnitude.to_bits(), 0x8000_0000);
     assert_eq!(entry.effects[0].price.to_bits(), 0x7FC0_0123);
     assert_eq!(decoded.data_bytes().unwrap(), bytes);
