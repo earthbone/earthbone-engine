@@ -32,7 +32,7 @@ fn light_world(reference_flags: u32, light_flags: u32) -> World {
 }
 
 #[test]
-fn initially_disabled_reference_does_not_emit_placed_light() {
+fn cmb_32_initially_disabled_reference_does_not_emit_placed_light() {
     let world = light_world(flags::INITIALLY_DISABLED, 0);
     assert_eq!(
         soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]),
@@ -41,7 +41,7 @@ fn initially_disabled_reference_does_not_emit_placed_light() {
 }
 
 #[test]
-fn off_by_default_light_does_not_emit_until_enabled() {
+fn cmb_32_off_by_default_light_does_not_emit_until_enabled() {
     let world = light_world(0, 1 << 5);
     assert_eq!(
         soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]),
@@ -50,7 +50,7 @@ fn off_by_default_light_does_not_emit_until_enabled() {
 }
 
 #[test]
-fn runtime_placed_light_changes_detection_light() {
+fn cmb_32_runtime_placed_light_changes_detection_light() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [0, 0, 0]));
     let mut data = Vec::new();
@@ -78,7 +78,7 @@ fn runtime_placed_light_changes_detection_light() {
 }
 
 #[test]
-fn event_at_emitter_position_keeps_owner_and_measures_distance() {
+fn cmb_32_event_at_emitter_position_keeps_owner_and_measures_distance() {
     let cell = id(1);
     let observer = ContactActor {
         actor: id(4),
