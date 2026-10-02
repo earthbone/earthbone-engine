@@ -514,19 +514,24 @@ CK pages define sit values 0, 2, 3 and 4, flying values 0 through 4, and
 systems before they can be completed.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
-current time-driven sun position in Skyrim units, using a 100,000-unit orbit
-with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
-is relative to the player's current placement. `Game.IsPlayerSungazing`
+current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
+orbit. The model places the sun east at 06:00, overhead at 12:00 and west at
+18:00, relative to the player's current placement. `Game.IsPlayerSungazing`
 compares the host camera direction with the sun direction and returns true
-within one degree. `Game.ShakeCamera` queues a transient request for the host.
-Its source defaults to the player, strength defaults to 0.5 and clamps to 0
-through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
-fallback. Invalid source types, non-finite values and negative durations do
-not queue an effect. These camera requests are transient and are not saved.
-The CK pages define the returned coordinates and gaze meaning, while the
-shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
-not specify the sun orbit formula or gaze angular tolerance, so those are
-runtime choices.
+within the runtime's one-degree angular cutoff. These orbit and cutoff values
+are runtime model choices. The local CK `Game_Script.wikitext` describes the
+coordinate getters and says sungazing checks whether the player looks directly
+at the sun. The shipped `Game.psc` confirms their global signatures. Neither
+source specifies an orbit formula, radius, or angular tolerance. The tests
+`scr_26_sun_orbit_uses_100000_unit_radius_and_clock_cardinals` and
+`scr_26_sungazing_uses_one_degree_angular_cutoff` pin the chosen model.
+`Game.ShakeCamera` queues a transient request for the host. Its source defaults
+to the player, strength defaults to 0.5 and clamps to 0 through 1, and duration
+zero uses `fCameraShakeDuration` or a 0.25-second fallback. Invalid source
+types, non-finite values and negative durations do not queue an effect. These
+camera requests are transient and are not saved. The shipped `Game.psc` and CK
+page define the native signature and description; shipped script defaults
+provide shake defaults and clamping.
 
 ### Debug natives, SCR-20
 
