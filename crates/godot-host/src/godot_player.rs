@@ -571,6 +571,59 @@ impl PlayerNode {
         }
     }
 
+    /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
+    ///
+    /// Returns false if the game, either form ID, or the world request is invalid.
+    #[func]
+    pub fn push_actor_away(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        target_file: i32,
+        target_object: i64,
+        force: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object), Ok(target_file), Ok(target_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .push_actor_away(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                soe_esm::GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                force,
+            )
+            .is_ok()
+    }
+
+    /// Set an actor's explicit CMB-38 ragdoll mode in the shared world.
+    ///
+    /// Returns false if the game, form ID, or actor is invalid.
+    #[func]
+    pub fn force_actor_ragdoll(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Some(game), Ok(file), Ok(object)) = (
+            self.game.as_mut(),
+            u16::try_from(file),
+            u32::try_from(object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .force_ragdoll(soe_esm::GlobalFormId { file, object }, enabled)
+            .is_ok()
+    }
+
     /// Forward one authored behavior event from the bound actor rig.
     #[func]
     #[allow(clippy::needless_pass_by_value)]
