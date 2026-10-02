@@ -1415,9 +1415,20 @@ fn find_reference(
 ) -> Option<GlobalFormId> {
     use crate::package::Target;
 
-    let (base, object_type) = match target {
-        Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
-        Target::ObjectType(kind @ 1..=15) => (None, Some(kind)),
+    let actor_ai = world.actor(actor)?.ai.clone();
+    let (reference_target, base, object_type) = match target {
+        Target::Reference(_) | Target::LinkedReference(_) | Target::Alias(_) | Target::Itself => (
+            Some(resolve_follow_target(
+                world,
+                actor,
+                &actor_ai,
+                (owner, target),
+            )?),
+            None,
+            None,
+        ),
+        Target::ObjectId(raw) => (None, Some(world.resolve_from(owner, raw)?), None),
+        Target::ObjectType(kind @ 1..=15) => (None, None, Some(kind)),
         _ => return None,
     };
     let actor_cell = world.reference(actor)?.cell;
@@ -1442,7 +1453,8 @@ fn find_reference(
                 return None;
             }
             let candidate_base = world.base_of(reference)?;
-            let matches = base.is_some_and(|base| base == candidate_base)
+            let matches = reference_target.is_some_and(|target| target == reference)
+                || base.is_some_and(|base| base == candidate_base)
                 || object_type
                     .is_some_and(|kind| matches_package_object_type(world, candidate_base, kind));
             if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
