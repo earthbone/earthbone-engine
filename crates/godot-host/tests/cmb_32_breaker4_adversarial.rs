@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::World;
+use soe_godot_host::detection::light_level;
+
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
+
+#[test]
+fn cmb_32_truncated_xcll_does_not_supply_ambient_light() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    // UESP defines XCLL as a 92-byte structure, so this three-byte prefix is malformed.
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [255, 255, 255]));
+    let mut order = LoadOrder::new();
+    order.add("TruncatedCellLight.esm", plugin).unwrap();
+
+    let world = World::new(order);
+    assert_eq!(light_level(&world, id(1), [0.0; 3]), 0.0);
+}
+
+#[test]
+fn cmb_32_truncated_light_data_does_not_emit_placed_light() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"CELL"), 1).sub(b"XCLL", [60, 60, 60]));
+    // LIGH/DATA is a 48-byte structure. Its first 16 bytes alone are malformed.
+    let mut data = Vec::new();
+    data.extend_from_slice(&(-1_i32).to_le_bytes());
+    data.extend_from_slice(&100_u32.to_le_bytes());
+    data.extend_from_slice(&[255, 255, 255, 0]);
+    data.extend_from_slice(&0_u32.to_le_bytes());
+    plugin.push_top(Record::new(Tag(*b"LIGH"), 2).sub(b"DATA", data));
+    let mut reference = Record::new(Tag(*b"REFR"), 3)
+        .sub(b"NAME", 2_u32.to_le_bytes())
+        .sub(b"DATA", [0_u8; 24]);
+    reference.placement.cell = Some(1);
+    plugin.push_top(reference);
+    let mut order = LoadOrder::new();
+    order.add("TruncatedPlacedLight.esm", plugin).unwrap();
+
+    let world = World::new(order);
+    assert_eq!(light_level(&world, id(1), [0.0; 3]), 60.0 * (100.0 / 255.0));
+}
