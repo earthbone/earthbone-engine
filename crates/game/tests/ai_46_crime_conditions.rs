@@ -97,8 +97,10 @@ fn ai_46_arrested_state_reads_the_subject_arrest_flag() {
     assert!(conditions::supports_function(656));
 
     assert_eq!(evaluate(&game, id(0x900), &condition(656, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x900), &condition(656, 0.0)), Ok(true));
     game.world_mut().actor(id(0x900)).unwrap().arrested = true;
     assert_eq!(evaluate(&game, id(0x900), &condition(656, 1.0)), Ok(true));
+    assert_eq!(evaluate(&game, id(0x900), &condition(656, 0.0)), Ok(false));
 }
 
 /// ai_46_no_parameter_functions_reject_unused_parameter_slots
@@ -132,8 +134,12 @@ fn ai_46_actor_predicates_reject_a_subject_without_actor_context() {
 fn ai_46_arresting_actor_reports_the_missing_live_arrest_contract() {
     let game = game();
     assert!(!conditions::supports_function(657));
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(657, 1.0)),
-        Err(conditions::Error::Function(657))
-    );
+    for subject in [id(0x900), id(0x901)] {
+        for expected in [0.0, 1.0] {
+            assert_eq!(
+                evaluate(&game, subject, &condition(657, expected)),
+                Err(conditions::Error::Function(657))
+            );
+        }
+    }
 }
