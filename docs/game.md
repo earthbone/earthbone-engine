@@ -4035,7 +4035,7 @@ intimidation status functions `SetIntimidated` and `IsIntimidated`. Arrested
 state reads the subject actor's `arrested` field, matching CK's `IsArrested`.
 `GetIntimidateSuccess` (655) reports an unavailable result when the subject
 has the required actor state, because CK's `WillIntimidateSucceed` points to
-the unimplemented "Mod Player Intimidation" perk entry point; subjects without
+the unimplemented "Mod Player Intimidation" perk entry point. Subjects without
 the required confidence value return `Error::StateContract(655)`. Nonzero
 unused parameter slots and subjects without actor state return explicit
 errors for implemented predicates. `GetArrestingActor` (657) follows CK's
