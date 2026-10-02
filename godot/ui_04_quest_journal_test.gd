@@ -3,7 +3,7 @@ extends SceneTree
 var failures := 0
 
 func _initialize() -> void:
-	call_deferred("ui_04_renders_installed_quest_journal_rows")
+	call_deferred("ui_04_live_journal_refreshes_after_stage_change")
 
 func _check(ok: bool, message: String) -> void:
 	if not ok:
@@ -18,7 +18,7 @@ func _labels(node: Node) -> Array[String]:
 		result.append_array(_labels(child))
 	return result
 
-func ui_04_renders_installed_quest_journal_rows() -> void:
+func ui_04_live_journal_refreshes_after_stage_change() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
 	if data.is_empty():
 		print("SKIP: SKYRIM_DATA is unset")
@@ -47,9 +47,17 @@ func ui_04_renders_installed_quest_journal_rows() -> void:
 	_check(not labels.is_empty(), "journal rendered no quest or objective rows")
 	_check(not labels.has("No active quests"), "installed Game started with no active journal rows")
 	_check(labels.size() > 1, "journal rendered no objective text")
+	var before_stage := labels.duplicate()
+	_check(player.call("set_quest_stage", 0, 0x3372B, 10),
+		"MQ101 stage 10 was not accepted")
+	await process_frame
+	await process_frame
+	var after_stage := _labels(player.call("menu_content"))
+	_check(after_stage != before_stage,
+		"open quest journal did not refresh after MQ101 changed to stage 10")
 	player.call("close_menu")
 	player.free()
 	streamer.free()
 	await process_frame
-	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " ui_04 quest journal host rendering")
+	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " ui_04 live journal refresh after stage change")
 	quit(0 if failures == 0 else 1)
