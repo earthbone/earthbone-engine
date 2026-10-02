@@ -2859,7 +2859,9 @@ own.
 synthetic quest records, including a stage change that replaces the displayed
 objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
 shared Game in Bannered Mare and checks that the native menu panel and quest
-text controls are populated. Run it after building the extension and importing
+text controls are populated. It then changes MQ101 to stage 10 through the
+PlayerNode host bridge and checks that the open menu rows change on a later
+process frame. Run it after building the extension and importing
 the Godot project with
 `SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
 This verifies the Godot control tree and its text, without asserting a rendered
