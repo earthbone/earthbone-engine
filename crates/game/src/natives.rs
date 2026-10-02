@@ -1670,10 +1670,22 @@ fn actor(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Actor", "StopCombatAlarm", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.StopCombatAlarm expects no arguments");
+            return none();
+        }
         world.stop_combat_alarm(me);
         none()
     });
     method!(vm, w, "Actor", "SendTrespassAlarm", |world, call, me| {
+        if call.args.len() != 1 {
+            call.log.push(
+                call.time,
+                "Actor.SendTrespassAlarm expects one Actor argument",
+            );
+            return none();
+        }
         let Some(criminal) = world.form_arg(&call.arg(0)) else {
             call.log.push(
                 call.time,
@@ -1684,6 +1696,67 @@ fn actor(vm: &mut Vm, w: &Shared) {
         if let Err(error) = world.record_witnessed_crime(criminal, me, CrimeType::Trespass) {
             call.log
                 .push(call.time, format!("Actor.SendTrespassAlarm: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ShowBarterMenu", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.ShowBarterMenu expects no arguments");
+            return none();
+        }
+        if world.actor(me).is_none() {
+            return none();
+        }
+        world.menu_requests.push(MenuRequest::Barter(me));
+        none()
+    });
+    method!(vm, w, "Actor", "OpenInventory", |world, call, me| {
+        if call.args.len() > 1 {
+            call.log.push(
+                call.time,
+                "Actor.OpenInventory expects at most one argument",
+            );
+            return none();
+        }
+        let force = match call.args.first() {
+            None => false,
+            Some(Value::Bool(force)) => *force,
+            Some(_) => {
+                call.log
+                    .push(call.time, "Actor.OpenInventory abForceOpen must be Bool");
+                return none();
+            }
+        };
+        let Some(actor) = world.actor(me) else {
+            call.log
+                .push(call.time, "Actor.OpenInventory target must be an Actor");
+            return none();
+        };
+        if force || actor.teammate {
+            world.menu_requests.push(MenuRequest::ActorInventory(me));
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ClearForcedMovement", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.ClearForcedMovement expects no arguments");
+            return none();
+        }
+        if world.actor(me).is_none() {
+            call.log.push(
+                call.time,
+                "Actor.ClearForcedMovement target must be an Actor",
+            );
+            return none();
+        }
+        if let Some(actor) = world.actor(me) {
+            actor.ai.destination = None;
+            actor.ai.path.clear();
+            actor.ai.path_cells.clear();
+            actor.ai.arrived = true;
+            actor.ai.reevaluate = true;
         }
         none()
     });
@@ -4875,22 +4948,6 @@ fn stubs(vm: &mut Vm) -> usize {
     for (class, name) in methods_none {
         vm.natives
             .register_method(class, name, Box::new(|_| none()));
-        n += 1;
-    }
-    for name in ["ShowBarterMenu", "OpenInventory", "ClearForcedMovement"] {
-        vm.natives.register_method(
-            "Actor",
-            name,
-            Box::new(move |call| {
-                let detail = match name {
-                    "ShowBarterMenu" => "barter transactions and menu are not implemented",
-                    "OpenInventory" => "actor inventory presenter is not implemented",
-                    _ => "forced movement state is not implemented",
-                };
-                call.log.push(call.time, format!("Actor.{name}: {detail}"));
-                none()
-            }),
-        );
         n += 1;
     }
     // No warmth system (the survival plugin is not loaded) and no sun to

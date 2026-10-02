@@ -539,6 +539,10 @@ pub enum MenuRequest {
     Race,
     /// Open the training menu for the named actor.
     Training(GlobalFormId),
+    /// Show the named actor's barter service in the host UI.
+    Barter(GlobalFormId),
+    /// Show the named actor's inventory in the host UI.
+    ActorInventory(GlobalFormId),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

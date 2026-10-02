@@ -140,6 +140,14 @@ pending request. The host opens the training menu once and consumes the typed
 request without presenting it again. Camera-target and first-person geometry
 requests are applied through the transient camera controls.
 
+Actor `ShowBarterMenu` requests open a native Control panel titled for the
+merchant and list stock from the first resolvable vendor faction. An unavailable
+service or an empty stock list displays an empty-state label. Actor
+`OpenInventory` requests open the existing container inventory panel for the
+requested actor, where the player can take items through the notified inventory
+transaction. These requests are consumed from the shared world's transient
+menu queue.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
