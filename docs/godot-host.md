@@ -47,8 +47,8 @@ sample. The active scene had a node delta of zero through sampling and the
 door transition. This times the shared host path in that loaded scene. It
 does not estimate the memory or frame cost of a hypothetical node-per-actor
 design.
-Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID;
-the CMB-32 query maps that RID to the actor FormID or treats it as an
+Godot's `PhysicsDirectSpaceState3D.intersect_ray` returns the first hit RID.
+The CMB-32 query maps that RID to the actor FormID or treats it as an
 obstruction. The local Creation Kit `GetLightLevel` reference gives a 0 to
 150 range. Local `LIGH` and `CELL` layouts define the light radius, flags,
 fade and ambient/inheritance fields used by the current estimate. RAID's
