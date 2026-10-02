@@ -19,8 +19,7 @@ fn effect(archetype: u32) -> Record {
     data[64..68].copy_from_slice(&archetype.to_le_bytes());
     data[80..84].copy_from_slice(&1_u32.to_le_bytes());
     data[84..88].copy_from_slice(&3_u32.to_le_bytes());
-    Record::new(T(b"MGEF"), if archetype == 44 { DISGUISE } else { VALID })
-        .sub(T(b"DATA"), data)
+    Record::new(T(b"MGEF"), if archetype == 44 { DISGUISE } else { VALID }).sub(T(b"DATA"), data)
 }
 
 fn fixture() -> Game {
@@ -34,7 +33,12 @@ fn fixture() -> Game {
     let mut spit = vec![0; 36];
     spit[16..20].copy_from_slice(&1_u32.to_le_bytes());
     spit[20..24].copy_from_slice(&3_u32.to_le_bytes());
-    let efit = [20.0_f32.to_le_bytes(), 0_u32.to_le_bytes(), 3_u32.to_le_bytes()].concat();
+    let efit = [
+        20.0_f32.to_le_bytes(),
+        0_u32.to_le_bytes(),
+        3_u32.to_le_bytes(),
+    ]
+    .concat();
     plugin.push_top(
         Record::new(T(b"SPEL"), SPELL)
             .sub(T(b"SPIT"), spit)
@@ -63,7 +67,9 @@ fn mag_65_rejecting_disguise_keeps_prior_spell_effect_unapplied() {
     assert!(
         matches!(
             result,
-            Err(soe_game::world::magic::MagicError::Unsupported("effect archetype"))
+            Err(soe_game::world::magic::MagicError::Unsupported(
+                "effect archetype"
+            ))
         ),
         "unexpected cast result: {result:?}"
     );
