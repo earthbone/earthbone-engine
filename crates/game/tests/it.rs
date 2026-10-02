@@ -984,6 +984,8 @@ mod sav_52_adversarial;
 mod sav_54_adversarial;
 #[path = "sav_54_breaker_adversarial.rs"]
 mod sav_54_breaker_adversarial;
+#[path = "sav_54_breaker_adversarial_3.rs"]
+mod sav_54_breaker_adversarial_3;
 #[path = "sav_56_adversarial.rs"]
 mod sav_56_adversarial;
 #[path = "sav_56_breaker_adversarial.rs"]
@@ -1337,5 +1339,3 @@ mod ui_17_adversarial;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
-#[path = "sav_54_breaker_adversarial_3.rs"]
-mod sav_54_breaker_adversarial_3;

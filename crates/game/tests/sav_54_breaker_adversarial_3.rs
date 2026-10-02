@@ -30,11 +30,11 @@ fn sav_54_mask_words_are_u32_then_u16_and_do_not_consume_following_bytes() {
             assert_eq!(header.form_flags, Some((mask, set)));
             assert_eq!(header.bytes_consumed, 33);
             assert_eq!(header.remaining_bytes, 2);
-            assert_eq!(header.data_bytes().unwrap(), form.data[..header.bytes_consumed]);
             assert_eq!(
-                &form.data[header.bytes_consumed..],
-                &[0xA5, 0x5A]
+                header.data_bytes().unwrap(),
+                form.data[..header.bytes_consumed]
             );
+            assert_eq!(&form.data[header.bytes_consumed..], &[0xA5, 0x5A]);
         }
     }
 }

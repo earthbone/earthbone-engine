@@ -860,17 +860,16 @@ reads and writes both words without applying them. CommonLib checks the
 authored runtime bits used for disabled and persistent state, but its public
 code does not connect those checks to saved words.
 
-The engine retains both words and derives reference enable and persistence
-from the winning record. `sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supported_versions`
-observes those properties before and after restore for all four combinations
-of authored disabled and persistent bits, varied values in each saved word,
-ESS header versions 12 and 13, and form versions 77 and 78. It also checks the
-persistence query and SOEW save/load. The reference restore accepts ESS
-versions from 12 and matching file/change-form versions from 77, following
-the parser's supported minima. The corpus survey covers only ESS 12 with form
-and change-form version 78. These before-and-after checks establish this
-engine loader's behavior. The inspected public sources do not establish how
-Skyrim itself applies the words.
+The engine XORs the first word with the winning record flags, then derives
+reference enable and persistence from the result. It preserves the second
+word without assigning it runtime meaning. `sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions`
+checks all four authored combinations, varied saved words, ESS header versions
+12 and 13, form versions 77 and 78, persistence queries and SOEW save/load.
+The reference restore accepts ESS versions from 12 and matching file/change-form
+versions from 77, following the parser's supported minima. The corpus survey
+covers only ESS 12 with form and change-form version 78. xEdit labels the first
+word `Mask Invert Flags`; FallrimTools and CommonLib do not document application
+of the second word or confirm this operation across all accepted versions.
 
 ## ARMO, WEAP and AMMO change coverage
 

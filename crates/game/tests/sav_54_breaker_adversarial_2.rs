@@ -15,8 +15,17 @@ fn masked_save(mask: u32, set_word: u16, save_version: u32, form_version: u8) ->
 #[test]
 fn sav_54_mask_invert_toggles_authored_enable_and_persistence_across_versions() {
     for (save_version, form_version) in [(12, 77), (12, 78), (13, 77), (13, 78)] {
-        for authored in [0, INITIALLY_DISABLED, PERSISTENT, INITIALLY_DISABLED | PERSISTENT] {
-            for mask in [INITIALLY_DISABLED, PERSISTENT, INITIALLY_DISABLED | PERSISTENT] {
+        for authored in [
+            0,
+            INITIALLY_DISABLED,
+            PERSISTENT,
+            INITIALLY_DISABLED | PERSISTENT,
+        ] {
+            for mask in [
+                INITIALLY_DISABLED,
+                PERSISTENT,
+                INITIALLY_DISABLED | PERSISTENT,
+            ] {
                 let save = masked_save(mask, 0, save_version, form_version);
                 let mut world = super::World::new(super::fixture_order_with_flags(authored));
                 world.restore_vanilla_reference_placements(&save).unwrap();

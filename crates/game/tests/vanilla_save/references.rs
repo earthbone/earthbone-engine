@@ -67,7 +67,7 @@ fn fixture_order_with_flags(flags: u32) -> LoadOrder {
 }
 
 #[test]
-fn sav_15_saved_reference_mask_preserves_authored_flags() {
+fn sav_15_saved_reference_mask_inverts_authored_flags() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     let mut save = fixture();
     set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
@@ -75,8 +75,8 @@ fn sav_15_saved_reference_mask_preserves_authored_flags() {
     let mut world = World::new(fixture_order_with_flags(mask));
     let report = world.restore_vanilla_reference_placements(&save).unwrap();
     let restored = world.reference_ref(id(0, 0xA00)).unwrap();
-    assert!(!restored.enabled);
-    assert!(restored.persistent);
+    assert!(restored.enabled);
+    assert!(!restored.persistent);
     assert_eq!(
         report.remaining[&id(0, 0xA00)].form_flags,
         Some((mask, 0x50))
@@ -86,8 +86,8 @@ fn sav_15_saved_reference_mask_preserves_authored_flags() {
     let bytes = world.save_state();
     let mut loaded = World::new(fixture_order_with_flags(mask));
     loaded.load_state(&bytes).unwrap();
-    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
-    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
+    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
+    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
 }
 
 #[test]
-fn sav_15_saved_actor_reference_masks_leave_actor_flags_authored() {
+fn sav_15_saved_actor_reference_masks_invert_actor_flags() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     let mut save = fixture();
     let player = &mut save.change_forms[0];
@@ -132,12 +132,12 @@ fn sav_15_saved_actor_reference_masks_leave_actor_flags_authored() {
     let mut world = World::new(fixture_order());
     world.restore_vanilla_reference_placements(&save).unwrap();
     let player = world.reference_ref(id(0, 0x14)).unwrap();
-    assert!(player.enabled);
-    assert!(!player.persistent);
+    assert!(!player.enabled);
+    assert!(player.persistent);
 }
 
 #[test]
-fn sav_15_installed_vanilla_reference_mask_leaves_controlled_authored_flags() {
+fn sav_15_installed_vanilla_reference_mask_inverts_controlled_authored_flags() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA unset, skipping SAV-15 vanilla-reference case");
         return;
@@ -158,16 +158,16 @@ fn sav_15_installed_vanilla_reference_mask_leaves_controlled_authored_flags() {
     let restored = world.reference_ref(id(0, 0xA00)).unwrap();
     assert_eq!(
         restored.enabled,
-        authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+        (authored ^ mask) & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
     );
     assert_eq!(
         restored.persistent,
-        authored & soe_esm::plugin::flags::PERSISTENT != 0
+        (authored ^ mask) & soe_esm::plugin::flags::PERSISTENT != 0
     );
 }
 
 #[test]
-fn sav_15_saved_mask_leaves_enable_and_persistence_bits_authored() {
+fn sav_15_saved_mask_inverts_enable_and_persistence_bits() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     for authored in [
         0,
@@ -182,11 +182,11 @@ fn sav_15_saved_mask_leaves_enable_and_persistence_bits_authored() {
         let restored = world.reference_ref(id(0, 0xA00)).unwrap();
         assert_eq!(
             restored.enabled,
-            authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+            (authored ^ mask) & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
         );
         assert_eq!(
             restored.persistent,
-            authored & soe_esm::plugin::flags::PERSISTENT != 0
+            (authored ^ mask) & soe_esm::plugin::flags::PERSISTENT != 0
         );
     }
 }
@@ -203,7 +203,7 @@ fn sav_15_saved_mask_does_not_enable_deleted_winners() {
 }
 
 #[test]
-fn sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supported_versions() {
+fn sav_54_reference_mask_words_invert_enable_and_persistence_across_supported_versions() {
     let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
     let persistent = soe_esm::plugin::flags::PERSISTENT;
     for (save_version, form_version) in [(12, 77), (12, 78), (13, 77), (13, 78)] {
@@ -234,19 +234,19 @@ fn sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supp
                 );
 
                 let reference = world.reference_ref(id(0, 0xA00)).unwrap();
-                assert_eq!(reference.enabled, authored & disabled == 0);
-                assert_eq!(reference.persistent, authored & persistent != 0);
+                assert_eq!(reference.enabled, (authored ^ mask) & disabled == 0);
+                assert_eq!(reference.persistent, (authored ^ mask) & persistent != 0);
                 assert_eq!(
                     world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
-                    authored & persistent != 0
+                    (authored ^ mask) & persistent != 0
                 );
 
                 let bytes = world.save_state();
                 let mut loaded = World::new(fixture_order_with_flags(authored));
                 loaded.load_state(&bytes).unwrap();
                 let restored = loaded.reference_ref(id(0, 0xA00)).unwrap();
-                assert_eq!(restored.enabled, authored & disabled == 0);
-                assert_eq!(restored.persistent, authored & persistent != 0);
+                assert_eq!(restored.enabled, (authored ^ mask) & disabled == 0);
+                assert_eq!(restored.persistent, (authored ^ mask) & persistent != 0);
             }
         }
     }
