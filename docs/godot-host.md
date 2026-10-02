@@ -1481,7 +1481,13 @@ The automated launch quits after 3,600 frames, so a script error cannot leave
 the gate waiting indefinitely. A missing completion marker fails the test.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
-line. Without installed data it uses a generated WAV. The capture proves
+line. Without installed data it uses a generated WAV with 250 milliseconds of
+leading silence. The capture polls for signal within the clip duration plus
+one second, since a voice's opening silence can exceed 150 milliseconds.
+It retains the 0.0001 peak threshold and clears captured samples after the
+interrupted player drains, before starting the replacement. The capture uses
+the ring-buffer API described in local
+`godot-docs/classes/class_audioeffectcapture.rst`. The capture proves
 Godot's mixer received both voice buffers. It does not prove that a physical
 speaker or headset produced audible output. That still needs a windowed run
 with installed data and a `SoundBank` in the tree.
@@ -2112,16 +2118,16 @@ restrictions denied an editor socket. Direct runtime execution succeeded.
 
 ### Animated static collision, HST-01
 
-`AnimatedStaticNode` can build a trimesh collider below each generated mesh
-when `collision_enabled` is set before `load_nif`. The controller updates the
-mesh transform, and the collider remains its descendant, so Godot applies the
-same scene transform to both. `open()` resets controller time and starts its
-per-frame evaluation. The collision option defaults off. This path is for
-small animated references and does not change bulk cell batching.
-Godot's `MeshInstance3D.create_trimesh_collision` creates a `StaticBody3D`
-with a concave shape from that mesh. The controller is advanced by the host
-node's process callback, matching Godot's documented process-frame animation
-updates.
+`AnimatedStaticNode` can build an `AnimatableBody3D` with a concave trimesh
+shape below each generated mesh when `collision_enabled` is set before
+`load_nif`. The body synchronizes to physics frames, and both body and shape
+remain descendants of the animated mesh, so Godot applies the same scene
+transform to the visual and collision geometry. `open()` resets controller
+time and starts its per-frame evaluation. The collision option defaults off.
+This path is for small animated references and does not change bulk cell
+batching. Godot documents `AnimatableBody3D` for manually moved doors and its
+`sync_to_physics` property for physics-frame updates. The host advances the
+controller from its process callback.
 
 When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
 winning model through the shared load order and VFS, loads the NIF bytes into
@@ -2133,17 +2139,18 @@ expose the current targets and attached-node count to host tests. Load doors
 keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-with a rotation track, advances it, and confirms the generated static body
-follows the visual mesh transform. The player activation path loads animated
-swing-door NIFs from the VFS and starts the node after game activation.
+through the same byte loader used for VFS doors. It advances the rotation track
+and confirms the animated physics body and shape follow the visual mesh
+transform. The player activation path loads animated swing-door NIFs from the
+VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior walking loads and unloads nearby grid cells through the budgeted
-planner when either mesh budget is set. Ordinary door activation still does
-not instantiate `AnimatedStaticNode`, so a logical open state does not swing
-the rendered door or move its collision. Portal transitions and revised AI
-remain deferred until existing Skyrim gameplay works.
+planner when either mesh budget is set. The swing-door host path applies to
+activated non-teleport doors with a supported NIF transform controller.
+Teleporting doors retain the cell transition path. Portal transitions and
+revised AI remain deferred until existing Skyrim gameplay works.
 
 ### Cold door fade fallback (2026-09-20)
 

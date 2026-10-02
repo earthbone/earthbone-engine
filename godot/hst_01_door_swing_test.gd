@@ -33,7 +33,7 @@ func _hst_01_door_swing_and_collision_follow() -> void:
 	node.playing = false
 	node.collision_enabled = true
 	get_root().add_child(node)
-	var loaded: bool = node.call("load_nif", fixture_path, "Target")
+	var loaded: bool = node.call("load_nif_bytes", FileAccess.get_file_as_bytes(fixture_path))
 	_check(loaded, "animated door fixture did not load")
 	if not loaded or node.get_child_count() == 0:
 		node.free()
@@ -45,11 +45,13 @@ func _hst_01_door_swing_and_collision_follow() -> void:
 	for child in mesh.get_children():
 		if child is StaticBody3D:
 			body = child
-	_check(body != null, "collision_enabled did not create a StaticBody3D")
+	_check(body != null, "collision_enabled did not create a physics body")
 	if body == null:
 		node.free()
 		quit(1)
 		return
+	_check(body is AnimatableBody3D, "moving door collision is not an AnimatableBody3D")
+	_check(body.sync_to_physics, "door collision is not synchronized to physics frames")
 	_check(body.get_child_count() > 0, "generated static body has no collision shape")
 
 	# The authored rotation moves from identity to 90 degrees over its 10-second
@@ -65,6 +67,7 @@ func _hst_01_door_swing_and_collision_follow() -> void:
 		"door collision shape did not follow its visual mesh")
 
 	print("HST-01 SMOKE: rotated=", not before.is_equal_approx(after),
+		" animatable_body=", body is AnimatableBody3D,
 		" collision_follows=", body.global_transform.is_equal_approx(mesh.global_transform),
 		" failures=", failures)
 	node.free()

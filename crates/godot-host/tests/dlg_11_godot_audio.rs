@@ -33,7 +33,7 @@ fn wave() -> Vec<u8> {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_bytes.to_le_bytes());
     for frame in 0..frames {
-        // Voice assets can have leading silence longer than a mixer buffer.
+        // Voice assets can begin with silence longer than a mixer buffer.
         let sample = if frame < frames / 4 {
             0
         } else {
@@ -49,7 +49,7 @@ fn write_fixture_data(data: &Path, voices: Option<(Vec<u8>, Vec<u8>)>) {
     std::fs::create_dir_all(data).unwrap();
     std::fs::write(
         data.parent().unwrap().join("Skyrim_Default.ini"),
-        "[General]\nsLanguage=ENGLISH\n",
+        "[General]\nsLanguage=ENGLISH\n[Archive]\nsResourceArchiveList=Skyrim - Voices_en0.bsa\n",
     )
     .unwrap();
     for master in [
