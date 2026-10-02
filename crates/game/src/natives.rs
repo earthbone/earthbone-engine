@@ -253,7 +253,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 385;
+pub const NATIVE_COUNT: usize = 386;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1618,7 +1618,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 );
                 return b(false);
             }
-            match crate::conditions::will_intimidate_succeed(world, me) {
+            match crate::conditions::will_intimidate_succeed(world, &Vm::default(), me) {
                 Ok(succeeds) => b(succeeds),
                 Err(error) => {
                     call.log
@@ -1649,6 +1649,21 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
         }
         none()
+    });
+    method!(vm, w, "Actor", "GetWarmthRating", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.GetWarmthRating expects no arguments");
+            return f(0.0);
+        }
+        match world.actor_warmth_rating(me) {
+            Ok(rating) => f(rating),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetWarmthRating: {error}"));
+                f(0.0)
+            }
+        }
     });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
         let package = world.current_package(me);
@@ -4893,9 +4908,8 @@ fn stubs(vm: &mut Vm) -> usize {
         );
         n += 1;
     }
-    // No warmth system (the survival plugin is not loaded) and no sun to
-    // take a position from.
-    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
+    // No sun to take a position from.
+    let floats: &[(&str, &str, f32)] = &[];
     for (class, name, value) in floats {
         let global = *class == "Game";
         let v = *value;

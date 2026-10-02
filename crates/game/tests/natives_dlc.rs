@@ -62,6 +62,13 @@ const HUNT_PACKAGE: u32 = 0xA19;
 const HAND_SPELL: u32 = 0xA1A;
 const COMBAT_EFFECT: u32 = 0xA1B;
 const COMBAT_SPELL: u32 = 0xA1C;
+const WARM_KEYWORD: u32 = 0xA1D;
+const COLD_KEYWORD: u32 = 0xA1E;
+const WARM_ARMOR: u32 = 0xA1F;
+const COLD_ARMOR: u32 = 0xA20;
+const DEFAULT_ARMOR: u32 = 0xA21;
+const INTIMIDATION_PERK: u32 = 0xA22;
+const INTIMIDATION_RANGE_PERK: u32 = 0xA23;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -127,6 +134,16 @@ fn clothing(id: u32, edid: &str) -> Record {
         .sub(T(b"BOD2"), body)
 }
 
+fn armor_with_slot(id: u32, edid: &str, slot: u32, keyword: Option<u32>) -> Record {
+    let mut body = le(slot).to_vec();
+    body.extend_from_slice(&le(2));
+    let armor = Record::new(T(b"ARMO"), id)
+        .zsub(EDID, edid)
+        .sub(T(b"DNAM"), le(0))
+        .sub(T(b"BOD2"), body);
+    keyword.map_or(armor.clone(), |keyword| armor.sub(T(b"KWDA"), le(keyword)))
+}
+
 fn test_plugin() -> Plugin {
     let mut p = Plugin::new(FileHeader {
         flags: flags::MASTER,
@@ -188,6 +205,45 @@ fn test_plugin() -> Plugin {
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
     p.push_top(clothing(VAMPIRE_ARMOR, "VampireRobes").sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)));
     p.push_top(clothing(PLAIN_ARMOR, "FarmClothes"));
+    p.push_top(Record::new(T(b"KYWD"), WARM_KEYWORD).zsub(EDID, "Survival_ArmorWarm"));
+    p.push_top(Record::new(T(b"KYWD"), COLD_KEYWORD).zsub(EDID, "Survival_ArmorCold"));
+    p.push_top(armor_with_slot(
+        WARM_ARMOR,
+        "WarmArmor",
+        1 << 0,
+        Some(WARM_KEYWORD),
+    ));
+    p.push_top(armor_with_slot(
+        COLD_ARMOR,
+        "ColdArmor",
+        1 << 1,
+        Some(COLD_KEYWORD),
+    ));
+    p.push_top(armor_with_slot(DEFAULT_ARMOR, "DefaultArmor", 1 << 2, None));
+    p.push_top(
+        Record::new(T(b"PERK"), INTIMIDATION_PERK)
+            .zsub(EDID, "Scr17IntimidationPerk")
+            .sub(T(b"PRKE"), [2, 0, 0])
+            .sub(T(b"DATA"), [43, 2, 2])
+            .sub(T(b"PRKC"), [0])
+            .sub(T(b"PRKC"), [1])
+            .sub(T(b"EPFT"), [1])
+            .sub(T(b"EPFD"), 25.0_f32.to_le_bytes())
+            .sub(T(b"PRKF"), []),
+    );
+    let mut range = 1.0_f32.to_le_bytes().to_vec();
+    range.extend_from_slice(&5.0_f32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"PERK"), INTIMIDATION_RANGE_PERK)
+            .zsub(EDID, "Scr17IntimidationRangePerk")
+            .sub(T(b"PRKE"), [2, 0, 0])
+            .sub(T(b"DATA"), [43, 4, 2])
+            .sub(T(b"PRKC"), [0])
+            .sub(T(b"PRKC"), [1])
+            .sub(T(b"EPFT"), [2])
+            .sub(T(b"EPFD"), range)
+            .sub(T(b"PRKF"), []),
+    );
     p.push_top(Record::new(T(b"IDLE"), FEED_IDLE).zsub(EDID, "IdleVampireFeed"));
     p.push_top(Record::new(T(b"KYWD"), LINK_KEYWORD).zsub(EDID, "LinkCoffin"));
     p.push_top(Record::new(T(b"EFSH"), BLOOD_SHADER).zsub(EDID, "BloodShader"));
@@ -973,8 +1029,7 @@ fn perk_points_add_and_clamp_at_255() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// GetWarmthRating "Obtains the total warmth rating for the actor" is zero
-/// without the survival plugin. SCR-26 supplies the sky functions.
+/// GetWarmthRating is zero when the actor has no equipped armor.
 #[test]
 fn the_systems_without_an_engine_answer_quietly() {
     let mut g = game();
@@ -989,6 +1044,100 @@ fn the_systems_without_an_engine_answer_quietly() {
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: warmth combines warm, cold and unclassified equipped armor.
+#[test]
+fn scr_17_get_warmth_rating_sums_equipped_armor_keywords() {
+    let mut g = game();
+    let actor = form(&g, "VampireRef");
+    let actor_object = obj(&mut g, "VampireRef");
+    let warm = form(&g, "WarmArmor");
+    let cold = form(&g, "ColdArmor");
+    let ordinary = form(&g, "DefaultArmor");
+    {
+        let mut world = g.world_mut();
+        world.equip_item(actor, warm).unwrap();
+        world.equip_item(actor, cold).unwrap();
+        world.equip_item(actor, ordinary).unwrap();
+    }
+    assert_eq!(
+        call(&mut g, &actor_object, "GetWarmthRating", &[]),
+        Value::Float(98.0)
+    );
+    assert_eq!(
+        call(&mut g, &actor_object, "GetWarmthRating", &[Value::Int(1)]),
+        Value::Float(0.0)
+    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("GetWarmthRating expects no arguments")));
+}
+
+/// SCR-17: installed Survival Mode keywords select the same armor ratings.
+#[test]
+fn scr_17_get_warmth_rating_uses_installed_survival_keywords() {
+    let Some(order) = crate::common::installed::load_order(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+        "ccQDRSSE001-SurvivalMode.esl",
+    ]) else {
+        eprintln!("SKYRIM_DATA not set, skipping installed warmth check");
+        return;
+    };
+    let mut g = Game::from_shared_order(order);
+    let player = {
+        let mut world = g.world_mut();
+        let warm = world.form("Survival_ArmorWarm").unwrap();
+        let cold = world.form("Survival_ArmorCold").unwrap();
+        let mut found_warm = None;
+        let mut found_cold = None;
+        let mut found_default = None;
+        for (armor, record) in world.order().winners_of(T(b"ARMO")) {
+            if record.is_deleted() {
+                continue;
+            }
+            let mut has_warm = false;
+            let mut has_cold = false;
+            if let Some(data) = record.find(T(b"KWDA")) {
+                if data.len() % 4 != 0 {
+                    continue;
+                }
+                for chunk in data.as_chunks::<4>().0 {
+                    let raw = u32::from_le_bytes(*chunk);
+                    match world.resolve_from(armor, raw) {
+                        Some(id) if id == warm => has_warm = true,
+                        Some(id) if id == cold => has_cold = true,
+                        _ => {}
+                    }
+                }
+            }
+            if has_warm && found_warm.is_none() {
+                found_warm = Some(armor);
+            } else if has_cold && found_cold.is_none() {
+                found_cold = Some(armor);
+            } else if !has_warm && !has_cold && found_default.is_none() {
+                found_default = Some(armor);
+            }
+        }
+        let player = world.player();
+        world.actor(player).unwrap();
+        world.actor(player).unwrap().equipped.extend([
+            found_warm.expect("installed warm armor"),
+            found_cold.expect("installed cold armor"),
+            found_default.expect("installed unclassified armor"),
+        ]);
+        player
+    };
+    let actor = Value::Object(g.object_of_form(player));
+    assert_eq!(
+        call(&mut g, &actor, "GetWarmthRating", &[]),
+        Value::Float(98.0)
+    );
 }
 
 /// CK `UnequipAll` forces the actor to unequip every currently equipped item.
@@ -1180,6 +1329,54 @@ fn scr_17_will_intimidate_succeed_uses_speechcraft_and_confidence() {
         .traces()
         .iter()
         .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments")));
+}
+
+/// SCR-17: owned Mod Player Intimidation entries modify the live Speechcraft test.
+#[test]
+fn scr_17_will_intimidate_succeed_applies_owned_perk_entry_point() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    let target_id = form(&g, "VampireRef");
+    let perk = form(&g, "Scr17IntimidationPerk");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    g.world_mut()
+        .set_actor_value(target_id, "confidence", 2.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(false)
+    );
+    g.world_mut().actor(player).unwrap().perks.insert(perk);
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: Add Range to Value uses the authored inclusive bounds.
+#[test]
+fn scr_17_will_intimidate_succeed_applies_perk_range_modifier() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    let target_id = form(&g, "VampireRef");
+    let perk = form(&g, "Scr17IntimidationRangePerk");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    g.world_mut()
+        .set_actor_value(target_id, "confidence", 2.0)
+        .unwrap();
+    g.world_mut().actor(player).unwrap().perks.insert(perk);
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
 /// SCR-26: sun queries read calendar and player state, gaze uses the host

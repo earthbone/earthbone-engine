@@ -1293,11 +1293,22 @@ Creation Engine frame capture or memory budgets.
   native error when the spell's delivery or effect is unsupported.
 - `MoveToPackageLocation` moves an actor to its selected package location
   center and cell. It logs a native error if that location is unavailable.
-- `WillIntimidateSucceed` shares condition function 655's estimate, comparing
-  player Speechcraft with the target's AIDT Confidence. The perk entry point
-  that supplies the complete intimidation formula is not implemented.
-- `GetWarmthRating` still returns zero. Armor warmth data and survival warmth
-  calculation are not implemented.
+- `WillIntimidateSucceed` compares player Speechcraft, after the player's
+  eligible `Mod Player Intimidation` PERK entries, with the target's AIDT
+  Confidence multiplied by 25. Value functions support Set, Add, Multiply,
+  random-range Add, actor-value Add/Set/Multiply and actor-value-scaled
+  Multiply. The entry point ID, function encodings and tab order follow UESP
+  `PERK.wikitext`; native name, arguments and result follow CK
+  `WillIntimidateSucceed_-_Actor.wikitext`. The native evaluates perk
+  conditions with the actor as owner and the subject as target. The native
+  callback has no access to the calling VM's conditional Papyrus variables,
+  so an entry that requires one logs an error and fails closed.
+- `GetWarmthRating` sums equipped ARMO warmth classifications. ARMO records
+  with `Survival_ArmorWarm` contribute 54, those with `Survival_ArmorCold`
+  contribute 17, and unclassified ARMO records contribute 27. Other equipped
+  forms contribute zero. The total and no-argument signature follow CK
+  `Actor_Script.wikitext`; the keyword classifications are read from the
+  winning ARMO and KYWD records.
 - `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
   record and add or remove it from the world's transient active music type list.
   Duplicate additions and removing an inactive type leave the list unchanged.
@@ -2611,7 +2622,8 @@ functions, `SetRace`, `SetEyeTexture`, `SetCriticalStage`, `AttachAshPile`,
 the bleedout and AI flags, `WornHasKeyword`, `IsPlayersLastRiddenHorse` and
 `Game.AddPerkPoints`. Sixteen more went in as quiet stubs because the system
 behind them does not exist yet: flight, active magic effects, the ragdoll,
-the survival warmth rating, werewolf crime, jail time and the sun.
+werewolf crime, jail time and the sun. SCR-17 later connected the warmth query
+to equipped ARMO keywords.
 
 Decisions taken rather than read, since no wiki page states them:
 

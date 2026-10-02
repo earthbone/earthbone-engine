@@ -1533,6 +1533,57 @@ impl World {
                 .ok_or(Error::Unsupported("unresolved armor template"))?;
         }
     }
+
+    /// Sum the warmth classification of an actor's equipped armor.
+    ///
+    /// Survival Mode assigns 54 to warm armor, 17 to cold armor and 27 to
+    /// armor without either keyword. Non-armor equipment contributes zero.
+    ///
+    /// # Errors
+    /// Missing actor state or malformed armor keyword data.
+    pub(crate) fn actor_warmth_rating(&mut self, actor: GlobalFormId) -> Result<f32, Error> {
+        let equipped: Vec<_> = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect();
+        let warm = self.form("Survival_ArmorWarm");
+        let cold = self.form("Survival_ArmorCold");
+        let mut total = 0.0;
+        for item in equipped {
+            let Some(record) = self
+                .record(item)
+                .filter(|record| record.tag == Tag(*b"ARMO") && !record.is_deleted())
+            else {
+                continue;
+            };
+            let mut has_warm = false;
+            let mut has_cold = false;
+            if let Some(data) = record.find(Tag(*b"KWDA")) {
+                if data.len() % 4 != 0 {
+                    return Err(Error::Equipment);
+                }
+                for chunk in data.as_chunks::<4>().0 {
+                    let raw = u32::from_le_bytes(*chunk);
+                    let Some(keyword) = self.resolve_from(item, raw) else {
+                        continue;
+                    };
+                    has_warm |= Some(keyword) == warm;
+                    has_cold |= Some(keyword) == cold;
+                }
+            }
+            total += if has_warm {
+                54.0
+            } else if has_cold {
+                17.0
+            } else {
+                27.0
+            };
+        }
+        Ok(total)
+    }
 }
 
 fn finite(value: f64) -> Result<f32, Error> {
