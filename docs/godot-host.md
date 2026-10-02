@@ -3030,6 +3030,14 @@ when the loaded cell changes. A Godot pixel readback is not part of that test.
 MAG-71 retains animated curves, active-stack composition, all authored blur
 modes and modifier renderer cleanup. Both rows require rendered evidence.
 
+`mag_72_windowed_fixture_reads_hdr_color_and_depth_pixels` launches Godot with
+a 640 by 360 window and captures a checkerboard SubViewport. Its Rust runner
+resolves synthetic CELL/XCIM and selected WTHR/IMSP records through World and
+ImageSpaceStack, then passes their render values to the Godot script. The script
+applies those values to Environment, CameraAttributesPractical and a tint
+overlay. It compares rendered pixels for the clear, cell, weather and
+restored-cell states, and compares depth-of-field enabled and disabled output.
+
 Sources read under `engine-refs`:
 
 - xEdit `Core/wbDefinitionsTES5.pas` and `Core/wbDefinitionsCommon.pas`, plus
