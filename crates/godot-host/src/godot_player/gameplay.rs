@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
-    PhysicsWorld, PlayerNode, Vec3,
+    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
+    PlayerNode, Vec3,
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
@@ -361,11 +361,11 @@ impl PlayerNode {
                     );
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
-                    self.rig.mode = CameraMode::First;
+                    crate::camera::apply_game_camera_request(&mut self.rig, true);
                     self.update_camera();
                 }
                 soe_game::HostRequest::CameraThirdPerson => {
-                    self.rig.mode = CameraMode::Third;
+                    crate::camera::apply_game_camera_request(&mut self.rig, false);
                     self.update_camera();
                 }
                 soe_game::HostRequest::FadeOutGame {

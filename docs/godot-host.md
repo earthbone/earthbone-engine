@@ -2637,6 +2637,10 @@ and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
 delay and duration, and chooses black or white from its black-fade flag.
 Negative or non-finite timing values are rejected by the Game native and
 logged. These operations run after the VM tick that enqueued them.
+Camera requests share the rig mode helper used by the camera tests. The fade
+overlay uses one presentation value for its color, opacity and visibility,
+including when a door fallback fade overlaps a Papyrus fade. Save requests use
+the same generation writer as explicit host saves.
 
 ## Native menu framework
 

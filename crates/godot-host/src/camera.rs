@@ -168,6 +168,15 @@ impl CameraMode {
     }
 }
 
+/// Apply one of the explicit Game camera mode requests to the live rig.
+pub(crate) fn apply_game_camera_request(rig: &mut CameraRig, first_person: bool) {
+    rig.mode = if first_person {
+        CameraMode::First
+    } else {
+        CameraMode::Third
+    };
+}
+
 /// The tunables, under their vanilla INI names where one exists.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraSettings {
@@ -852,5 +861,14 @@ mod tests {
         assert!((wrap_angle(TAU) - 0.0).abs() < 1e-5);
         assert!(wrap_angle(3.0 * PI) <= PI + 1e-5);
         assert!(wrap_angle(-3.0 * PI) >= -PI - 1e-5);
+    }
+
+    #[test]
+    fn scr_28_game_camera_requests_change_the_live_rig_mode() {
+        let mut rig = CameraRig::default().with_mode(CameraMode::Third);
+        apply_game_camera_request(&mut rig, true);
+        assert_eq!(rig.mode, CameraMode::First);
+        apply_game_camera_request(&mut rig, false);
+        assert_eq!(rig.mode, CameraMode::Third);
     }
 }

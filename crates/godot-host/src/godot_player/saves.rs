@@ -5,7 +5,21 @@
 use super::{godot_error, PlayerNode};
 use godot::classes::ProjectSettings;
 use godot::prelude::*;
-use soe_game::save_generations::{Error, GenerationStore, RejectedGeneration, RejectionReason};
+use soe_game::save_generations::{
+    Error, GenerationStore, GenerationWrite, RejectedGeneration, RejectionReason,
+};
+
+fn requested_save_uri(automatic: bool) -> String {
+    let kind = if automatic { "automatic" } else { "manual" };
+    format!("user://saves/{kind}")
+}
+
+fn write_generation(
+    game: &mut soe_game::Game,
+    store: &GenerationStore,
+) -> Result<GenerationWrite, Error> {
+    game.write_generation(store)
+}
 
 fn store(directory: &GString, retained: i64) -> Result<GenerationStore, String> {
     let retained =
@@ -57,7 +71,7 @@ fn failed_save(error: &Error) -> VarDictionary {
 impl PlayerNode {
     pub(super) fn write_requested_save(&mut self, automatic: bool) {
         let kind = if automatic { "automatic" } else { "manual" };
-        let directory_path = format!("user://saves/{kind}");
+        let directory_path = requested_save_uri(automatic);
         let directory = GString::from(directory_path.as_str());
         let path = ProjectSettings::singleton()
             .globalize_path(&directory)
@@ -99,7 +113,7 @@ impl PlayerNode {
             player.position = [feet.x, feet.y, feet.z];
             player.rotation = rotation;
         }
-        match game.write_generation(&store) {
+        match write_generation(game, &store) {
             Ok(report) => {
                 let mut result = VarDictionary::new();
                 result.set("ok", true);
@@ -150,5 +164,38 @@ impl PlayerNode {
             );
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod scr_28_tests {
+    use super::*;
+    use soe_esm::LoadOrder;
+
+    #[test]
+    fn scr_28_save_requests_write_generations_to_distinct_manual_and_auto_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let manual_path = directory.path().join("manual");
+        let automatic_path = directory.path().join("automatic");
+        let manual_uri = requested_save_uri(false);
+        let automatic_uri = requested_save_uri(true);
+        assert_eq!(manual_uri, "user://saves/manual");
+        assert_eq!(automatic_uri, "user://saves/automatic");
+        std::fs::create_dir_all(&manual_path).unwrap();
+        std::fs::create_dir_all(&automatic_path).unwrap();
+
+        let mut game = soe_game::Game::new(LoadOrder::new());
+        let manual =
+            write_generation(&mut game, &GenerationStore::new(&manual_path, 3).unwrap()).unwrap();
+        let automatic = write_generation(
+            &mut game,
+            &GenerationStore::new(&automatic_path, 3).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manual.generation, 1);
+        assert_eq!(automatic.generation, 1);
+        assert!(manual.path.is_file());
+        assert!(automatic.path.is_file());
+        assert_ne!(manual.path.parent(), automatic.path.parent());
     }
 }
