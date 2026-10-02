@@ -73,6 +73,20 @@ SKYRIM_DATA="<Data>" godot --path godot --script bench.gd
 The first run of a fresh checkout needs `godot --headless --path godot --import`
 once, see `docs/godot-host.md`.
 
+The PLY-04 windowed route smoke run uses installed game data and writes a PNG
+for every named checkpoint plus a JSON frame log with the worst sampled wall
+frame for each step:
+
+```text
+SKYRIM_DATA="<Data>" godot --path godot --resolution 640x360 --script ply_04_route_test.gd
+```
+
+`SOE_PLY_04_ROUTE` selects a route JSON file and `SOE_PLY_04_OUTPUT_DIR`
+selects the output directory. The default route starts in
+`WhiterunBanneredMare`, executes one wait command, and captures that
+checkpoint. A zero process status means all route commands ran and all
+checkpoints and the frame log were saved.
+
 ## Run of 2026-09-17, branch `perf`
 
 ### Top level
