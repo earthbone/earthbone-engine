@@ -1750,6 +1750,24 @@ fn idle_markers(
     eligible
 }
 
+/// The first valid authored idle animation on an IDLM base, in IDLA order.
+fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<String> {
+    let base = world.base_of(marker)?;
+    let record = world
+        .record(base)
+        .filter(|record| record.tag == T(b"IDLM"))?;
+    record.subrecords.iter().find_map(|subrecord| {
+        if subrecord.tag != T(b"IDLA") {
+            return None;
+        }
+        let raw = form_id(&subrecord.data)?;
+        let idle = world.resolve_from(base, raw)?;
+        (world.tag_of(idle) == Some(T(b"IDLE")) && !world.record(idle)?.is_deleted())
+            .then(|| world.editor_id(idle))
+            .flatten()
+    })
+}
+
 /// Every placed reference and actor in a cell, from an index built once
 /// over the load order.
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
@@ -2798,6 +2816,16 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             r.position = pos;
             if new_cell.is_some() {
                 r.cell = new_cell;
+            }
+        }
+        if ai.arrived {
+            if let Procedure::UseIdleMarker {
+                marker: Some(marker),
+            } = &ai.procedure
+            {
+                if let Some(animation) = idle_marker_animation(world, *marker) {
+                    world.request_animation(actor, &animation);
+                }
             }
         }
     }
