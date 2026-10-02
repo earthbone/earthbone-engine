@@ -3053,38 +3053,60 @@ fn utility(vm: &mut Vm, w: &Shared) {
                 .is_some_and(|budget| budget.2))
         }),
     );
-    // These queries depend on engine services that are not available in the
-    // shared World. Keep their unsupported state visible to Papyrus instead
-    // of returning the quiet `None` used by the old stub registrations.
-    for (name, arity, reason) in [
-        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
-        ("GetBudgetCount", 0, "memory tracking is unavailable"),
-        ("GetBudgetName", 1, "memory tracking is unavailable"),
-    ] {
-        let reason = reason.to_owned();
-        global!(vm, w, "Utility", name, |_world, call| {
-            if call.args.len() != arity {
-                call.log.push(
-                    call.time,
-                    format!(
-                        "error: Utility.{name} expects {arity} argument(s), got {}",
-                        call.args.len()
-                    ),
-                );
-                return none();
-            }
-            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
-                call.log.push(
-                    call.time,
-                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
-                );
-                return none();
-            }
-            call.log
-                .push(call.time, format!("error: Utility.{name}: {reason}"));
-            none()
-        });
-    }
+    global!(vm, w, "Utility", "GetBudgetCount", |_world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetBudgetCount expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return i(0);
+        }
+        i(ENGINE_BUDGETS.len() as i32)
+    });
+    global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
+        if call.args.len() != 1 {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetBudgetName expects 1 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return s("");
+        }
+        let Value::Int(index) = call.args[0] else {
+            call.log.push(
+                call.time,
+                "error: Utility.GetBudgetName expects an integer budget index",
+            );
+            return s("");
+        };
+        ENGINE_BUDGETS
+            .get(usize::try_from(index).unwrap_or(usize::MAX))
+            .map_or_else(|| s(""), |budget| s(budget.0))
+    });
+    // No game-owned memory tracker supplies this query yet. Keep that missing
+    // provider visible to Papyrus instead of returning the quiet stub value.
+    global!(vm, w, "Utility", "GetCurrentMemory", |_world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetCurrentMemory expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        call.log.push(
+            call.time,
+            "error: Utility.GetCurrentMemory: memory tracking is unavailable",
+        );
+        none()
+    });
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));

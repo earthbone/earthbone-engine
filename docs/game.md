@@ -1053,12 +1053,12 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.StartFrameRateCapture` | CK marks this as beta-only and starts sampling. Quiet stub, owned by SCR-49. |
 | `Utility.EndFrameRateCapture` | CK marks this as beta-only and ends sampling. Quiet stub, owned by SCR-49. |
 | `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
-| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
-| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
+| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the active capture minimum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the active capture maximum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetCount` | Returns the count of engine budget categories. |
+| `Utility.GetBudgetName` | Returns a category name for a valid integer index, or an empty string for an invalid index. |
+| `Utility.GetCurrentBudget` | Returns the configured engine limit for a valid budget index. |
 | `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 | `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
@@ -1222,19 +1222,18 @@ Their CK contracts are described by
 
 ### Utility runtime queries, SCR-50
 
-`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
-Without available capture data, they return `None` and log that beta capture is
-unavailable. `GetCurrentMemory`,
-`GetBudgetCount` and `GetBudgetName` require memory tracking, and no game or
-host memory-tracking provider exists. Calls return `None` and add an explicit
-error to the Papyrus log. `GetBudgetName` also requires exactly one integer
-index. The capture lifecycle and average query remain available. The scheduler
-budget methods `GetCurrentBudget` and `OverBudget` report two engine limits:
-`Papyrus instructions per slice` and `Exterior cell loads per update`.
-`GetCurrentBudget` returns each configured limit, and `OverBudget` is false
-because these are scheduling caps, not measured usage counters. The CK Utility
-page documents these signatures, and SKSE's vanilla `Utility.psc` declares
-them as global natives.
+`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
+by `Game::tick`. Without captured frames, they return `None` and log that beta
+capture data is unavailable. `GetCurrentMemory` has no game-owned memory
+tracker, so it returns `None` and logs an explicit error. `GetBudgetCount` and
+`GetBudgetName` read the engine's two categories: `Papyrus instructions per
+slice` and `Exterior cell loads per update`. The name query requires exactly
+one integer index and returns an empty string for an invalid index. The
+scheduler budget methods `GetCurrentBudget` and `OverBudget` read those same
+categories. `GetCurrentBudget` returns each configured limit, and `OverBudget`
+is false because these are scheduling caps, not measured usage counters. The
+CK Utility page documents these signatures, and SKSE's vanilla `Utility.psc`
+declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
