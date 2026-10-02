@@ -173,11 +173,15 @@ FormIDs only, with at most 200 results per page. Selecting a row calls `selected
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
 ID and winning plugin. The resource is a view and does not expose record editing.
 
-The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
-property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+The dock uses Godot's `EditorPlugin` dock API. Its registered `EditorInspectorPlugin`
+recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
+`winning_plugin` property. Local
+`engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The Godot project enables this dock alongside the cell dock. The dock does not implement
-record editing or an `EditorInspectorPlugin` custom field editor.
+The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
+record identity and winner metadata. The wrapper remains a view and does not edit records;
+typed record editing is provided by the editor document API. The inspector addition does not
+provide a custom field editor for record editing.
 
 `crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
 synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`

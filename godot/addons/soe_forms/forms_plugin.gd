@@ -9,11 +9,16 @@ var text_filter: LineEdit
 var status: Label
 var results: Tree
 var form_table: SoeFormTable
+var form_inspector: EditorInspectorPlugin
 var page_index := 0
 const PAGE_SIZE := 200
 
 
 func _enter_tree() -> void:
+	form_inspector = preload("res://addons/soe_forms/form_inspector.gd").new()
+	add_inspector_plugin(form_inspector)
+	if OS.get_environment("SOE_EDT13_INSPECTOR_TEST") == "1":
+		call_deferred("_run_edt_13_inspector_test")
 	form_table = SoeFormTable.new()
 	dock = VBoxContainer.new()
 	dock.name = "Skyrim Forms"
@@ -59,8 +64,10 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	remove_inspector_plugin(form_inspector)
 	remove_control_from_docks(dock)
 	dock.queue_free()
+	form_inspector = null
 	form_table = null
 
 
@@ -153,4 +160,13 @@ func _finish_runtime_check(passed: bool, detail: String) -> void:
 		get_tree().quit(0)
 	else:
 		printerr("EDT-02 FAIL: " + detail)
+		get_tree().quit(1)
+
+
+func _run_edt_13_inspector_test() -> void:
+	var test_script = load("res://edt_13_inspector_test.gd")
+	if await test_script.edt_13_inspector_displays_winning_source(form_inspector):
+		print("RESULT: PASS: Godot inspector winning source test")
+	else:
+		push_error("RESULT: FAIL: Godot inspector winning source test")
 		get_tree().quit(1)
