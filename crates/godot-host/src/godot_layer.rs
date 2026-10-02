@@ -52,6 +52,13 @@ fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
     (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
 }
 
+fn script_reference(file: i32, object: i64) -> Option<GlobalFormId> {
+    Some(GlobalFormId {
+        file: u16::try_from(file).ok()?,
+        object: u32::try_from(object).ok()?,
+    })
+}
+
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
 /// and frees cell scenes. A load that fails must be reported back with
@@ -591,6 +598,12 @@ impl CellStreamerNode {
 
     pub(crate) fn release_telekinesis_reference(&mut self, reference: GlobalFormId) -> bool {
         self.collision.release_movable_reference(reference)
+    }
+
+    pub(crate) fn release_grabbed_telekinesis_reference(&mut self) -> bool {
+        self.collision
+            .grabbed_reference()
+            .is_some_and(|reference| self.collision.release_movable_reference(reference))
     }
 
     /// Apply queued game requests and advance finite shader durations.
@@ -1715,6 +1728,42 @@ impl CellStreamerNode {
     #[func]
     pub fn movable_reference_poses(&self) -> Array<VarDictionary> {
         self.collision.movable_poses()
+    }
+
+    /// Hold one resident movable reference under host-controlled motion.
+    #[func]
+    pub fn telekinesis_grab_reference(&mut self, file: i32, object: i64) -> bool {
+        let Some(reference) = script_reference(file, object) else {
+            return false;
+        };
+        CellStreamerNode::grab_telekinesis_reference(self, reference)
+    }
+
+    /// Move the held reference to a finite Skyrim-space position.
+    #[func]
+    pub fn telekinesis_move_reference(
+        &mut self,
+        file: i32,
+        object: i64,
+        position: Vector3,
+    ) -> bool {
+        let Some(reference) = script_reference(file, object) else {
+            return false;
+        };
+        CellStreamerNode::move_telekinesis_reference(
+            self,
+            reference,
+            [position.x, position.y, position.z],
+        )
+    }
+
+    /// Return the held reference to rigid simulation at its current pose.
+    #[func]
+    pub fn telekinesis_release_reference(&mut self, file: i32, object: i64) -> bool {
+        let Some(reference) = script_reference(file, object) else {
+            return false;
+        };
+        CellStreamerNode::release_telekinesis_reference(self, reference)
     }
 
     /// Last placement applied to a drawn reference, in Skyrim units.
