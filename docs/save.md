@@ -852,20 +852,25 @@ and persistence state from the winning plugin, while `World::unload_cell` and
 `World::is_persistent_child` consume those values. Restored mask results flow
 through those existing properties and are retained by engine save/load.
 
-The SAV-54 follow-up on 2026-09-27 checked the same xEdit definition,
-FallrimTools `ChangeFormFlags.java` and CommonLibSSE-NG
-`TESObjectREFR.cpp`. xEdit's `ChangedFlag00Decider` selects whether the mask
-payload is present. It does not select an application operation or a version
-specific layout for the two words. FallrimTools reads and writes the words
-without applying them. CommonLib checks authored runtime flags for disabled
-and persistent state, but its public code does not connect those checks to the
-saved words.
+SAV-54 checked xEdit `Core/wbDefinitionsTES5Saves.pas`, FallrimTools
+`ChangeFormFlags.java` and CommonLibSSE-NG `TESObjectREFR.cpp`. xEdit defines
+the first word as `Mask Invert Flags` and the second as `Mask Set unk010`, with
+the same six-byte payload selected by `ChangedFlag00Decider`. FallrimTools
+reads and writes both words without applying them. CommonLib checks the
+authored runtime bits used for disabled and persistent state, but its public
+code does not connect those checks to saved words.
 
-The recorded corpus survey has masks only in saves with header version 12,
-form version 78 and change-form version 78. It records word values and byte
-round trips, not game-generated before-and-after reference state, and does not
-cover other save versions. SAV-54 remains open for those broader source and
-runtime observations. SAV-15 implements the bounded interpretation above.
+The engine retains both words and derives reference enable and persistence
+from the winning record. `sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supported_versions`
+observes those properties before and after restore for all four combinations
+of authored disabled and persistent bits, varied values in each saved word,
+ESS header versions 12 and 13, and form versions 77 and 78. It also checks the
+persistence query and SOEW save/load. The reference restore accepts ESS
+versions from 12 and matching file/change-form versions from 77, following
+the parser's supported minima. The corpus survey covers only ESS 12 with form
+and change-form version 78. These before-and-after checks establish this
+engine loader's behavior. The inspected public sources do not establish how
+Skyrim itself applies the words.
 
 ## ARMO, WEAP and AMMO change coverage
 

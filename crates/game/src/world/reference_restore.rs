@@ -325,11 +325,13 @@ impl World {
                 continue;
             };
             if header.form_flags.is_some()
-                && (save.header.version != 12 || save.form_version != 78 || form.version != 78)
+                && (save.header.version < 12
+                    || save.form_version < 77
+                    || form.version != save.form_version)
             {
                 return Err(invalid(
                     GlobalFormId { file: 0, object: PLAYER_OBJECT },
-                    "reference mask semantics are only validated for save version 12 and form versions 78",
+                    "reference mask requires a Special Edition save and matching supported form versions",
                 ));
             }
             let id = mapping

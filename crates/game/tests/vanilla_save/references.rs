@@ -8,6 +8,9 @@ use soe_save::{
     ChangeForm,
 };
 
+#[path = "../sav_54_breaker_adversarial_2.rs"]
+mod sav_54_breaker_adversarial_2;
+
 pub(super) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
@@ -109,7 +112,7 @@ fn sav_15_saved_reference_masks_require_skyrim_se_v78_semantics() {
             .unwrap_err();
         assert!(error
             .to_string()
-            .contains("only validated for save version 12 and form versions 78"));
+            .contains("matching supported form versions"));
         assert_eq!(world.state_hash(), before);
     }
 }
@@ -200,41 +203,51 @@ fn sav_15_saved_mask_does_not_enable_deleted_winners() {
 }
 
 #[test]
-fn sav_54_reference_mask_words_leave_enable_and_persistence_authored() {
+fn sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supported_versions() {
     let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
     let persistent = soe_esm::plugin::flags::PERSISTENT;
-    for authored in [0, disabled, persistent, disabled | persistent] {
-        for (mask, set_word) in [
-            (0, 0),
-            (disabled, 0),
-            (persistent, 0),
-            (disabled | persistent, 0),
-            (0, u16::MAX),
-            (u32::MAX, 0x0050),
-        ] {
-            let mut save = fixture();
-            set_form_mask(&mut save.change_forms[1], mask, set_word, 78);
-            let mut world = World::new(fixture_order_with_flags(authored));
-            let report = world.restore_vanilla_reference_placements(&save).unwrap();
-            assert_eq!(
-                report.remaining[&id(0, 0xA00)].form_flags,
-                Some((mask, set_word))
-            );
+    for (save_version, form_version) in [(12, 77), (12, 78), (13, 77), (13, 78)] {
+        for authored in [0, disabled, persistent, disabled | persistent] {
+            for (mask, set_word) in [
+                (0, 0),
+                (disabled, 0),
+                (persistent, 0),
+                (disabled | persistent, 0),
+                (0, u16::MAX),
+                (u32::MAX, 0x0050),
+            ] {
+                let mut save = fixture();
+                save.header.version = save_version;
+                save.form_version = form_version;
+                set_form_mask(&mut save.change_forms[1], mask, set_word, form_version);
+                let mut before_world = World::new(fixture_order_with_flags(authored));
+                before_world.reference(id(0, 0xA00));
+                let before = before_world.reference_ref(id(0, 0xA00)).unwrap();
+                assert_eq!(before.enabled, authored & disabled == 0);
+                assert_eq!(before.persistent, authored & persistent != 0);
 
-            let reference = world.reference_ref(id(0, 0xA00)).unwrap();
-            assert_eq!(reference.enabled, authored & disabled == 0);
-            assert_eq!(reference.persistent, authored & persistent != 0);
-            assert_eq!(
-                world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
-                authored & persistent != 0
-            );
+                let mut world = World::new(fixture_order_with_flags(authored));
+                let report = world.restore_vanilla_reference_placements(&save).unwrap();
+                assert_eq!(
+                    report.remaining[&id(0, 0xA00)].form_flags,
+                    Some((mask, set_word))
+                );
 
-            let bytes = world.save_state();
-            let mut loaded = World::new(fixture_order_with_flags(authored));
-            loaded.load_state(&bytes).unwrap();
-            let restored = loaded.reference_ref(id(0, 0xA00)).unwrap();
-            assert_eq!(restored.enabled, authored & disabled == 0);
-            assert_eq!(restored.persistent, authored & persistent != 0);
+                let reference = world.reference_ref(id(0, 0xA00)).unwrap();
+                assert_eq!(reference.enabled, authored & disabled == 0);
+                assert_eq!(reference.persistent, authored & persistent != 0);
+                assert_eq!(
+                    world.is_persistent_child(id(0, 0x800), id(0, 0xA00)),
+                    authored & persistent != 0
+                );
+
+                let bytes = world.save_state();
+                let mut loaded = World::new(fixture_order_with_flags(authored));
+                loaded.load_state(&bytes).unwrap();
+                let restored = loaded.reference_ref(id(0, 0xA00)).unwrap();
+                assert_eq!(restored.enabled, authored & disabled == 0);
+                assert_eq!(restored.persistent, authored & persistent != 0);
+            }
         }
     }
 }

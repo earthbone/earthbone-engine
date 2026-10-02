@@ -5694,17 +5694,22 @@ override link after reload.
 
 For reference headers with the generic form-flags bit, the pass retains both
 mask words in its report and leaves enable and persistence derived from the
-winning record. It accepts only ESS header version 12, form version 78
-and change-form version 78 when that mask is present. The second 16-bit word
-does not affect these runtime properties.
+winning record. The first word is xEdit's `Mask Invert Flags`; the second is
+`Mask Set unk010`. The inspected xEdit, FallrimTools and CommonLibSSE-NG
+sources do not document an application of either word to these runtime
+properties. The pass accepts Special Edition ESS header versions from 12 and
+matching file and change-form versions from 77. Tests compare authored
+reference state before and after restore for header versions 12 and 13, form
+versions 77 and 78, all four authored enable/persistence combinations, and
+varied values in both saved words. The second word does not affect these
+runtime properties in this loader.
 Deleted winning records remain disabled regardless of this mask.
 The effective persistence value feeds cell-unload retention and
 encounter-zone reset decisions. SOEW version 37 stores it with each reference.
 Older SOEW states derive persistence from the current winning record.
-The test `sav_54_reference_mask_words_leave_enable_and_persistence_authored`
-checks all four authored combinations, several values in both mask words, the
-persistence query and engine save/load. It describes this loader's current
-behavior, not an independently verified Skyrim save operation.
+The test `sav_54_reference_mask_words_leave_enable_and_persistence_authored_across_supported_versions`
+checks those before-and-after cases, the persistence query and engine save/load.
+It describes this loader's behavior, not Skyrim's original save application.
 
 ## Inventory instances and ESS application, work in progress
 
