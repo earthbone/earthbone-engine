@@ -3484,6 +3484,7 @@ fn scr_70_sound_instances_follow_the_declared_contract() {
         &[Value::Int(2), Value::Float(2.0)],
     );
     assert_eq!(g.world().sound_instances[&2].2, 1.0);
+    assert_eq!(g.world().sound_instances[&1].2, 1.0);
     call_global(
         &mut g,
         "Sound",
@@ -3491,9 +3492,11 @@ fn scr_70_sound_instances_follow_the_declared_contract() {
         &[Value::Int(2), Value::Float(-1.0)],
     );
     assert_eq!(g.world().sound_instances[&2].2, 0.0);
+    assert_eq!(g.world().sound_instances[&1].2, 1.0);
 
     call_global(&mut g, "Sound", "StopInstance", &[Value::Int(1)]);
     assert!(!g.world().sound_instances.contains_key(&1));
+    assert!(g.world().sound_instances.contains_key(&2));
 }
 
 /// The Game flags: fast travel, AI driven, chargen, beast form, words

@@ -5570,37 +5570,43 @@ The installed `MUSCombat` winner contains `GetCombatTargetHasKeyword`
 combat-state contract. The installed-data music test surveys for an eligible
 track with supported conditions and skips that known unsupported predicate.
 
-## Shader particle and Sound native audit (2026-09-29)
+## Shader particle and Sound native audit (2026-10-02)
 
-The registry audit in `natives.rs` has two `ShaderParticleGeometry` methods,
-one `Sound` method and two `Sound` globals. `Sound.psc` in the local SKSE
-vanilla script corpus declares `Play(ObjectReference)` returning an instance
-ID, `StopInstance(int)` and `SetInstanceVolume(int, float)` as globals. The
-registered Sound names and method/global placement match those declarations.
-`SetInstanceVolume` clamps its volume argument to 0 through 1, and
-`World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
-removes the selected instance from the world's sound-instance table.
+The registry-derived test filters `NativeRegistry::method_bindings` and
+`global_bindings` for `shaderparticlegeometry` and `sound`. Its exact expected
+sets are `Apply` and `Remove` methods on `ShaderParticleGeometry`, `Play` on
+`Sound`, and `StopInstance` and `SetInstanceVolume` globals on `Sound`. It
+also checks the absent `Sound.PlayAndWait` and `Sound.GetDescriptor` methods.
 
-| Registry binding | CK contract comparison | Current implementation and assigned work |
+The local CK crawl contains neither a `ShaderParticleGeometry` class page nor
+named pages for `Apply` or `Remove`. `ATTEMPTS.md` records the attempted CK
+routes and archived-page crawl. The local xEdit function data lists the
+related condition functions as `Form, Float`; CommonLib's native-function RTTI
+records a `float` argument and `void` result. Those sources support the
+registered method shape but do not supply a CK description of its argument.
+`Apply` and `Remove` take a fade duration in seconds in this runtime. Zero is
+the immediate transition. `SCR-46` owns SPGD validation and transient layer
+behavior. The host does not yet render those layers, which remains within the
+scope of `SCR-46`.
+
+The local vanilla `skse64/scripts/vanilla/Sound.psc` declares five functions:
+
+| Registry binding | `Sound.psc` contract | Current implementation and assigned work |
 |---|---|---|
-| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
-| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
-| `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
-| `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
-| `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
+| `Sound.Play` method | `ObjectReference` source argument, integer playback instance result. | Records the source and sound, returns a fresh nonzero instance ID. Host audio playback for this native is not connected; physical output verification belongs to `HST-05`. |
+| `Sound.StopInstance` global | Integer playback instance argument, no result. | Removes only the selected instance from the world's sound-instance table. |
+| `Sound.SetInstanceVolume` global | Integer instance and float volume arguments, no result. Volume is clamped to 0 through 1. | Updates the selected instance and clamps the volume to 0 through 1. |
+| `Sound.PlayAndWait` method | `ObjectReference` source argument, boolean result, latent playback. | Not registered. No existing backlog row owns this missing binding. |
+| `Sound.GetDescriptor` method | No arguments, returns `SoundDescriptor`. | Not registered. No existing backlog row owns this missing binding. |
 
-The same `Sound.psc` also declares latent `PlayAndWait(ObjectReference)` and
-`GetDescriptor()` returning `SoundDescriptor`. Neither is registered. No
-unfinished backlog row owns either native binding, so they remain an explicit
-backlog gap rather than being folded into this registry-derived inventory.
-The local CK crawl's `ATTEMPTS.md` records that CK pages were collected from
-archived pages when available. The missing ShaderParticleGeometry pages leave
-its parameter contract to the implementation row above.
-
-`scr_70_registry_matches_the_audited_sound_and_shader_bindings` checks the
-registry-derived inventory and the two unregistered Sound declarations.
-`scr_70_sound_instances_follow_the_declared_contract` checks instance IDs,
-volume bounds and stopping an instance. Neither test exercises physical audio.
+The Sound table is based on the shipped PSC declaration because the local CK
+crawl has no named Sound function pages. The `Sound.Play` runtime inventory
+does not claim physical output. Tests `scr_70_sound_and_shader_bindings_keep_method_and_global_contracts`,
+`scr_70_shader_apply_uses_the_registered_instance_and_fade_argument`,
+`scr_70_shader_remove_targets_the_registered_instance`, and
+`scr_70_sound_instances_follow_the_declared_contract` cover the registry sets
+and each registered method or global behavior. Physical playback remains
+untested here.
 
 ## Authored locks and keys (2026-09-19)
 

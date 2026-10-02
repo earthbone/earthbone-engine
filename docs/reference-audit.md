@@ -44,6 +44,29 @@ The previous inventory grouped `Topic` with `MusicType` and listed both Add
 and Remove. The source declares no `Topic.Remove`. The docs now list only
 `Topic.Add`. These sources contain no Spell or Topic global bindings.
 
+## ShaderParticleGeometry and Sound native audit, SCR-70
+
+`NativeRegistry::method_bindings` and `global_bindings` produce the registered
+inventory. The local CK crawl has no `ShaderParticleGeometry` or `Sound`
+function pages. Its `ATTEMPTS.md` records the archive crawl and unsuccessful
+routes, so this audit uses the local shipped PSC and reference headers where
+available rather than inferring undocumented CK descriptions.
+
+| Binding | Contract source and comparison | Current behavior and owner |
+|---|---|---|
+| `ShaderParticleGeometry.Apply` method | CK page absent. CommonLib RTTI identifies a `void(float)` native shape. Local UESP `Raw_Function_Data.wikitext` lists the corresponding condition function with `Form, Float`. The method fade parameter remains based on the engine's registered API and implementation. | Reads and validates the winning SPGD record, adds or restarts its transient layer, and fades by seconds. `SCR-46` owns layer behavior and the missing host render path. |
+| `ShaderParticleGeometry.Remove` method | Same missing CK page and `void(float)` RTTI evidence. | Removes or fades the matching layer. `SCR-46` owns layer behavior and the missing host render path. |
+| `Sound.Play` method | Local shipped `skse64/scripts/vanilla/Sound.psc`: takes an `ObjectReference`, returns an integer instance ID. | Records source and sound, returns a fresh nonzero ID. Physical output verification is `HST-05`. |
+| `Sound.StopInstance` global | `Sound.psc`: takes an integer instance ID and returns nothing. | Removes only the selected instance. |
+| `Sound.SetInstanceVolume` global | `Sound.psc`: takes integer instance ID and float volume, clamps the volume to 0 through 1, returns nothing. | Updates the selected instance and clamps its volume. |
+
+The same PSC declares `PlayAndWait(ObjectReference) -> Bool` and
+`GetDescriptor() -> SoundDescriptor`; neither is in the native registry. No
+existing backlog row owns those missing bindings. They remain unassigned API
+gaps because this audit cannot add or widen a backlog row. The exact registry
+sets and registered method behavior are covered by the `scr_70_` tests listed
+in `docs/game.md`.
+
 ## Leveled-list native contracts
 
 The registry in `game/src/natives.rs::leveled` registers methods, not Papyrus
