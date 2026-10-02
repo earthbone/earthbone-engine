@@ -34,7 +34,10 @@ fn ui_08_retry_after_failure_can_open_same_door_once_and_preserve_inventory() {
     let mut game = fixture();
     let player = game.player();
     let pick = game.world().form("Lockpick").unwrap();
-    let target = GlobalFormId { file: 0, object: 0x100 };
+    let target = GlobalFormId {
+        file: 0,
+        object: 0x100,
+    };
     assert!(!game.attempt_lockpick(target, player, pick, 0.0));
     assert_eq!(game.world_mut().item_count(player, pick), 0);
     game.world_mut().add_item(player, pick, 1);
@@ -51,7 +54,10 @@ fn ui_08_repeated_turn_after_success_does_not_consume_remaining_pick() {
     let player = game.player();
     let pick = game.world().form("Lockpick").unwrap();
     game.world_mut().add_item(player, pick, 2);
-    let target = GlobalFormId { file: 0, object: 0x100 };
+    let target = GlobalFormId {
+        file: 0,
+        object: 0x100,
+    };
     assert!(game.attempt_lockpick(target, player, pick, 46.2));
     assert!(!game.attempt_lockpick(target, player, pick, 0.0));
     assert_eq!(game.world_mut().item_count(player, pick), 3);

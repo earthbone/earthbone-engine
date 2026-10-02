@@ -46,11 +46,13 @@ fn ui_08_successful_pick_keeps_the_unlocked_door_and_inventory_after_reload() {
     let skill = original.world_mut().actor_value(player, "lockpicking");
     let angle = (u64::from(target.object) * 37 % 901) as f32 / 10.0;
 
-    assert!(soe_game::lockpicking::angle_succeeds(target, level, skill, angle));
+    assert!(soe_game::lockpicking::angle_succeeds(
+        target, level, skill, angle
+    ));
     assert!(original.attempt_lockpick(target, player, pick, angle));
     let saved = original.world().save_state();
 
-    let mut restored = game();
+    let restored = game();
     restored.world_mut().load_state(&saved).unwrap();
     assert!(!restored.world_mut().reference(target).unwrap().locked);
     assert_eq!(restored.world_mut().item_count(player, pick), 2);
@@ -68,7 +70,7 @@ fn ui_08_failed_pick_keeps_lock_and_one_consumed_pick_after_reload() {
     assert_eq!(original.world_mut().item_count(player, pick), 1);
     let saved = original.world().save_state();
 
-    let mut restored = game();
+    let restored = game();
     restored.world_mut().load_state(&saved).unwrap();
     assert!(restored.world_mut().reference(target).unwrap().locked);
     assert_eq!(restored.world_mut().item_count(player, pick), 1);
