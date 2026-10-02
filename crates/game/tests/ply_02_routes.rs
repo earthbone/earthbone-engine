@@ -640,3 +640,6 @@ fn ply_02_navigation_fails_when_a_latent_script_moves_the_player() {
         Some(id(0x801))
     );
 }
+
+#[path = "ply_02_adversarial.rs"]
+mod adversarial;
