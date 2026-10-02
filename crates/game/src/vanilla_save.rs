@@ -275,6 +275,34 @@ impl World {
 }
 
 impl crate::Game {
+    /// Open and restore a vanilla save file, using SPID's character ID when
+    /// the filename follows the standard nine-field save naming scheme.
+    ///
+    /// Nonstandard names retain the character ID already supplied to the world,
+    /// which defaults to zero until the host supplies the game's player ID.
+    ///
+    /// # Errors
+    /// The file cannot be read as an ESS save or one of its supported state
+    /// passes fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn restore_vanilla_save_file(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), RestoreError> {
+        let save = Save::open(path)?;
+        let previous_id = self.world_mut().player_character_id();
+        if let Some(id) = spid_character_id_from_path(path) {
+            self.world_mut().set_player_character_id(id);
+        }
+        if let Err(error) = self.restore_vanilla_world_and_vm(&save) {
+            self.world_mut().set_player_character_id(previous_id);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Restore the currently supported vanilla world and VM state as one
     /// transaction. A failure in any pass restores the prior SOEG state.
     ///
@@ -472,6 +500,15 @@ impl crate::Game {
     }
 }
 
+fn spid_character_id_from_path(path: &std::path::Path) -> Option<u64> {
+    let filename = path.file_name().and_then(std::ffi::OsStr::to_str)?;
+    let fields: Vec<_> = filename.split('_').collect();
+    if fields.len() != 9 {
+        return None;
+    }
+    u64::from_str_radix(fields[1], 16).ok()
+}
+
 fn insert_papyrus_object(
     objects: &mut BTreeMap<u64, Option<ObjectId>>,
     saved_id: u64,
@@ -491,6 +528,18 @@ mod sav_04_tests {
     use soe_esm::{plugin::FileHeader, Plugin, Record};
     use soe_papyrus::asm::ScriptBuilder;
     use soe_save::{Compression, Header};
+
+    #[test]
+    fn mod_01_standard_save_filename_yields_spid_character_id() {
+        let path = std::path::Path::new(
+            "Quicksave0_2A73F01A_0_6E656C736F6E_Tamriel_000002_20220918174138_10_1.ess",
+        );
+        assert_eq!(spid_character_id_from_path(path), Some(0x2A73_F01A));
+        assert_eq!(
+            spid_character_id_from_path(std::path::Path::new("manual-save.ess")),
+            None
+        );
+    }
 
     fn fixture_save(raw_form: u32) -> Save {
         let header = Header {

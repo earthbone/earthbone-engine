@@ -295,6 +295,12 @@ impl PlayerNode {
             return false;
         };
         let mut shared = game.world_mut();
+        for (actor, position) in self.actor_bodies.thrown_actor_poses() {
+            let rotation = shared
+                .ref_placement(actor)
+                .map_or([0.0; 3], |placement| placement.rotation);
+            shared.set_host_actor_pose(actor, position, rotation);
+        }
         let actors = shared.contact_actors();
         let living: Vec<_> = actors
             .into_iter()

@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .sub(
                 t(b"CNTO"),
-                [0x512_u32.to_le_bytes(), 1_i32.to_le_bytes()].concat(),
+                [0x512_u32.to_le_bytes(), 2_i32.to_le_bytes()].concat(),
             ),
     );
     p.push_top(Record::new(t(b"RACE"), 0x100).sub(t(b"WNAM"), 0x200_u32.to_le_bytes()));
@@ -44,7 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 [0_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
             ),
     );
-    p.push_top(Record::new(t(b"MISC"), 0x512).zsub(t(b"EDID"), "Lockpick"));
+    p.push_top(
+        Record::new(t(b"MISC"), 0x512)
+            .zsub(t(b"EDID"), "Lockpick")
+            .zsub(t(b"FULL"), "Lockpick"),
+    );
     p.push_top(Record::new(t(b"DOOR"), 0x510).zsub(t(b"EDID"), "Hst03FixtureDoor"));
     let mut armor = Record::new(t(b"ARMO"), 0x200);
     for (i, (name, mask)) in [

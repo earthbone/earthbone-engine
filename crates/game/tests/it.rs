@@ -796,8 +796,13 @@ mod mag_64_adversarial;
 mod mag_65_adversarial;
 #[path = "mag_66_breaker_adversarial.rs"]
 mod mag_66_breaker_adversarial;
+#[path = "mag_66_breaker_breaker_adversarial.rs"]
+mod mag_66_breaker_breaker_adversarial;
 #[path = "mag_66_grab_actor.rs"]
 mod mag_66_grab_actor;
+
+#[path = "mag_66_adversarial.rs"]
+mod mag_66_adversarial;
 #[path = "mag_67_adversarial.rs"]
 mod mag_67_adversarial;
 #[path = "mag_69_adversarial.rs"]
@@ -816,6 +821,10 @@ mod magic_archetypes;
 mod mod_01_adversarial;
 #[path = "mod_01_breaker2_adversarial.rs"]
 mod mod_01_breaker2_adversarial;
+#[path = "mod_01_breaker3_adversarial.rs"]
+mod mod_01_breaker3_adversarial;
+#[path = "mod_01_breaker4_adversarial.rs"]
+mod mod_01_breaker4_adversarial;
 #[path = "mod_01_breaker_adversarial.rs"]
 mod mod_01_breaker_adversarial;
 #[path = "mod_02_adversarial.rs"]
@@ -1008,6 +1017,10 @@ mod sav_57_breaker_adversarial;
 mod sav_57_preflight;
 #[path = "sav_58_adversarial.rs"]
 mod sav_58_adversarial;
+#[path = "sav_58_breaker_adversarial.rs"]
+mod sav_58_breaker_adversarial;
+#[path = "sav_58_breaker_breaker_adversarial.rs"]
+mod sav_58_breaker_breaker_adversarial;
 #[path = "sav_60_breaker_adversarial.rs"]
 mod sav_60_breaker_adversarial;
 #[path = "sav_60_reconnect.rs"]
@@ -1323,12 +1336,20 @@ mod tst_16_test_binary;
 mod ui_03_magic_menu;
 #[path = "ui_05_adversarial.rs"]
 mod ui_05_adversarial;
+#[path = "ui_05_breaker2_adversarial.rs"]
+mod ui_05_breaker2_adversarial;
+#[path = "ui_05_breaker_adversarial.rs"]
+mod ui_05_breaker_adversarial;
 #[path = "ui_05_mcm.rs"]
 mod ui_05_mcm;
 #[path = "ui_07_character_traits.rs"]
 mod ui_07_character_traits;
 #[path = "ui_08_adversarial.rs"]
 mod ui_08_adversarial;
+#[path = "ui_08_breaker2_adversarial.rs"]
+mod ui_08_breaker2_adversarial;
+#[path = "ui_08_breaker3_adversarial.rs"]
+mod ui_08_breaker3_adversarial;
 #[path = "ui_08_breaker_adversarial.rs"]
 mod ui_08_breaker_adversarial;
 #[path = "ui_08_lockpicking.rs"]

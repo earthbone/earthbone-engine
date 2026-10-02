@@ -236,19 +236,23 @@ seeded generator. Deterministic `0!` and `100!` work without a random choice.
 Fractional deterministic rules are evaluated for each actor when its state is
 built. Their seed combines the parsed entry seed, the active save character ID
 and the actor runtime FormID, following SPID's `LookupFilters.cpp`. The host
-sets the active ID with `World::set_player_character_id`. This input metadata
-is not serialized by the engine. SPID obtains the value from its save manager,
-or from the character ID in a standard save filename. References are SPID
+sets the active ID through `Game::restore_vanilla_save_file`, which reads the
+second field of a standard nine-field save filename. Nonstandard filenames use
+the current game player ID supplied by the host, which defaults to zero. The
+lower-level `World::set_player_character_id` remains available to a host that
+obtains the value from another save manager. This input metadata is not
+serialized by the engine. References are SPID
 `SPID/src/LookupConfigs.h`, `Defs.h`, `LookupFilters.cpp` and
 `PCLevelMultManager.cpp`, especially `ChanceComponentParser` and
-`GetPlayerIDFromSave`.
+`GetPlayerIDFromSave`. CLibUtil `rng.hpp` supplies the seeded Xoshiro256**
+generator used for deterministic draws. The entry hash and seed combination
+match SPID's rule, and its generated unit value uses CLibUtil's top 53 bits.
 
 KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
 on keyword editor ID and target form. Our KID application still rolls once
-per rule with the world RNG. Ordinary chance and the conversion from a
-deterministic SPID seed to a draw remain engine policy, not an exact upstream
-random sequence. The `world.mod_data` hash covers the resulting keywords,
-distributions and swaps for engine replay.
+per rule with the world RNG. Ordinary SPID chance also uses the world RNG.
+The `world.mod_data` hash covers the resulting keywords, distributions and
+swaps for engine replay.
 
 ### What is applied and what is only carried
 

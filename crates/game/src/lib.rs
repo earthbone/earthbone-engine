@@ -931,7 +931,6 @@ impl Game {
             }
         }
         self.run_until_idle(64);
-        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
