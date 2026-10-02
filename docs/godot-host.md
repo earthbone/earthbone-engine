@@ -2101,10 +2101,10 @@ expose the current targets and attached-node count to host tests. Load doors
 keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-with a rotation track, advances it, and confirms the animated physics body and
-shape follow the visual mesh transform. The player activation path loads
-animated swing-door NIFs from the VFS and starts the node after game
-activation.
+through the same byte loader used for VFS doors. It advances the rotation track
+and confirms the animated physics body and shape follow the visual mesh
+transform. The player activation path loads animated swing-door NIFs from the
+VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.

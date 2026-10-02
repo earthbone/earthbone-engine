@@ -33,7 +33,7 @@ func _hst_01_door_swing_and_collision_follow() -> void:
 	node.playing = false
 	node.collision_enabled = true
 	get_root().add_child(node)
-	var loaded: bool = node.call("load_nif", fixture_path, "Target")
+	var loaded: bool = node.call("load_nif_bytes", FileAccess.get_file_as_bytes(fixture_path))
 	_check(loaded, "animated door fixture did not load")
 	if not loaded or node.get_child_count() == 0:
 		node.free()
