@@ -3,9 +3,9 @@
 SAV-27 has partial typed decoding. CELL's documented fields and seen-data
 shape are decoded, while the high CELL flags with missing schemas are rejected.
 ECZN and LCTN common form flags are decoded and their other flagged bytes are
-retained as one opaque tail. This does not identify the fields inside those
-tails or implement live restoration. SAV-28 continues to depend on complete
-decoding from SAV-27.
+retained as one opaque tail. SAV-28 applies supported fields to live records
+and retains those tails through engine save/load. This does not identify the
+fields inside the tails.
 
 ## Source boundary
 

@@ -1659,14 +1659,16 @@ installed-data player test successfully with 281 collision bodies and about
 90 units of movement. This confirms the automated movement check survives
 the reference/audit integration, not that the reported visual defects are fixed.
 
-## Ordered workers and data-source split (2026-09-19)
+## Ordered and persistent workers and data-source split (2026-09-19, 2026-09-29)
 
-The data source now uses one bounded scoped worker helper for master parsing,
-archive opening and mesh construction. Results are joined in input order.
-Archives still enter the VFS in load order, preserving last-archive precedence.
-Every worker is joined even if another worker panics. A failed batch returns
+The data source now uses a cached bounded Rayon pool for master parsing,
+archive opening and mesh construction. The pool is reused across batches with
+the same worker count, and changing the count replaces the cached pool.
+Indexed collection preserves input order, so archives still enter the VFS in
+load order and retain last-archive precedence. A worker panic returns
 `DataSourceError::WorkerPanicked`, rather than shortening the mesh result list
-and potentially attaching later geometry to the wrong reference.
+and potentially attaching later geometry to the wrong reference. Pool
+construction errors are returned as `DataSourceError::WorkerPoolBuild`.
 
 Texture keys use `soe_bsa::normalize`, matching the VFS's case and separator
 rules. Per-key `OnceLock` entries share successful and failed loads across

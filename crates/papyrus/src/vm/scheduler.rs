@@ -103,6 +103,7 @@ impl Vm {
         let mut run_span = soe_trace::Span::new("vm.run", "vm");
         let slice = 64;
         let mut used = 0;
+        let mut newly_completed = Vec::new();
         while used < budget {
             let mut progressed = false;
             for i in 0..self.threads.len() {
@@ -111,6 +112,9 @@ impl Vm {
                 }
                 let _slice_span = soe_trace::Span::new("vm.slice", "vm");
                 let n = self.step_thread(i, slice.min(budget - used));
+                if self.threads[i].state == ThreadState::Done {
+                    newly_completed.push(self.threads[i].id);
+                }
                 run_span.set_payload(used as u64 + n as u64);
                 used += n;
                 progressed |= n > 0;
@@ -122,30 +126,57 @@ impl Vm {
                 break;
             }
         }
-        self.retain_recent_completed_threads();
+        self.retain_recent_completed_threads(&newly_completed);
         used
     }
 
-    fn retain_recent_completed_threads(&mut self) {
-        let completed = self
+    fn retain_recent_completed_threads(&mut self, newly_completed: &[ThreadId]) {
+        if newly_completed.is_empty() {
+            return;
+        }
+
+        let newly_completed_set: std::collections::HashSet<_> =
+            newly_completed.iter().copied().collect();
+        let mut completion_order: Vec<_> = self
+            .threads
+            .iter()
+            .filter(|thread| thread.state == ThreadState::Done)
+            .map(|thread| thread.id)
+            .filter(|id| !newly_completed_set.contains(id))
+            .collect();
+        completion_order.extend_from_slice(newly_completed);
+
+        let ranks: std::collections::HashMap<_, _> = completion_order
+            .iter()
+            .enumerate()
+            .map(|(rank, id)| (*id, rank))
+            .collect();
+        let mut completed = Vec::new();
+        let mut active = Vec::new();
+        for thread in self.threads.drain(..) {
+            if thread.state == ThreadState::Done {
+                completed.push(thread);
+            } else {
+                active.push(thread);
+            }
+        }
+        completed.sort_by_key(|thread| ranks[&thread.id]);
+
+        let expired = completed.len().saturating_sub(MAX_COMPLETED_THREAD_HISTORY);
+        let mut retained = completed.into_iter().skip(expired);
+        active.extend(retained.by_ref());
+        self.threads = active;
+
+        // Completed threads stay at the end in completion order. Save/load
+        // preserves that order, so later completions can evict the oldest.
+        let completed_count = self
             .threads
             .iter()
             .filter(|thread| thread.state == ThreadState::Done)
             .count();
-        if completed <= MAX_COMPLETED_THREAD_HISTORY {
-            return;
-        }
-
-        let first_retained = self
-            .threads
-            .iter()
-            .filter(|thread| thread.state == ThreadState::Done)
-            .nth(completed - MAX_COMPLETED_THREAD_HISTORY)
-            .map(|thread| thread.id);
-        if let Some(first_retained) = first_retained {
-            self.threads.retain(|thread| {
-                thread.state != ThreadState::Done || thread.id.0 >= first_retained.0
-            });
+        if completed_count > 0 {
+            let split = self.threads.len() - completed_count;
+            self.threads[split..].sort_by_key(|thread| ranks[&thread.id]);
         }
     }
 

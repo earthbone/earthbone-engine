@@ -19,7 +19,8 @@ because xEdit does not define their serialized fields. ECZN and LCTN decode
 their common form flags and retain other flagged bytes as opaque payloads,
 because the available schema marks those fields as placeholders. See
 [saved spatial fields](save-spatial-fields.md) for the source boundary and
-60-save corpus accounting. Live restoration remains unfinished.
+60-save corpus accounting. SAV-28 applies decoded fields to live records and
+retains opaque LCTN and ECZN tails without interpreting their fields.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
@@ -28,18 +29,19 @@ the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
 PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
 flags and payload bytes. SAV-11 exposes all 32 xEdit-defined PMIS, PGRE and
-PBEA change flag bits through `saved_projectile_change`. SAV-23 exposes the
-same flag positions for PFLA, PHZD and PBAR through `projectile_change`. Both
-retain their inflated subtype payload as exact bytes. The payload fields
-remain undecoded:
-xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
-fallback. PCON and PARW expose typed envelopes containing their change flags,
-version, compression length and exact stored bytes. Their
+PBEA change flag bits through `saved_projectile_change`. SAV-23 exposes all
+shared PFLA, PHZD and PBAR flag positions through `projectile_change`. Both
+retain their inflated subtype payload as exact bytes. Payload fields remain
+undecoded because xEdit's subtype dispatch structures are empty and
+FallrimTools uses a raw fallback. PCON and PARW expose typed envelopes with
+change flags, version, compression length and exact stored bytes. Their
 subtype payloads remain opaque because the inspected Skyrim xEdit structures
 are empty and FallrimTools has no typed reader. SAV-25 tests envelope
 truncation and reports PCON/PARW flag and byte coverage across the external
-save corpus. See [saved projectile layouts](save-projectile-layouts.md) for
-the source review and remaining evidence requirement.
+save corpus. PCON's initial placement prefix is xEdit-defined. The xEdit
+initial-data dispatch omits PARW type 47, so its entire payload stays opaque.
+PCON's remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)
+for the source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -136,9 +138,9 @@ does not claim runtime support for opaque payloads.
   MISC and FURN. The xEdit value and full-name fields have zero-byte layouts.
   Unnamed flags and suffix bytes remain available for exact payload re-encoding.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation. Their shared initial placement
-  prefixes decode into the normal reference reconstruction path. The xEdit
-  subtype structs are empty, so any remaining bytes stay opaque.
+  retained without subtype interpretation. PCON's initial placement prefix
+  decodes into the normal reference reconstruction path. The xEdit initial-data
+  dispatch omits PARW type 47, so its entire payload remains opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
@@ -232,6 +234,11 @@ because the inspected sources do not establish subtype field layouts. The
 decoder accepts every flag word without dropping bits and preserves the exact
 inflated payload bytes. It does not infer that a set change flag corresponds
 to a specific serialized payload field.
+
+The game importer stores PFLA, PHZD and PBAR shared flags and raw payload bytes
+alongside the matching live record. `World::restored_projectile_extra` exposes
+the data, and the `SAV-24` world section preserves it through engine save/load.
+The importer does not decode subtype fields or map them onto plugin subrecords.
 
 Most decoded state remains inspection data. The game crate can apply globals,
 quest state, Papyrus instances and active script frames. Queued messages,
@@ -781,6 +788,18 @@ the observed Skyrim SE tuple of ESS header version 12, form version 78 and
 change-form version 78, the placement pass leaves disabled and persistent
 properties derived from the winning record. Other tuples with a mask fail
 before reference state is inserted.
+
+## CELL, LCTN and ECZN application, SAV-28
+
+`World::restore_vanilla_spatial_records` applies CELL common flags, cell
+flags, full name and owner to shared record overrides. It also applies common
+form flags for LCTN and ECZN. Their flagged tails remain opaque, following the
+xEdit placeholder unions documented in [saved spatial fields](save-spatial-fields.md).
+The restore validates the full batch before committing it. CELL owner links
+use the saved plugin mapping and remain queryable through `cell_state`.
+Overrides use the existing SOEW record table and survive engine save/load.
+This does not assign runtime meanings to the LCTN keyword/cleared data or the
+ECZN zone/game data.
 
 `sav_54_reference_mask_words_leave_enable_and_persistence_authored` checks
 that neither word changes the loader's enable or persistence values for the

@@ -74,6 +74,7 @@ soe-hkx = { path = "../hkx" }
 soe-physics = { path = "../physics" }
 soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
+rayon = "1.12"
 soe-editor = { path = "../editor" }
 
 [dev-dependencies]

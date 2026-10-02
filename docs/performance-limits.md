@@ -9,7 +9,7 @@ not claim the capacity of a complete Skyrim gameplay loop.
 | Scenario | Load means | Work measured each tick or frame |
 |---|---|---|
 | CPU `scripts` | Script objects receiving one call per tick | Enqueue calls, advance clocks, execute a 100,000-instruction VM slice. Each call does 32 additions and increments a completion counter. |
-| CPU `actors` | Active actors | `Game::tick` over record-backed travel packages and a NAVM corridor. Every actor must move. No animation or collision. |
+| CPU `actors` | Active actors | `Game::tick` over record-backed Travel and Sandbox packages and a NAVM corridor. Travel actors must advance and both groups must select their package procedure. No animation or collision. |
 | CPU `navigation` | Path requests per tick | Connected queries across at least 128 triangles of a fixed 256-triangle graph. Failed queries fail the run. |
 | CPU `streaming` | Statics per loaded cell | Walk a bounded route, unload stale cells, build and retain 64-triangle surfaces for new cells. The actual streaming ring stays below 50 cells. |
 | CPU `mixed` | The same load in each of the four workloads | Script arrivals, actor ticks, path requests and streaming in one process. Uses Game's tick scheduling, which differs from the standalone VM slice. |
@@ -17,9 +17,11 @@ not claim the capacity of a complete Skyrim gameplay loop.
 | Godot `geometry` | Visible server instances | A shared 512-triangle plane per instance, arranged in a visible grid. Isolates the host renderer, without NIF decoding. |
 | Godot `textures` | Unique visible textures | One mipmapped 512 by 512 RGBA8 texture per server instance, one quad each. Isolates allocation and texture residency. |
 
-Synthetic actor records use the existing package, NPC and NAVM builders.
-Actors travel toward a distant target so the workload keeps moving during a
-long run. This simple path does not represent dense crowd avoidance or combat.
+Synthetic actor records use the existing package, NPC and NAVM builders. The
+actor workload splits actors evenly between Travel toward a distant target and
+Sandbox around each actor's starting point. Travel actors must advance and all
+actors must select the expected package procedure. These simple paths do not
+represent dense crowd avoidance or combat.
 Synthetic renderer workloads use RenderingServer RIDs, with zero per-instance
 scene nodes. They do not exercise the engine's material cache or mesh batching.
 The real exterior benchmark exercises those paths separately.
@@ -37,6 +39,12 @@ These are workload budgets, not claims about every machine.
   After the first confirmed breach, it bisects the last passing and first
   failing loads, with repeated fresh processes at every point. This is a
   local budget boundary, not proof of monotonic behavior at every load.
+- The Godot `textures` sweep runs every doubling rung through its configured
+  maximum, including rungs after a breach or unstable result. Its reported
+  `capacity_textures` is the highest contiguous rung for which every repeat
+  passed. A zero value means no rung was confirmed. The result records all
+  rung outcomes and the frame, memory, resolution, workload, seed and repeat
+  conditions, so a later non-monotonic pass cannot raise the capacity claim.
 - Mixed pass/fail repeats produce `unstable`. Crashes, invalid output and
   timeouts produce `error`, not a fabricated performance limit.
 - Reaching the configured maximum without a breach reports `limit_not_found`.
@@ -48,6 +56,13 @@ These are workload budgets, not claims about every machine.
 - CPU samples exclude backlog observation and final correctness checks.
   Their observer cost is reported separately as `telemetry_ms`. Script call
   creation and streaming allocation/release are inside the timed tick.
+- CPU samples count allocator allocation and reallocation requests while each
+  tick runs. Each window reports the highest per-tick request count as
+  `peak_allocations` and the highest bytes attributed to allocations and net
+  reallocation growth as `peak_allocation_bytes`. Setup, warm-up, sample
+  storage and telemetry are outside the region. The counts include
+  worker-thread requests in the child process. They are per-tick request
+  totals, not live heap size.
 - CPU windows default to 120 samples. Nearest-rank p99 uses actual samples.
   With fewer than 1,000 samples, p99.9 is effectively a maximum, not strong
   evidence about a rare population tail.
@@ -62,8 +77,9 @@ These are workload budgets, not claims about every machine.
   poll and CPU window snapshots. Short peaks can escape the parent poll.
   Godot's allocator and video-memory counters are also reported. They are
   not total process RSS or measurements of driver eviction.
-- No allocation counter is added. RSS growth can come from caches and retained
-  capacity as well as leaks. A breached growth budget is evidence to investigate.
+- RSS growth can come from caches and retained capacity as well as leaks. A
+  breached growth budget is evidence to investigate. Allocation request peaks
+  are a separate metric and do not measure live heap size.
 
 Soaks retain the same process and engine state. CPU streaming revisits a
 bounded route. Godot clears and rebuilds the same scene after each five-second
@@ -94,6 +110,14 @@ Use `--samples`, `--warmup`, `--seed`, `--vm-budget`, `--repeats` and `--refine`
 to specify a reproduction. Defaults are printed in `--help` and saved in every
 report. Do not change thresholds after seeing results to make a run pass.
 
+The thousand-actor timing tests are ignored in the ordinary workspace gate.
+Their frame budgets require an optimized build on an otherwise idle machine,
+with no concurrent tests. Run it explicitly:
+
+```text
+rtk proxy cargo test -p soe-bench --profile thin prf_07 -- --ignored --test-threads=1
+```
+
 Windowed host runs, with an installed Godot binary:
 
 ```text
@@ -106,6 +130,11 @@ The real exterior path needs the built GDExtension and an imported Godot
 project, as described in [godot-host.md](godot-host.md). Synthetic renderer
 workloads use stock Godot and do not need the extension. An isolated writable
 `XDG_DATA_HOME` is needed when the default Godot data directory is read-only.
+For texture capacity, each rung creates one unique, mipmapped 512 by 512 RGBA8
+texture per visible server instance at a fixed 1600 by 900 render resolution.
+Every repeat runs in a fresh Godot process. The capacity is conditional on the
+recorded p99 and worst-frame budgets and the RSS and video-memory limits. It
+does not measure Skyrim DDS upload capacity or cold storage IO.
 
 The original `godot/bench.gd` also enforces budgets when invoked directly.
 `SOE_BENCH_P99_MS` and `SOE_BENCH_WORST_MS` override its 16.7/33 ms defaults.
@@ -136,8 +165,9 @@ the gate, with a fresh `--out` directory.
 `tools/lint.sh` runs the runner's deterministic contract tests and Rust workload
 checks. `.github/workflows/performance.yml` separately runs optimized mixed
 and thousand-actor checks without proprietary assets. Its shared-runner limits
-are p99 100 ms, worst 500 ms and RSS 512 MiB. They catch large regressions and
-are not 60 Hz gameplay acceptance. Artifacts upload even when a check fails.
+are p99 100 ms, worst 500 ms, RSS 512 MiB and at most 100,000 allocation or
+reallocation requests in one tick. They catch large regressions and are not
+60 Hz gameplay acceptance. Artifacts upload even when a check fails.
 GPU sweeps and long soaks remain explicit machine-local runs.
 
 ## Sources and implementation choice
@@ -154,20 +184,36 @@ Read locally before implementation:
 - This repository's `TEST_PLAN.md`, `docs/performance.md`, and public engine
   fixtures in `crates/game/tests/packages.rs` and the host streaming test.
 
+The benchmark uses the `stats_alloc` system-allocator wrapper for scoped
+per-tick counts. It adds no transitive dependencies. The allocator statistics
+are process-wide, and each synthetic CPU run uses an isolated child process.
+
 The reference runners depend on their own scene and streaming APIs. This
 implementation reuses this engine's public APIs and existing builders instead
 of copying those runners. Python's standard library supplies process control
-and reports. No new Rust or Python dependencies are introduced.
+and reports. The Rust benchmark adds only the `stats_alloc` dependency.
 
 ## Remaining boundaries
 
 No integrated combat, dialogue, animation, physics and rendering stress is
 claimed. The mixed test combines currently available CPU systems. No large
-mod load order sweep, driver-level VRAM eviction tracing or allocation-count
-CI gate is supplied. The real exterior benchmark uses the current host's
-supported record types and rendering features. Missing host features remain
-missing from its measured cost. Recorded runs below distinguish what was
-executed from what the harness merely supports.
+mod load order sweep or driver-level VRAM eviction tracing is supplied. The
+allocation-count CI gate applies to the synthetic CPU mixed and actor checks,
+not the Godot renderer scenarios. The real exterior benchmark uses the current
+host's supported record types and rendering features. Missing host features
+remain missing from its measured cost. Recorded runs below distinguish what
+was executed from what the harness merely supports.
+
+## Recorded validation, 2026-09-28
+
+PRF-07 runs 1,000 synthetic actors, split evenly between Travel and Sandbox,
+for 10 warm-up ticks and 120 measured ticks in each of three fresh optimized
+processes. The predeclared limits are p99 16.7 ms, worst 33 ms and process RSS
+2,048 MiB. All three runs passed. p99 ranged from 0.998 to 1.017 ms, worst
+from 1.047 to 1.808 ms, and sampled peak RSS from 11.35 to 11.50 MiB. The
+runner report is `performance-results/prf-07-final-20260928/report.json` in the
+worktree. This is a synthetic package workload, not a claim about combat,
+collision, animation or full gameplay.
 
 ## Recorded validation, 2026-09-19
 

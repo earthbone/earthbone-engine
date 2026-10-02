@@ -269,7 +269,7 @@ impl World {
                 st.is_actor = true;
                 st
             }
-            b"PCON" | b"PARW" => {
+            b"PMIS" | b"PGRE" | b"PBEA" | b"PCON" | b"PARW" => {
                 let base = le_u32(rec.find(T(b"NAME"))?)?;
                 let mut st = RefState::new(Some(self.order.resolve(file, base)));
                 if let Some(data) = rec.find(T(b"DATA")).filter(|data| data.len() >= 24) {

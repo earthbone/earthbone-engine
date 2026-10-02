@@ -70,7 +70,7 @@ pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
-use workers::ordered_map;
+use workers::WorkerPools;
 
 /// Resolve material textures through the same VFS path as streamed meshes.
 pub(crate) fn resolve_material_textures(
@@ -132,6 +132,8 @@ pub enum DataSourceError {
     InvalidRadius(i32),
     #[error("a data source worker panicked")]
     WorkerPanicked,
+    #[error("building a data source worker pool: {0}")]
+    WorkerPoolBuild(#[source] rayon::ThreadPoolBuildError),
     #[error("collision: {0}")]
     Collision(String),
 }
@@ -292,6 +294,7 @@ pub struct DataSource {
     order: std::sync::Arc<LoadOrder>,
     vfs: std::sync::Arc<Vfs>,
     threads: usize,
+    workers: WorkerPools,
     textures: TextureCache,
 }
 
@@ -348,6 +351,7 @@ fn plugin_cache_dir() -> Option<PathBuf> {
 fn parse_masters(
     data_dir: &Path,
     threads: usize,
+    workers: &WorkerPools,
     cache_dir: Option<&Path>,
 ) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
     let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
@@ -368,7 +372,8 @@ fn parse_masters(
                 source,
             })
     };
-    ordered_map(&BASE_MASTERS, threads, |name| parse_one(name))?
+    workers
+        .ordered_map(&BASE_MASTERS, threads, |name| parse_one(name))?
         .into_iter()
         .collect()
 }
@@ -389,6 +394,7 @@ impl DataSource {
             order: std::sync::Arc::clone(&self.order),
             vfs: std::sync::Arc::clone(&self.vfs),
             threads: 1,
+            workers: self.workers.clone(),
             textures: TextureCache::default(),
         }
     }
@@ -464,11 +470,12 @@ impl DataSource {
     ) -> Result<Self, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
+        let workers = WorkerPools::default();
         let data_dir = loadout
             .data_roots
             .first()
             .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
-        let parsed = parse_masters(data_dir, threads, cache_dir)?;
+        let parsed = parse_masters(data_dir, threads, &workers, cache_dir)?;
         let mut order = LoadOrder::new();
         for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
             order
@@ -483,7 +490,7 @@ impl DataSource {
         {
             let _archives = soe_trace::Span::new("host.index_archives", "host");
             let paths = archive_paths(loadout, false)?;
-            for archive in ordered_map(&paths, threads, |path| Archive::open(path))? {
+            for archive in workers.ordered_map(&paths, threads, |path| Archive::open(path))? {
                 vfs.add_archive(archive?);
             }
             for root in &loadout.data_roots {
@@ -494,6 +501,7 @@ impl DataSource {
             order: std::sync::Arc::new(order),
             vfs: std::sync::Arc::new(vfs),
             threads,
+            workers,
             textures: TextureCache::default(),
         })
     }
@@ -599,6 +607,9 @@ impl DataSource {
     /// sequential path. Defaults to the machine's parallelism.
     pub fn set_threads(&mut self, threads: usize) {
         self.threads = threads.max(1);
+        if self.threads == 1 {
+            self.workers.clear();
+        }
     }
 
     /// Drop prepared texture entries so the next stream measures cold cache work.
@@ -816,14 +827,15 @@ impl DataSource {
         model_counts: &HashMap<String, usize>,
     ) -> Result<Vec<BuiltStatic>, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
-        ordered_map(work, self.threads, |(model, refr, _)| {
-            let instancing = model_counts
-                .get(&model.to_lowercase())
-                .copied()
-                .unwrap_or(0)
-                >= crate::batch::INSTANCE_MIN_PLACEMENTS;
-            self.load_static_surfaces(model, refr, instancing)
-        })
+        self.workers
+            .ordered_map(work, self.threads, |(model, refr, _)| {
+                let instancing = model_counts
+                    .get(&model.to_lowercase())
+                    .copied()
+                    .unwrap_or(0)
+                    >= crate::batch::INSTANCE_MIN_PLACEMENTS;
+                self.load_static_surfaces(model, refr, instancing)
+            })
     }
 
     /// Reads and builds every shape of `model` at `refr`'s placement.

@@ -5678,10 +5678,19 @@ and transforms to a fresh reference table, reserves dynamic IDs and restores
 the player location without queuing events. It validates the entire pass
 before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
-separate requirements. PCON and PARW saved placements use the same reference
-table and record-backed base queries. Their runtime state uses the existing
-SOEW reference encoding. See [save.md](save.md#reference-placements) for
+separate requirements. PCON saved placements use the reference table and
+record-backed base queries. xEdit does not bind PARW type 47 to an initial
+placement prefix, so PARW placement is not applied. Runtime reference state
+uses the existing SOEW reference encoding. See [save.md](save.md#reference-placements) for
 sources, validation and the limits of this intermediate reconstruction pass.
+
+`World::restore_vanilla_spatial_records` applies decoded CELL common flags,
+cell flags, full name and mapped owner links to shared record overrides. LCTN
+and ECZN common flags update their record headers. LCTN and ECZN placeholder
+payload tails stay opaque and persist in the named `SAV-28` world section.
+The pass is atomic, refreshes warm CELL state and persists records through the
+existing record-override table in SOEW. CELL ownership queries use the mapped
+override link after reload.
 
 For reference headers with the generic form-flags bit, the pass retains both
 mask words in its report and leaves enable and persistence derived from the
@@ -7575,6 +7584,17 @@ retained. Duplicate changes, missing or wrong records, and records already
 overridden by another restoration path fail without partial mutation. SOEW
 version 37 persists the record flags and saved markers.
 
+## Saved projectile changes, SAV-24
+
+`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD and PBAR change
+forms to winning records and installs all changes atomically. The runtime
+query `World::restored_projectile_extra` returns the shared change flag word
+and exact payload bytes for each restored form. The `SAV-24` world section
+persists the result within SOEW version 37. TES5Edit
+`Core/wbDefinitionsTES5Saves.pas` defines the shared flags but leaves these
+subtype payload structures empty, so the importer does not map the raw payload
+onto plugin subrecords or claim subtype fields are implemented.
+
 ## Scripted knockback and ragdoll requests, CMB-38
 
 `ObjectReference.PushActorAway` queues a radial impulse from the calling
@@ -7642,14 +7662,13 @@ NAVM value and full-name markers. `restored_pack_extra` and
 `restored_navmesh_extra` expose those saved fields to runtime queries. SOEW
 persists this metadata in the `SAV-48` world section alongside the matching
 record overrides. `SAV-48` follows the version 37 section table, so it does not
-raise `SAVE_VERSION`.
-`ai::package` carries the saved waiting and never-run markers on its parsed
-package view.
+raise `SAVE_VERSION`. `ai::package` carries the saved waiting and never-run
+markers on its parsed package view. The field order and marker meanings follow
+xEdit `Core/wbDefinitionsTES5Saves.pas`.
 The `sav_48_pack_navmesh_restore_is_atomic_and_survives_engine_save_load`
 fixture exercises both record types, query results, failure atomicity and
 engine save/load. `sav_48_installed_pack_and_navmesh_records_accept_restored_markers`
-checks installed Skyrim.esm records when `SKYRIM_DATA` is set. The field order
-and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.
+checks installed Skyrim.esm records when `SKYRIM_DATA` is set.
 
 ## Host screenshot requests, HST-19
 

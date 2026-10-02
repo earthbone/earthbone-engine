@@ -35,6 +35,7 @@ jobs:
           python3 tools/performance.py check --binary target/thin/soe-bench
           --scenario mixed --start 8 --samples 120 --repeats 2
           --p99-ms 100 --worst-ms 500 --max-rss-mib 512
+          --max-allocations 100000
           --out performance-results/mixed
       - name: Check a thousand moving actors
         if: ${{ !cancelled() }}
@@ -42,6 +43,7 @@ jobs:
           python3 tools/performance.py check --binary target/thin/soe-bench
           --scenario actors --start 1000 --samples 120 --repeats 2
           --p99-ms 100 --worst-ms 500 --max-rss-mib 512
+          --max-allocations 100000
           --out performance-results/actors
       - uses: actions/upload-artifact@v4
         if: always()

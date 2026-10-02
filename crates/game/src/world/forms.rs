@@ -631,8 +631,7 @@ impl World {
 
     pub fn cell_state(&mut self, id: GlobalFormId) -> Option<&mut CellState> {
         if !self.cells.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if rec.tag != T(b"CELL") {
                 return None;
             }
@@ -640,7 +639,7 @@ impl World {
                 .find(T(b"XOWN"))
                 .and_then(le_u32)
                 .filter(|o| *o != 0)
-                .map(|o| self.order.resolve(rref.file, o));
+                .and_then(|raw| self.resolve_from(id, raw));
             self.cells.insert(
                 id,
                 CellState {

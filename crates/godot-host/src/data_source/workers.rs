@@ -1,53 +1,101 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Bounded scoped work with input-order joins, following the data source's
-//! load-order contract. A failed chunk cannot become a shorter result list.
+//! Persistent bounded workers with input-order results, following the data
+//! source's load-order contract. A failed batch cannot shorten its result list.
 
 use super::DataSourceError;
+use rayon::prelude::*;
+use rayon::ThreadPool;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{Arc, Mutex};
 
-pub(super) fn ordered_map<T: Sync, U: Send>(
-    items: &[T],
-    threads: usize,
-    apply: impl Fn(&T) -> U + Sync,
-) -> Result<Vec<U>, DataSourceError> {
-    let threads = threads.max(1).min(items.len().max(1));
-    if threads == 1 {
-        return Ok(items.iter().map(apply).collect());
+type CachedPool = Arc<Mutex<Option<(usize, Arc<ThreadPool>)>>>;
+
+/// Reuses bounded worker threads across data-source batches.
+#[derive(Clone, Default)]
+pub(super) struct WorkerPools {
+    pool: CachedPool,
+}
+
+impl WorkerPools {
+    pub(super) fn clear(&self) {
+        let mut current = self
+            .pool
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *current = None;
     }
-    std::thread::scope(|scope| {
-        let apply = &apply;
-        let handles: Vec<_> = items
-            .chunks(items.len().div_ceil(threads))
-            .map(|chunk| {
-                scope.spawn(move || {
-                    let _worker =
-                        soe_trace::Span::with_payload("host.worker", "host", chunk.len() as u64);
-                    chunk.iter().map(apply).collect::<Vec<_>>()
-                })
+
+    pub(super) fn ordered_map<T: Sync, U: Send>(
+        &self,
+        items: &[T],
+        threads: usize,
+        apply: impl Fn(&T) -> U + Sync,
+    ) -> Result<Vec<U>, DataSourceError> {
+        let threads = threads.max(1).min(items.len().max(1));
+        if threads == 1 {
+            return Ok(items.iter().map(apply).collect());
+        }
+        let pool = self.pool(threads)?;
+        let chunk_size = items.len().div_ceil(threads);
+        catch_unwind(AssertUnwindSafe(|| {
+            pool.install(|| {
+                items
+                    .par_chunks(chunk_size)
+                    .map(|chunk| {
+                        let _worker = soe_trace::Span::with_payload(
+                            "host.worker",
+                            "host",
+                            chunk.len() as u64,
+                        );
+                        chunk.iter().map(&apply).collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flatten()
+                    .collect()
             })
-            .collect();
-        let mut output = Vec::with_capacity(items.len());
-        let mut failed = false;
-        for handle in handles {
-            match handle.join() {
-                Ok(part) => output.extend(part),
-                Err(_) => failed = true,
+        }))
+        .map_err(|_| DataSourceError::WorkerPanicked)
+    }
+
+    fn pool(&self, threads: usize) -> Result<Arc<ThreadPool>, DataSourceError> {
+        let mut current = self
+            .pool
+            .lock()
+            .map_err(|_| DataSourceError::WorkerPanicked)?;
+        if let Some((current_threads, pool)) = current.as_ref() {
+            if *current_threads == threads {
+                return Ok(Arc::clone(pool));
             }
         }
-        if failed {
-            Err(DataSourceError::WorkerPanicked)
-        } else {
-            Ok(output)
-        }
-    })
+
+        let pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .map_err(DataSourceError::WorkerPoolBuild)?,
+        );
+        *current = Some((threads, Arc::clone(&pool)));
+        Ok(pool)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    use super::ordered_map;
+    use super::WorkerPools;
     use crate::data_source::DataSourceError;
+
+    fn ordered_map<T: Sync, U: Send>(
+        items: &[T],
+        threads: usize,
+        apply: impl Fn(&T) -> U + Sync,
+    ) -> Result<Vec<U>, DataSourceError> {
+        WorkerPools::default().ordered_map(items, threads, apply)
+    }
 
     #[test]
     fn worker_counts_preserve_input_order_including_empty_work() {
@@ -89,6 +137,77 @@ mod tests {
         });
         assert!(matches!(result, Err(DataSourceError::WorkerPanicked)));
         assert_eq!(completed.load(Ordering::SeqCst), 2, "last chunk was joined");
+    }
+
+    #[test]
+    fn prf_05_worker_reuse_cost_is_measured_against_scoped_startup() {
+        use std::time::{Duration, Instant};
+
+        fn median(mut samples: Vec<Duration>) -> Duration {
+            samples.sort_unstable();
+            samples[samples.len() / 2]
+        }
+
+        let input: Vec<_> = (0..512usize).collect();
+        let pool = WorkerPools::default();
+        let construction_start = Instant::now();
+        let first = pool.ordered_map(&input, 4, |value| value * 2).unwrap();
+        let construction_plus_first_batch = construction_start.elapsed();
+        assert_eq!(first.len(), input.len());
+
+        let mut scoped = Vec::with_capacity(21);
+        let mut reused = Vec::with_capacity(21);
+        for _ in 0..21 {
+            let start = Instant::now();
+            let scoped_result = std::thread::scope(|scope| {
+                let handles: Vec<_> = input
+                    .chunks(input.len().div_ceil(4))
+                    .map(|chunk| {
+                        scope.spawn(move || chunk.iter().map(|value| value * 2).sum::<usize>())
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap())
+                    .sum::<usize>()
+            });
+            scoped.push(start.elapsed());
+
+            let start = Instant::now();
+            let reused_result = pool
+                .ordered_map(&input, 4, |value| value * 2)
+                .unwrap()
+                .into_iter()
+                .sum::<usize>();
+            reused.push(start.elapsed());
+            assert_eq!(scoped_result, reused_result);
+        }
+
+        let scoped_median = median(scoped);
+        let reused_median = median(reused);
+        eprintln!(
+            "prf_05 worker startup: pool create plus first batch {construction_plus_first_batch:?}, scoped batch median {scoped_median:?}, reused pool batch median {reused_median:?}"
+        );
+        assert!(
+            pool.pool(4).is_ok(),
+            "the configured worker pool remains available"
+        );
+    }
+
+    #[test]
+    fn prf_05_worker_pool_cache_replaces_the_previous_worker_count() {
+        let pools = WorkerPools::default();
+        let previous = pools.pool(2).unwrap();
+        let current = pools.pool(4).unwrap();
+        let cached = pools.pool.lock().unwrap();
+        let (threads, cached_pool) = cached.as_ref().unwrap();
+
+        assert_eq!(*threads, 4, "only the active worker count stays cached");
+        assert!(
+            !Arc::ptr_eq(&previous, cached_pool),
+            "a new count replaces the previous pool"
+        );
+        assert!(Arc::ptr_eq(&current, cached_pool));
     }
 
     #[test]

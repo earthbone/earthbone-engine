@@ -17,6 +17,7 @@ soe-papyrus = { path = "../papyrus" }
 soe-navmesh = { path = "../navmesh" }
 soe-trace = { path = "../trace" }
 soe-godot-host = { path = "../godot-host", default-features = false }
+stats_alloc = "0.1.10"
 
 [lints]
 workspace = true

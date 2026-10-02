@@ -79,6 +79,13 @@ pub struct StaticObjectRecordExtra {
     pub opaque_suffix: Vec<u8>,
 }
 
+/// Shared change flags and the source-opaque saved payload for a projectile.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectileRecordExtra {
+    pub flags: u32,
+    pub payload: Vec<u8>,
+}
+
 /// Saved runtime fields whose owning record has no plugin-subrecord equivalent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DialogueRecordExtra {
@@ -139,6 +146,7 @@ pub(super) struct RecordOverride {
     pub activator: Option<ActivatorRecordExtra>,
     pub item: Option<ItemRecordExtra>,
     pub book_note_key: Option<BookNoteKeyRecordExtra>,
+    pub projectile: Option<ProjectileRecordExtra>,
     pub base_object: Option<BaseObjectRecordExtra>,
     pub static_object: Option<StaticObjectRecordExtra>,
     pub saved_form_flags: Option<(u32, u16)>,
@@ -172,6 +180,7 @@ impl RecordOverride {
             activator: None,
             item: None,
             book_note_key: None,
+            projectile: None,
             base_object: None,
             static_object: None,
             saved_form_flags: None,
@@ -272,6 +281,12 @@ impl World {
         id: GlobalFormId,
     ) -> Option<&BookNoteKeyRecordExtra> {
         self.record_overrides.get(&id)?.book_note_key.as_ref()
+    }
+
+    /// Return saved projectile change data attached to the live record.
+    #[must_use]
+    pub fn restored_projectile_extra(&self, id: GlobalFormId) -> Option<&ProjectileRecordExtra> {
+        self.record_overrides.get(&id)?.projectile.as_ref()
     }
 
     /// Saved change fields for a restored CONT, MISC or FURN record.

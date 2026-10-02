@@ -52,6 +52,10 @@ pub enum RestoreError {
     Item { id: GlobalFormId, reason: String },
     #[error("cannot restore BOOK, NOTE or KEYM {id}: {reason}")]
     BookNoteKey { id: GlobalFormId, reason: String },
+    #[error("cannot restore projectile {id}: {reason}")]
+    Projectile { id: GlobalFormId, reason: String },
+    #[error("cannot restore spatial record {id}: {reason}")]
+    SpatialRecord { id: GlobalFormId, reason: String },
     #[error("cannot restore base object {id}: {reason}")]
     BaseObject { id: GlobalFormId, reason: String },
     #[error("cannot restore static object {id}: {reason}")]
