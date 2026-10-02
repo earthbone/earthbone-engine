@@ -8,6 +8,9 @@ use soe_save::{
     ChangeForm,
 };
 
+#[path = "../sav_54_breaker_adversarial_2.rs"]
+mod sav_54_breaker_adversarial_2;
+
 pub(super) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
