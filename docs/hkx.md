@@ -839,44 +839,16 @@ per-bone on gain. Unlisted, disabled and out-of-range bones keep their input
 transforms. The interpreter applies these rotations to the generated local pose
 without skeleton hierarchy data.
 
-### Installed passthrough modifier inventory (2026-09-20)
+### Installed passthrough modifier inventory (2026-10-02)
 
 The installed `Skyrim - Animations.bsa` contains 428 behavior graphs. The
 gated `installed_behavior_passthrough_modifier_inventory` test parses every
-`hkbBehaviorGraph` object and fails if any graph cannot decode. It counts modifier paths that still use the generic passthrough representation. The current inventory finds 4,134 nodes across 28 classes. It excludes `BSIsActiveModifier` because its bound activity slots write their output variables, and `hkbGetUpModifier` because ANM-43 executes its ground alignment. The test freezes the sorted names and counts of the remaining passthrough classes and checks that every class has a bounded backlog row named for that class.
-
-| Class | Nodes | Follow-up |
-| --- | ---: | --- |
-| `BSDirectAtModifier` | 23 | [ANM-25](../BACKLOG.csv) |
-| `BSEventEveryNEventsModifier` | 85 | [ANM-26](../BACKLOG.csv) |
-| `BSEventOnDeactivateModifier` | 98 | [ANM-27](../BACKLOG.csv) |
-| `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
-| `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
-| `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
-| `BSLookAtModifier` | 128 | [ANM-32](../BACKLOG.csv) |
-| `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
-| `BSRagdollContactListenerModifier` | 50 | [ANM-35](../BACKLOG.csv) |
-| `BSSpeedSamplerModifier` | 42 | [ANM-36](../BACKLOG.csv) |
-| `BSTweenerModifier` | 5 | [ANM-38](../BACKLOG.csv) |
-| `hkbDampingModifier` | 41 | [ANM-39](../BACKLOG.csv) |
-| `hkbEvaluateExpressionModifier` | 438 | [ANM-40](../BACKLOG.csv) |
-| `hkbEventDrivenModifier` | 158 | [ANM-17](../BACKLOG.csv) |
-| `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
-
-| `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
-| `hkbKeyframeBonesModifier` | 91 | [ANM-44](../BACKLOG.csv) |
-| `hkbModifierGenerator` | 1,909 | [ANM-52](../BACKLOG.csv) |
-| `hkbModifierList` | 708 | [ANM-51](../BACKLOG.csv) |
-| `hkbPoweredRagdollControlsModifier` | 93 | [ANM-45](../BACKLOG.csv) |
-| `hkbRigidBodyRagdollControlsModifier` | 55 | [ANM-46](../BACKLOG.csv) |
-| `hkbRotateCharacterModifier` | 6 | [ANM-14](../BACKLOG.csv) |
-| `hkbTimerModifier` | 59 | [ANM-16](../BACKLOG.csv) |
-| `hkbTransformVectorModifier` | 1 | [ANM-47](../BACKLOG.csv) |
-
-`hkbModifierList` traverses each listed modifier while decoding, and
-`hkbModifierGenerator` traverses both its modifier and generator children.
-The inventory therefore includes those wrappers even though the interpreter
-currently activates and generates only the generator child.
+`hkbBehaviorGraph` object and fails if any graph cannot decode. It counts the
+modifier nodes that still use the generic passthrough representation and
+compares them with a frozen list, where each class names its follow-up row.
+Since the ANM groups merged on 2026-10-01 the list is empty: every modifier
+class in the installed graphs decodes to a typed node. The test now fails as
+soon as any class falls back to the passthrough again.
 
 ### Modifier generator lifecycle (2026-09-20)
 

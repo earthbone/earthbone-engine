@@ -22,29 +22,10 @@ use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
-const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("hkbEventDrivenModifier", 158, "ANM-17"),
-    ("hkbEventsFromRangeModifier", 3, "ANM-15"),
-    ("hkbFootIkModifier", 2, "ANM-42"),
-    ("hkbKeyframeBonesModifier", 91, "ANM-44"),
-    ("BSModifyOnceModifier", 26, "ANM-33"),
-    ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
-    ("BSRagdollContactListenerModifier", 50, "ANM-35"),
-    ("BSSpeedSamplerModifier", 42, "ANM-36"),
-    ("BSTimerModifier", 1, "ANM-37"),
-    ("BSTweenerModifier", 5, "ANM-38"),
-    ("hkbDampingModifier", 43, "ANM-39"),
-    ("hkbFootIkControlsModifier", 25, "ANM-41"),
-    ("hkbGetUpModifier", 46, "ANM-43"),
-    ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
-    ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
-    ("hkbTransformVectorModifier", 1, "ANM-47"),
-    ("hkbTwistModifier", 19, "ANM-48"),
-    ("hkbModifierGenerator", 1909, "ANM-52"),
-    ("hkbModifierList", 708, "ANM-51"),
-    ("hkbRotateCharacterModifier", 6, "ANM-14"),
-    ("hkbTimerModifier", 59, "ANM-16"),
-];
+// Every modifier class in the installed behavior graphs has a typed node
+// since the ANM groups of 2026-10-01. A class that falls back to the
+// generic passthrough again needs an entry here and a follow-up row.
+const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[];
 
 fn animations_archive() -> Option<Archive> {
     let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
