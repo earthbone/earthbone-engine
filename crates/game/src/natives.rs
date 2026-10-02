@@ -2378,7 +2378,13 @@ fn alias(vm: &mut Vm, w: &Shared) {
                 .push(call.time, "ReferenceAlias.Clear: alias is not optional");
             return none();
         }
+        let actor = world
+            .alias_ref(quest, alias)
+            .filter(|target| world.class_of(Handle::Form(*target)) == "Actor");
         world.force_alias(quest, alias, None);
+        if let Some(actor) = actor {
+            world.evaluate_package(actor, alloc!(call));
+        }
         none()
     });
     // A location alias holds a form the same way a reference alias does.

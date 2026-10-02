@@ -6803,10 +6803,12 @@ Quest stage getters both return the highest completed stage, matching the CK
 page for `GetStage`. `SetStage` and `SetCurrentStageID` share stage execution.
 Alias getters resolve the owning quest, alias ID, name or assigned form from
 the quest record and runtime alias state. ReferenceAlias inventory filters
-use the same filter state as ObjectReference filters. `Clear` empties an
-optional alias. The QUST alias `FNAM` Optional flag is bit 1, as specified by
-xEdit and the UESP QUST layout. Calling `Clear` on a required alias logs an
-error and leaves the assigned reference unchanged, matching
+use the same filter state as ObjectReference filters. `GetActorReference` and
+`GetActorRef` return the held target only when it resolves to an Actor.
+`Clear` checks the QUST alias `FNAM` Optional bit, which is bit 1 in xEdit and
+the UESP QUST layout. It logs an error and leaves a required alias unchanged.
+For an optional alias it removes the target and reevaluates the held actor's
+package through the world package driver, matching
 `Clear_-_ReferenceAlias.wikitext`.
 
 Quest `IsStarting` and `IsStopping` appear in the CK class page and are
