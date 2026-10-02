@@ -426,6 +426,8 @@ mod cmb_37_breaker_adversarial;
 mod cmb_37_destruction;
 #[path = "cmb_38_adversarial.rs"]
 mod cmb_38_adversarial;
+#[path = "cmb_38_breaker_adversarial.rs"]
+mod cmb_38_breaker_adversarial;
 #[path = "combat_ai.rs"]
 mod combat_ai;
 #[path = "combat_bleedout.rs"]
