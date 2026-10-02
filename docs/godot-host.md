@@ -362,6 +362,37 @@ corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
 host fade/blend selection. Live rendered output has not been verified.
 
+## Papyrus visual effects, SCR-52
+
+`PlayerNode` advances active `World::visual_effect_instances` into its shared
+`CellStreamerNode`. The streamer creates one `RenderingServer` sphere instance
+per active `VisualEffect.Play` call, keys it by the game-owned call identity,
+and follows the target reference's current placement. Expiry, `Stop`, target
+disable and node clear release the render instance. If the linked EFSH record
+has an `ICON` start texture, it is loaded through the shared DDS cache. A
+shader-linked effect uses a blue tint, while an ARTO-only effect uses amber.
+This is a visible host placeholder, not the authored ARTO NIF or full EFSH
+animation. RFCT attach-to-camera, inherit-rotation and rotate-to-target flags
+are retained by the game data reader but do not alter this placeholder.
+
+The rendering resource uses server IDs and creates no scene node per effect.
+`godot/scr_52_visual_effect_test.gd` starts an installed game, picks a winning
+RFCT with a linked art or shader, plays it on the player reference, verifies
+the renderer owns one instance, saves a window capture, then stops it and
+checks the instance is freed. Run windowed with `SKYRIM_DATA` and the extension
+loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script scr_52_visual_effect_test.gd --resolution 640x360
+```
+
+The source layouts are UESP `RFCT.wikitext`, `ARTO.wikitext` and `EFSH.wikitext`,
+and xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no
+VisualEffect function page or shipped `VisualEffect.psc`; the existing game
+tests cover native argument handling, errors, stacking, expiry and target
+specific stop. The Godot capture verifies instance creation and release, not
+fidelity to Skyrim's complete authored effect appearance.
+
 ## Invisibility rendering, MAG-34
 
 `SkinnedActorNode` reads invisibility from the actor's shared World state and

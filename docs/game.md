@@ -139,8 +139,9 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
   resolved RFCT and placed-reference forms. Calls stack, finite durations
   expire on unpaused game ticks, and `Stop` removes all matching instances.
-  Hosts can inspect the active requests in stable call order. Rendering the
-  RFCT art object is not connected yet.
+  Hosts can inspect the active requests in stable call order. The Godot host
+  renders a temporary target visual and uses the linked EFSH start texture
+  when available. Authored ARTO model rendering is not implemented.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -1060,8 +1061,8 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
 | `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
 | `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
-| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
-| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. The shared World retains each call, and the Godot host presents active RFCT effects as described in [godot-host](godot-host.md#papyrus-visual-effects-scr-52). |
+| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. The shared World removes matching calls and the host releases their render instances. |
 
 The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
 registered by the Papyrus VM rather than `game::natives::register`, so they are
@@ -1315,7 +1316,8 @@ Creation Engine frame capture or memory budgets.
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing
   reference is retained. `VisualEffect.Stop` removes every matching instance
-  on its target. Rendering the RFCT art object is not connected yet.
+  on its target. Godot follows these instances for host presentation, with
+  rendering details and the ARTO limit in [godot-host](godot-host.md#papyrus-visual-effects-scr-52).
 - `Weather.SetActive` stores the selected `WTHR` form and its optional override
   and acceleration flags in `World::weather_request`. Both flags default to
   false. A non-weather receiver logs an error and leaves the previous request
