@@ -43,14 +43,19 @@ func _run() -> void:
 	_check(host.call("tether_bodies", 0x100000002, 0x100000003, cart, horse,
 		Vector3.ZERO, Vector3.ZERO), "valid cart and horse bodies were rejected")
 	_check(host.call("tether_count") == 1, "host did not retain the joint")
+	var cart_start: Vector3 = PhysicsServer3D.body_get_state(cart,
+		PhysicsServer3D.BODY_STATE_TRANSFORM).origin
+	PhysicsServer3D.body_apply_central_impulse(horse, Vector3(8.0, 0.0, 0.0))
 	for _frame in range(30):
 		await physics_frame
 	var cart_position: Vector3 = PhysicsServer3D.body_get_state(cart,
 		PhysicsServer3D.BODY_STATE_TRANSFORM).origin
 	var horse_position: Vector3 = PhysicsServer3D.body_get_state(horse,
 		PhysicsServer3D.BODY_STATE_TRANSFORM).origin
-	_check(cart_position.distance_to(horse_position) < 2.0,
-		"cart did not follow the constrained horse")
+	_check(cart_position.x > cart_start.x + 0.1,
+		"cart did not follow the horse after it received an impulse")
+	_check(cart_position.distance_to(horse_position) < 2.1,
+		"the constraint did not keep the cart connected to the horse")
 	_check(host.call("untether_reference", 1, 2) == 1,
 		"untethering the cart did not release its joint")
 	_check(host.call("tether_bodies", 0x100000002, 0x100000003, cart, horse,

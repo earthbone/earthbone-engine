@@ -215,7 +215,14 @@ fn read_verified(game: &Game, id: u64, path: &Path) -> Result<Vec<u8>, Rejection
 struct Session {
     directory: PathBuf,
     directory_file: File,
-    _lock: File,
+    lock: File,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        // A concurrent fork can keep the file description open after this session.
+        let _ = self.lock.unlock();
+    }
 }
 
 impl GenerationStore {
@@ -269,7 +276,7 @@ impl GenerationStore {
         Ok(Session {
             directory,
             directory_file,
-            _lock: lock,
+            lock,
         })
     }
 }
@@ -449,6 +456,32 @@ impl Game {
         let selected = self.select_generation(store)?;
         self.load_state(selected.bytes())?;
         Ok(selected)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_releases_lock_while_a_duplicate_descriptor_remains_open() {
+        let directory =
+            std::env::temp_dir().join(format!("soe-generation-session-{}", std::process::id()));
+        fs::create_dir(&directory).unwrap();
+        let store = GenerationStore::new(&directory, 2).unwrap();
+        let session = store.session().unwrap();
+        // A cloned descriptor shares the lock just like one inherited by fork.
+        let inherited = session.lock.try_clone().unwrap();
+        assert!(matches!(
+            store.session(),
+            Err(Error::Io { step: Step::Lock, source })
+                if source.kind() == io::ErrorKind::WouldBlock
+        ));
+        drop(session);
+        let reacquired = store.session().map(|_| ());
+        drop(inherited);
+        fs::remove_dir_all(directory).unwrap();
+        reacquired.unwrap();
     }
 }
 

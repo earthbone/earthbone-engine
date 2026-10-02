@@ -76,3 +76,25 @@ fn cmb_38_force_remove_does_not_clear_an_independent_unconscious_state() {
         "removing ragdoll must not wake the actor"
     );
 }
+
+#[test]
+fn cmb_38_area_magnitude_and_radius_follow_the_ck_argument_contract() {
+    let mut game = game();
+    let (marker, actor) = place(&mut game);
+    game.world_mut().reference(actor).unwrap().position = [5.0, 0.0, 0.0];
+
+    for (magnitude, radius) in [(-0.01, 10.0), (1.01, 10.0), (0.5, 0.0), (0.5, f32::NAN)] {
+        assert!(game
+            .world_mut()
+            .knock_area_effect(marker, magnitude, radius)
+            .is_err());
+    }
+    assert!(game.world_mut().take_actor_impulses(actor).is_empty());
+
+    game.world_mut()
+        .knock_area_effect(marker, 1.0, 10.0)
+        .unwrap();
+    let impulse = game.world_mut().take_actor_impulses(actor).remove(0);
+    assert_eq!(impulse.vector, [0.5, 0.0, 0.0]);
+    assert!(game.world_mut().actor(actor).unwrap().unconscious);
+}
