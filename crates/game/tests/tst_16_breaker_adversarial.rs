@@ -56,3 +56,15 @@ fn tst_16_shared_helper_modules_are_declared_only_by_their_owners() {
         );
     }
 }
+
+#[test]
+fn tst_16_registration_guard_does_not_accept_a_commented_out_module() {
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tst_16_test_binary.rs"),
+    )
+    .unwrap();
+    assert!(
+        !source.contains(".contains(&registration(name))"),
+        "substring matching accepts a commented-out module declaration"
+    );
+}
