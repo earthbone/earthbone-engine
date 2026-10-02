@@ -99,7 +99,7 @@ fn gamebryo_animation_does_not_emit_a_graph_animation_event() {
                 Value::Float(1.0)
             ],
         ),
-        Some(Value::Bool(true))
+        Some(Value::Bool(false))
     );
     assert!(
         game.world().animation_events.is_empty(),

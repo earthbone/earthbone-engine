@@ -550,11 +550,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "ObjectReference",
         "PlayGamebryoAnimation",
         |world, call, me| {
-            let animation = text(&call.arg(0));
-            if animation.is_empty() || world.reference(me).is_none() {
-                return b(false);
-            }
-            b(true)
+            let _ = (world, call, me);
+            b(false)
         }
     );
     method!(
@@ -598,6 +595,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 || !length.is_finite()
                 || length == 0.0
             {
+                if length == 0.0 {
+                    call.log.push(
+                        call.time,
+                        "Warning: ApplyHavokImpulse called with a zero-length direction",
+                    );
+                }
                 return none();
             }
             for value in &mut direction {

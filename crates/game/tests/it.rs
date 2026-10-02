@@ -718,12 +718,18 @@ mod mag_33_command_summoned;
 mod mag_34_adversarial;
 #[path = "mag_34_breaker_2_adversarial.rs"]
 mod mag_34_breaker_2_adversarial;
+#[path = "mag_34_breaker_3_adversarial.rs"]
+mod mag_34_breaker_3_adversarial;
 #[path = "mag_34_breaker_adversarial.rs"]
 mod mag_34_breaker_adversarial;
 #[path = "mag_35_adversarial.rs"]
 mod mag_35_adversarial;
 #[path = "mag_35_breaker_2_adversarial.rs"]
 mod mag_35_breaker_2_adversarial;
+#[path = "mag_35_breaker_3_adversarial.rs"]
+mod mag_35_breaker_3_adversarial;
+#[path = "mag_35_breaker_4_adversarial.rs"]
+mod mag_35_breaker_4_adversarial;
 #[path = "mag_35_breaker_adversarial.rs"]
 mod mag_35_breaker_adversarial;
 #[path = "mag_36_adversarial.rs"]
@@ -1171,8 +1177,12 @@ mod scr_37_music_type;
 mod scr_38_adversarial;
 #[path = "scr_38_object_reference.rs"]
 mod scr_38_object_reference;
+#[path = "scr_39_adversarial.rs"]
+mod scr_39_adversarial;
 #[path = "scr_39_breaker_2_adversarial.rs"]
 mod scr_39_breaker_2_adversarial;
+#[path = "scr_39_breaker_3_adversarial.rs"]
+mod scr_39_breaker_3_adversarial;
 #[path = "scr_39_breaker_adversarial.rs"]
 mod scr_39_breaker_adversarial;
 #[path = "scr_39_current_scene.rs"]
