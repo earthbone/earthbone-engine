@@ -816,7 +816,7 @@ impl World {
         self.break_invisibility(activator, alloc);
         let kind = base.and_then(|b| self.tag_of(b));
         let lockable = kind == Some(T(b"DOOR")) || kind == Some(T(b"CONT"));
-        let process = (!blocked || !send_event)
+        let mut process = (!blocked || !send_event)
             && (!lockable || self.unlock_with_key(target, activator, alloc));
         if process {
             match kind.map(|t| *t.as_bytes()) {
@@ -852,6 +852,9 @@ impl World {
                 }
                 Some([b'F', b'U', b'R', b'N']) => {
                     self.activate_furniture(target, activator);
+                }
+                _ if base.is_some_and(|base| self.is_inventory_base(base)) => {
+                    process = self.add_item_notified(activator, target, 1, alloc);
                 }
                 _ => {}
             }

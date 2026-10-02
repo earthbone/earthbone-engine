@@ -50,6 +50,41 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn present_player_input_dialogue(&mut self) {
+        let line = self
+            .game
+            .as_ref()
+            .and_then(|game| game.dialogue_line().ok());
+        let session = self
+            .game
+            .as_ref()
+            .is_some_and(|game| game.world().dialogue_session().is_some());
+        if !session {
+            if self.menu.title() == Some("Dialogue") {
+                self.close_menu();
+            }
+            return;
+        }
+        if !self.menu.is_open() {
+            self.open_menu("Dialogue".into());
+        }
+        if self.menu.title() != Some("Dialogue") {
+            return;
+        }
+        if let Some(Some(line)) = line {
+            self.play_dialogue_voice(&line);
+            self.dialogue_response_content(line.text.as_deref().unwrap_or(""));
+        } else {
+            self.dialogue_content();
+        }
+    }
+
+    pub(super) fn refresh_player_input_crafting(&mut self, bench: GlobalFormId) {
+        if self.crafting_bench == Some(bench) {
+            self.crafting_content(bench);
+        }
+    }
+
     pub(super) fn refresh_quest_journal(&mut self) -> bool {
         if self.menu.title() != Some("Quests") {
             return false;
