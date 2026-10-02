@@ -284,6 +284,8 @@ impl PlayerNode {
             if let Some(streamer) = self.game_streamer.as_mut() {
                 streamer.bind_mut().release_telekinesis_reference(target);
             }
+        } else if let Some(streamer) = self.game_streamer.as_mut() {
+            streamer.bind_mut().release_grabbed_telekinesis_reference();
         }
         self.telekinesis_distance = None;
     }

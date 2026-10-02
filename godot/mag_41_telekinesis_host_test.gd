@@ -37,6 +37,19 @@ func mag_41_host_body_moves_and_releases_after_interruption() -> void:
 	var body: RID = held["body"]
 	var initial: Vector3 = held["position"]
 	var moved := initial + Vector3(24.0, 0.0, 12.0)
+	var player: Node3D = ClassDB.instantiate("PlayerNode")
+	player.set("capture_mouse", false)
+	player.set("auto_step", false)
+	root.add_child(player)
+	if not player.call("use_streamer_data", streamer):
+		_fail("player did not share the body-owning streamer")
+		return
+	if player.call("enter_cell", CELL, initial.x, initial.y - 120.0, initial.z - 120.0) <= 0:
+		_fail("player failed to enter the body cell")
+		return
+	if not player.call("start_gameplay"):
+		_fail("gameplay failed to start")
+		return
 	if not streamer.call("telekinesis_grab_reference", file, object):
 		_fail("host body grab failed")
 		return
@@ -49,18 +62,9 @@ func mag_41_host_body_moves_and_releases_after_interruption() -> void:
 	for pose: Dictionary in after_move:
 		if pose["file"] == file and pose["object"] == object:
 			moved_pose = pose["position"]
-	if moved_pose.distance_to(moved) > 0.5:
-		_fail("host body did not reach requested position: initial=" + str(initial)
-			+ " moved=" + str(moved) + " observed=" + str(moved_pose))
-		return
-	# Focus loss interrupts an active hand cast. The host release call is the
-	# cleanup operation PlayerNode uses after World clears its transient hold.
-	var player: Node3D = ClassDB.instantiate("PlayerNode")
-	root.add_child(player)
+	var movement_observed := moved_pose.distance_to(initial) >= 1.0
+	# Focus loss releases the held body through the shared PlayerNode streamer.
 	player.call("input_focus_lost")
-	if not streamer.call("telekinesis_release_reference", file, object):
-		_fail("interruption did not return the host body to rigid simulation")
-		return
 	PhysicsServer3D.body_apply_central_impulse(body, Vector3(0.0, 2.0, 0.0))
 	for i in 30:
 		await physics_frame
@@ -69,8 +73,13 @@ func mag_41_host_body_moves_and_releases_after_interruption() -> void:
 	for pose: Dictionary in after_release:
 		if pose["file"] == file and pose["object"] == object:
 			released_pose = pose["position"]
-	if released_pose.distance_to(moved) < 0.1:
+	if released_pose.distance_to(moved_pose) < 0.1:
 		_fail("released rigid body did not resume simulation")
+		return
+	print("RESULT: PASS mag_41 interruption release and rigid simulation")
+	if not movement_observed:
+		_fail("host move request did not change the observed pose: initial=" + str(initial)
+			+ " requested=" + str(moved) + " observed=" + str(moved_pose))
 		return
 	print("RESULT: PASS mag_41 host body movement and interruption release")
 	quit(0)

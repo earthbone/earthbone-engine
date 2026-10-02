@@ -460,6 +460,12 @@ impl CellStreamerNode {
         self.collision.release_movable_reference(reference)
     }
 
+    pub(crate) fn release_grabbed_telekinesis_reference(&mut self) -> bool {
+        self.collision
+            .grabbed_reference()
+            .is_some_and(|reference| self.collision.release_movable_reference(reference))
+    }
+
     /// Apply queued game requests and advance finite shader durations.
     pub(crate) fn sync_effect_shaders(
         &mut self,
