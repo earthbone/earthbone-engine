@@ -554,21 +554,22 @@ impl ChangeForm {
             unnamed_flags: self.change_flags & !0b111,
         }))
     }
-    /// Decode the CELL fields whose serialized layouts xEdit defines.
+    /// Decode CELL fields with serialized layouts defined by xEdit.
     ///
     /// Seen data precedes the name and owner. Its shape is selected by matching
     /// a fixed exterior block or a sequence of interior entries against those
-    /// following fields. CELL flags 28 to 30 have no serialized layout and are
-    /// rejected so their bytes are not assigned an inferred meaning.
+    /// following fields. xEdit labels CELL flags 28 to 30 but omits their
+    /// placeholder unions from the payload structure, so their presence is
+    /// typed and any remaining bytes are retained as an opaque suffix.
     ///
     /// # Errors
-    /// Rejects unsupported flags, truncated fields, invalid seen-data lengths
-    /// and trailing bytes.
+    /// Rejects unknown flags, truncated defined fields and invalid seen-data
+    /// lengths.
     pub fn cell_change(&self) -> Result<Option<CellChange>> {
         if self.record_type() != "CELL" {
             return Ok(None);
         }
-        let supported = 1 | 2 | 4 | 8 | (1 << 31);
+        let supported = 1 | 2 | 4 | 8 | (0b111 << 28) | (1 << 31);
         check_spatial_flags(self.change_flags, supported)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "CELL change");
@@ -579,21 +580,38 @@ impl ChangeForm {
             None
         };
         let remainder = cursor.rest();
-        let (seen_data, suffix_offset) = if self.change_flags & (1 << 31) != 0 {
+        let (seen_data, suffix_offset, parsed_suffix) = if self.change_flags & (1 << 31) != 0 {
             let mut matches = Vec::new();
             for seen_len in std::iter::once(32).chain((0..=254).map(|count| count * 34)) {
-                if seen_len <= remainder.len()
-                    && parse_cell_suffix(&remainder[seen_len..], self.change_flags).is_ok()
-                {
-                    matches.push(seen_len);
+                if seen_len <= remainder.len() {
+                    if let Ok(suffix) = parse_cell_suffix(&remainder[seen_len..], self.change_flags)
+                    {
+                        matches.push((seen_len, suffix));
+                    }
                 }
             }
-            if matches.len() != 1 {
+            let exact_match_indices = matches
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, (_, _, opaque_suffix)))| opaque_suffix.is_empty())
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let selected_index = if exact_match_indices.is_empty() {
+                if matches.len() == 1 {
+                    0
+                } else {
+                    return Err(invalid_spatial_change(
+                        "CELL seen-data boundary is invalid or ambiguous",
+                    ));
+                }
+            } else if exact_match_indices.len() == 1 {
+                exact_match_indices[0]
+            } else {
                 return Err(invalid_spatial_change(
                     "CELL seen-data boundary is invalid or ambiguous",
                 ));
-            }
-            let seen_len = matches[0];
+            };
+            let (seen_len, suffix_fields) = matches.remove(selected_index);
             let seen = if seen_len == 32 {
                 CellSeenData::Exterior(remainder[..seen_len].to_vec())
             } else {
@@ -608,22 +626,28 @@ impl ChangeForm {
                 }
                 CellSeenData::Interior(entries)
             };
-            (Some(seen), seen_len)
+            (Some(seen), seen_len, Some(suffix_fields))
         } else {
-            (None, 0)
+            (None, 0, None)
         };
-        let (full_name, owner) = parse_cell_suffix(&remainder[suffix_offset..], self.change_flags)?;
+        let (full_name, owner, opaque_suffix) = match parsed_suffix {
+            Some(fields) => fields,
+            None => parse_cell_suffix(&remainder[suffix_offset..], self.change_flags)?,
+        };
         Ok(Some(CellChange {
             form_flags,
             cell_flags,
+            exterior_short: self.change_flags & (1 << 28) != 0,
+            exterior_char: self.change_flags & (1 << 29) != 0,
+            detach_time: self.change_flags & (1 << 30) != 0,
             full_name,
             owner,
             seen_data,
+            opaque_suffix,
         }))
     }
 
-    /// Decode the defined common flags of an ECZN change and retain its
-    /// source-undefined flagged payload bytes verbatim.
+    /// Decode ECZN marker state and retain bytes from its placeholder unions.
     ///
     /// # Errors
     /// Rejects unknown flags and truncated common form flags.
@@ -631,8 +655,7 @@ impl ChangeForm {
         self.opaque_spatial_change("ECZN", 0x8000_0003)
     }
 
-    /// Decode the defined common flags of an LCTN change and retain its
-    /// source-undefined flagged payload bytes verbatim.
+    /// Decode LCTN marker state and retain bytes from its placeholder unions.
     ///
     /// # Errors
     /// Rejects unknown flags and truncated common form flags.
@@ -655,6 +678,10 @@ impl ChangeForm {
         Ok(Some(OpaqueSpatialChange {
             form_flags,
             change_flags: self.change_flags,
+            zone_flags_changed: record_type == "ECZN" && self.change_flags & 2 != 0,
+            game_data_changed: record_type == "ECZN" && self.change_flags & 0x8000_0000 != 0,
+            keyword_data_changed: record_type == "LCTN" && self.change_flags & (1 << 30) != 0,
+            cleared_changed: record_type == "LCTN" && self.change_flags & 0x8000_0000 != 0,
             opaque_payload: cursor.rest().to_vec(),
         }))
     }
@@ -902,9 +929,17 @@ impl BaseObjectChange {
 pub struct CellChange {
     pub form_flags: Option<FormFlags>,
     pub cell_flags: Option<u16>,
+    /// xEdit names this flag but omits its placeholder union from CELL data.
+    pub exterior_short: bool,
+    /// xEdit names this flag but omits its placeholder union from CELL data.
+    pub exterior_char: bool,
+    /// xEdit names this flag but omits its placeholder union from CELL data.
+    pub detach_time: bool,
     pub full_name: Option<crate::cursor::WString>,
     pub owner: Option<RefId>,
     pub seen_data: Option<CellSeenData>,
+    /// Bytes following all fields with a source-defined layout.
+    pub opaque_suffix: Vec<u8>,
 }
 
 /// CELL seen data in the fixed exterior or repeated interior shape from xEdit.
@@ -948,6 +983,7 @@ impl CellChange {
         if let Some(owner) = self.owner {
             owner.write(&mut out);
         }
+        out.extend(&self.opaque_suffix);
         out
     }
 }
@@ -958,6 +994,14 @@ impl CellChange {
 pub struct OpaqueSpatialChange {
     pub form_flags: Option<FormFlags>,
     pub change_flags: u32,
+    /// ECZN zone flags changed marker, whose xEdit union has no payload.
+    pub zone_flags_changed: bool,
+    /// ECZN game data changed marker, whose xEdit union has no payload.
+    pub game_data_changed: bool,
+    /// LCTN keyword data changed marker, whose xEdit union has no payload.
+    pub keyword_data_changed: bool,
+    /// LCTN cleared changed marker, whose xEdit union has no payload.
+    pub cleared_changed: bool,
     pub opaque_payload: Vec<u8>,
 }
 
@@ -977,7 +1021,7 @@ fn invalid_spatial_change(reason: &str) -> Error {
 fn parse_cell_suffix(
     bytes: &[u8],
     change_flags: u32,
-) -> Result<(Option<crate::cursor::WString>, Option<RefId>)> {
+) -> Result<(Option<crate::cursor::WString>, Option<RefId>, Vec<u8>)> {
     let mut cursor = Cursor::new(bytes, "CELL change");
     let full_name = if change_flags & 4 != 0 {
         Some(cursor.wstring()?)
@@ -989,8 +1033,11 @@ fn parse_cell_suffix(
     } else {
         None
     };
-    finish_record(&cursor)?;
-    Ok((full_name, owner))
+    let opaque_suffix = cursor.rest().to_vec();
+    if !opaque_suffix.is_empty() && change_flags & (0b111 << 28) == 0 {
+        return Err(invalid_spatial_change("trailing CELL change bytes"));
+    }
+    Ok((full_name, owner, opaque_suffix))
 }
 
 impl OpaqueSpatialChange {

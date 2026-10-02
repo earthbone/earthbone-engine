@@ -14,13 +14,13 @@ CELL has a typed decoder for its common form flags, cell flags, full name,
 owner and xEdit-defined seen-data shape. Seen data precedes the full name and
 owner. The interior/exterior choice validates the suffix against xEdit's
 32-byte exterior and repeated 34-byte interior shapes. A truncated interior
-that leaves 32 bytes is indistinguishable from exterior data. CELL flags 28 to 30 are rejected
-because xEdit does not define their serialized fields. ECZN and LCTN decode
-their common form flags and retain other flagged bytes as opaque payloads,
-because the available schema marks those fields as placeholders. See
-[saved spatial fields](save-spatial-fields.md) for the source boundary and
-60-save corpus accounting. SAV-28 applies decoded fields to live records and
-retains opaque LCTN and ECZN tails without interpreting their fields.
+that leaves 32 bytes is indistinguishable from exterior data. CELL flags 28 to
+30 are typed presence markers, and bytes after defined fields remain opaque.
+ECZN and LCTN decode common form flags and their named zero-payload markers,
+while retaining other bytes as opaque payloads. See [saved spatial
+fields](save-spatial-fields.md) for the source boundary and corpus accounting.
+SAV-28 applies decoded fields to live records and retains opaque spatial tails
+without interpreting their fields.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
