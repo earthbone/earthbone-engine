@@ -7,6 +7,7 @@
 mod common;
 mod support;
 
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
