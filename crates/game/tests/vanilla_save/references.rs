@@ -10,6 +10,8 @@ use soe_save::{
 
 #[path = "../sav_54_breaker_adversarial_2.rs"]
 mod sav_54_breaker_adversarial_2;
+#[path = "../sav_54_breaker_adversarial_4.rs"]
+mod sav_54_breaker_adversarial_4;
 
 pub(super) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
