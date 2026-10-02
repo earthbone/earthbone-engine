@@ -1631,14 +1631,27 @@ surface, not CK contracts. The quiet stub fixes belong to these existing native 
 
 ### Scene and scroll native contracts, SCR-69
 
-The registry inventory is `Scene.Start`, `Scene.ForceStart`, `Scene.Stop`,
-`Scene.IsPlaying`, `Scene.GetOwningQuest`, `Scene.IsActionComplete`, and
-`Scroll.Cast`. The local vanilla `Scene.psc` and `Scroll.psc` declare all seven
-method signatures and summarize their contracts. The matching CK named function
-pages are absent from the local corpus. CK's `GetOwningQuest - Alias` page
-confirms the return type and owning-quest meaning for aliases, while it does not
-document the Scene method. The available `GetCurrentScene - ObjectReference`
-CK page is for a different binding.
+The registry-derived inventory contains seven methods and no globals. The local
+vanilla `skse64/scripts/vanilla/Scene.psc` and `Scroll.psc` files declare the
+signatures and summaries below. The matching CK named function pages are absent
+from the local corpus. CK's `GetOwningQuest - Alias` page confirms that Alias
+returns its owning quest, but it does not document Scene. The CK
+`GetCurrentScene - ObjectReference` page documents a different binding.
+
+| Binding | PSC contract | Current implementation and finding |
+|---|---|---|
+| `Scene.Start` | Start this scene. | Starts a valid inactive SCEN and sends `OnBegin`. |
+| `Scene.ForceStart` | Start this scene and stop scenes running on any reference in it. | Resolves participant aliases, ends each active scene sharing a resolved reference, then starts this scene and sends `OnBegin`. |
+| `Scene.Stop` | Stop this scene. | Stops a running scene and sends `OnEnd`. |
+| `Scene.IsPlaying` | Return whether this scene is playing. | Reads the active scene run state. |
+| `Scene.GetOwningQuest` | Return the quest that owns this scene. | Resolves the SCEN record's parent quest. |
+| `Scene.IsActionComplete` | Return whether the specified action ID is complete. | Resolves the authored SCEN action ID to its action slot and checks that slot's completed state. Negative or unknown IDs and stopped scenes return false. |
+| `Scroll.Cast` | Cast this scroll from a source reference, with an optional target. | Executes the owning SPEL scroll through the shared cast executor and preserves source, caster, and target attribution. The script contract does not specify inventory consumption; the selected-instance consume path belongs to MAG-18. |
+
+`Scroll.Cast` accepts source and optional target references as declared. The
+separate inventory selection API consumes one selected scroll after successful
+effects and preserves it when a cast is rejected, as covered by MAG-18. The
+Papyrus method does not select an inventory stack itself.
 
 `Scene.Start` starts a valid, inactive scene and sends `OnBegin`. Its record
 must have phase bounds the current runtime accepts. `Scene.Stop` ends a running
@@ -1646,22 +1659,15 @@ scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
 quest field. These behaviors match the local PSC summaries.
 
-`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
-action list, following the existing scene action state and the vanilla scenes
-that reuse authored action numbers. It reports whether that slot completed in
-the current run. Negative and unknown slots return false. The previous
-constant-false stub is now backed by the same completed slot set that gates
-phase advancement.
+`Scene.IsActionComplete(aiActionID)` takes the authored action ID stored in the
+SCEN action record. The runtime maps that ID to its action-list slot, then reads
+the completed slot state that gates phase advancement. This keeps duplicate
+or sparse authored action IDs separate from their internal positions.
 
-`Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
-must also end scenes running on references in the forced scene. Actor action
-ownership is not yet dispatched, so DLG-18 and DLG-19 own the scene action
-dispatch needed before that conflict behavior can be implemented.
-`Scroll.Cast` remains a quiet stub. Its PSC contract takes a source and an
-optional target and performs a scroll cast. MAG-18 owns scroll casting and
-selected inventory instance consumption. The `scr_69_` tests call each listed
-binding through Papyrus dispatch and verify `IsActionComplete` before and after
-the action slot is marked complete.
+The comparison tests derive the methods and globals directly from the registry.
+Papyrus dispatch behavior is covered by the `scr_69_` tests and the focused
+Scene and Scroll tests in `tests/natives_2.rs` and `tests/magic.rs`. No installed
+game records are named by this contract check.
 
 ## Tests
 
