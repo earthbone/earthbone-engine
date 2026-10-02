@@ -199,7 +199,15 @@ impl World {
             .map(|id| self.read_base_image_space(id))
             .transpose()?
             .flatten();
-        let Some(selection) = self.weather_image_space else {
+        let selection = self.weather_image_space.or_else(|| {
+            self.weather_request().map(|request| WeatherSelection {
+                weather: request.weather,
+                from: 1,
+                to: 1,
+                blend: 0.0,
+            })
+        });
+        let Some(selection) = selection else {
             return Ok(cell_base);
         };
         let record = self

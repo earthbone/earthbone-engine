@@ -1319,8 +1319,10 @@ Creation Engine frame capture or memory budgets.
 - `Weather.SetActive` stores the selected `WTHR` form and its optional override
   and acceleration flags in `World::weather_request`. Both flags default to
   false. A non-weather receiver logs an error and leaves the previous request
-  unchanged. This transient request is not saved, and no host sky currently
-  consumes it to render weather.
+  unchanged. This transient request is not saved. The host image-space view
+  uses the request's daytime WTHR `IMSP` entry unless an explicit image-space
+  selection is active. The shipped `Weather.psc` defines the native defaults.
+  WTHR sky colors, clouds, precipitation and transition timing are not rendered.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.

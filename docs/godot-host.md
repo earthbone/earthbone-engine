@@ -67,6 +67,17 @@ documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
 
+### Papyrus weather image-space selection, SCR-54
+
+`Weather.SetActive` requests flow from `World` into `ImageSpaceStack` on the
+next host sync. If no explicit image-space selection is active, the stack reads
+the selected WTHR record's daytime `IMSP` slot and resolves its `IMGS` values.
+The camera renderer applies those values through Godot's `Environment` and
+`CameraAttributesPractical`. An explicit image-space selection takes
+precedence. This path renders image-space adjustments only. It does not render
+WTHR cloud layers, sky colors, precipitation, ambient lighting or transition
+timing, and the daytime slot is used at all game hours.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
