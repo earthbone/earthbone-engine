@@ -1266,6 +1266,8 @@ mod shm_19_adversarial;
 mod shm_19_events;
 #[path = "shm_22_live_events.rs"]
 mod shm_22_live_events;
+#[path = "shm_22_adversarial.rs"]
+mod shm_22_adversarial;
 #[path = "shm_23_adversarial.rs"]
 mod shm_23_adversarial;
 #[path = "shm_23_quest_start_stop.rs"]
