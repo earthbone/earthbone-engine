@@ -842,19 +842,7 @@ fn function_value(
             if c.param1 != 0 || c.param2 != 0 {
                 return None;
             }
-            let (base, opened) = world
-                .reference(subject)
-                .filter(|reference| !reference.deleted)
-                .map(|reference| (reference.base, reference.opened))?;
-            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
-                if opened {
-                    1.0
-                } else {
-                    3.0
-                }
-            } else {
-                0.0
-            }
+            world.door_open_state(subject)? as f32
         }
         203 => {
             if c.param1 != 0 || c.param2 != 0 {
