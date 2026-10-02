@@ -2354,14 +2354,16 @@ actor section in SOEW version 37 saves the Follow procedure tag.
 
 `UseIdleMarker` selects an enabled IDLM reference in the procedure location's
 cell and radius, skips deleted and destroyed markers, walks the actor to it,
-and holds that marker. An actor with an active
+and holds that marker. When it arrives, the driver resolves the first valid
+`IDLA` link on the IDLM base to an `IDLE` record and queues that record's
+editor ID as an animation graph event. An actor with an active
 `UseIdleMarker` procedure reserves its selected marker. Other actors skip that
 reservation when choosing a marker. Changing or ending the package clears the
 reservation with the procedure state. This uses the PACK input layout from
 local xEdit `wbRecord(PACK)` and the CK wiki's `IsFurnitureMarkerInUse`
-reservation semantics. It does not play the marker's authored idle animation.
-The `AI-21` actor section in SOEW version 37 saves the selected marker and
-procedure tag.
+reservation semantics. IDLM and its idle animation list follow local xEdit
+`wbRecord(IDLM)` and `wbIdleAnimation`. The `AI-21` actor section in SOEW
+version 37 saves the selected marker and procedure tag.
 
 `HoldPosition` resolves the branch location and holds within the driver's four
 unit arrival tolerance of that position. Without a location input, it holds at

@@ -23,6 +23,7 @@ const MARKER_A: u32 = 0x906;
 const MARKER_B: u32 = 0x907;
 const CELL: u32 = 0x910;
 const INTERRUPT: u32 = 0x911;
+const IDLE: u32 = 0x912;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -94,7 +95,8 @@ fn game() -> Game {
         .sub(T(b"PKID"), INTERRUPT_PACK.to_le_bytes())
         .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
-    plugin.push_top(Record::new(T(b"IDLM"), MARKER_BASE));
+    plugin.push_top(Record::new(T(b"IDLM"), MARKER_BASE).sub(T(b"IDLA"), IDLE.to_le_bytes()));
+    plugin.push_top(Record::new(T(b"IDLE"), IDLE).zsub(T(b"EDID"), "MarkerIdle"));
     plugin.push_top(
         Record::new(T(b"GLOB"), INTERRUPT)
             .sub(T(b"FNAM"), b"f")
@@ -221,4 +223,51 @@ fn ai_23_idle_marker_skips_unusable_references() {
             "unusable marker kind {unusable} was selected"
         );
     }
+}
+
+#[test]
+fn ai_23_plays_the_authored_idle_once_when_the_reserved_marker_is_reached() {
+    let mut game = game();
+    game.tick(1.0);
+
+    let requests: Vec<_> = game
+        .world()
+        .animation_requests
+        .iter()
+        .map(|request| (request.target, request.animation.clone()))
+        .collect();
+    assert_eq!(
+        requests,
+        [
+            (id(ACTOR_A), "MarkerIdle".to_owned()),
+            (id(ACTOR_B), "MarkerIdle".to_owned()),
+        ]
+    );
+
+    game.tick(1.0);
+    assert_eq!(game.world().animation_requests.len(), 2);
+}
+
+#[test]
+fn ai_23_installed_idle_markers_have_authored_idle_links() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
+    let mut load_order = LoadOrder::new();
+    load_order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+
+    let markers: Vec<_> = load_order.winners_of(T(b"IDLM")).collect();
+    assert!(!markers.is_empty(), "Skyrim.esm contains IDLM records");
+    let with_idle_links = markers
+        .iter()
+        .filter(|(_, record)| record.find(T(b"IDLA")).is_some())
+        .count();
+    assert!(
+        with_idle_links > 0,
+        "vanilla IDLM records author IDLA links"
+    );
 }
