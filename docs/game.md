@@ -141,6 +141,14 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   expire on unpaused game ticks, and `Stop` removes all matching instances.
   Hosts can inspect the active requests in stable call order. Rendering the
   RFCT art object is not connected yet.
+- MGEF archetype 12, Light, resolves its associated LIGH form through the
+  winning load order and places that light at the effect target. The active
+  effect owns the runtime reference, which expires with the effect and is
+  removed on its final tick. A missing or non-LIGH associated form rejects
+  the cast before effect or reference state changes. The archetype number and
+  associated-item field follow local xEdit `wbDefinitionsTES5.pas`; the CK
+  magic-effect pages in the local corpus do not specify additional Light
+  runtime semantics.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
