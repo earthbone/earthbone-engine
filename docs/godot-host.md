@@ -1432,6 +1432,11 @@ would be silent, and 57 are not.
 through `SoundBank::open_data`. The script starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
 player, starts a replacement at a second position, and captures its output.
+Capture polls for signal until the stream duration plus half a second, since
+voice assets can start with silence. The generated WAV fixture includes a
+quarter second of leading silence. The capture buffer is cleared between
+responses using Godot's `AudioEffectCapture` API, documented in local
+`engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
 Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at

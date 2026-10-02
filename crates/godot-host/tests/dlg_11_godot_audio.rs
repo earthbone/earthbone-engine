@@ -33,8 +33,13 @@ fn wave() -> Vec<u8> {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_bytes.to_le_bytes());
     for frame in 0..frames {
-        let sample = ((frame as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin()
-            * 12_000.0) as i16;
+        // Voice assets can have leading silence longer than a mixer buffer.
+        let sample = if frame < frames / 4 {
+            0
+        } else {
+            ((frame as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin() * 12_000.0)
+                as i16
+        };
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
     bytes
