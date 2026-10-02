@@ -67,6 +67,11 @@ documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
 
+`tests/aud_09_godot_ambience.rs` launches Godot with a generated WAV fixture
+and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
+the cell ambience is released. The test uses a windowed 640 by 360 Godot
+process and exits when the transition check finishes.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
