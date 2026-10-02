@@ -43,19 +43,66 @@ fn rnd_07_empty_and_nonopaque_cells_produce_no_occluder() {
 
 #[test]
 fn rnd_07_equal_sized_opaque_candidates_keep_source_order_and_valid_offsets() {
-    let surfaces = [
+    let mut surfaces = [
         surface(1, 1, AlphaMode::Opaque),
         surface(2, 1, AlphaMode::Opaque),
         surface(3, 1, AlphaMode::Opaque),
         surface(4, 1, AlphaMode::Opaque),
         surface(5, 1, AlphaMode::Opaque),
     ];
+    for (index, candidate) in surfaces.iter_mut().enumerate() {
+        candidate.arrays.positions[0][0] = index as f32 + 1.0;
+    }
 
     let (vertices, indices) = cell_occluder_mesh(&surfaces);
 
     assert_eq!(vertices.len(), CELL_OCCLUDER_SURFACES * 3);
+    assert_eq!(
+        vertices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|triangle| triangle[0][0])
+            .collect::<Vec<_>>(),
+        [1.0, 2.0, 3.0, 4.0],
+        "equal triangle counts must keep the first four source surfaces"
+    );
     let expected = (0..CELL_OCCLUDER_SURFACES as i32)
         .flat_map(|triangle| [triangle * 3, triangle * 3 + 2, triangle * 3 + 1])
+        .collect::<Vec<_>>();
+    assert_eq!(indices, expected);
+}
+
+#[test]
+fn rnd_07_occluder_uses_the_four_largest_opaque_surfaces_in_size_order() {
+    let mut surfaces = [
+        surface(1, 1, AlphaMode::Opaque),
+        surface(2, 4, AlphaMode::Opaque),
+        surface(3, 2, AlphaMode::Opaque),
+        surface(4, 5, AlphaMode::Opaque),
+        surface(5, 3, AlphaMode::Opaque),
+        surface(6, 20, AlphaMode::Blend),
+    ];
+    for (index, candidate) in surfaces.iter_mut().enumerate() {
+        candidate.arrays.positions[0][0] = index as f32 + 1.0;
+    }
+
+    let (vertices, indices) = cell_occluder_mesh(&surfaces);
+
+    assert_eq!(
+        vertices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|triangle| triangle[0][0])
+            .collect::<Vec<_>>(),
+        [4.0, 2.0, 5.0, 3.0],
+        "largest opaque sources must sort ahead of smaller sources and exclude blend"
+    );
+    assert_eq!(indices.len(), 14 * 3);
+    let expected = [(0, 5), (3, 4), (6, 3), (9, 2)]
+        .into_iter()
+        .flat_map(|(base, triangles)| (0..triangles).flat_map(move |_| [base, base + 2, base + 1]))
         .collect::<Vec<_>>();
     assert_eq!(indices, expected);
 }

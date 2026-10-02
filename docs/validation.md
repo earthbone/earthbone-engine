@@ -194,8 +194,9 @@ pattern is in the code and a longer or wider scenario can reach them:
 `TickHash::with_host_builder_hash` lets a host caller add its builder result
 hash to each game tick as `host.builders`. The
 `tst_02_host_runs_hash_threaded_builder_results_per_tick` test runs the same
-seeded worker batches twice, compares combined hashes for each tick, and checks
-that a changed host hash names that part as the divergence.
+seeded worker batches twice, verifies parallel results match serial input order,
+hashes each surface array and bound into the matching tick, compares the logs,
+and checks that a changed host hash names that part as the divergence.
 
 What the detector cannot see: floating point differences between machines
 or compiler versions (the hash compares bit patterns, so a different build

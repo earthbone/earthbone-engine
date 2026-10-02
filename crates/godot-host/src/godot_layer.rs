@@ -185,6 +185,20 @@ struct LodStepCounts {
     released: usize,
 }
 
+fn lod_block_list(lod: &TerrainLodState) -> String {
+    let mut blocks: Vec<_> = lod
+        .streamer
+        .resident_blocks()
+        .map(|block| (block.level.cells(), block.x, block.y))
+        .collect();
+    blocks.sort_unstable();
+    blocks
+        .into_iter()
+        .map(|(level, x, y)| format!("{level}:{x}:{y}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
@@ -268,6 +282,38 @@ fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
         color: [data[8], data[9], data[10]].map(|channel| f32::from(channel) / 255.0),
         negative: u32::from_le_bytes(data[12..16].try_into().ok()?) & (1 << 2) != 0,
     })
+}
+
+#[cfg(test)]
+mod mag_35_tests {
+    use super::light_render_data;
+    use soe_esm::{Record, Tag};
+
+    #[test]
+    fn mag_35_light_reads_authored_radius_color_and_negative_flag() {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&700_u32.to_le_bytes());
+        data[8..11].copy_from_slice(&[255, 128, 0]);
+        data[12..16].copy_from_slice(&(1_u32 << 2).to_le_bytes());
+        let record = Record::new(Tag::new(b"LIGH"), 0x800).sub(Tag::new(b"DATA"), data);
+
+        let light = light_render_data(&record).expect("valid authored LIGH record");
+        assert!((light.radius - 700.0 * crate::units::METRES_PER_UNIT).abs() < 0.0001);
+        assert_eq!(light.color, [1.0, 128.0 / 255.0, 0.0]);
+        assert!(light.negative);
+    }
+
+    #[test]
+    fn mag_35_light_rejects_other_records_short_data_and_zero_radius() {
+        let not_light = Record::new(Tag::new(b"ACTI"), 0x800);
+        assert!(light_render_data(&not_light).is_none());
+
+        let short = Record::new(Tag::new(b"LIGH"), 0x801).sub(Tag::new(b"DATA"), vec![0; 47]);
+        assert!(light_render_data(&short).is_none());
+
+        let zero = Record::new(Tag::new(b"LIGH"), 0x802).sub(Tag::new(b"DATA"), vec![0; 48]);
+        assert!(light_render_data(&zero).is_none());
+    }
 }
 
 impl Drop for CellStreamerNode {
@@ -1469,6 +1515,14 @@ impl CellStreamerNode {
             let mut row = VarDictionary::new();
             row.set("rid", instance.rid);
             row.set("material", material);
+            row.set(
+                "center",
+                Vector3::new(
+                    f32::midpoint(instance.bounds.min.x, instance.bounds.max.x),
+                    f32::midpoint(instance.bounds.min.y, instance.bounds.max.y),
+                    f32::midpoint(instance.bounds.min.z, instance.bounds.max.z),
+                ),
+            );
             out.push(&row);
         }
         out
@@ -1478,6 +1532,12 @@ impl CellStreamerNode {
     #[func]
     pub fn instance_count(&self) -> i32 {
         self.instances.len() as i32
+    }
+
+    /// Number of point lights currently owned for active magic effects.
+    #[func]
+    pub fn runtime_light_count(&self) -> i32 {
+        self.runtime_lights.len() as i32
     }
 
     /// Render handles grouped by owning cell, for residency diagnostics.
@@ -1956,7 +2016,8 @@ impl CellStreamerNode {
 
     /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
     /// full_res_radius, lod_radius, budget_bytes, usage_bytes, over_budget,
-    /// resident, absent, instances, triangles, and from the last call
+    /// resident, absent, instances, triangles, blocks as space separated
+    /// level:x:y coordinates, and from the last call
     /// loaded, missing, failed and released. Empty before
     /// `stream_terrain_lod`.
     #[func]
@@ -1979,6 +2040,43 @@ impl CellStreamerNode {
         d.set("over_budget", lod.streamer.over_budget());
         d.set("resident", lod.streamer.resident_count() as i64);
         d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("blocks", lod_block_list(lod).as_str());
+        d.set("instances", drawn.clone().count() as i64);
+        d.set(
+            "triangles",
+            drawn.map(|i| i.triangles).sum::<usize>() as i64,
+        );
+        d.set("loaded", lod.last_step.loaded as i64);
+        d.set("missing", lod.last_step.missing as i64);
+        d.set("failed", lod.last_step.failed as i64);
+        d.set("released", lod.last_step.released as i64);
+        d
+    }
+
+    /// The object LOD state as a dictionary with the same fields as
+    /// `terrain_lod_stats`, including resident block coordinates and drawn
+    /// instance and triangle counts. Empty before `stream_object_lod`.
+    #[func]
+    pub fn object_lod_stats(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        let Some(lod) = self.object_lod.as_ref() else {
+            return d;
+        };
+        let config = lod.streamer.config();
+        let anchor = lod.streamer.anchor();
+        let drawn = lod.blocks.values().flatten();
+        d.set("world", lod.world_editor_id.as_str());
+        d.set("level", i64::from(config.level.cells()));
+        d.set("anchor_x", i64::from(anchor.x));
+        d.set("anchor_y", i64::from(anchor.y));
+        d.set("full_res_radius", i64::from(config.full_res_radius));
+        d.set("lod_radius", i64::from(config.lod_radius));
+        d.set("budget_bytes", config.budget_bytes as i64);
+        d.set("usage_bytes", lod.streamer.usage_bytes() as i64);
+        d.set("over_budget", lod.streamer.over_budget());
+        d.set("resident", lod.streamer.resident_count() as i64);
+        d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("blocks", lod_block_list(lod).as_str());
         d.set("instances", drawn.clone().count() as i64);
         d.set(
             "triangles",

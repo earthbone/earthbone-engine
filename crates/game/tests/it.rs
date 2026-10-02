@@ -672,6 +672,8 @@ mod mag_14_breaker_adversarial;
 mod mag_14_effect_shader;
 #[path = "mag_16_adversarial.rs"]
 mod mag_16_adversarial;
+#[path = "mag_16_breaker_adversarial.rs"]
+mod mag_16_breaker_adversarial;
 #[path = "mag_17_adversarial.rs"]
 mod mag_17_adversarial;
 #[path = "mag_17_breaker_adversarial.rs"]
@@ -716,12 +718,18 @@ mod mag_33_command_summoned;
 mod mag_34_adversarial;
 #[path = "mag_34_breaker_2_adversarial.rs"]
 mod mag_34_breaker_2_adversarial;
+#[path = "mag_34_breaker_3_adversarial.rs"]
+mod mag_34_breaker_3_adversarial;
 #[path = "mag_34_breaker_adversarial.rs"]
 mod mag_34_breaker_adversarial;
 #[path = "mag_35_adversarial.rs"]
 mod mag_35_adversarial;
 #[path = "mag_35_breaker_2_adversarial.rs"]
 mod mag_35_breaker_2_adversarial;
+#[path = "mag_35_breaker_3_adversarial.rs"]
+mod mag_35_breaker_3_adversarial;
+#[path = "mag_35_breaker_4_adversarial.rs"]
+mod mag_35_breaker_4_adversarial;
 #[path = "mag_35_breaker_adversarial.rs"]
 mod mag_35_breaker_adversarial;
 #[path = "mag_36_adversarial.rs"]
@@ -1013,6 +1021,8 @@ mod sav_46_adversarial;
 mod sav_46_breaker_adversarial;
 #[path = "sav_48_adversarial.rs"]
 mod sav_48_adversarial;
+#[path = "sav_48_breaker_adversarial.rs"]
+mod sav_48_breaker_adversarial;
 #[path = "sav_50_adversarial.rs"]
 mod sav_50_adversarial;
 #[path = "sav_52_adversarial.rs"]
@@ -1167,8 +1177,12 @@ mod scr_37_music_type;
 mod scr_38_adversarial;
 #[path = "scr_38_object_reference.rs"]
 mod scr_38_object_reference;
+#[path = "scr_39_adversarial.rs"]
+mod scr_39_adversarial;
 #[path = "scr_39_breaker_2_adversarial.rs"]
 mod scr_39_breaker_2_adversarial;
+#[path = "scr_39_breaker_3_adversarial.rs"]
+mod scr_39_breaker_3_adversarial;
 #[path = "scr_39_breaker_adversarial.rs"]
 mod scr_39_breaker_adversarial;
 #[path = "scr_39_current_scene.rs"]

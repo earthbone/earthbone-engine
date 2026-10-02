@@ -220,7 +220,8 @@ struct Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // A concurrent fork can keep the file description open after this session.
+        // A concurrent launch or fork can inherit the descriptor until exec.
+        // Closing our copy alone would keep the shared file lock held.
         let _ = self.lock.unlock();
     }
 }
@@ -478,10 +479,10 @@ mod tests {
                 if source.kind() == io::ErrorKind::WouldBlock
         ));
         drop(session);
-        let reacquired = store.session().map(|_| ());
+        let next = store.session().map(drop);
         drop(inherited);
         fs::remove_dir_all(directory).unwrap();
-        reacquired.unwrap();
+        assert!(next.is_ok(), "session lock was retained: {next:?}");
     }
 }
 
