@@ -352,8 +352,9 @@ destruction health, advances every crossed percentage threshold, and queues
 `OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
 disable the reference, mark it destroyed, or ignore external damage. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
-current stage, so later stages without a replacement keep the last model. A
-host can use that path in place of the base model.
+current stage, so later stages without a replacement keep the last model. The
+Godot host hides the base model and draws that stage model through its
+RenderingServer path while the reference is resident.
 `GetCurrentDestructionStage` returns `-1` before a stage and the
 zero-based DSTD position afterward. `ClearDestruction` restores full health,
 clears the destroyed flag and returns the stage to `-1` without queuing a

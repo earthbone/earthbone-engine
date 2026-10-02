@@ -82,6 +82,17 @@ The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.
 
+### Destruction-stage models, CMB-37
+
+When a resident reference has a selected destruction-stage model in the
+shared `World`, `CellStreamerNode` hides its base geometry and loads the
+selected DMDL through the same VFS, NIF, mesh and material path as streamed
+cell geometry. The replacement uses RenderingServer instances and adds no
+reference node. Advancing to a model-less stage retains the latest selected
+DMDL through `World::destruction_model`. Clearing destruction removes the
+replacement and reveals the base model. Releasing the owning cell or clearing
+the streamer frees its replacement mesh and instance RIDs.
+
 ### Character race and sex selection, UI-07
 
 `PlayerNode::show_race_menu` opens the native Control menu for race and sex
