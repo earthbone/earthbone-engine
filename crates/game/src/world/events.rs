@@ -157,6 +157,17 @@ impl World {
             });
     }
 
+    /// Remove the queued copy when the matching Godot signal was delivered
+    /// immediately. Unmatched notices remain ordered for the game-loop drain.
+    pub(crate) fn consume_animation_report(&mut self, source: GlobalFormId, name: &str) {
+        if let Some(index) = self.animation_host_notices.iter().position(|notice| {
+            matches!(notice, AnimationHostNotice::Event { source: queued, name: queued_name }
+                if *queued == source && queued_name == name)
+        }) {
+            self.animation_host_notices.remove(index);
+        }
+    }
+
     /// Drain ordered graph and unload notifications for the game loop.
     pub fn take_animation_host_notices(&mut self) -> Vec<AnimationHostNotice> {
         std::mem::take(&mut self.animation_host_notices)

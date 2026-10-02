@@ -349,7 +349,7 @@ so a form with no script still answers its class's natives. The VM gained
 **Destructible references.** `ObjectReference.DamageObject` reads the base
 record's DEST header and ordered DSTD stages. Damage lowers reference-owned
 destruction health, advances every crossed percentage threshold, and queues
-`OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
+`OnDestructionStageChanged` with the prior and current stage numbers. DSTD flags can cap damage,
 disable the reference, mark it destroyed, or ignore external damage. The
 `World::destruction_model` returns the latest nonzero-stage DMDL through the
 current stage, so later stages without a replacement keep the last model. The

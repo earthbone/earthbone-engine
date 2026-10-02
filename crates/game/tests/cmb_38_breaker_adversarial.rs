@@ -47,8 +47,12 @@ fn cmb_38_repeated_pushes_preserve_each_signed_force_and_are_consumed_once() {
     let mut game = make_game();
     let (marker, actor) = place(&mut game);
     game.world_mut().reference(actor).unwrap().position = [3.0, 4.0, 0.0];
-    game.world_mut().push_actor_away(marker, actor, 5.0).unwrap();
-    game.world_mut().push_actor_away(marker, actor, -2.0).unwrap();
+    game.world_mut()
+        .push_actor_away(marker, actor, 5.0)
+        .unwrap();
+    game.world_mut()
+        .push_actor_away(marker, actor, -2.0)
+        .unwrap();
 
     let mut world = game.world_mut();
     let impulses = world.take_actor_impulses(actor);
@@ -88,7 +92,9 @@ fn cmb_38_area_zero_magnitude_does_not_knock_down_or_leave_impulse() {
     let mut game = make_game();
     let (marker, actor) = place(&mut game);
     game.world_mut().reference(actor).unwrap().position = [1.0, 0.0, 0.0];
-    game.world_mut().knock_area_effect(marker, 0.0, 2.0).unwrap();
+    game.world_mut()
+        .knock_area_effect(marker, 0.0, 2.0)
+        .unwrap();
     let mut world = game.world_mut();
     assert!(world.take_actor_impulses(actor).is_empty());
     assert!(!world.actor(actor).unwrap().unconscious);

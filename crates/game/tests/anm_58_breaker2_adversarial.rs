@@ -29,6 +29,9 @@ fn anm_58_unrelated_event_does_not_win_over_graph_unload() {
         .animation_graph_event(source, "other", &mut |_, _| unreachable!());
     game.world_mut().animation_graph_unloaded(source);
 
-    assert_eq!(game.world().completed_animation_waits, [(LatentId(42), false)]);
+    assert_eq!(
+        game.world().completed_animation_waits,
+        [(LatentId(42), false)]
+    );
     assert!(game.world().animation_waiters.is_empty());
 }

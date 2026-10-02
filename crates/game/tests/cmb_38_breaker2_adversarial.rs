@@ -36,6 +36,9 @@ fn cmb_38_area_knock_ignores_disabled_and_outside_actors() {
         .knock_area_effect(source, 1.0, 10.0)
         .unwrap();
 
-    assert!(game.world_mut().take_actor_impulses(inside_disabled).is_empty());
+    assert!(game
+        .world_mut()
+        .take_actor_impulses(inside_disabled)
+        .is_empty());
     assert!(game.world_mut().take_actor_impulses(outside).is_empty());
 }

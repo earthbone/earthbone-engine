@@ -28,11 +28,15 @@ fn hst_13_neighbor_departure_clears_3d_but_keeps_changed_reference() {
     let mut game = game();
     let reference = id(ROCK_B);
 
-    game.world_mut().attach_streaming_cells(&[id(CELL_B)]).unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(CELL_B)])
+        .unwrap();
     assert!(game.world().is_reference_3d_loaded(reference));
     game.world_mut().reference(reference).unwrap().position[0] += 1.0;
 
-    game.world_mut().detach_streaming_cells(&[id(CELL_B)]).unwrap();
+    game.world_mut()
+        .detach_streaming_cells(&[id(CELL_B)])
+        .unwrap();
     assert!(game.world().is_reference_loaded(reference));
     assert!(!game.world().is_reference_3d_loaded(reference));
 }

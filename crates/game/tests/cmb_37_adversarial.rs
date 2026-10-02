@@ -68,7 +68,10 @@ fn cmb_37_stage_event_carries_old_and_current_stage() {
 
     damage(&mut game, reference, 30.0);
 
-    assert_eq!(destruction_events(&game), [vec![Value::Int(-1), Value::Int(0)]]);
+    assert_eq!(
+        destruction_events(&game),
+        [vec![Value::Int(-1), Value::Int(0)]]
+    );
 }
 
 #[test]

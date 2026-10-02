@@ -324,6 +324,8 @@ mod anm_09_oar_runtime;
 mod anm_55_race_animation_models;
 #[path = "anm_58_adversarial.rs"]
 mod anm_58_adversarial;
+#[path = "anm_58_breaker2_adversarial.rs"]
+mod anm_58_breaker2_adversarial;
 #[path = "anm_58_breaker_adversarial.rs"]
 mod anm_58_breaker_adversarial;
 #[path = "anm_59_expression.rs"]
@@ -422,14 +424,18 @@ mod cmb_35_script_damage_bleedout_adversarial;
 mod cmb_36_lazy_actor_base_save_contract;
 #[path = "cmb_36_lazy_actor_base_save_state_adversarial.rs"]
 mod cmb_36_lazy_actor_base_save_state_adversarial;
-#[path = "cmb_37_breaker_adversarial.rs"]
-mod cmb_37_breaker_adversarial;
 #[path = "cmb_37_adversarial.rs"]
 mod cmb_37_adversarial;
+#[path = "cmb_37_breaker2_adversarial.rs"]
+mod cmb_37_breaker2_adversarial;
+#[path = "cmb_37_breaker_adversarial.rs"]
+mod cmb_37_breaker_adversarial;
 #[path = "cmb_37_destruction.rs"]
 mod cmb_37_destruction;
 #[path = "cmb_38_adversarial.rs"]
 mod cmb_38_adversarial;
+#[path = "cmb_38_breaker2_adversarial.rs"]
+mod cmb_38_breaker2_adversarial;
 #[path = "cmb_38_breaker_adversarial.rs"]
 mod cmb_38_breaker_adversarial;
 #[path = "combat_ai.rs"]

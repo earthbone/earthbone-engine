@@ -16,8 +16,10 @@ fn id(object: u32) -> GlobalFormId {
 #[test]
 fn cmb_37_event_contains_old_and_current_stage() {
     let mut plugin = Plugin::new(FileHeader::default());
-    let mut base = Record::new(T(b"ACTI"), 0x100)
-        .sub(T(b"DEST"), [100i32.to_le_bytes().as_slice(), &[1, 0, 0, 0]].concat());
+    let mut base = Record::new(T(b"ACTI"), 0x100).sub(
+        T(b"DEST"),
+        [100i32.to_le_bytes().as_slice(), &[1, 0, 0, 0]].concat(),
+    );
     let mut stage = vec![50, 0, 0, 0];
     stage.extend_from_slice(&[0; 16]);
     base = base.sub(T(b"DSTD"), stage).sub(T(b"DSTF"), Vec::new());
@@ -36,9 +38,7 @@ fn cmb_37_event_contains_old_and_current_stage() {
         .pending
         .iter()
         .find_map(|pending| match pending {
-            Pending::Event { name, args, .. } if name == "OnDestructionStageChanged" => {
-                Some(args)
-            }
+            Pending::Event { name, args, .. } if name == "OnDestructionStageChanged" => Some(args),
             _ => None,
         })
         .expect("stage change event");
