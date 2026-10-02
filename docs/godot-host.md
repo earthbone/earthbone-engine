@@ -359,7 +359,7 @@ The renderer reads EFSH `ICON`, color and blend settings, applies its membrane
 fade timing, and uses an authored fill texture when it resolves. It draws a
 server-side sphere instance and creates no per-actor scene nodes. It does not
 render the EFSH particle or gradient groups. The EFSH fields follow local xEdit
-`wbDefinitionsTES5.pas` and UESP `EFSH.wikitext`; the CK dump has no Detect Life
+`wbDefinitionsTES5.pas` and UESP `EFSH.wikitext`. The CK dump has no Detect Life
 archetype page defining additional execution semantics. The focused check
 `mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`
 also checks the start and stop requests and authored membrane settings.
