@@ -26,6 +26,13 @@ seconds after. These measurements come from the TST-16 run at commit
 The before run had warmed dependencies before timing the test build. The
 after run built the consolidated integration test target.
 
+The committed `tst_16_test_names_match_the_pre_consolidation_inventory` test
+compares all 2,289 before and after names after removing the `unit::` prefix
+and TST-16 guard tests. The retained pre-change installed run
+stopped with a failure, and targeted retries recorded two more failed test
+cases. The consolidated installed capture passed, so the available records do
+not establish matching installed results test for test.
+
 ## Parsed plugin cache, 2026-09-29
 
 `crates/esm/tests/fmt_29_cache.rs::fmt_29_installed_skyrim_master_cache_hit_matches_and_times_second_load`
