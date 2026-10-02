@@ -1454,6 +1454,11 @@ would be silent, and 57 are not.
 through `SoundBank::open_data`. The script starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
 player, starts a replacement at a second position, and captures its output.
+Capture polls for signal until the stream duration plus half a second, since
+voice assets can start with silence. The generated WAV fixture includes a
+quarter second of leading silence. The capture buffer is cleared between
+responses using Godot's `AudioEffectCapture` API, documented in local
+`engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
 Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
@@ -1461,7 +1466,13 @@ newer executable and the release extension exists at
 extension with `cargo build -p soe-godot-host --release` before running it.
 
 When `SKYRIM_DATA` is set, the mixer fixture uses a surveyed vanilla xWMA voice
-line. Without installed data it uses a generated WAV. The capture proves
+line. Without installed data it uses a generated WAV with 250 milliseconds of
+leading silence. The capture polls for signal within the clip duration plus
+one second, since a voice's opening silence can exceed 150 milliseconds.
+It retains the 0.0001 peak threshold and clears captured samples after the
+interrupted player drains, before starting the replacement. The capture uses
+the ring-buffer API described in local
+`godot-docs/classes/class_audioeffectcapture.rst`. The capture proves
 Godot's mixer received both voice buffers. It does not prove that a physical
 speaker or headset produced audible output. That still needs a windowed run
 with installed data and a `SoundBank` in the tree.
@@ -2063,10 +2074,17 @@ shared Game, then successful picks resume ordinary activation. The
 `hst_03_lockpick_handoff.gd` runtime test uses the synthetic
 `inventory_fixture` records to activate a keyless locked door, submit the
 record-derived successful angle, activate the unlocked door and reject a
-level 255 key-only door. Generate the fixture with
+level 255 key-only door. `ui_08_lockpicking.gd` drives the same Godot controls
+through a failed turn, checks the remaining pick in the native inventory, then
+completes a successful turn and activates the door. The fixture starts with two
+lockpicks so both outcomes run in one session. Generate the fixture with
 `cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
-"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
-in the disposable Godot project used for host runtime tests.
+"$SKYRIM_DATA"`, then run the script with the fixture path:
+
+```sh
+rtk env SOE_UI_TEST_DATA=/tmp/soe-hst-03 "$SOE_GODOT_BIN" --path godot --script \
+  "$PWD/crates/godot-host/tests/ui_08_lockpicking.gd" --resolution 640x360
+```
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2080,16 +2098,16 @@ restrictions denied an editor socket. Direct runtime execution succeeded.
 
 ### Animated static collision, HST-01
 
-`AnimatedStaticNode` can build a trimesh collider below each generated mesh
-when `collision_enabled` is set before `load_nif`. The controller updates the
-mesh transform, and the collider remains its descendant, so Godot applies the
-same scene transform to both. `open()` resets controller time and starts its
-per-frame evaluation. The collision option defaults off. This path is for
-small animated references and does not change bulk cell batching.
-Godot's `MeshInstance3D.create_trimesh_collision` creates a `StaticBody3D`
-with a concave shape from that mesh. The controller is advanced by the host
-node's process callback, matching Godot's documented process-frame animation
-updates.
+`AnimatedStaticNode` can build an `AnimatableBody3D` with a concave trimesh
+shape below each generated mesh when `collision_enabled` is set before
+`load_nif`. The body synchronizes to physics frames, and both body and shape
+remain descendants of the animated mesh, so Godot applies the same scene
+transform to the visual and collision geometry. `open()` resets controller
+time and starts its per-frame evaluation. The collision option defaults off.
+This path is for small animated references and does not change bulk cell
+batching. Godot documents `AnimatableBody3D` for manually moved doors and its
+`sync_to_physics` property for physics-frame updates. The host advances the
+controller from its process callback.
 
 When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
 winning model through the shared load order and VFS, loads the NIF bytes into
@@ -2101,17 +2119,18 @@ expose the current targets and attached-node count to host tests. Load doors
 keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
-with a rotation track, advances it, and confirms the generated static body
-follows the visual mesh transform. The player activation path loads animated
-swing-door NIFs from the VFS and starts the node after game activation.
+through the same byte loader used for VFS doors. It advances the rotation track
+and confirms the animated physics body and shape follow the visual mesh
+transform. The player activation path loads animated swing-door NIFs from the
+VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior walking loads and unloads nearby grid cells through the budgeted
-planner when either mesh budget is set. Ordinary door activation still does
-not instantiate `AnimatedStaticNode`, so a logical open state does not swing
-the rendered door or move its collision. Portal transitions and revised AI
-remain deferred until existing Skyrim gameplay works.
+planner when either mesh budget is set. The swing-door host path applies to
+activated non-teleport doors with a supported NIF transform controller.
+Teleporting doors retain the cell transition path. Portal transitions and
+revised AI remain deferred until existing Skyrim gameplay works.
 
 ### Cold door fade fallback (2026-09-20)
 
@@ -2681,12 +2700,15 @@ execution is not part of this HUD.
 `ui_06_hud.rs` checks all three shared actor values, current and modified
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
-The controls compile with gdext, but their appearance in a running Godot
-window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
-in the installed Bannered Mare cell and checks viewport pixels in the three
-meter labels, bars and compass after Godot processes frames. The synthetic
-Rust update test changes all three shared actor values and checks their
-updated fractions.
+The controls compile with gdext, and `godot/ui_06_hud_render_test.gd` checks
+their appearance in a running Godot window. It starts gameplay in the
+installed Bannered Mare cell, checks viewport pixels in the three meter
+labels, bars and compass, damages each player actor value through
+`PlayerNode::damage_player_actor_value`, then checks that the visible labels
+and bar fills update after Godot processes frames. The method applies damage
+to the active shared game and returns false if gameplay is not active or the
+actor value name is invalid. Synthetic Rust tests also change all three
+shared actor values and check their updated fractions.
 
 Run the host check with the release extension loaded and installed data set:
 
@@ -2887,7 +2909,9 @@ own.
 synthetic quest records, including a stage change that replaces the displayed
 objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
 shared Game in Bannered Mare and checks that the native menu panel and quest
-text controls are populated. Run it after building the extension and importing
+text controls are populated. It then changes MQ101 to stage 10 through the
+PlayerNode host bridge and checks that the open menu rows change on a later
+process frame. Run it after building the extension and importing
 the Godot project with
 `SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
 This verifies the Godot control tree and its text, without asserting a rendered
@@ -2921,14 +2945,14 @@ angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
 A miss consumes a pick and leaves the menu available for another angle. A
 successful turn closes the menu and activates the same reference through the
 ordinary Game path. The menu is presenter state only. The
-`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
-synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
-xEdit's XLOC definition establish lock state, level bands and the key-only
-level 255 case. The angle rule is the game crate policy documented in
-[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
-tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn. Visual presentation and minigame feel remain
-unverified.
+`hst_03_lockpick_handoff.gd` and `ui_08_lockpicking.gd` exercise this PlayerNode
+path against a synthetic keyless door and the shared Game. CK Lock and
+GetLockLevel pages plus xEdit's XLOC definition establish lock state, level
+bands and the key-only level 255 case. The angle rule follows the game crate
+policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The live Godot interaction
+test checks the failed and successful turns. Visual presentation and minigame
+feel remain unverified.
 
 ## Dialogue menu, DLG-10
 
