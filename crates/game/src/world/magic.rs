@@ -16,6 +16,11 @@
 //! the SPIT field in xEdit and applies only through an actor target supplied
 //! by a projectile contact. Target-location delivery uses the selected point
 //! as the center for authored area effects.
+//! enums. MGEF and EXPL links follow xEdit's `wbDefinitionsTES5.pas` and
+//! UESP's local MGEF and EXPL layouts. Definitions stay in the winning
+//! records. Per-cast magnitudes, elapsed time and reversible actor-value
+//! deltas belong to the world.
+//! Unsupported delivery and archetypes return errors before applying effects.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +51,8 @@ const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
+const ETHEREALIZE: u32 = 41;
+const SPAWN_SCRIPTED_REF: u32 = 43;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
@@ -62,6 +69,9 @@ const RESIST_MAGIC: i32 = 44;
 const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
 const LAST_SPECIFIC_RESISTANCE: i32 = 45;
 const IGNORE_RESISTANCE: u32 = 1 << 20;
+const PEAK_VALUE_MODIFIER: u32 = 34;
+const CLOAK_CADENCE: f64 = 1.0;
+const SLOW_TIME: u32 = 37;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -130,6 +140,13 @@ pub struct ConcentrationCast {
     cost_per_second: f64,
 }
 
+/// Pulse phase and applications last created by one Cloak effect.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct CloakState {
+    pub(crate) elapsed: f64,
+    pub(crate) owned: Vec<EffectId>,
+}
+
 /// A spell was rejected before any of its effects were applied.
 #[derive(Debug, thiserror::Error)]
 pub enum MagicError {
@@ -151,6 +168,8 @@ pub enum MagicError {
     Identity,
     #[error("inventory selection: {0}")]
     Inventory(#[from] InventoryError),
+    #[error("missing or invalid stagger game setting {0}")]
+    StaggerSetting(&'static str),
 }
 
 #[derive(Clone)]
@@ -159,6 +178,7 @@ enum DispelRule {
     Disease,
     Keywords(Vec<GlobalFormId>),
     Paralysis,
+    Poisons,
 }
 
 struct PreparedEffect {
@@ -171,6 +191,10 @@ struct PreparedEffect {
     lock_level: Option<i32>,
     open_lock: bool,
     disarm: bool,
+    stagger_duration: Option<f64>,
+    banish: bool,
+    scripted_ref_base: Option<GlobalFormId>,
+    scripted_ref_anchor: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -183,6 +207,7 @@ pub(super) struct PreparedWeaponEnchantment(Vec<PreparedEffect>);
 enum CastDelivery {
     Direct,
     ProjectileContact,
+    CloakPulse,
     Location,
     Scroll,
 }
@@ -273,6 +298,19 @@ impl World {
         };
         self.brewed_potions.insert(id, effects);
         id
+    }
+
+    pub(crate) fn slow_time_scale(&self) -> f64 {
+        let slow_percent = self
+            .active_effects
+            .values()
+            .filter_map(|active| {
+                let definition = self.magic_effect(active.effect).ok()?;
+                (definition.data.archetype == SLOW_TIME).then_some(active.magnitude)
+            })
+            .fold(0.0_f32, f32::max)
+            .min(100.0);
+        f64::from(100.0 - slow_percent) / 100.0
     }
 
     /// Seconds remaining before an actor may use a shout again.
@@ -465,6 +503,18 @@ impl World {
                 && self
                     .magic_effect(effect.effect)
                     .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
+        })
+    }
+
+    /// Whether an actor currently has a live Etherealize application.
+    /// The status belongs to the active effect identity, so ending one
+    /// application cannot clear another or an actor's independent ghost flag.
+    pub fn is_ethereal(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == actor
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == ETHEREALIZE)
         })
     }
 
@@ -987,12 +1037,18 @@ impl World {
                 .ok_or(MagicError::Missing(resolution))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            if data.archetype == PEAK_VALUE_MODIFIER {
+                self.peak_value_keyword(effect, &base)?;
+            }
             if !conditions_evaluated
                 && (!entry.conditions.is_empty() || !base.conditions.is_empty())
             {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -1011,6 +1067,11 @@ impl World {
                     | PARALYSIS_ARCHETYPE
                     | CURE_PARALYSIS_ARCHETYPE
                     | 3
+                    | 29
+                    | 31
+                    | 32
+                    | 33
+                    | PEAK_VALUE_MODIFIER
                     | 4
                     | 6
                     | 9
@@ -1053,7 +1114,7 @@ impl World {
             let mut changes = Vec::new();
             if data.archetype == PARALYSIS_ARCHETYPE {
                 changes.push(("paralysis".to_string(), signed));
-            } else if matches!(data.archetype, 0 | 5) {
+            } else if matches!(data.archetype, 0 | 5 | 31 | PEAK_VALUE_MODIFIER) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -1071,6 +1132,11 @@ impl World {
             } else if data.archetype == DEMORALIZE {
                 changes.push(("confidence".to_string(), -magnitude));
             }
+            if data.archetype == 32 {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
+            }
             // An ingestible's effects carry the same dispel archetype and
             // keyword flags a cast spell's do.
             let mut dispel_rules = Vec::new();
@@ -1082,6 +1148,9 @@ impl World {
             }
             if data.archetype == 3 {
                 dispel_rules.push(DispelRule::Disease);
+            }
+            if data.archetype == 29 {
+                dispel_rules.push(DispelRule::Poisons);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -1102,11 +1171,15 @@ impl World {
                     caster,
                     target,
                     magnitude,
-                    duration: Some(if data.flags & NO_DURATION != 0 {
-                        0.0
+                    duration: if data.archetype == 32 && data.flags & NO_DURATION != 0 {
+                        None
                     } else {
-                        f64::from(entry.data.duration)
-                    }),
+                        Some(if data.flags & NO_DURATION != 0 {
+                            0.0
+                        } else {
+                            f64::from(entry.data.duration)
+                        })
+                    },
                     elapsed: 0.0,
                     summoned: None,
                     restore_owner: None,
@@ -1123,6 +1196,15 @@ impl World {
                 lock_level: None,
                 open_lock: false,
                 disarm: false,
+                stagger_duration: (data.archetype == 33)
+                    .then(|| {
+                        self.combat_setting("fStaggerDuration")
+                            .map_err(|_| MagicError::StaggerSetting("fStaggerDuration"))
+                    })
+                    .transpose()?,
+                banish: false,
+                scripted_ref_base: None,
+                scripted_ref_anchor: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -1242,6 +1324,27 @@ impl World {
         if let Some(caster) = caster {
             self.break_invisibility(caster, alloc);
         }
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
+    fn cast_spell_inner(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        _cloak_pulse: bool,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            target,
+            CastDelivery::CloakPulse,
+            None,
+            true,
+        )?;
         self.apply_prepared_effects(prepared, alloc)
     }
 
@@ -1914,7 +2017,10 @@ impl World {
         if cast_delivery == CastDelivery::Location && definition.data.delivery != 4 {
             return Err(MagicError::Unsupported("location delivery"));
         }
-        let concentration = cast_delivery == CastDelivery::Direct && definition.data.cast_type == 2;
+        let concentration = matches!(
+            cast_delivery,
+            CastDelivery::Direct | CastDelivery::CloakPulse
+        ) && definition.data.cast_type == 2;
         if (scroll && definition.data.cast_type != 3)
             || (!scroll && !concentration && !matches!(definition.data.cast_type, 0 | 1))
         {
@@ -1938,6 +2044,15 @@ impl World {
                 target
             }
             3 => target.ok_or(MagicError::Target)?,
+            4 if !definition.effects.is_empty()
+                && definition.effects.iter().all(|entry| {
+                    self.resolve_from(spell, entry.base_effect)
+                        .and_then(|effect| self.magic_effect(effect).ok())
+                        .is_some_and(|effect| effect.data.archetype == SPAWN_SCRIPTED_REF)
+                }) =>
+            {
+                target.unwrap_or(source)
+            }
             4 if cast_delivery == CastDelivery::Location => {
                 let position = location.ok_or(MagicError::Target)?;
                 if !position.iter().all(|value| value.is_finite())
@@ -1964,7 +2079,11 @@ impl World {
                 }
                 source
             }
-            2 if cast_delivery == CastDelivery::ProjectileContact => {
+            2 if matches!(
+                cast_delivery,
+                CastDelivery::ProjectileContact | CastDelivery::CloakPulse
+            ) =>
+            {
                 target.ok_or(MagicError::Target)?
             }
             2 => {
@@ -1986,9 +2105,17 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            if data.archetype == PEAK_VALUE_MODIFIER {
+                self.peak_value_keyword(effect, &base)?;
+            }
+            let condition_target = if data.archetype == SPAWN_SCRIPTED_REF {
+                source
+            } else {
+                target
+            };
             let context = Context {
                 owner: spell,
-                subject: target,
+                subject: condition_target,
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
@@ -2011,6 +2138,9 @@ impl World {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -2040,6 +2170,17 @@ impl World {
                     | LOCK
                     | OPEN
                     | 17
+                    | 35
+                    | 29
+                    | 31
+                    | 32
+                    | 33
+                    | PEAK_VALUE_MODIFIER
+                    | SLOW_TIME
+                    | 39
+                    | ETHEREALIZE
+                    | 42
+                    | SPAWN_SCRIPTED_REF
                     | 45
                     | 10
                     | 20
@@ -2082,13 +2223,38 @@ impl World {
             if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
+            let magnitude = if data.flags & NO_MAGNITUDE != 0 && data.archetype != 35 {
                 0.0
             } else {
                 entry.data.magnitude
             };
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
+            }
+            let signed = if data.flags & DETRIMENTAL != 0 {
+                -magnitude
+            } else {
+                magnitude
+            };
+            let mut changes = Vec::new();
+            if matches!(data.archetype, 0 | 5 | PEAK_VALUE_MODIFIER) {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
+                if data.archetype == 5 {
+                    let name = actor_value_name(data.second_actor_value)
+                        .ok_or(MagicError::Unsupported("secondary actor value"))?;
+                    let amount = signed * data.second_actor_value_weight;
+                    if !amount.is_finite() {
+                        return Err(MagicError::Number);
+                    }
+                    changes.push((name.to_string(), amount));
+                }
+            }
+            if data.archetype == 32 {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
             }
             let summon_base = if data.archetype == 18 {
                 let base = self
@@ -2140,6 +2306,20 @@ impl World {
             } else {
                 None
             };
+            if data.archetype == 35 {
+                let associated = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(associated) != Some(super::T(b"SPEL")) {
+                    return Err(MagicError::Unsupported("cloak associated spell"));
+                }
+                let cloak_spell = self.spell(associated)?;
+                if cloak_spell.data.cast_type != 2 || !matches!(cloak_spell.data.delivery, 2 | 3) {
+                    return Err(MagicError::Unsupported(
+                        "cloak spell must be concentration aimed or target",
+                    ));
+                }
+            }
             let bound_weapon = if data.archetype == 17 {
                 let weapon = self
                     .resolve_from(effect, data.associated_item)
@@ -2159,7 +2339,27 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
-            let duration = if definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD {
+            if data.archetype == 39 {
+                let enchantment = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+                    return Err(MagicError::Unsupported("enhance weapon association"));
+                }
+            }
+            let scripted_ref_base = if data.archetype == SPAWN_SCRIPTED_REF {
+                if definition.data.delivery != 4 || magnitude == 0.0 {
+                    return Err(MagicError::Unsupported(
+                        "scripted reference delivery or magnitude",
+                    ));
+                }
+                Some(self.scripted_ref_base(effect)?)
+            } else {
+                None
+            };
+            let duration = if (definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD)
+                || (data.archetype == 32 && data.flags & NO_DURATION != 0)
+            {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {
@@ -2168,6 +2368,12 @@ impl World {
                     f64::from(entry.data.duration)
                 })
             };
+            let stagger_duration = (data.archetype == 33)
+                .then(|| {
+                    self.combat_setting("fStaggerDuration")
+                        .map_err(|_| MagicError::StaggerSetting("fStaggerDuration"))
+                })
+                .transpose()?;
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
@@ -2177,6 +2383,9 @@ impl World {
             }
             if data.archetype == 3 {
                 dispel_rules.push(DispelRule::Disease);
+            }
+            if data.archetype == 29 {
+                dispel_rules.push(DispelRule::Poisons);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -2192,7 +2401,9 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = if werewolf_race.is_some()
+            let mut recipients = if scripted_ref_base.is_some() {
+                vec![source]
+            } else if werewolf_race.is_some()
                 || vampire_form.is_some()
                 || matches!(data.archetype, LOCK | OPEN)
             {
@@ -2206,6 +2417,7 @@ impl World {
                 recipients.retain(|&id| {
                     self.actor(id)
                         .is_some_and(|actor| !actor.dead && !actor.ghost)
+                        && !self.is_ethereal(id)
                 });
             }
             for recipient in recipients {
@@ -2248,7 +2460,7 @@ impl World {
                     magnitude
                 };
                 let mut recipient_changes = Vec::new();
-                if matches!(data.archetype, 0 | 4 | 5) {
+                if matches!(data.archetype, 0 | 4 | 5 | 31 | 32 | PEAK_VALUE_MODIFIER) {
                     let name = actor_value_name(data.primary_actor_value)
                         .ok_or(MagicError::Unsupported("actor value"))?;
                     recipient_changes.push((
@@ -2305,6 +2517,10 @@ impl World {
                     lock_level,
                     open_lock: data.archetype == OPEN,
                     disarm,
+                    stagger_duration,
+                    banish: data.archetype == 42,
+                    scripted_ref_base,
+                    scripted_ref_anchor: scripted_ref_base.map(|_| target),
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -2313,6 +2529,38 @@ impl World {
             }
         }
         Ok(prepared)
+    }
+
+    fn scripted_ref_base(&self, effect: GlobalFormId) -> Result<GlobalFormId, MagicError> {
+        let effect_ref = self
+            .order
+            .winner_ref(effect)
+            .ok_or(MagicError::Missing(effect))?;
+        let effect_record = self.order.record(effect_ref);
+        let data = effect_record
+            .find(super::T(b"DATA"))
+            .filter(|data| data.len() >= 80)
+            .ok_or(MagicError::Unsupported("scripted reference effect data"))?;
+        let explosion_raw = u32::from_le_bytes([data[76], data[77], data[78], data[79]]);
+        let explosion = self
+            .resolve_from(effect, explosion_raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let explosion_ref = self
+            .order
+            .winner_ref(explosion)
+            .ok_or(MagicError::Missing(explosion))?;
+        let explosion_record = self.order.record(explosion_ref);
+        if explosion_record.tag != super::T(b"EXPL") {
+            return Err(MagicError::Unsupported("scripted reference explosion"));
+        }
+        let data = explosion_record
+            .find(super::T(b"DATA"))
+            .filter(|data| matches!(data.len(), 40 | 44 | 48 | 52))
+            .ok_or(MagicError::Unsupported("scripted reference explosion data"))?;
+        let base_raw = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+        self.resolve_from(explosion, base_raw)
+            .filter(|base| self.tag_of(*base).is_some())
+            .ok_or(MagicError::Missing(explosion))
     }
 
     fn apply_prepared_effects(
@@ -2385,6 +2633,14 @@ impl World {
                 }
                 self.inventory_event(prepared.effect.target, weapon, 1, None, alloc);
             }
+            if let Some(duration) = prepared.stagger_duration {
+                self.begin_stagger(
+                    prepared.effect.target,
+                    f64::from(prepared.effect.magnitude),
+                    prepared.effect.caster.or(Some(prepared.effect.source)),
+                    self.clock.real_seconds + duration,
+                );
+            }
             if let Some(base) = prepared.summon_base {
                 let summon = self.place_at(base, prepared.effect.source, false);
                 let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);
@@ -2411,6 +2667,13 @@ impl World {
             }
             if let Some(base) = prepared.light_base {
                 prepared.effect.summoned = Some(self.place_at(base, prepared.effect.target, false));
+            }
+            if let (Some(base), Some(anchor)) =
+                (prepared.scripted_ref_base, prepared.scripted_ref_anchor)
+            {
+                let spawned = self.place_at(base, anchor, false);
+                let object = self.object_of(Handle::Form(spawned), alloc);
+                self.pending.push(Pending::BindReference { object, base });
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(
@@ -2512,10 +2775,42 @@ impl World {
                     },
                 );
             }
+            if self
+                .magic_effect(prepared.effect.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+            {
+                self.cloak_effects.insert(id, CloakState::default());
+            }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+            if prepared.banish {
+                let target_level = self.actor(prepared.effect.target).map(|actor| actor.level);
+                let summon = target_level
+                    .filter(|level| prepared.effect.magnitude >= *level as f32)
+                    .and_then(|_| {
+                        self.active_effects
+                            .values()
+                            .find(|effect| {
+                                effect.summoned == Some(prepared.effect.target)
+                                    && self.reference_ref(prepared.effect.target).is_some_and(
+                                        |reference| {
+                                            reference.is_actor
+                                                && reference.enabled
+                                                && !reference.deleted
+                                        },
+                                    )
+                            })
+                            .map(|effect| effect.id)
+                    });
+                if let Some(summon) = summon {
+                    self.dispel_effect(summon, alloc);
+                }
+            }
+            if prepared.effect.recover
+                || prepared.effect.duration == Some(0.0)
+                || self.is_peak_value_effect(prepared.effect.effect)?
+            {
                 self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
             }
             applied.push(id);
@@ -2692,6 +2987,16 @@ impl World {
                             }
                         }
                     }
+                    DispelRule::Poisons => {
+                        for effect in live.iter() {
+                            if self.tag_of(effect.source) == Some(super::T(b"ALCH"))
+                                && self.ingestible(effect.source)?.data.flags & INGESTIBLE_POISON
+                                    != 0
+                            {
+                                selected.insert(effect.id);
+                            }
+                        }
+                    }
                 }
             }
             for effect in live.iter() {
@@ -2827,8 +3132,18 @@ impl World {
         let Some(effect) = self.active_effects.get(&id).cloned() else {
             return false;
         };
-        if effect.recover && self.apply_effect_values(&effect, -1.0, alloc).is_err() {
+        if (effect.recover || self.is_peak_value_effect(effect.effect).unwrap_or(false))
+            && self.apply_effect_values(&effect, -1.0, alloc).is_err()
+        {
             return false;
+        }
+        if let Some(cloak) = self.cloak_effects.remove(&id) {
+            for owned in cloak.owned {
+                self.dispel_effect(owned, alloc);
+            }
+        }
+        for cloak in self.cloak_effects.values_mut() {
+            cloak.owned.retain(|owned| *owned != id);
         }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
@@ -2938,6 +3253,21 @@ impl World {
                 self.dispel_effect(id, alloc);
                 continue;
             }
+            if self.cloak_effects.contains_key(&id) {
+                if let Err(error) = self.tick_cloak(id, seconds, alloc) {
+                    errors.push(error);
+                    continue;
+                }
+                let expired = self.active_effects.get(&id).is_some_and(|current| {
+                    current
+                        .duration
+                        .is_some_and(|duration| current.elapsed >= duration)
+                });
+                if expired {
+                    self.dispel_effect(id, alloc);
+                }
+                continue;
+            }
             let spell_conditions = if self.tag_of(effect.spell) == Some(super::T(b"SPEL")) {
                 match self
                     .magic_item_effect(effect.spell, effect.effect_index)
@@ -2975,8 +3305,20 @@ impl World {
                     break;
                 }
                 let reached_check = spell_conditions && dt + 1e-9 >= to_check;
-                if !effect.recover && effect.duration != Some(0.0) {
-                    if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
+                if effect.duration != Some(0.0) {
+                    let result = if self
+                        .magic_effect(effect.effect)
+                        .is_ok_and(|base| base.data.archetype == 32)
+                    {
+                        self.accumulate_effect_value(&effect, dt)
+                    } else if !effect.recover
+                        && !self.is_peak_value_effect(effect.effect).unwrap_or(false)
+                    {
+                        self.apply_effect_values(&effect, dt, alloc)
+                    } else {
+                        Ok(())
+                    };
+                    if let Err(error) = result {
                         errors.push(error);
                         failed = true;
                         break;
@@ -3025,6 +3367,81 @@ impl World {
         errors
     }
 
+    fn accumulate_effect_value(
+        &mut self,
+        effect: &ActiveEffect,
+        seconds: f64,
+    ) -> Result<(), MagicError> {
+        let (name, _) = effect.changes.first().ok_or(MagicError::Number)?;
+        let rate = match self.game_setting("fMagicWardPowerMaxBase") {
+            Some(Value::Float(rate)) if rate.is_finite() && rate >= 0.0 => f64::from(rate),
+            Some(_) => return Err(MagicError::Number),
+            None => return Err(MagicError::Unsupported("ward power setting")),
+        };
+        let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        let current = f64::from(actor.values.get(name).current());
+        let next = (current + rate * seconds).clamp(0.0, f64::from(effect.magnitude));
+        let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        actor
+            .values
+            .force(name, next as f32)
+            .map_err(|_| MagicError::Number)
+    }
+
+    fn tick_cloak(
+        &mut self,
+        id: EffectId,
+        seconds: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let Some(effect) = self.active_effects.get(&id).cloned() else {
+            return Ok(());
+        };
+        let base = self.magic_effect(effect.effect)?;
+        let associated = self
+            .resolve_from(effect.effect, base.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let radius = effect.magnitude;
+        let dt = effect.duration.map_or(seconds, |duration| {
+            seconds.min((duration - effect.elapsed).max(0.0))
+        });
+        let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
+        state.elapsed = (state.elapsed + dt).min(f64::MAX);
+        while self
+            .cloak_effects
+            .get(&id)
+            .is_some_and(|state| state.elapsed >= CLOAK_CADENCE)
+        {
+            let old_owned = {
+                let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
+                state.elapsed -= CLOAK_CADENCE;
+                std::mem::take(&mut state.owned)
+            };
+            for child in old_owned {
+                self.dispel_effect(child, alloc);
+            }
+            let targets = self.area_targets(effect.target, radius);
+            let mut owned = Vec::new();
+            for target in targets {
+                owned.extend(self.cast_spell_inner(
+                    associated,
+                    target,
+                    effect.caster,
+                    Some(target),
+                    true,
+                    alloc,
+                )?);
+            }
+            if let Some(state) = self.cloak_effects.get_mut(&id) {
+                state.owned = owned;
+            }
+        }
+        if let Some(active) = self.active_effects.get_mut(&id) {
+            active.elapsed = (active.elapsed + dt).min(f64::MAX);
+        }
+        Ok(())
+    }
+
     fn spell_effect_conditions_hold(&mut self, effect: &ActiveEffect) -> Result<bool, MagicError> {
         let definition = self.spell(effect.spell)?;
         let entry = definition
@@ -3062,7 +3479,17 @@ impl World {
         let (protected, essential) = (actor.protected, actor.essential);
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
-        change_values(&mut values, effect, scale)?;
+        let mut applicable = effect.clone();
+        if self.is_ethereal(effect.target) {
+            applicable
+                .changes
+                .retain(|(name, amount)| name != "health" || f64::from(*amount) * scale >= 0.0);
+        }
+        if self.is_peak_value_effect(effect.effect)? {
+            self.change_peak_value(&mut values, &applicable, scale)?;
+        } else {
+            change_values(&mut values, &applicable, scale)?;
+        }
         let touches_health = effect.changes.iter().any(|(name, _)| name == "health");
         // The caster stands in for melee_hit's attacker (combat.rs,
         // CMB-13/CMB-34): a merely protected, non-essential actor still
@@ -3140,6 +3567,88 @@ impl World {
             self.kill_actor(effect.target, effect.caster);
         }
         Ok(())
+    }
+
+    fn is_peak_value_effect(&self, effect: GlobalFormId) -> Result<bool, MagicError> {
+        Ok(self.magic_effect(effect)?.data.archetype == PEAK_VALUE_MODIFIER)
+    }
+
+    fn peak_value_keyword(
+        &self,
+        effect: GlobalFormId,
+        definition: &MagicEffect,
+    ) -> Result<GlobalFormId, MagicError> {
+        let keyword = self
+            .resolve_from(effect, definition.data.associated_item)
+            .ok_or(MagicError::Missing(effect))?;
+        if self.tag_of(keyword) != Some(super::T(b"KYWD")) {
+            return Err(MagicError::Unsupported("peak value keyword"));
+        }
+        Ok(keyword)
+    }
+
+    /// Apply only the strongest active modifier sharing this MGEF's keyword
+    /// and primary actor value. The group is rebuilt from winning records and
+    /// live applications, so expiration needs no additional saved state.
+    fn change_peak_value(
+        &self,
+        values: &mut crate::actor_values::Values,
+        effect: &ActiveEffect,
+        scale: f64,
+    ) -> Result<(), MagicError> {
+        let definition = self.magic_effect(effect.effect)?;
+        let keyword = self.peak_value_keyword(effect.effect, &definition)?;
+        let Some((actor_value, _)) = effect.changes.first() else {
+            return Err(MagicError::Unsupported("peak value actor value"));
+        };
+        let candidate = |active: &ActiveEffect| -> Result<Option<f32>, MagicError> {
+            if active.target != effect.target {
+                return Ok(None);
+            }
+            let active_definition = self.magic_effect(active.effect)?;
+            if active_definition.data.archetype != PEAK_VALUE_MODIFIER {
+                return Ok(None);
+            }
+            let active_keyword = self.peak_value_keyword(active.effect, &active_definition)?;
+            if active_keyword != keyword {
+                return Ok(None);
+            }
+            Ok(active
+                .changes
+                .iter()
+                .find(|(name, _)| name == actor_value)
+                .map(|(_, amount)| *amount))
+        };
+        let without_current = self
+            .active_effects
+            .values()
+            .filter(|active| active.id != effect.id)
+            .map(candidate)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .fold(None, |peak: Option<f32>, amount| {
+                Some(peak.map_or(amount, |current| current.max(amount)))
+            });
+        let with_current = self
+            .active_effects
+            .values()
+            .map(candidate)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .fold(None, |peak: Option<f32>, amount| {
+                Some(peak.map_or(amount, |current| current.max(amount)))
+            });
+        let (before, after) = if scale < 0.0 {
+            (with_current.unwrap_or(0.0), without_current.unwrap_or(0.0))
+        } else {
+            (without_current.unwrap_or(0.0), with_current.unwrap_or(0.0))
+        };
+        let delta = after - before;
+        values
+            .modify_temporary(actor_value, delta)
+            .map_err(|_| MagicError::Number)
     }
 }
 
@@ -3241,6 +3750,32 @@ pub(super) fn validate_vampire_lord_state(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+impl World {
+    pub(crate) fn make_commanded_for_test(&mut self, target: GlobalFormId) {
+        let id = EffectId(1);
+        self.active_effects.insert(
+            id,
+            ActiveEffect {
+                id,
+                spell: target,
+                effect: target,
+                effect_index: 0,
+                source: target,
+                caster: None,
+                target,
+                magnitude: 1.0,
+                duration: None,
+                elapsed: 0.0,
+                summoned: None,
+                restore_owner: Some(PriorOwner::Unowned),
+                recover: false,
+                changes: Vec::new(),
+            },
+        );
+    }
 }
 
 fn change_values(

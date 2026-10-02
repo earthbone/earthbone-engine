@@ -420,6 +420,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.bool(a.dead);
     h.bool(a.in_combat);
     h.bool(a.teammate);
+    h.bool(a.can_do_favors);
     h.bool(a.ghost);
     h.bool(a.essential);
     h.bool(a.protected);
@@ -528,6 +529,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.bool(a.stagger_end_time.is_some());
+    if let Some(until) = a.stagger_end_time {
+        h.f64(until);
+    }
+    h.f64(a.stagger_magnitude);
+    opt_form(h, a.stagger_direction);
+    h.bool(a.trespassing);
     h.u32(a.days_in_jail);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
@@ -609,6 +617,21 @@ impl World {
             form(h, *id);
             actor_state(h, a);
         });
+        h.len(self.follower_services.len());
+        for (actor, service) in &self.follower_services {
+            form(&mut h, *actor);
+            form(&mut h, service.package);
+            form(&mut h, service.faction);
+            match service.previous_faction_rank {
+                Some(rank) => {
+                    h.u8(1);
+                    h.i32(rank);
+                }
+                None => h.u8(0),
+            }
+            h.bool(service.previous_teammate);
+            h.bool(service.previous_can_do_favors);
+        }
         let mut templates = soe_papyrus::vm::state::Writer::new();
         self.write_actor_templates(&mut templates);
         h.bytes(&templates.out);
@@ -683,6 +706,11 @@ impl World {
                     h.u8(2);
                     h.u64(object.0);
                     form(&mut h, *effect);
+                }
+                Pending::BindReference { object, base } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    form(&mut h, *base);
                 }
                 Pending::Event { object, name, args } => {
                     h.u8(0);
@@ -934,6 +962,7 @@ impl World {
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
+        self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
         h.len(self.brewed_potions.len());
@@ -1199,6 +1228,15 @@ mod tests {
             actor(w).sleep_outfit = Some(id(9));
         });
         moves("killer", actors, |w| actor(w).killer = Some(id(9)));
+        moves("stagger_end_time", actors, |w| {
+            actor(w).stagger_end_time = Some(1.0);
+        });
+        moves("stagger_magnitude", actors, |w| {
+            actor(w).stagger_magnitude = 0.5;
+        });
+        moves("stagger_direction", actors, |w| {
+            actor(w).stagger_direction = Some(id(9));
+        });
         moves("graph_floats", actors, |w| {
             actor(w).graph_floats.insert("speed".into(), 1.0);
         });

@@ -587,6 +587,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
+        actor.stagger_magnitude = 0.0;
+        actor.stagger_direction = None;
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! DDS textures as the engine reads them: the container, the format, and a
-//! decoder from every block format Skyrim SE ships (BC1, BC2, BC3, BC4, BC5,
-//! BC7) plus uncompressed pixels to RGBA8, mip by mip. The `encode` feature
+//! DDS textures as the engine reads them: the container, supported formats,
+//! and decoders from block formats to RGBA8, mip by mip. The `encode` feature
 //! adds the re-encode path the mod manager's `TransformedTexture` step uses,
 //! so both sides of the project read and write textures through one crate.
 //!
@@ -272,13 +271,11 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_formats_name_themselves() {
+    fn bc6h_decodes_and_unknown_formats_name_themselves() {
         let bytes = synthetic(*b"DX10", Some(dxgi::BC6H_UF16), 4, 4, 1, &[0u8; 16]);
-        let err = Dds::parse(&bytes).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "unsupported texture format: BC6H half-float"
-        );
+        let dds = Dds::parse(&bytes).unwrap();
+        assert_eq!(dds.format(), Format::Bc6h { signed: false });
+        assert!(dds.decode(0, 0).is_ok());
         let bytes = synthetic(*b"DXT9", None, 4, 4, 1, &[0u8; 16]);
         assert!(matches!(
             Dds::parse(&bytes),

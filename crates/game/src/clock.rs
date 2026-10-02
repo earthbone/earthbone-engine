@@ -76,9 +76,13 @@ impl Default for GameClock {
 
 impl GameClock {
     pub fn advance(&mut self, real_seconds: f64) {
+        self.advance_scaled(real_seconds, 1.0);
+    }
+
+    pub(crate) fn advance_scaled(&mut self, real_seconds: f64, game_time_scale: f64) {
         let dt = real_seconds.max(0.0);
         self.real_seconds += dt;
-        self.game_days += dt * self.timescale / 86_400.0;
+        self.game_days += dt * self.timescale * game_time_scale / 86_400.0;
     }
 
     pub fn game_hours(&self) -> f64 {

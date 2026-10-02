@@ -175,8 +175,8 @@ impl Collider {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Collected {
     pub colliders: Vec<Collider>,
-    /// Authored character-controller phantoms. These
-    /// are never inserted into the static collision world automatically.
+    /// Decoded simple-shape phantoms. These are never inserted into the
+    /// static collision world automatically.
     pub phantoms: Vec<Phantom>,
     /// Blocks that were referenced but not decoded, with the reason.
     pub skipped: Vec<(BlockRef, String)>,
@@ -195,8 +195,155 @@ impl Collected {
     /// [`controller_shape`] resolves the same question when picking which
     /// authored phantom to use.
     pub fn has_authored_controller(&self) -> bool {
-        !self.phantoms.is_empty()
+        self.phantoms
+            .iter()
+            .any(|phantom| phantom.layer == Layer::CHAR_CONTROLLER)
     }
+}
+
+/// Samples the convex shell at support vertices. Axis directions preserve the
+/// exact Havok surface offset on bounds, while diagonal directions retain its
+/// rounded corners without multiplying large vertex sets.
+fn convex_shell_points(vertices: &[Vec3], radius: f32) -> Vec<Vec3> {
+    if radius == 0.0 {
+        return vertices.to_vec();
+    }
+
+    let mut directions = Vec::with_capacity(26);
+    for x in -1..=1 {
+        for y in -1..=1 {
+            for z in -1..=1 {
+                let direction = Vec3::new(x as f32, y as f32, z as f32);
+                if direction != Vec3::ZERO {
+                    directions.push(direction.normalized());
+                }
+            }
+        }
+    }
+
+    let mut points = vertices.to_vec();
+    points.reserve(directions.len());
+    for direction in directions {
+        let support = vertices
+            .iter()
+            .copied()
+            .max_by(|a, b| a.dot(direction).total_cmp(&b.dot(direction)))
+            .unwrap_or(Vec3::ZERO);
+        points.push(support + direction * radius);
+    }
+    points
+}
+
+/// Sample the two circular ends of a cylinder as a convex point set. The
+/// radial samples keep the authored radius, while the axis endpoints retain
+/// the cylinder's exact height in the convex hull.
+fn cylinder_points(first: Vec3, second: Vec3, radius: f32) -> Vec<Vec3> {
+    const SIDES: usize = 32;
+    let axis = (second - first).normalized();
+    let reference = if axis.z.abs() < 0.9 {
+        Vec3::new(0.0, 0.0, 1.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u = axis.cross(reference).normalized();
+    let v = axis.cross(u).normalized();
+    let mut points = Vec::with_capacity(SIDES * 2);
+    for endpoint in [first, second] {
+        for side in 0..SIDES {
+            let angle = std::f32::consts::TAU * side as f32 / SIDES as f32;
+            let radial = u * angle.cos() + v * angle.sin();
+            points.push(endpoint + radial * radius);
+        }
+    }
+    points
+}
+
+/// Intersect a plane with the AABB Havok uses to bound its broad-phase work.
+fn plane_mesh(normal: Vec3, distance: f32, half_extents: Vec3, center: Vec3) -> Option<Shape> {
+    let normal_length = normal.length();
+    let normal = normal * (1.0 / normal_length);
+    let distance = distance / normal_length;
+    let corners: Vec<Vec3> = (0..8)
+        .map(|i| {
+            center
+                + Vec3::new(
+                    if i & 1 == 0 {
+                        -half_extents.x
+                    } else {
+                        half_extents.x
+                    },
+                    if i & 2 == 0 {
+                        -half_extents.y
+                    } else {
+                        half_extents.y
+                    },
+                    if i & 4 == 0 {
+                        -half_extents.z
+                    } else {
+                        half_extents.z
+                    },
+                )
+        })
+        .collect();
+    let signed_distance = |point: Vec3| normal.dot(point) - distance;
+    let mut vertices = Vec::new();
+    let add_unique = |vertices: &mut Vec<Vec3>, point: Vec3| {
+        if vertices
+            .iter()
+            .all(|other| (*other - point).length() > 1e-5)
+        {
+            vertices.push(point);
+        }
+    };
+
+    for (index, first) in corners.iter().copied().enumerate() {
+        for axis in [1, 2, 4] {
+            if index & axis != 0 {
+                continue;
+            }
+            let second = corners[index | axis];
+            let first_distance = signed_distance(first);
+            let second_distance = signed_distance(second);
+            if first_distance.abs() <= 1e-5 {
+                add_unique(&mut vertices, first);
+            }
+            if second_distance.abs() <= 1e-5 {
+                add_unique(&mut vertices, second);
+            }
+            if (first_distance < 0.0 && second_distance > 0.0)
+                || (first_distance > 0.0 && second_distance < 0.0)
+            {
+                let fraction = first_distance / (first_distance - second_distance);
+                add_unique(&mut vertices, first + (second - first) * fraction);
+            }
+        }
+    }
+    if vertices.len() < 3 {
+        return None;
+    }
+
+    let center =
+        vertices.iter().copied().fold(Vec3::ZERO, |sum, p| sum + p) * (1.0 / vertices.len() as f32);
+    let reference = if normal.z.abs() < 0.9 {
+        Vec3::Z
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u = reference.cross(normal).normalized();
+    let v = normal.cross(u);
+    vertices.sort_by(|a, b| {
+        let angle_a = (*a - center).dot(v).atan2((*a - center).dot(u));
+        let angle_b = (*b - center).dot(v).atan2((*b - center).dot(u));
+        angle_a.total_cmp(&angle_b)
+    });
+    let triangles = (1..vertices.len() - 1)
+        .map(|i| [0, i as u32, (i + 1) as u32])
+        .collect();
+    Some(Shape::TriangleMesh {
+        vertices,
+        triangles,
+        materials: Vec::new(),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -296,6 +443,7 @@ pub fn controller_shape(collected: &Collected, scale: f32) -> (Iso, Shape) {
     let authored = collected
         .phantoms
         .iter()
+        .filter(|phantom| phantom.layer == Layer::CHAR_CONTROLLER)
         .max_by(|a, b| extent(&a.shape).total_cmp(&extent(&b.shape)));
     match authored {
         Some(phantom) => (phantom.transform, phantom.shape.clone()),
@@ -438,12 +586,6 @@ impl<'a> Walker<'a> {
         };
         let body = match self.bhk(body_ref)? {
             Some(Bhk::SimpleShapePhantom(body)) => {
-                if body.layer != Layer::CHAR_CONTROLLER {
-                    self.out
-                        .skipped
-                        .push((body_ref, "non-controller phantom".into()));
-                    return Ok(());
-                }
                 let previous_skips = self.out.skipped.len();
                 if let Some(shape) = self.shape(body.shape, 0)? {
                     let local = Iso {
@@ -519,15 +661,31 @@ impl<'a> Walker<'a> {
         let material = match &b {
             Bhk::Box { material, .. }
             | Bhk::Sphere { material, .. }
+            | Bhk::Plane { material, .. }
             | Bhk::Capsule { material, .. }
+            | Bhk::Cylinder { material, .. }
             | Bhk::ConvexVertices { material, .. }
             | Bhk::Transform { material, .. }
-            | Bhk::List { material, .. } => Some(*material),
+            | Bhk::List { material, .. }
+            | Bhk::NiTriStrips { material, .. } => Some(*material),
             _ => None,
         };
         let shape = match b {
-            Bhk::Box { half_extents, .. } => Some(Shape::Box { half_extents }),
+            Bhk::Box {
+                radius,
+                half_extents,
+                ..
+            } => Some(Shape::Box {
+                half_extents: half_extents + Vec3::new(radius, radius, radius),
+            }),
             Bhk::Sphere { radius, .. } => Some(Shape::Sphere { radius }),
+            Bhk::Plane {
+                normal,
+                distance,
+                half_extents,
+                center,
+                ..
+            } => plane_mesh(normal, distance, half_extents, center),
             Bhk::Capsule {
                 radius,
                 first,
@@ -538,14 +696,27 @@ impl<'a> Walker<'a> {
                 b: second,
                 radius,
             }),
-            Bhk::ConvexVertices { vertices, .. } => {
+            Bhk::Cylinder {
+                shell_radius,
+                radius,
+                first,
+                second,
+                ..
+            } => Some(Shape::ConvexHull {
+                points: cylinder_points(first, second, radius + shell_radius),
+            }),
+            Bhk::ConvexVertices {
+                radius, vertices, ..
+            } => {
                 if vertices.len() < 4 {
                     self.out
                         .skipped
                         .push((r, "convex shape with fewer than four points".into()));
                     None
                 } else {
-                    Some(Shape::ConvexHull { points: vertices })
+                    Some(Shape::ConvexHull {
+                        points: convex_shell_points(&vertices, radius),
+                    })
                 }
             }
             Bhk::Transform {
@@ -593,12 +764,67 @@ impl<'a> Walker<'a> {
                     None
                 }
             },
+            Bhk::NiTriStrips { strips, scale, .. } => {
+                let mut vertices = Vec::new();
+                let mut triangles = Vec::new();
+                let mut materials = Vec::new();
+                for strip_ref in strips {
+                    match self.block(strip_ref) {
+                        Some(Block::GeometryData(data)) if data.from_strips => {
+                            let base = u32::try_from(vertices.len()).map_err(|_| {
+                                Error::Invalid("triangle strip mesh has too many vertices".into())
+                            })?;
+                            let local_vertex_count = data.vertices.len();
+                            vertices.extend(
+                                data.vertices.iter().map(|v| {
+                                    Vec3::new(v.x * scale.x, v.y * scale.y, v.z * scale.z)
+                                }),
+                            );
+                            for (index, triangle) in data.triangles.iter().enumerate() {
+                                if triangle
+                                    .iter()
+                                    .any(|vertex| usize::from(*vertex) >= local_vertex_count)
+                                {
+                                    return Err(Error::Invalid(format!(
+                                        "triangle strip block {} triangle {index} indexes past its vertices",
+                                        strip_ref.get().unwrap_or_default()
+                                    )));
+                                }
+                                triangles.push([
+                                    base + u32::from(triangle[0]),
+                                    base + u32::from(triangle[1]),
+                                    base + u32::from(triangle[2]),
+                                ]);
+                                materials.push(material);
+                            }
+                        }
+                        Some(Block::GeometryData(_)) => self.out.skipped.push((
+                            strip_ref,
+                            "triangle strip reference is not NiTriStripsData".into(),
+                        )),
+                        Some(_) | None => self.out.skipped.push((
+                            strip_ref,
+                            "triangle strip reference is not geometry data".into(),
+                        )),
+                    }
+                }
+                if triangles.is_empty() {
+                    None
+                } else {
+                    Some(Shape::TriangleMesh {
+                        vertices,
+                        triangles,
+                        materials,
+                    })
+                }
+            }
             Bhk::Other(t) => {
                 self.out.skipped.push((r, format!("shape {t}")));
                 None
             }
             Bhk::CollisionObject { .. }
             | Bhk::RigidBody(_)
+            | Bhk::LimitedHingeConstraint(_)
             | Bhk::SimpleShapePhantom(_)
             | Bhk::CompressedMeshData(_) => {
                 self.out
