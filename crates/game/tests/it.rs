@@ -1040,6 +1040,8 @@ mod scr_09_adversarial;
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_10_breaker_adversarial.rs"]
+mod scr_10_breaker_adversarial;
 #[path = "scr_11_adversarial.rs"]
 mod scr_11_adversarial;
 #[path = "scr_12_adversarial.rs"]
