@@ -536,6 +536,15 @@ requested. Each rendered block remains keyed by its worldspace and
 their source identity because the merged file does not encode individual
 placed-reference identities.
 
+`terrain_lod_stats` and `object_lod_stats` report each stream's resident
+block coordinates in the `blocks` field as space-separated
+`level:x:y` entries, alongside drawn instance and triangle counts. The live
+RND-10 renderer check streams a radius-2 exterior area and real BTR and BTO
+blocks in the same scenario, then checks that the LOD block squares do not
+cover any coordinate in that near area. This exercises the handoff through
+`RenderingServer` instances without treating BTO surfaces as individual
+placed references.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
@@ -1100,8 +1109,12 @@ the rendering path on Godot's existing mesh and material servers without adding 
 `rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
 `LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
 terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
-RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
-block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+RenderingServer instances and albedo resources, then renders a terrain instance in the main
+viewport and checks the captured frame for visible, varied, non-white terrain pixels. The
+inspection rows include each terrain instance's bounds center so the camera can frame that
+surface without using unrelated cell geometry.
+`godot/pan_capture.gd` orbits and pans that block through 25 shots for a quick visual sweep.
+Distant geometry is Bethesda's precomputed
 LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
@@ -1403,7 +1416,7 @@ rotation twice instead of cancelling it.
 
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
-walking. Materials are still unwired, so they are unlit grey.
+walking.
 
 ## Sound out (2026-09-18, branch `playback`)
 
@@ -3267,7 +3280,15 @@ vanilla texture archives alongside its mesh and animation archives, creates a
 attaches it to the uploaded mesh surface. The installed-data check
 `rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
 that the vanilla male body has authored diffuse paths and that each path
-resolves to image data. This verifies material inputs, not a rendered capture.
+resolves to image data. The windowed check
+`godot/rnd_05_vanilla_npc_material_check.gd` renders that body through
+RenderingServer, captures the 640 by 360 viewport and checks for visible
+character pixels with diffuse color variation. On Godot 4.4.1 with installed
+data, it passed with 4,874 character pixels, 3,093 colored pixels and 17
+quantized color bins. The capture was saved to
+`/tmp/rnd_05_vanilla_npc_material_check.png`. This exercises the vanilla body
+mesh and its authored skin and clothing textures, not a complete NPC head or
+full race appearance assembly.
 
 ## Nearby interior prefetch, HST-07
 
@@ -3827,3 +3848,39 @@ The `PlayerNode` gameplay tick drains transient screenshot paths queued by
 `take_screenshot(path)` entry point calls the same Papyrus native and services
 its request immediately. `godot/hst_19_screenshot_capture_test.gd`
 checks that this path writes a PNG under Godot headless with installed data.
+
+## Per-cell occluders, RND-07
+
+`CellStreamerNode.cell_occluders` optionally creates one RenderingServer
+occluder mesh and instance for each streamed cell. `batch::cell_occluder_mesh`
+selects at most four nonempty opaque static surfaces by descending triangle
+count, keeps source order for equal counts, and applies a `MultiMesh` surface's
+instance transform before combining its vertices. Skinned, blend and cutout
+surfaces are excluded. Cell release and node cleanup free both occluder RIDs.
+The export defaults to off.
+
+Godot 4.4's `tutorials/3d/occlusion_culling.rst` requires a simplified
+occluder representation made from static objects. Skinned actor surfaces
+change with their skeleton, so including them in the generated stationary
+mesh would leave stale occlusion as the actor moves.
+
+The candidate is based on Godot's local `engine-refs/godot-docs` sources:
+`classes/class_arrayoccluder3d.rst` documents the procedural vertex and index
+mesh, and `tutorials/3d/occlusion_culling.rst` explains that Godot CPU
+rasterizes occluders and that scenes with few occlusion opportunities can
+lose performance.
+
+The 2026-10-02 comparison used the installed Whiterun Bannered Mare cell,
+Godot 4.4.1 Forward+, llvmpipe, a 640 by 360 window with the benchmark's fixed
+1600 by 900 render target, and three 600-frame samples per mode. Both modes
+drew 189,506 triangles with 145 RenderingServer instances. With occluders off,
+the p99 samples were 40.514, 40.018 and 44.655 ms, median 40.514 ms. With
+occluders on, they were 39.019, 41.130 and 46.134 ms, median 41.130 ms. The
+enabled median was 0.616 ms higher, so the export remains off. These results
+are specific to this scene, machine and renderer.
+
+`crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
+input, deterministic source ordering for ties, top-four opaque selection,
+valid combined indices and transformed `MultiMesh` placement. The frame-time
+comparison was run through `godot/bench.gd`. An exterior attempt was rejected
+because its large world coordinates produced zero rendered primitives.
