@@ -21,7 +21,17 @@ impl World {
 
     /// Set the reference currently held by the host player.
     pub fn set_grabbed_reference(&mut self, reference: Option<GlobalFormId>) {
+        let previous = self.grabbed_reference;
+        if previous == reference {
+            return;
+        }
         self.grabbed_reference = reference;
+        if let Some(previous) = previous {
+            self.commonlib_grab_release(previous, false);
+        }
+        if let Some(reference) = reference {
+            self.commonlib_grab_release(reference, true);
+        }
     }
 
     /// Return the reference currently held by the host player.

@@ -187,18 +187,18 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   not stored by the runtime, so the adapter reports it as unsupported. Binary
   address and vtable hooks have no runtime target.
 
-`World::commonlib_event_sources` exposes the in-process CommonLib event
-channels for disarm, dragon souls gained, level increase and location
-discovery. The matching `commonlib_*` methods send those event payloads to
-registered sinks. Form identities retain both the load-order file index and
-object id. Level increase reads `player_level` and the current player identity
-from the live world, and rejects levels outside the event's `u16` field before
-dispatch. These events add no saved state. Disarm, dragon soul awards and
-location discovery are event entry points for their gameplay callers. This
-crate does not currently implement those gameplay systems. Binary hook
-requests return the requested hook name as an unsupported result without
-changing runtime state. The corresponding source-level API and C++ contract
-fixture are in `crates/commonlib-shim`.
+`World::commonlib_event_sources` exposes in-process CommonLib event channels.
+The disarm, dragon soul, level and location channels have explicit event entry
+points. The grab and release channel follows held-reference changes, harvest
+follows a successful `World::harvest_item` inventory addition, hit follows a
+committed melee contact, object loaded follows reference 3D residency changes,
+and quest stage follows a successful defined stage change. Quest stage events
+use item index zero because quest log callbacks are not run individually here.
+Form and reference identities use the live load order's runtime IDs. These
+channels add no saved state. Binary hook requests return the requested hook
+name as an unsupported result without changing runtime state. Event payloads,
+the generated C++ declarations and the corresponding local CommonLib source
+headers are documented in `docs/shim.md`.
 
 ## Design
 

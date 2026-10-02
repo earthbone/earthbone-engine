@@ -459,6 +459,7 @@ impl World {
         if (was_running || started) && !is_running {
             self.send_quest_start_stop(id, false);
         }
+        self.commonlib_quest_stage(id, stage);
         true
     }
 
