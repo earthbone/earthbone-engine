@@ -8,6 +8,7 @@ use soe_audio::{fuz, SoundSource};
 use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
 use soe_esm::{FileHeader, Plugin};
 use soe_godot_host::data_source::vfs_from_loadout;
+use soe_profile::LoadoutInput;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -32,8 +33,8 @@ fn wave() -> Vec<u8> {
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_bytes.to_le_bytes());
     for frame in 0..frames {
-        // CONTEXT: Voice clips can begin with silence longer than 150 ms.
-        let sample = if frame < sample_rate as usize / 4 {
+        // Voice assets can begin with silence longer than a mixer buffer.
+        let sample = if frame < frames / 4 {
             0
         } else {
             ((frame as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin() * 12_000.0)
@@ -142,7 +143,7 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
     write_fixture_data(&data, None);
-    let loadout = soe_profile::LoadoutInput::vanilla(fixture.path(), None, None)
+    let loadout = LoadoutInput::vanilla(fixture.path(), None, None)
         .resolve()
         .unwrap();
     let vfs = vfs_from_loadout(&loadout).unwrap();

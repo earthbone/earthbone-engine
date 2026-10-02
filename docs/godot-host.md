@@ -1454,6 +1454,11 @@ would be silent, and 57 are not.
 through `SoundBank::open_data`. The script starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
 player, starts a replacement at a second position, and captures its output.
+Capture polls for signal until the stream duration plus half a second, since
+voice assets can start with silence. The generated WAV fixture includes a
+quarter second of leading silence. The capture buffer is cleared between
+responses using Godot's `AudioEffectCapture` API, documented in local
+`engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
 Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
@@ -2069,10 +2074,17 @@ shared Game, then successful picks resume ordinary activation. The
 `hst_03_lockpick_handoff.gd` runtime test uses the synthetic
 `inventory_fixture` records to activate a keyless locked door, submit the
 record-derived successful angle, activate the unlocked door and reject a
-level 255 key-only door. Generate the fixture with
+level 255 key-only door. `ui_08_lockpicking.gd` drives the same Godot controls
+through a failed turn, checks the remaining pick in the native inventory, then
+completes a successful turn and activates the door. The fixture starts with two
+lockpicks so both outcomes run in one session. Generate the fixture with
 `cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
-"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
-in the disposable Godot project used for host runtime tests.
+"$SKYRIM_DATA"`, then run the script with the fixture path:
+
+```sh
+rtk env SOE_UI_TEST_DATA=/tmp/soe-hst-03 "$SOE_GODOT_BIN" --path godot --script \
+  "$PWD/crates/godot-host/tests/ui_08_lockpicking.gd" --resolution 640x360
+```
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2688,12 +2700,15 @@ execution is not part of this HUD.
 `ui_06_hud.rs` checks all three shared actor values, current and modified
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
-The controls compile with gdext, but their appearance in a running Godot
-window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
-in the installed Bannered Mare cell and checks viewport pixels in the three
-meter labels, bars and compass after Godot processes frames. The synthetic
-Rust update test changes all three shared actor values and checks their
-updated fractions.
+The controls compile with gdext, and `godot/ui_06_hud_render_test.gd` checks
+their appearance in a running Godot window. It starts gameplay in the
+installed Bannered Mare cell, checks viewport pixels in the three meter
+labels, bars and compass, damages each player actor value through
+`PlayerNode::damage_player_actor_value`, then checks that the visible labels
+and bar fills update after Godot processes frames. The method applies damage
+to the active shared game and returns false if gameplay is not active or the
+actor value name is invalid. Synthetic Rust tests also change all three
+shared actor values and check their updated fractions.
 
 Run the host check with the release extension loaded and installed data set:
 
@@ -2894,7 +2909,9 @@ own.
 synthetic quest records, including a stage change that replaces the displayed
 objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
 shared Game in Bannered Mare and checks that the native menu panel and quest
-text controls are populated. Run it after building the extension and importing
+text controls are populated. It then changes MQ101 to stage 10 through the
+PlayerNode host bridge and checks that the open menu rows change on a later
+process frame. Run it after building the extension and importing
 the Godot project with
 `SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
 This verifies the Godot control tree and its text, without asserting a rendered
@@ -2928,14 +2945,14 @@ angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
 A miss consumes a pick and leaves the menu available for another angle. A
 successful turn closes the menu and activates the same reference through the
 ordinary Game path. The menu is presenter state only. The
-`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
-synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
-xEdit's XLOC definition establish lock state, level bands and the key-only
-level 255 case. The angle rule is the game crate policy documented in
-[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
-tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn. Visual presentation and minigame feel remain
-unverified.
+`hst_03_lockpick_handoff.gd` and `ui_08_lockpicking.gd` exercise this PlayerNode
+path against a synthetic keyless door and the shared Game. CK Lock and
+GetLockLevel pages plus xEdit's XLOC definition establish lock state, level
+bands and the key-only level 255 case. The angle rule follows the game crate
+policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The live Godot interaction
+test checks the failed and successful turns. Visual presentation and minigame
+feel remain unverified.
 
 ## Dialogue menu, DLG-10
 

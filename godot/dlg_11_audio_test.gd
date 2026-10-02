@@ -75,6 +75,8 @@ func _run() -> void:
 	_check(not first_player.playing, "interrupted AudioStreamPlayer3D kept playing")
 	await create_timer(0.05).timeout
 	capture.clear_buffer()
+	await create_timer(0.1).timeout
+	capture.clear_buffer()
 	var second_slot: int = bank.call("play_voice", second_path, second_position)
 	_check(second_slot >= 0, "replacement resolved voice did not start: " + str(bank.call("last_error")))
 	if second_slot < 0:
