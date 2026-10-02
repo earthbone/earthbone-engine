@@ -958,6 +958,19 @@ impl PlayerNode {
         self.start_game_runtime()
     }
 
+    /// Apply actor-value damage to the player through the active shared game.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn damage_player_actor_value(&mut self, name: GString, amount: f32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .damage_actor_value(player, &name.to_string(), amount)
+            .is_ok()
+    }
+
     /// Read one reference's current simulated placement in Skyrim units.
     #[func]
     pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {

@@ -2653,12 +2653,15 @@ execution is not part of this HUD.
 `ui_06_hud.rs` checks all three shared actor values, current and modified
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
-The controls compile with gdext, but their appearance in a running Godot
-window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
-in the installed Bannered Mare cell and checks viewport pixels in the three
-meter labels, bars and compass after Godot processes frames. The synthetic
-Rust update test changes all three shared actor values and checks their
-updated fractions.
+The controls compile with gdext, and `godot/ui_06_hud_render_test.gd` checks
+their appearance in a running Godot window. It starts gameplay in the
+installed Bannered Mare cell, checks viewport pixels in the three meter
+labels, bars and compass, damages each player actor value through
+`PlayerNode::damage_player_actor_value`, then checks that the visible labels
+and bar fills update after Godot processes frames. The method applies damage
+to the active shared game and returns false if gameplay is not active or the
+actor value name is invalid. Synthetic Rust tests also change all three
+shared actor values and check their updated fractions.
 
 Run the host check with the release extension loaded and installed data set:
 
