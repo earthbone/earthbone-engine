@@ -910,7 +910,7 @@ stagger deadline and magnitude from the shared `World`, sends the graph's
 real-time deadline expires. Its tracker sends each transition once and sends
 a new start when a later hit extends an active stagger. The local
 `activeragdoll/src/main.cpp::StaggerActor` follows the same graph contract by
-setting `staggerMagnitude` and notifying `staggerStart`; its direction
+setting `staggerMagnitude` and notifying `staggerStart`, its direction
 calculation is not used by this host path.
 
 The CMB-27 installed-data check runs a shared `Game` melee hit, polls the same
