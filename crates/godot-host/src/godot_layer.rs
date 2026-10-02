@@ -167,6 +167,20 @@ struct LodStepCounts {
     released: usize,
 }
 
+fn lod_block_list(lod: &TerrainLodState) -> String {
+    let mut blocks: Vec<_> = lod
+        .streamer
+        .resident_blocks()
+        .map(|block| (block.level.cells(), block.x, block.y))
+        .collect();
+    blocks.sort_unstable();
+    blocks
+        .into_iter()
+        .map(|(level, x, y)| format!("{level}:{x}:{y}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
@@ -1835,7 +1849,8 @@ impl CellStreamerNode {
 
     /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
     /// full_res_radius, lod_radius, budget_bytes, usage_bytes, over_budget,
-    /// resident, absent, instances, triangles, and from the last call
+    /// resident, absent, instances, triangles, blocks as space separated
+    /// level:x:y coordinates, and from the last call
     /// loaded, missing, failed and released. Empty before
     /// `stream_terrain_lod`.
     #[func]
@@ -1858,6 +1873,43 @@ impl CellStreamerNode {
         d.set("over_budget", lod.streamer.over_budget());
         d.set("resident", lod.streamer.resident_count() as i64);
         d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("blocks", lod_block_list(lod).as_str());
+        d.set("instances", drawn.clone().count() as i64);
+        d.set(
+            "triangles",
+            drawn.map(|i| i.triangles).sum::<usize>() as i64,
+        );
+        d.set("loaded", lod.last_step.loaded as i64);
+        d.set("missing", lod.last_step.missing as i64);
+        d.set("failed", lod.last_step.failed as i64);
+        d.set("released", lod.last_step.released as i64);
+        d
+    }
+
+    /// The object LOD state as a dictionary with the same fields as
+    /// `terrain_lod_stats`, including resident block coordinates and drawn
+    /// instance and triangle counts. Empty before `stream_object_lod`.
+    #[func]
+    pub fn object_lod_stats(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        let Some(lod) = self.object_lod.as_ref() else {
+            return d;
+        };
+        let config = lod.streamer.config();
+        let anchor = lod.streamer.anchor();
+        let drawn = lod.blocks.values().flatten();
+        d.set("world", lod.world_editor_id.as_str());
+        d.set("level", i64::from(config.level.cells()));
+        d.set("anchor_x", i64::from(anchor.x));
+        d.set("anchor_y", i64::from(anchor.y));
+        d.set("full_res_radius", i64::from(config.full_res_radius));
+        d.set("lod_radius", i64::from(config.lod_radius));
+        d.set("budget_bytes", config.budget_bytes as i64);
+        d.set("usage_bytes", lod.streamer.usage_bytes() as i64);
+        d.set("over_budget", lod.streamer.over_budget());
+        d.set("resident", lod.streamer.resident_count() as i64);
+        d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("blocks", lod_block_list(lod).as_str());
         d.set("instances", drawn.clone().count() as i64);
         d.set(
             "triangles",

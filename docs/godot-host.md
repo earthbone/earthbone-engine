@@ -522,6 +522,15 @@ requested. Each rendered block remains keyed by its worldspace and
 their source identity because the merged file does not encode individual
 placed-reference identities.
 
+`terrain_lod_stats` and `object_lod_stats` report each stream's resident
+block coordinates in the `blocks` field as space-separated
+`level:x:y` entries, alongside drawn instance and triangle counts. The live
+RND-10 renderer check streams a full-resolution exterior cell and real BTR
+and BTO blocks in the same scenario, then checks that the LOD block squares
+do not cover any of the streamed near cells. This exercises the handoff
+through `RenderingServer` instances without treating BTO surfaces as
+individual placed references.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
