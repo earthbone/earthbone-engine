@@ -122,7 +122,7 @@ impl PlayerNode {
             reference.position = [feet.x, feet.y, feet.z];
             reference.rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         }
-        game.world_mut().change_cell(Some(cell));
+        game.change_cell(Some(cell));
         game.run_until_idle(64);
         self.image_space.sync(&game.world());
         self.effect_shaders.sync(&game.world());
@@ -399,7 +399,7 @@ impl PlayerNode {
                         reference.position = [0.0; 3];
                         reference.cell = Some(cell);
                     }
-                    game.world_mut().change_cell(Some(cell));
+                    game.change_cell(Some(cell));
                     game.run_until_idle(64);
                     if let Some(latent) = latent {
                         self.pending_debug_latents.push(latent);
@@ -735,7 +735,7 @@ impl PlayerNode {
                 let Some(game) = self.game.as_mut() else {
                     return false;
                 };
-                if let Err(error) = game.world_mut().attach_streaming_cells(&entered) {
+                if let Err(error) = game.attach_streaming_cells(&entered) {
                     godot_error!("PlayerNode: {error}");
                     return false;
                 }

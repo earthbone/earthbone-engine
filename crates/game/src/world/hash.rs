@@ -744,6 +744,11 @@ impl World {
                     h.u64(object.0);
                     form(&mut h, *base);
                 }
+                Pending::ReferenceEvent { reference, name } => {
+                    h.u8(6);
+                    form(&mut h, *reference);
+                    h.str(name);
+                }
                 Pending::Event { object, name, args } => {
                     h.u8(0);
                     h.u64(object.0);

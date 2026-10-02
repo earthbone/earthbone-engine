@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "cell_attach_binding.rs"]
+mod cell_attach_binding;
+
 #[path = "actor_attributes_adversarial.rs"]
 mod actor_attributes_adversarial;
 #[path = "actor_skills_adversarial.rs"]

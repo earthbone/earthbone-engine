@@ -3655,6 +3655,11 @@ Open gaps, none closed by this row:
 
 ## Player trigger crossings, HST-14
 
+Player cell changes and streaming arrivals call the Game transition methods.
+Those methods bind attached references and resolve queued cell events before
+returning. This includes startup placement, coc, restored-game placement and
+neighbor resource arrivals. The SCR-01 repair adds no per-reference host nodes.
+
 `PlayerNode::advance_game` submits the player's previous and current world
 positions to `Game::update_trigger_actor_position` after writing the current
 pose into the shared world. The game reads XPRM trigger references in the

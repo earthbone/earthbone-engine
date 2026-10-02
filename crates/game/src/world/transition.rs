@@ -64,6 +64,57 @@ impl World {
         self.attached_cells.contains(&cell)
     }
 
+    pub(crate) fn attached_cell_ids(&self) -> Vec<GlobalFormId> {
+        let mut cells: Vec<_> = self.attached_cells.iter().copied().collect();
+        if let Some(cell) = self.loaded_cell {
+            cells.push(cell);
+        }
+        cells.sort_unstable();
+        cells.dedup();
+        cells
+    }
+
+    pub(crate) fn write_reference_events(&self, out: &mut Writer, _pool: &mut ArrayPool) {
+        let events: Vec<_> = self
+            .pending
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| match event {
+                Pending::ReferenceEvent { reference, name } => Some((index, reference, name)),
+                _ => None,
+            })
+            .collect();
+        out.len(events.len());
+        for (index, reference, name) in events {
+            out.len(index);
+            write_form_id(out, *reference);
+            out.str(name);
+        }
+    }
+
+    pub(crate) fn read_reference_events(
+        world: &mut World,
+        input: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
+        let mut previous = None;
+        for _ in 0..input.len()? {
+            let index = input.len()?;
+            let reference = read_form_id(input)?;
+            let name = input.str()?;
+            if previous.is_some_and(|prior| index <= prior) || index > world.pending.len() {
+                return Err(VmError::State(
+                    "SCR-01 invalid reference event position".into(),
+                ));
+            }
+            previous = Some(index);
+            world
+                .pending
+                .insert(index, Pending::ReferenceEvent { reference, name });
+        }
+        Ok(())
+    }
+
     /// Mark a cell's temporary references to be restored from their records
     /// the next time the cell is loaded.
     ///
@@ -528,17 +579,17 @@ impl World {
         self.pending_unload
     }
 
-    /// The references a cell owns that carry a script, with the VM object
-    /// each one already has.
-    ///
-    /// A reference with no script never got an object, and vanilla sends it
-    /// no event either, so this lookup is also the thing that stops a cell
-    /// change from allocating an object per reference. Whiterun's Bannered
-    /// Mare has hundreds of references and a handful of scripts.
-    fn scripted_in_cell(&mut self, cell: GlobalFormId) -> Vec<(GlobalFormId, ObjectId)> {
+    /// Include unbound VMAD carriers so lazy binding cannot erase cell events.
+    fn scripted_in_cell(&mut self, cell: GlobalFormId) -> Vec<(GlobalFormId, Option<ObjectId>)> {
         let ids = self.cell_reference_ids(cell);
         ids.into_iter()
-            .filter_map(|id| self.objects.get(&Handle::Form(id)).map(|o| (id, *o)))
+            .filter_map(|id| {
+                let object = self.objects.get(&Handle::Form(id)).copied();
+                let has_scripts = self
+                    .record(id)
+                    .is_some_and(|record| record.find(super::T(b"VMAD")).is_some());
+                (object.is_some() || has_scripts).then_some((id, object))
+            })
             .collect()
     }
 
@@ -547,7 +598,7 @@ impl World {
     /// or unload, while the cell events do not.
     fn queue_ref_event(
         &mut self,
-        targets: &[(GlobalFormId, ObjectId)],
+        targets: &[(GlobalFormId, Option<ObjectId>)],
         name: &str,
         enabled_only: bool,
     ) {
@@ -555,10 +606,16 @@ impl World {
             if enabled_only && !self.refs.get(id).is_some_and(|r| r.enabled) {
                 continue;
             }
-            self.pending.push(Pending::Event {
-                object: *object,
-                name: name.into(),
-                args: Vec::new(),
+            self.pending.push(match object {
+                Some(object) => Pending::Event {
+                    object: *object,
+                    name: name.into(),
+                    args: Vec::new(),
+                },
+                None => Pending::ReferenceEvent {
+                    reference: *id,
+                    name: name.into(),
+                },
             });
         }
     }

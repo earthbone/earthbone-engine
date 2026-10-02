@@ -173,7 +173,7 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   `.pex` it answers under `scripts/`, so an install that ships its scripts
   packed rather than loose still has something for the binder to attach.
   `bind` attaches scripts on non-reference forms. Placed-reference scripts
-  attach when their cell is loaded and the VM is pumped, with `bind_cell`
+  attach when their cell is attached and the VM is pumped, with `bind_cell`
   available for a specific cell. Missing PEX files are returned in the
   `BindReport` for the cell. `start` also starts quests flagged Start Game
   Enabled, `tick` advances time, `activate` and `send_event` do what a player
@@ -2963,6 +2963,30 @@ the appearance empty.
 - No native has been checked against its CK wiki page yet, see above.
 
 ## Cell transitions (2026-09-18, branch `transitions`)
+
+The SCR-01 attach-binding repair preserves lazy binding for unattached cells.
+World includes unbound VMAD carriers in its cell-event audience and queues
+`Pending::ReferenceEvent` when a recipient has no VM object. Game binds all
+attached cells, including streaming neighbors, and resolves those recipients
+before dispatch. The Game transition methods expose resolved `Pending::Event`
+entries to host callers. Direct World transitions from natives use the same
+binding path at the next pump, including coc and doorway commits. Prefetching
+alone attaches no scripts and queues no events.
+
+The named SCR-01 world save section preserves unresolved event positions.
+Loading state clears the binding caches, and binding retains existing saved
+script instances and properties. Startup binding does not replay attach events.
+The source rules remain local CK `OnCellAttach_-_ObjectReference.wikitext`
+and `OnLoad_-_ObjectReference.wikitext`, including disabled-reference audiences.
+These pages specify events rather than reusable runtime code, so this repair
+uses the existing World queue and Game binder. The `cell_attach_binding` tests
+cover dispatch, streaming, disabled references, prefetch and save restoration.
+The installed `no_load_screen_live` comparison uses Game transitions because
+the real host now resolves bindings through those calls before exposing events.
+The repaired comparison queues 55 identical events on each path. Validation
+passes 150 game library tests, 102 installed transition tests and 629 host tests,
+including nine `cell_attach_binding` checks. Installed checks used test optimization
+level 1 and the five-master load order.
 
 Walking through a load door. `crates/game/src/world/transition.rs`.
 

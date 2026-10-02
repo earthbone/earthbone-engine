@@ -580,39 +580,135 @@ impl Game {
         self.bind_cell(cell)
     }
 
-    /// Attach scripts on placed references in a cell that has been loaded.
+    /// Attach scripts on placed references in an attached cell, including neighbors.
     /// Calls for the same cell return an empty report after the first call.
     pub fn bind_cell(&mut self, cell: GlobalFormId) -> BindReport {
-        if self.world.borrow().loaded_cell() != Some(cell) {
+        if !self.world.borrow().cell_is_attached(cell)
+            && self.world.borrow().loaded_cell() != Some(cell)
+        {
             return BindReport::default();
         }
         if !self.bound_cells.insert(cell) {
             return BindReport::default();
         }
         let ids = self.world.borrow_mut().cell_reference_ids(cell);
-        let carriers = {
-            let world = self.world.borrow();
-            let order = world.order();
-            ids.into_iter()
-                .filter_map(|id| {
-                    if self.bound_forms.contains(&id) {
-                        return None;
-                    }
-                    let rref = order.winner_ref(id)?;
-                    let record = order.record(rref);
-                    let raw = record.find(Tag::new(b"VMAD"))?;
-                    let vmad = Vmad::parse(raw, record.tag).ok()?;
-                    Some((id, rref.file, vmad))
-                })
-                .collect::<Vec<_>>()
-        };
         let mut report = BindReport::default();
-        for (id, file, vmad) in carriers {
-            if self.bound_forms.insert(id) {
-                self.bind_carrier(id, file, &vmad, &mut report);
-            }
+        for id in ids {
+            self.bind_reference(id, &mut report);
         }
         report
+    }
+
+    fn bind_reference(&mut self, id: GlobalFormId, report: &mut BindReport) {
+        if self.bound_forms.contains(&id) {
+            return;
+        }
+        let carrier = {
+            let world = self.world.borrow();
+            let order = world.order();
+            order.winner_ref(id).and_then(|rref| {
+                let record = order.record(rref);
+                if !is_placed_reference(record.tag) {
+                    return None;
+                }
+                let raw = record.find(Tag::new(b"VMAD"))?;
+                let vmad = Vmad::parse(raw, record.tag).ok()?;
+                Some((rref.file, vmad))
+            })
+        };
+        if let Some((file, mut vmad)) = carrier {
+            // CONTEXT: Restored instances retain their saved property values.
+            if let Some(object) = self.world.borrow().object_id(Handle::Form(id)) {
+                let attached = self.vm.scripts_on(object);
+                vmad.scripts.retain(|entry| {
+                    !attached
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&entry.name))
+                });
+            }
+            self.bound_forms.insert(id);
+            self.bind_carrier(id, file, &vmad, report);
+        }
+    }
+
+    fn prepare_cell_events(&mut self) {
+        let cells = self.world.borrow().attached_cell_ids();
+        for cell in cells {
+            self.bind_cell(cell);
+        }
+        let pending = std::mem::take(&mut self.world.borrow_mut().pending);
+        let mut resolved = Vec::with_capacity(pending.len());
+        let mut report = BindReport::default();
+        for event in pending {
+            match event {
+                Pending::ReferenceEvent { reference, name } => {
+                    self.bind_reference(reference, &mut report);
+                    if let Some(object) = self.world.borrow().object_id(Handle::Form(reference)) {
+                        resolved.push(Pending::Event {
+                            object,
+                            name,
+                            args: Vec::new(),
+                        });
+                    }
+                }
+                Pending::Event { object, name, args } => {
+                    if matches!(
+                        name.as_str(),
+                        "OnCellAttach" | "OnCellLoad" | "OnLoad" | "OnCellDetach" | "OnUnload"
+                    ) {
+                        let reference = self.world.borrow().form_of(object);
+                        if let Some(reference) = reference {
+                            self.bind_reference(reference, &mut report);
+                        }
+                    }
+                    resolved.push(Pending::Event { object, name, args });
+                }
+                event => resolved.push(event),
+            }
+        }
+        self.world.borrow_mut().pending.splice(0..0, resolved);
+    }
+
+    /// Change the focus cell and bind its scripts before exposing queued events.
+    pub fn change_cell(&mut self, to: Option<GlobalFormId>) -> world::CellTransition {
+        let transition = self.world.borrow_mut().change_cell(to);
+        self.prepare_cell_events();
+        transition
+    }
+
+    /// Commit a prefetched doorway and bind the arriving references for events.
+    pub fn commit_doorway(&mut self, way: &world::Doorway) -> world::CellTransition {
+        let transition = self.world.borrow_mut().commit_doorway(way);
+        self.prepare_cell_events();
+        transition
+    }
+
+    /// Apply host cell arrivals and departures, binding every attached cell.
+    ///
+    /// # Errors
+    /// Returns the World's residency validation error without binding scripts.
+    pub fn update_streaming_cells(
+        &mut self,
+        focus: GlobalFormId,
+        entered: &[GlobalFormId],
+        departed: &[GlobalFormId],
+    ) -> soe_esm::Result<world::CellTransition> {
+        let transition = self
+            .world
+            .borrow_mut()
+            .update_streaming_cells(focus, entered, departed)?;
+        self.prepare_cell_events();
+        Ok(transition)
+    }
+
+    /// Attach and bind neighboring cells while retaining the player focus.
+    ///
+    /// # Errors
+    /// Returns the World's attachment validation error without binding scripts.
+    pub fn attach_streaming_cells(&mut self, cells: &[GlobalFormId]) -> soe_esm::Result<usize> {
+        let loaded = self.world.borrow_mut().attach_streaming_cells(cells)?;
+        self.prepare_cell_events();
+        Ok(loaded)
     }
 
     fn bind_carrier(
@@ -1327,6 +1423,7 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        self.prepare_cell_events();
         self.dispatch_story_manager_events();
         let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
         let mut routed = 0;
@@ -1437,6 +1534,12 @@ impl Game {
                 }
                 Pending::Event { object, name, args } => {
                     self.vm.send_event(object, &name, &args);
+                }
+                Pending::ReferenceEvent { reference, name } => {
+                    self.bind_reference(reference, &mut BindReport::default());
+                    if let Some(object) = self.world.borrow().object_id(Handle::Form(reference)) {
+                        self.vm.send_event(object, &name, &[]);
+                    }
                 }
                 Pending::Call {
                     object,

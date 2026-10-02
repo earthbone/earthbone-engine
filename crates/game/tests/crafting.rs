@@ -137,6 +137,7 @@ fn pending(game: &Game) -> Vec<(soe_papyrus::ObjectId, String, Vec<Value>)> {
             Pending::CallScript { .. } => panic!("unexpected script function call"),
             Pending::BindEffect { .. } => panic!("unexpected magic effect binding"),
             Pending::BindReference { .. } => panic!("unexpected reference binding"),
+            Pending::ReferenceEvent { .. } => panic!("unexpected cell event"),
             Pending::DeferredDeath { .. } | Pending::ActorDeath { .. } => {
                 panic!("unexpected actor death")
             }

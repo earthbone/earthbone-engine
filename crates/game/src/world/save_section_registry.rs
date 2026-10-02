@@ -55,6 +55,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-60", write: write_scr_60_game_flags, read: read_scr_60_game_flags },
     Section { name: "AI-80", write: write_faction_attacks, read: read_faction_attacks },
     Section { name: "MAG-64", write: write_reference_bindings, read: read_reference_bindings },
+    Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 
@@ -945,6 +946,7 @@ fn write_reference_bindings(world: &World, writer: &mut Writer, _pool: &mut Arra
     let bindings: Vec<_> = world
         .pending
         .iter()
+        .filter(|pending| !matches!(pending, super::Pending::ReferenceEvent { .. }))
         .enumerate()
         .filter_map(|(index, pending)| match pending {
             super::Pending::BindReference { object, base } => Some((index, object, base)),

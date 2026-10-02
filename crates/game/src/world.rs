@@ -652,6 +652,11 @@ pub enum Pending {
         name: String,
         args: Vec<Value>,
     },
+    /// A cell event whose reference still needs a script binding in Game.
+    ReferenceEvent {
+        reference: GlobalFormId,
+        name: String,
+    },
     Call {
         object: ObjectId,
         function: String,

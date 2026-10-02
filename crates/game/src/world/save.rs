@@ -24,7 +24,12 @@ pub(crate) fn write_script_calls(world: &World, writer: &mut Writer, pool: &mut 
     let calls: Vec<_> = world
         .pending
         .iter()
-        .filter(|pending| !matches!(pending, Pending::BindReference { .. }))
+        .filter(|pending| {
+            !matches!(
+                pending,
+                Pending::BindReference { .. } | Pending::ReferenceEvent { .. }
+            )
+        })
         .enumerate()
         .filter_map(|(index, pending)| match pending {
             Pending::CallScript {
@@ -260,7 +265,9 @@ impl World {
                 .filter(|pending| {
                     !matches!(
                         pending,
-                        Pending::CallScript { .. } | Pending::BindReference { .. }
+                        Pending::CallScript { .. }
+                            | Pending::BindReference { .. }
+                            | Pending::ReferenceEvent { .. }
                     )
                 })
                 .count(),
@@ -268,7 +275,9 @@ impl World {
         for p in &self.pending {
             if matches!(
                 p,
-                Pending::CallScript { .. } | Pending::BindReference { .. }
+                Pending::CallScript { .. }
+                    | Pending::BindReference { .. }
+                    | Pending::ReferenceEvent { .. }
             ) {
                 continue;
             }
@@ -323,7 +332,9 @@ impl World {
                         pool.write_value(&mut body, v);
                     }
                 }
-                Pending::CallScript { .. } | Pending::BindReference { .. } => {}
+                Pending::CallScript { .. }
+                | Pending::BindReference { .. }
+                | Pending::ReferenceEvent { .. } => {}
             }
         }
 
