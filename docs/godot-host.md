@@ -288,7 +288,16 @@ units of the eye ray and within the 180-unit reach. It confirms the World grab
 before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
-`OnGrab` and `OnRelease` events.
+`OnGrab` and `OnRelease` events. Losing input focus ends both hand casts and
+immediately releases any host body held by Telekinesis.
+
+`CellStreamerNode` exposes `telekinesis_grab_reference`,
+`telekinesis_move_reference` and `telekinesis_release_reference` for host
+integration checks. The move call accepts a position in Skyrim units. The
+release call restores rigid simulation at the body's current pose.
+`godot/mag_41_telekinesis_host_test.gd` uses the Bannered Mare's installed
+movable-reference body to check host movement and resumed rigid simulation
+after the release path.
 
 ### Grab Actor, MAG-66
 
@@ -2980,6 +2989,19 @@ state to the host.
 Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
 native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
 crafting menu's recipe list and selected-recipe confirmation flow.
+
+`PlayerNode::gameplay_creation_benches` exposes enabled creation bench
+references in the loaded logical cell for runtime tools. The CRF-06 installed
+runtime check activates these references through `activate_reference`, then
+checks the recipe Control buttons and their confirmation callback in Godot.
+With the fresh live player inventory, the test exercises the insufficient
+ingredient rejection. The Rust presenter tests cover successful transaction
+confirmation.
+It runs with `SKYRIM_DATA` and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --resolution 640x360 --script crf_06_crafting_menu_test.gd
+```
 
 `Game.ShowTrainingMenu(actor)` requests this presenter through a transient
 World request. The presenter shows the trainer's skill, current value, tier
