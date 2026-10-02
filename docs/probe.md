@@ -122,10 +122,14 @@ mistyped form aliases, unknown properties and unsupported commands are errors.
 `runner` and `timescale` are reserved form aliases. Other `[forms.<alias>]`
 tables specify `plugin`, `object` and `kind`. `object` is the local object ID,
 without a load-order prefix, written as a decimal or hexadecimal TOML integer.
-The kinds are `quest`, `actor`, `object_reference`, `spell`, `magic_effect`,
+The kinds are `quest`, `actor`, `player`, `object_reference`, `spell`, `magic_effect`,
 `global_variable` and `form`. The runner resolves them with
 `Game.GetFormFromFile`, casts to the declared Papyrus type and stops on a
 missing form. Engine execution checks the record types before starting.
+The `player` kind requires Skyrim.esm object `000014`. It resolves through
+Game.GetPlayer in both runtimes and has Papyrus type Actor. It is a runtime
+reference, so the engine preflight uses World.player without requiring a
+placed ACHR record. Other kinds still resolve through Game.GetFormFromFile.
 
 | Operation | Additional step fields | Result |
 | --- | --- | --- |
@@ -136,6 +140,11 @@ missing form. Engine execution checks the record types before starting.
 | `wait_menu` | `seconds` | `issued` after Utility.WaitMenuMode |
 | `wait_game` | `seconds` | `issued` after Utility.WaitGameTime, seconds converted to hours |
 | `animation` | `actor`, `event` | `issued` after Debug.SendAnimationEvent |
+| `animation_events` | `actor`, `events` | `issued` after 1 to 16 ordered Debug.SendAnimationEvent calls |
+| `animation_int` | `actor`, `variable`, optional `set` integer | `value` from GetAnimationVariableInt, after SetAnimationVariableInt when supplied |
+| `animation_float` | `actor`, `variable`, optional finite `set` float | `value` from GetAnimationVariableFloat, after SetAnimationVariableFloat when supplied |
+| `equip_item` | `actor`, `item` | `issued` after silent AddItem of one copy and EquipItem |
+| `third_person` | None | `issued` after Game.ForceThirdPerson |
 | `wait_animation` | `actor`, `event` | Boolean `value` from ObjectReference.WaitForAnimationEvent |
 | `cast` | `spell`, `source`, `target` | `issued` after Spell.Cast |
 | `actor_value` | `actor`, `value` | Numeric `value` from Actor.GetActorValue |
@@ -150,6 +159,15 @@ actor-value queries to measure application. `wait_animation` needs a loaded
 animation graph and an external event. The headless comparator has no host
 animator and reports its timeout if the event never arrives. Timeout bounds
 engine execution, not the vanilla latent native.
+
+Optional `startup_wait_seconds` defaults to zero. A positive value calls
+Utility.Wait after form resolution, before sampling the sequence's starting
+clocks or executing its steps. It must be finite, nonnegative and less than
+`timeout_seconds`. Event batches preserve native-call order in one step, but
+do not force the calls into a single vanilla animation update.
+An event batch can also provide `set_int`, a map of up to eight graph-variable
+names to signed integer values. The runner writes those variables in sorted
+name order before sending any events, without an intervening observation.
 
 Waits emit a `begin` sample with an empty result and an `end` sample on return.
 Ordinary waits exclude menu time. Menu waits include it. Game waits use game
@@ -198,6 +216,39 @@ The example has no menus, animation or combat. It starts with the generated
 quest at stage zero and TimeScale 20. Other live state is not imported from an
 ESS file by this tool.
 
+`compare <probe.toml> <Papyrus.0.log> <expected.json>` reads explicit engine
+observations instead of running the Game comparator. This path does not need
+`SKYRIM_DATA`. It uses the same boundary, context and tolerance validation and
+retains the engine version from the expectation file. An expectation file is
+an engine result, not evidence of a Skyrim capture.
+The comparator checks each trace's declared load order, form aliases, local
+object IDs and null SKSE version against the authored sequence, even when the
+two input traces agree. Regular or light runtime prefixes remain measured
+values compared between the engine and capture.
+
+`crates/probe/probes/anm_56.toml` equips the player with a vanilla iron sword,
+forces third person, draws the sword, sets `weaponSpeedMult` to zero for
+attack-window observations and
+reads `i1HMState` around labelled trigger entry and exit, initiate entry,
+same-event bounds, pending-request reset and a changed `iBlockState` guard.
+The sequence declares the five official masters, Fish and AdvDSGS in their
+profile order. Its forms come only from those seven ESMs and its own runner.
+The profile's official light plugins do not affect these regular FormIDs and
+are not probed. The closed initiate-window case reads back after 1, 5, 30 and 60 seconds.
+Build this sequence with the usual optional sequence argument. Start a
+disposable game with `coc qasmoke` from the main-menu console,
+leave the left hand empty and keep menus closed without combat or input for
+about 75 seconds, until `finished_state` is logged. The runner waits three
+gameplay seconds before starting its recorded clock, and restores attack speed
+to one at the end. Compare once with `rtk cargo run -p soe-probe -- compare
+crates/probe/probes/anm_56.toml /path/to/Papyrus.0.log
+crates/probe/probes/anm_56.expected.json`. The expectation file comes from the
+HKX test's isolated vanilla `1HM_Behavior` replay, with no clip library or
+master-graph equipment simulation. It uses `Interpreter::current_state` for
+the state readback. The capture compares Papyrus's graph variable instead.
+Finite fixed-time boundaries and graph-unload reset are not exercised by this
+sequence. No original capture has been compared, so ANM-56 remains partial.
+
 ## Sources and validation
 
 Read before implementation:
@@ -218,6 +269,13 @@ Read before implementation:
 - Local CK `Debug_Script.wikitext`, `Utility_Script.wikitext` and the shipped
   vanilla Quest, Utility, Game and Spell PSC declarations for native
   signatures, highest-stage queries and wait units.
+- ANM-56 also reads CK `EquipItem_-_Actor.wikitext`, the integer and float
+  `GetAnimationVariable` pages and `SetAnimationVariableInt` page, plus local
+  `skse64/scripts/vanilla/ObjectReference.psc` for the float setter and AddItem
+  signatures. These are vanilla declarations, without an SKSE dependency.
+- CK `Game_Script.wikitext` and `skse64/scripts/vanilla/Game.psc` declare
+  Game.GetPlayer and ForceThirdPerson. The existing `World.player` path supplies
+  the engine's reserved runtime player reference.
 - Existing `crates/game/tests/quest_flow.rs`, game quest/VMAD builders and
   `crates/papyrus/src/asm.rs`. These already provide the Rust writers needed
   here. No replacement binary-format writer or upstream code copy was added.

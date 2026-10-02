@@ -2346,7 +2346,9 @@ dependencies = [
 name = "soe-hkx"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "soe-bsa",
+ "soe-probe",
 ]
 
 [[package]]

@@ -1,0 +1,2922 @@
+[
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "third_person",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 0.0,
+    "game_seconds": 0.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "equip_sword",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 0.0,
+    "game_seconds": 0.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "draw_sword",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 0.0,
+    "game_seconds": 0.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "draw_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 0.0,
+    "game_seconds": 0.0,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "draw_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.0,
+    "game_seconds": 20.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "freeze_attack_clips",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.0,
+    "game_seconds": 20.0,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "ready_precondition",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.0,
+    "game_seconds": 20.0,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_setup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.0,
+    "game_seconds": 20.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.0,
+    "game_seconds": 20.0,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.25,
+    "game_seconds": 25.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_before_enter",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.25,
+    "game_seconds": 25.0,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_before_enter_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.25,
+    "game_seconds": 25.0,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_before_enter_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.3500000014901161,
+    "game_seconds": 27.000000029802322,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_before_enter_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.3500000014901161,
+    "game_seconds": 27.000000029802322,
+    "paused": 0,
+    "result": {
+      "value": 10.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_enter",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.3500000014901161,
+    "game_seconds": 27.000000029802322,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_enter_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.3500000014901161,
+    "game_seconds": 27.000000029802322,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_enter_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.6000000014901161,
+    "game_seconds": 32.00000002980232,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_enter_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.6000000014901161,
+    "game_seconds": 32.00000002980232,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_exit_reset",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.6000000014901161,
+    "game_seconds": 32.00000002980232,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_exit_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.6000000014901161,
+    "game_seconds": 32.00000002980232,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_exit_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.8500000014901161,
+    "game_seconds": 37.00000002980232,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_exit",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.8500000014901161,
+    "game_seconds": 37.00000002980232,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_exit_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.8500000014901161,
+    "game_seconds": 37.00000002980232,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_exit_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.9500000029802322,
+    "game_seconds": 39.000000059604645,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "trigger_at_exit_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.9500000029802322,
+    "game_seconds": 39.000000059604645,
+    "paused": 0,
+    "result": {
+      "value": 10.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_setup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.9500000029802322,
+    "game_seconds": 39.000000059604645,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 1.9500000029802322,
+    "game_seconds": 39.000000059604645,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 2.2000000029802322,
+    "game_seconds": 44.000000059604645,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_guard",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 2.2000000029802322,
+    "game_seconds": 44.000000059604645,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_request",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 2.2000000029802322,
+    "game_seconds": 44.000000059604645,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_1",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 2.2000000029802322,
+    "game_seconds": 44.000000059604645,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_1",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 3.2000000029802322,
+    "game_seconds": 64.00000005960464,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_1_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 3.2000000029802322,
+    "game_seconds": 64.00000005960464,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_5",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 3.2000000029802322,
+    "game_seconds": 64.00000005960464,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_5",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 7.200000002980232,
+    "game_seconds": 144.00000005960464,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_5_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 7.200000002980232,
+    "game_seconds": 144.00000005960464,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_30",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 7.200000002980232,
+    "game_seconds": 144.00000005960464,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_30",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 32.20000000298023,
+    "game_seconds": 644.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_30_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 32.20000000298023,
+    "game_seconds": 644.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_60",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 32.20000000298023,
+    "game_seconds": 644.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_60",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.20000000298023,
+    "game_seconds": 1244.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "timeout_60_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.20000000298023,
+    "game_seconds": 1244.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_at_enter",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.20000000298023,
+    "game_seconds": 1244.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_at_enter_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.20000000298023,
+    "game_seconds": 1244.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_at_enter_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.45000000298023,
+    "game_seconds": 1249.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "initiate_at_enter_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.45000000298023,
+    "game_seconds": 1249.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_setup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.45000000298023,
+    "game_seconds": 1249.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.45000000298023,
+    "game_seconds": 1249.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.70000000298023,
+    "game_seconds": 1254.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_guard",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.70000000298023,
+    "game_seconds": 1254.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_pending",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.70000000298023,
+    "game_seconds": 1254.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_pending_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.70000000298023,
+    "game_seconds": 1254.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_pending_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.95000000298023,
+    "game_seconds": 1259.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_open",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.95000000298023,
+    "game_seconds": 1259.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_open_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 62.95000000298023,
+    "game_seconds": 1259.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_open_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.20000000298023,
+    "game_seconds": 1264.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "reset_cancels_pending_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.20000000298023,
+    "game_seconds": 1264.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_setup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.20000000298023,
+    "game_seconds": 1264.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.20000000298023,
+    "game_seconds": 1264.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_admission_guard",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_request",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_changed_guard",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_open",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_open_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.45000000298023,
+    "game_seconds": 1269.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_open_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.70000000298023,
+    "game_seconds": 1274.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "recheck_latched_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.70000000298023,
+    "game_seconds": 1274.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_setup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.70000000298023,
+    "game_seconds": 1274.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_setup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.70000000298023,
+    "game_seconds": 1274.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_setup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.95000000298023,
+    "game_seconds": 1279.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_guard",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.95000000298023,
+    "game_seconds": 1279.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_bounds",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.95000000298023,
+    "game_seconds": 1279.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_bounds_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 63.95000000298023,
+    "game_seconds": 1279.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_bounds_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.20000000298023,
+    "game_seconds": 1284.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "same_event_bounds_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.20000000298023,
+    "game_seconds": 1284.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "cleanup",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.20000000298023,
+    "game_seconds": 1284.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "cleanup_settle",
+    "phase": "begin",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.20000000298023,
+    "game_seconds": 1284.0000000596046,
+    "paused": 0,
+    "result": {}
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "cleanup_settle",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.45000000298023,
+    "game_seconds": 1289.0000000596046,
+    "paused": 0,
+    "result": {
+      "issued": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "restore_attack_speed",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.45000000298023,
+    "game_seconds": 1289.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 1.0
+    }
+  },
+  {
+    "schema": 1,
+    "sequence": "anm_56",
+    "request_id": "finished_state",
+    "phase": "end",
+    "runtime_version": "soe-hkx/0.1.0",
+    "skse_version": null,
+    "load_order": [
+      "Skyrim.esm",
+      "Update.esm",
+      "Dawnguard.esm",
+      "HearthFires.esm",
+      "Dragonborn.esm",
+      "ccBGSSSE001-Fish.esm",
+      "ccBGSSSE025-AdvDSGS.esm",
+      "SoeProbe.esp"
+    ],
+    "forms": {
+      "anchor_dawnguard": 33565068,
+      "anchor_dragonborn": 67232443,
+      "anchor_fish": 83889953,
+      "anchor_hearthfires": 50367444,
+      "anchor_saints": 102874468,
+      "anchor_update": 16789198,
+      "player": 20,
+      "runner": 117442560,
+      "sword": 77495,
+      "timescale": 58
+    },
+    "timescale": 20.0,
+    "real_seconds": 64.45000000298023,
+    "game_seconds": 1289.0000000596046,
+    "paused": 0,
+    "result": {
+      "value": 0.0
+    }
+  }
+]

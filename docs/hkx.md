@@ -808,6 +808,36 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
 
+ANM-56 adds an engine expectation file and a capture-gated replay in
+`tests/anm_56.rs`. It selects the installed `1hm_behavior.hkx` machine named
+`1HM_Behavior`, preserves its transitions and descendants, sets player word
+inputs and replays the authored TOOL-04 sequence. A separate TOOL-04
+quest-stage query obtains canonical runtime form identities through Game.
+The clip library is empty,
+so clip annotations do not drive the replay. Equipment and draw calls are
+setup outside this isolated machine. The `i1HMState` observation reads
+`Interpreter::current_state` directly, rather than the unsupported
+`currentStateId` output binding. Expected states are ready 0, block 1 and
+attack 10. The sequence observes trigger event entry and exit, same-event
+initiate bounds, a delayed request at four points through 60 seconds, reset
+with a distinct delayed target and a guard changed after admission. Synthetic
+tests retain half-open fixed-time edges, zero-exit infinity, skipped windows,
+event precedence, latched admission and deactivation cancellation as the
+current engine baseline. They do not establish original-runtime parity.
+The Skyrim animation-archive survey checks 202 enabled local and wildcard
+intervals across 428 graphs for finite time bounds. The available vanilla windows do not supply a finite-time
+boundary probe. Sources are the local hkxcmd transition/interval declarations,
+CommonLib `hkbStateMachine.h`, CK graph-variable pages and the Havok declaration
+linked above, whose delay comment gives no timeout threshold. No Havok
+implementation was copied or runtime binary inspected. `SOE_PROBE_CAPTURE`
+selects a directory containing the user's `Papyrus.0.log`. With that variable
+unset, the capture comparison skips. With it set, `SKYRIM_DATA` supplies the
+installed graph and the replay checks the frozen expectation file before
+comparing the capture. ANM-56 remains partial until an original capture is
+compared and finite time edges are observed. No runtime or saved-state fields
+change. The new test dependencies are the existing soe-probe bridge and
+serde_json, with no new production dependency.
+
 ### BSTweenerModifier (ANM-38)
 
 `BSTweenerModifier` is decoded from its class-table fields and runs inside a
