@@ -2314,7 +2314,12 @@ in LIP target order. Stopping or finishing the voice clears the track and
 returns its weights to zero. Lines without a decodable LIP block keep the mouth
 weights empty or neutral. `tests/dlg_20_lip_playback.rs` exercises decoded
 frames through the same slot lifecycle used by SoundBank, including playback
-updates and interruption.
+updates and interruption. `tests/dlg_20_godot_lip.rs` packages a generated WAV
+and LIP block into a voice archive, then launches Godot with the extension and
+opens it through a live SoundBank. It checks that the exposed mouth weights
+match the frame selected by the player's playback position and return to zero
+when `stop_voice` interrupts playback. A nonzero player start offset makes the
+time sample deterministic in headless or windowed runs.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
