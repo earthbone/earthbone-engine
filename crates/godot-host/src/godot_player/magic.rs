@@ -499,11 +499,14 @@ impl PlayerNode {
         }
     }
 
-    fn location_target(&self) -> Option<[f32; 3]> {
+    fn location_target(&self, reach: f32) -> Option<[f32; 3]> {
+        if !reach.is_finite() || reach < 0.0 {
+            return None;
+        }
         let world = self.world.as_ref()?;
         let start = self.rig.head(self.feet(), self.capsule_height());
         let direction = self.rig.look_direction();
-        let end = start + direction * 4096.0;
+        let end = start + direction * reach;
         let hit = world.raycast(start, end)?;
         Some([hit.point.x, hit.point.y, hit.point.z])
     }
@@ -512,7 +515,7 @@ impl PlayerNode {
     /// An empty array means the camera ray did not hit loaded geometry.
     #[func]
     pub fn selected_location_position(&self) -> PackedVector3Array {
-        let Some([x, y, z]) = self.location_target() else {
+        let Some([x, y, z]) = self.location_target(4096.0) else {
             return PackedVector3Array::new();
         };
         let position = crate::units::SkyrimPos::new(x, y, z).to_godot();
@@ -524,7 +527,21 @@ impl PlayerNode {
     /// Cast a target-location spell at the live point selected by the camera ray.
     #[func]
     pub fn cast_location_spell_at_look(&mut self, spell_file: i32, spell_object: i64) -> bool {
-        let Some([x, y, z]) = self.location_target() else {
+        let (Ok(file), Ok(object)) = (u16::try_from(spell_file), u32::try_from(spell_object))
+        else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let reach = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().spell(spell).ok())
+            .filter(|definition| definition.data.delivery == 4)
+            .map(|definition| definition.data.range);
+        let Some(reach) = reach else {
+            return false;
+        };
+        let Some([x, y, z]) = self.location_target(reach) else {
             return false;
         };
         self.cast_location_spell(

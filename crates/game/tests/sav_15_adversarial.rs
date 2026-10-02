@@ -128,7 +128,7 @@ fn world() -> World {
 }
 
 #[test]
-fn saved_inversion_mask_does_not_change_authored_disabled_and_persistent_flags() {
+fn saved_inversion_mask_changes_effective_flags_without_editing_authored_flags() {
     let mut world = world();
     world
         .restore_vanilla_reference_placements(&save(
@@ -141,10 +141,22 @@ fn saved_inversion_mask_does_not_change_authored_disabled_and_persistent_flags()
             object: 0x15,
         })
         .unwrap();
-    assert!(!state.enabled, "the authored disabled bit remains set");
+    assert!(state.enabled, "the saved mask inverts the disabled bit");
     assert!(
-        !state.persistent,
-        "the authored persistent bit remains clear"
+        state.persistent,
+        "the saved mask inverts the persistent bit"
+    );
+    assert_eq!(state.record_flags, plugin::flags::INITIALLY_DISABLED);
+    assert_eq!(
+        world
+            .order()
+            .winner(GlobalFormId {
+                file: 0,
+                object: 0x15
+            })
+            .unwrap()
+            .flags,
+        plugin::flags::INITIALLY_DISABLED
     );
 }
 

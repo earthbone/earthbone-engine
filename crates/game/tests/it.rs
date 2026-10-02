@@ -66,10 +66,18 @@ mod ai_22_adversarial;
 mod ai_22_follow;
 #[path = "ai_23_adversarial.rs"]
 mod ai_23_adversarial;
+#[path = "ai_23_breaker_adversarial.rs"]
+mod ai_23_breaker_adversarial;
+#[path = "ai_23_breaker_adversarial_2.rs"]
+mod ai_23_breaker_adversarial_2;
 #[path = "ai_24_adversarial.rs"]
 mod ai_24_adversarial;
 #[path = "ai_25_adversarial.rs"]
 mod ai_25_adversarial;
+#[path = "ai_25_breaker_adversarial.rs"]
+mod ai_25_breaker_adversarial;
+#[path = "ai_25_breaker_adversarial_2.rs"]
+mod ai_25_breaker_adversarial_2;
 #[path = "ai_25_orbit.rs"]
 mod ai_25_orbit;
 #[path = "ai_26_adversarial.rs"]
@@ -96,6 +104,10 @@ mod ai_31_adversarial;
 mod ai_32_adversarial;
 #[path = "ai_33_adversarial.rs"]
 mod ai_33_adversarial;
+#[path = "ai_33_breaker_adversarial.rs"]
+mod ai_33_breaker_adversarial;
+#[path = "ai_33_breaker_adversarial_2.rs"]
+mod ai_33_breaker_adversarial_2;
 #[path = "ai_33_find.rs"]
 mod ai_33_find;
 #[path = "ai_35_adversarial.rs"]
@@ -324,6 +336,10 @@ mod anm_09_oar_runtime;
 mod anm_55_race_animation_models;
 #[path = "anm_58_adversarial.rs"]
 mod anm_58_adversarial;
+#[path = "anm_58_breaker2_adversarial.rs"]
+mod anm_58_breaker2_adversarial;
+#[path = "anm_58_breaker_adversarial.rs"]
+mod anm_58_breaker_adversarial;
 #[path = "anm_59_expression.rs"]
 mod anm_59_expression;
 #[path = "atomic_save.rs"]
@@ -420,12 +436,20 @@ mod cmb_35_script_damage_bleedout_adversarial;
 mod cmb_36_lazy_actor_base_save_contract;
 #[path = "cmb_36_lazy_actor_base_save_state_adversarial.rs"]
 mod cmb_36_lazy_actor_base_save_state_adversarial;
+#[path = "cmb_37_adversarial.rs"]
+mod cmb_37_adversarial;
+#[path = "cmb_37_breaker2_adversarial.rs"]
+mod cmb_37_breaker2_adversarial;
 #[path = "cmb_37_breaker_adversarial.rs"]
 mod cmb_37_breaker_adversarial;
 #[path = "cmb_37_destruction.rs"]
 mod cmb_37_destruction;
 #[path = "cmb_38_adversarial.rs"]
 mod cmb_38_adversarial;
+#[path = "cmb_38_breaker2_adversarial.rs"]
+mod cmb_38_breaker2_adversarial;
+#[path = "cmb_38_breaker_adversarial.rs"]
+mod cmb_38_breaker_adversarial;
 #[path = "combat_ai.rs"]
 mod combat_ai;
 #[path = "combat_bleedout.rs"]
@@ -588,6 +612,8 @@ mod hst_12_adversarial;
 mod hst_12_host_pose;
 #[path = "hst_13_adversarial.rs"]
 mod hst_13_adversarial;
+#[path = "hst_13_breaker_adversarial.rs"]
+mod hst_13_breaker_adversarial;
 #[path = "hst_13_reference_3d_residency.rs"]
 mod hst_13_reference_3d_residency;
 #[path = "hst_14_adversarial.rs"]
@@ -596,6 +622,8 @@ mod hst_14_adversarial;
 mod hst_14_trigger_volumes;
 #[path = "hst_15_adversarial.rs"]
 mod hst_15_adversarial;
+#[path = "hst_15_breaker_adversarial.rs"]
+mod hst_15_breaker_adversarial;
 #[path = "hst_16_adversarial.rs"]
 mod hst_16_adversarial;
 #[path = "hst_16_translation.rs"]
@@ -644,6 +672,8 @@ mod mag_14_breaker_adversarial;
 mod mag_14_effect_shader;
 #[path = "mag_16_adversarial.rs"]
 mod mag_16_adversarial;
+#[path = "mag_16_breaker_adversarial.rs"]
+mod mag_16_breaker_adversarial;
 #[path = "mag_17_adversarial.rs"]
 mod mag_17_adversarial;
 #[path = "mag_17_breaker_adversarial.rs"]
@@ -985,6 +1015,8 @@ mod sav_46_adversarial;
 mod sav_46_breaker_adversarial;
 #[path = "sav_48_adversarial.rs"]
 mod sav_48_adversarial;
+#[path = "sav_48_breaker_adversarial.rs"]
+mod sav_48_breaker_adversarial;
 #[path = "sav_50_adversarial.rs"]
 mod sav_50_adversarial;
 #[path = "sav_52_adversarial.rs"]
@@ -993,6 +1025,12 @@ mod sav_52_adversarial;
 mod sav_54_adversarial;
 #[path = "sav_54_breaker_adversarial.rs"]
 mod sav_54_breaker_adversarial;
+#[path = "sav_54_breaker_adversarial_2.rs"]
+mod sav_54_breaker_adversarial_2;
+#[path = "sav_54_breaker_adversarial_3.rs"]
+mod sav_54_breaker_adversarial_3;
+#[path = "sav_54_breaker_adversarial_4.rs"]
+mod sav_54_breaker_adversarial_4;
 #[path = "sav_56_adversarial.rs"]
 mod sav_56_adversarial;
 #[path = "sav_56_breaker_adversarial.rs"]

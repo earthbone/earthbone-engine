@@ -3,7 +3,9 @@
 SAV-22 classifies the undecoded PackageData in the 60-save corpus at the
 `4e03b82` baseline. The versioned
 [manifest](save-package-variants-v1.tsv) accounts for all 1,154,526 reference
-sections. Of these, 1,154,445 decode and re-encode exactly. Every one of the
+sections of REFR and ACHR changes. Later projectile placement support is
+checked separately and does not alter this version-1 ledger. Of these,
+1,154,445 decode and re-encode exactly. Every one of the
 81 failures has an occurrence row and an explicit unsupported reason below.
 The two observed discriminator/name classes are Sequence, with 72 occurrences,
 and Stacked, with nine. No other decoder error is accepted by this survey.
