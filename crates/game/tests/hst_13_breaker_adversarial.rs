@@ -25,7 +25,7 @@ fn hst_13_focus_arrival_publishes_prefetched_reference_3d() {
 
 #[test]
 fn hst_13_neighbor_departure_clears_3d_but_keeps_changed_reference() {
-    let mut game = game();
+    let game = game();
     let reference = id(ROCK_B);
 
     game.world_mut()
@@ -43,7 +43,7 @@ fn hst_13_neighbor_departure_clears_3d_but_keeps_changed_reference() {
 
 #[test]
 fn hst_13_prefetch_and_uninstantiated_queries_are_not_3d_residency() {
-    let mut game = game();
+    let game = game();
     let missing = id(0x8ff);
 
     game.world_mut().prefetch_cell(id(CELL_B));
