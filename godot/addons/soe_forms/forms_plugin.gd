@@ -8,12 +8,18 @@ var signature_filter: LineEdit
 var text_filter: LineEdit
 var status: Label
 var results: Tree
+var override_chain: Tree
 var form_table: SoeFormTable
+var form_inspector: EditorInspectorPlugin
 var page_index := 0
 const PAGE_SIZE := 200
 
 
 func _enter_tree() -> void:
+	form_inspector = preload("res://addons/soe_forms/form_inspector.gd").new()
+	add_inspector_plugin(form_inspector)
+	if OS.get_environment("SOE_EDT13_INSPECTOR_TEST") == "1":
+		call_deferred("_run_edt_13_inspector_test")
 	form_table = SoeFormTable.new()
 	dock = VBoxContainer.new()
 	dock.name = "Skyrim Forms"
@@ -51,6 +57,12 @@ func _enter_tree() -> void:
 	results.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	results.item_selected.connect(_select_form)
 	dock.add_child(results)
+	var chain_label := Label.new()
+	chain_label.text = "Override chain"
+	dock.add_child(chain_label)
+	override_chain = load("res://addons/soe_forms/override_chain_view.gd").new()
+	override_chain.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dock.add_child(override_chain)
 	status = Label.new()
 	dock.add_child(status)
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, dock)
@@ -59,8 +71,10 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	remove_inspector_plugin(form_inspector)
 	remove_control_from_docks(dock)
 	dock.queue_free()
+	form_inspector = null
 	form_table = null
 
 
@@ -82,6 +96,7 @@ func _refresh(_changed: String) -> void:
 
 func _show_page() -> void:
 	results.clear()
+	override_chain.clear()
 	var root := results.create_item()
 	for form_id in form_table.search(
 		signature_filter.text.strip_edges(), text_filter.text, page_index * PAGE_SIZE, PAGE_SIZE
@@ -107,6 +122,7 @@ func _select_form() -> void:
 	if item == null:
 		return
 	var form_resource := form_table.selected_form(item.get_metadata(0))
+	override_chain.show_chain(form_table.override_chain(item.get_metadata(0)))
 	if form_resource != null:
 		EditorInterface.edit_resource(form_resource)
 		status.text = "Inspector resources created: %d" % form_table.resources_created()
@@ -153,4 +169,13 @@ func _finish_runtime_check(passed: bool, detail: String) -> void:
 		get_tree().quit(0)
 	else:
 		printerr("EDT-02 FAIL: " + detail)
+		get_tree().quit(1)
+
+
+func _run_edt_13_inspector_test() -> void:
+	var test_script = load("res://edt_13_inspector_test.gd")
+	if await test_script.edt_13_inspector_displays_winning_source(form_inspector):
+		print("RESULT: PASS: Godot inspector winning source test")
+	else:
+		push_error("RESULT: FAIL: Godot inspector winning source test")
 		get_tree().quit(1)

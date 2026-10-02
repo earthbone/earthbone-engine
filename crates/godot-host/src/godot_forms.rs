@@ -132,11 +132,53 @@ impl SoeFormTable {
         Some(resource)
     }
 
+    /// Return each selected form version with its source and winning status.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn override_chain(&self, encoded_id: GString) -> Array<Dictionary<Variant, Variant>> {
+        let mut versions = Array::new();
+        let Some(document) = &self.document else {
+            return versions;
+        };
+        let Some(id) = parse_form_id(&encoded_id.to_string()) else {
+            return versions;
+        };
+        for version in override_chain_entries(document, id) {
+            let mut item = Dictionary::new();
+            item.set("plugin_name", version.plugin_name.as_str());
+            item.set("signature", version.signature.as_str());
+            item.set("editor_id", version.editor_id.as_str());
+            item.set("is_winner", version.is_winner);
+            versions.push(&item);
+        }
+        versions
+    }
+
     /// Count selected-form Resources created since the last successful open.
     #[func]
     pub fn resources_created(&self) -> i64 {
         self.resources_created
     }
+}
+
+struct OverrideChainEntry {
+    plugin_name: String,
+    signature: String,
+    editor_id: String,
+    is_winner: bool,
+}
+
+fn override_chain_entries(document: &EditorDocument, id: GlobalFormId) -> Vec<OverrideChainEntry> {
+    document
+        .override_chain(id)
+        .into_iter()
+        .map(|version| OverrideChainEntry {
+            plugin_name: version.plugin_name.to_owned(),
+            signature: String::from_utf8_lossy(&version.record.tag.0).into_owned(),
+            editor_id: version.record.editor_id().unwrap_or_default(),
+            is_winner: version.is_winner,
+        })
+        .collect()
 }
 
 fn search_form_ids(
@@ -170,6 +212,80 @@ fn parse_form_id(value: &str) -> Option<GlobalFormId> {
         file: file.parse().ok()?,
         object: u32::from_str_radix(object, 16).ok()?,
     })
+}
+
+#[cfg(test)]
+mod edt_11_override_chain_dock {
+    use std::fs;
+
+    use soe_esm::plugin::{FileHeader, Record};
+    use soe_esm::{Plugin, Tag};
+
+    use super::{override_chain_entries, EditorDocument, GlobalFormId};
+
+    #[test]
+    fn edt_11_dock_entries_show_every_version_and_the_winner() {
+        let directory = tempfile::tempdir().unwrap();
+        let base_path = directory.path().join("Base.esm");
+        let middle_path = directory.path().join("Middle.esp");
+        let final_path = directory.path().join("Final.esp");
+
+        let mut base = Plugin::new(FileHeader::default());
+        base.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "BaseStatue"));
+        let mut middle = Plugin::new(FileHeader {
+            masters: vec!["Base.esm".to_string()],
+            ..Default::default()
+        });
+        middle.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "MiddleStatue"));
+        let mut final_plugin = Plugin::new(FileHeader {
+            masters: vec!["Base.esm".to_string(), "Middle.esp".to_string()],
+            ..Default::default()
+        });
+        final_plugin.push_top(Record::new(Tag(*b"STAT"), 0x800).zsub(Tag(*b"EDID"), "FinalStatue"));
+
+        fs::write(&base_path, base.to_bytes()).unwrap();
+        fs::write(&middle_path, middle.to_bytes()).unwrap();
+        fs::write(&final_path, final_plugin.to_bytes()).unwrap();
+        let document =
+            EditorDocument::open(&[base_path, middle_path, final_path], "Final.esp").unwrap();
+        let entries = override_chain_entries(
+            &document,
+            GlobalFormId {
+                file: 0,
+                object: 0x800,
+            },
+        );
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            ["Base.esm", "Middle.esp", "Final.esp"]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.signature.as_str())
+                .collect::<Vec<_>>(),
+            ["STAT", "STAT", "STAT"]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.editor_id.as_str())
+                .collect::<Vec<_>>(),
+            ["BaseStatue", "MiddleStatue", "FinalStatue"]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.is_winner)
+                .collect::<Vec<_>>(),
+            [false, false, true]
+        );
+    }
 }
 
 #[cfg(test)]

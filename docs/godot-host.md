@@ -171,13 +171,20 @@ and names the active plugin, then filters winning forms by an optional four-char
 signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
 FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
 creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
-ID and winning plugin. The resource is a view and does not expose record editing.
+ID and winning plugin. The same selection calls `override_chain`, which returns every record
+version with its source plugin, signature, Editor ID and winner flag. The dock displays those
+versions in its override-chain tree, with the last load-order version marked as the winner.
+The resource is a view and does not expose record editing.
 
-The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
-property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+The dock uses Godot's `EditorPlugin` dock API. Its registered `EditorInspectorPlugin`
+recognizes `SoeFormResource` and adds a `Winning source` row from the wrapper's
+`winning_plugin` property. Local
+`engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
 `inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
-The Godot project enables this dock alongside the cell dock. The dock does not implement
-record editing or an `EditorInspectorPlugin` custom field editor.
+The plugin is enabled in `godot/project.godot` and requires the built GDExtension. It displays
+record identity and winner metadata. The wrapper remains a view and does not edit records.
+Typed record editing is provided by the editor document API. The inspector addition does not
+provide a custom field editor for record editing.
 
 `crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
 synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`
@@ -250,6 +257,19 @@ before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
 `OnGrab` and `OnRelease` events.
+
+### Grab Actor, MAG-66
+
+After actor bodies sync from World, `PlayerNode` finds a resident actor with a
+live Grab Actor effect cast by the player. The existing RID-backed actor
+capsule changes to kinematic mode and follows a point 1.2 metres ahead of and
+0.9 metres below the camera eye. Each held pose is written back to the actor's
+existing World reference placement. When the effect ends, the body changes to
+rigid mode and receives a forward and upward central impulse. World follows the
+rigid body's Skyrim-space position until it settles, then the body returns to
+static contact-query mode. Clearing or replacing the cell releases its bodies
+and drops any hold state. This uses the actor body's existing RID and adds no
+scene node or saved field.
 
 ### Papyrus Debug host requests, SCR-20
 
@@ -453,7 +473,9 @@ Interiors appear under their own tree group. Selecting a row calls
 `CellStreamerNode::open_cell_id`, which resolves that exact cell id and draws it through
 the same `DataSource::stream_cell_id` and `CellStreamerNode::add_cell` path used by the
 host renderer. It clears the previous selection first, so the viewport contains one cell.
-The viewport camera frames the rendered bounds after selection.
+The viewport camera frames the rendered bounds after selection. The installed-data host
+check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
+checks that the second selection replaces the first cell's render instances.
 
 This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
 cell records, expose reference selection, or add transform gizmos. The Godot project opens
@@ -1432,6 +1454,11 @@ would be silent, and 57 are not.
 through `SoundBank::open_data`. The script starts a response at the speaker
 position, captures nonzero samples from Godot's master mixer, stops that
 player, starts a replacement at a second position, and captures its output.
+Capture polls for signal until the stream duration plus half a second, since
+voice assets can start with silence. The generated WAV fixture includes a
+quarter second of leading silence. The capture buffer is cleared between
+responses using Godot's `AudioEffectCapture` API, documented in local
+`engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
 Godot process. The Rust test runs when `SOE_GODOT_BIN` names a Godot 4.4 or
 newer executable and the release extension exists at
@@ -2041,10 +2068,17 @@ shared Game, then successful picks resume ordinary activation. The
 `hst_03_lockpick_handoff.gd` runtime test uses the synthetic
 `inventory_fixture` records to activate a keyless locked door, submit the
 record-derived successful angle, activate the unlocked door and reject a
-level 255 key-only door. Generate the fixture with
+level 255 key-only door. `ui_08_lockpicking.gd` drives the same Godot controls
+through a failed turn, checks the remaining pick in the native inventory, then
+completes a successful turn and activates the door. The fixture starts with two
+lockpicks so both outcomes run in one session. Generate the fixture with
 `cargo run -p soe-godot-host --example inventory_fixture -- /tmp/soe-hst-03
-"$SKYRIM_DATA"`, set `SOE_UI_TEST_DATA=/tmp/soe-hst-03`, then run the script
-in the disposable Godot project used for host runtime tests.
+"$SKYRIM_DATA"`, then run the script with the fixture path:
+
+```sh
+rtk env SOE_UI_TEST_DATA=/tmp/soe-hst-03 "$SOE_GODOT_BIN" --path godot --script \
+  "$PWD/crates/godot-host/tests/ui_08_lockpicking.gd" --resolution 640x360
+```
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -2659,12 +2693,15 @@ execution is not part of this HUD.
 `ui_06_hud.rs` checks all three shared actor values, current and modified
 maximums, a changed health value and the north-to-east compass update. Cargo
 tests cover the Rust data path.
-The controls compile with gdext, but their appearance in a running Godot
-window is checked by `godot/ui_06_hud_render_test.gd`, which starts gameplay
-in the installed Bannered Mare cell and checks viewport pixels in the three
-meter labels, bars and compass after Godot processes frames. The synthetic
-Rust update test changes all three shared actor values and checks their
-updated fractions.
+The controls compile with gdext, and `godot/ui_06_hud_render_test.gd` checks
+their appearance in a running Godot window. It starts gameplay in the
+installed Bannered Mare cell, checks viewport pixels in the three meter
+labels, bars and compass, damages each player actor value through
+`PlayerNode::damage_player_actor_value`, then checks that the visible labels
+and bar fills update after Godot processes frames. The method applies damage
+to the active shared game and returns false if gameplay is not active or the
+actor value name is invalid. Synthetic Rust tests also change all three
+shared actor values and check their updated fractions.
 
 Run the host check with the release extension loaded and installed data set:
 
@@ -2865,7 +2902,9 @@ own.
 synthetic quest records, including a stage change that replaces the displayed
 objective. `godot/ui_04_quest_journal_test.gd` loads installed data, starts the
 shared Game in Bannered Mare and checks that the native menu panel and quest
-text controls are populated. Run it after building the extension and importing
+text controls are populated. It then changes MQ101 to stage 10 through the
+PlayerNode host bridge and checks that the open menu rows change on a later
+process frame. Run it after building the extension and importing
 the Godot project with
 `SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script ui_04_quest_journal_test.gd`.
 This verifies the Godot control tree and its text, without asserting a rendered
@@ -2899,14 +2938,14 @@ angle slider and Turn lock button submit attempts to `Game::attempt_lockpick`.
 A miss consumes a pick and leaves the menu available for another angle. A
 successful turn closes the menu and activates the same reference through the
 ordinary Game path. The menu is presenter state only. The
-`hst_03_lockpick_handoff.gd` test exercises this PlayerNode path against a
-synthetic keyless door and the shared Game. CK Lock and GetLockLevel pages plus
-xEdit's XLOC definition establish lock state, level bands and the key-only
-level 255 case. The angle rule is the game crate policy documented in
-[game.md](game.md#authored-locks-and-keys-2026-09-19). Synthetic `ui_08` game
-tests cover both outcomes. The Godot control interaction has been exercised
-with the successful turn. Visual presentation and minigame feel remain
-unverified.
+`hst_03_lockpick_handoff.gd` and `ui_08_lockpicking.gd` exercise this PlayerNode
+path against a synthetic keyless door and the shared Game. CK Lock and
+GetLockLevel pages plus xEdit's XLOC definition establish lock state, level
+bands and the key-only level 255 case. The angle rule follows the game crate
+policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The live Godot interaction
+test checks the failed and successful turns. Visual presentation and minigame
+feel remain unverified.
 
 ## Dialogue menu, DLG-10
 

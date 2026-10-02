@@ -21,7 +21,8 @@ pub struct Config {
 }
 
 impl Game {
-    /// Register started config quests once and read their current page lists.
+    /// Mark the host's MCM manager ready, register started config quests once,
+    /// and read their current page lists.
     /// The entries are projections of attached script properties, not copies
     /// of authoritative menu data.
     pub fn mcm_configs(&mut self) -> Vec<Config> {

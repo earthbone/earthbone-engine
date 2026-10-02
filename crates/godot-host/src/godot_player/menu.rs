@@ -697,6 +697,21 @@ impl PlayerNode {
         self.refresh_quest_journal()
     }
 
+    /// Set a quest stage in the shared game state.
+    #[func]
+    pub fn set_quest_stage(&mut self, file: i64, object: i64, stage: i64) -> bool {
+        let (Ok(file), Ok(object), Ok(stage)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            u16::try_from(stage),
+        ) else {
+            return false;
+        };
+        self.game
+            .as_mut()
+            .is_some_and(|game| game.set_stage(GlobalFormId { file, object }, stage))
+    }
+
     /// Open the native map surface with markers from the shared quest state.
     #[func]
     pub fn open_objective_map(&mut self) -> bool {
