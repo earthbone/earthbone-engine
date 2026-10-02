@@ -2706,9 +2706,8 @@ exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
 Version 32 stores assigned hand spells, version 33 retains summoned actors,
 version 34 retains encounter-zone visit days, version 35 retains list change
-metadata, weather and time image-space selection, version 36 retains scene
-progress and active-effect taper values, and version 37 retains PACK and NAVM
-change markers in record overrides. Version 37 is the last version bump. It
+metadata, version 36 retains scene progress, and version 37 retains PACK and
+NAVM change markers in record overrides. Version 37 is the last version bump. It
 adds named world, actor and reference section tables. New actor procedure state,
 from Hover through DialogueActivate, is stored in the `AI-21` actor section.
 The provenance-aware native game save envelope and Fallout 4 struct values in
@@ -2913,8 +2912,10 @@ The fixed world, actor, reference and faction bodies retain the layout at
 `72add3f8`. Version 34 stores encounter-zone visits, version 35 stores list
 metadata, and version 36 stores scene phase and completed action slots.
 AI-80 faction attacks, MAG-43 Reanimate owners and CRF-03 learned effects
-use world sections. AI-64 movement flags and AI-15 stacked package frames
-use actor sections. MAG-64 pending reference bindings use a world section,
+use world sections. MAG-72 weather and time image-space selection and MAG-19
+active-effect taper values also use world sections. Missing sections restore
+an empty selection and untapered effects. AI-64 movement flags and AI-15
+stacked package frames use actor sections. MAG-64 pending reference bindings use a world section,
 after AI-16 script calls, to preserve their combined queue order. The source
 for this engine-owned layout is the frozen repository writer, rather than
 the external vanilla ESS references.
@@ -4514,7 +4515,7 @@ magic-effect application as a TODO, so it supplies no resistance formula. The
 and specific resistance as separate terms preserves their independent actor
 values.
 
-For timed effects, taper adds its authored duration after EFIT duration. Non-RECOVER value changes integrate `magnitude * weight * (1 - taper_time / taper_duration)^curve` over that interval. RECOVER changes keep full magnitude and reverse at the end of the taper interval. Curves at or below -1 with positive taper duration are rejected because their total is unbounded. Active spell conditions are reevaluated at whole-second boundaries, and a false condition ends the application. Concentration recasts evaluate conditions in each 0.1-second slice. SOEW version 36 stores active-effect taper values. Version 37 stores granted perks and command-owner data in named sections. Loading restores existing modifiers without applying them again.
+For timed effects, taper adds its authored duration after EFIT duration. Non-RECOVER value changes integrate `magnitude * weight * (1 - taper_time / taper_duration)^curve` over that interval. RECOVER changes keep full magnitude and reverse at the end of the taper interval. Curves at or below -1 with positive taper duration are rejected because their total is unbounded. Active spell conditions are reevaluated at whole-second boundaries, and a false condition ends the application. Concentration recasts evaluate conditions in each 0.1-second slice. The `MAG-19` world section stores active-effect taper values. Version 37 stores granted perks and command-owner data in named sections. Loading restores existing modifiers without applying them again.
 
 Hostile effects first apply the target's current `resistmagic`, then the MGEF `Resist Value` actor value when it names poison, fire, shock, frost, magic or disease resistance. Each term is clamped from 0 to 85 percent and reductions multiply. `DamageResist` and unsupported resistance indices return an error before state changes. The `-1` sentinel omits specific resistance, and non-hostile effects bypass resistance. Current values include base, permanent, temporary and damage components.
 
@@ -6546,8 +6547,8 @@ values. An ENAM record supplies the older compact layout when those fields
 are absent.
 Missing weather slots fall back to the loaded cell, and a missing cell source
 returns no base image space. Malformed authored fields return a state error.
-The selected weather, slots and blend survive SOEW version 35 save/load.
-Version 35 also writes an explicit empty detection count ahead of that state.
+The selected weather, slots and blend survive save/load in the `MAG-72`
+world section. An absent section restores an empty selection.
 Invalid selection leaves the previous one intact.
 SCR-73's audit records the registered `Weather.SetActive` method and eight
 additional vanilla Weather natives missing from the registry. SCR-54 exposes

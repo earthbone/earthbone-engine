@@ -5,6 +5,8 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::image_space::WeatherSelection;
 use soe_game::World;
 
+use crate::common::legacy;
+
 fn tag(bytes: [u8; 4]) -> Tag {
     Tag::new(&bytes)
 }
@@ -173,4 +175,50 @@ fn mag_72_installed_cell_and_weather_links_resolve() {
         }))
         .unwrap();
     assert!(world.base_image_space().unwrap().is_some());
+}
+
+#[test]
+fn mag_72_absent_section_clears_previous_weather_selection() {
+    let mut world = fixture();
+    let bytes = world.save_state();
+    assert!(!bytes.windows(b"MAG-72".len()).any(|part| part == b"MAG-72"));
+    world
+        .select_weather_image_space(Some(WeatherSelection {
+            weather: id(30),
+            from: 1,
+            to: 1,
+            blend: 0.0,
+        }))
+        .unwrap();
+    assert_eq!(world.base_image_space().unwrap().unwrap().hdr[5], 10.0);
+    world.load_state(&bytes).unwrap();
+    assert_eq!(world.base_image_space().unwrap().unwrap().hdr[5], 6.0);
+}
+
+#[test]
+fn mag_72_later_section_error_preserves_live_weather_selection() {
+    let mut world = fixture();
+    world
+        .select_weather_image_space(Some(WeatherSelection {
+            weather: id(30),
+            from: 1,
+            to: 1,
+            blend: 0.0,
+        }))
+        .unwrap();
+    let mut invalid = world.save_state();
+    let mut body = invalid.clone();
+    legacy::strip_world_sections(&mut body);
+    let count_start = body.len();
+    let count_end = count_start + std::mem::size_of::<u16>();
+    let count = u16::from_le_bytes(invalid[count_start..count_end].try_into().unwrap());
+    invalid[count_start..count_end].copy_from_slice(&(count + 1).to_le_bytes());
+    invalid.push(3);
+    invalid.extend_from_slice(b"bad");
+    invalid.extend_from_slice(&0_u32.to_le_bytes());
+    world.select_weather_image_space(None).unwrap();
+    let before = world.save_state();
+    let error = world.load_state(&invalid).unwrap_err();
+    assert!(error.to_string().contains("unknown section bad at world"));
+    assert_eq!(world.save_state(), before);
 }

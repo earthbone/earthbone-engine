@@ -6,6 +6,8 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
 
+use crate::common::legacy;
+
 const ACTOR: u32 = 0x100;
 const EFFECT: u32 = 0x200;
 const SPELL: u32 = 0x300;
@@ -145,4 +147,49 @@ fn mag_19_zero_duration_effect_runs_its_authored_taper() {
     let health = game.world_mut().actor_value(id(ACTOR), "health");
     assert!((health - 96.1458).abs() < 0.001);
     assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_19_absent_section_restores_untapered_effects() {
+    let mut game = fixture(1 << 2, 0.5, 2.0, 4.0, 4);
+    cast(&mut game);
+    game.tick(2.0);
+    let mut bytes = game.world().save_state();
+    legacy::empty_world_sections(&mut bytes);
+    game.world_mut().load_state(&bytes).unwrap();
+    let world = game.world();
+    let effect = world.active_effects().next().unwrap();
+    assert_eq!(effect.elapsed, 2.0);
+    assert_eq!(effect.taper_weight, 1.0);
+    assert_eq!(effect.taper_curve, 0.0);
+    assert_eq!(effect.taper_duration, 0.0);
+    drop(world);
+    game.tick(2.0);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_19_invalid_section_rejects_without_changing_live_effects() {
+    let mut game = fixture(1 << 2, 0.5, 2.0, 4.0, 4);
+    cast(&mut game);
+    game.tick(5.0);
+    let before = game.world().save_state();
+    let name = b"MAG-19";
+    let at = legacy::unique_offset(&before, name);
+    let payload_start = at + name.len() + std::mem::size_of::<u32>();
+    let weight_start = payload_start + std::mem::size_of::<u32>() + std::mem::size_of::<u64>();
+    let mut invalid = before.clone();
+    invalid[weight_start..weight_start + std::mem::size_of::<f32>()]
+        .copy_from_slice(&f32::NAN.to_le_bytes());
+    let error = game.world_mut().load_state(&invalid).unwrap_err();
+    assert!(error.to_string().contains("MAG-19 invalid taper values"));
+    assert_eq!(game.world().save_state(), before);
+
+    let mut missing_effect = before.clone();
+    let id_start = payload_start + std::mem::size_of::<u32>();
+    missing_effect[id_start..id_start + std::mem::size_of::<u64>()]
+        .copy_from_slice(&u64::MAX.to_le_bytes());
+    let error = game.world_mut().load_state(&missing_effect).unwrap_err();
+    assert!(error.to_string().contains("MAG-19 missing active effect"));
+    assert_eq!(game.world().save_state(), before);
 }

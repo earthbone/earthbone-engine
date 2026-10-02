@@ -43,6 +43,7 @@ mod state;
 pub(crate) use state::PERK_SECTION as GRANTED_PERK_SECTION;
 pub(crate) use state::REANIMATE_SECTION;
 pub(crate) use state::SECTION as SAVE_SECTION;
+pub(crate) use state::TAPER_SECTION;
 pub(super) use state::{read_magic, read_werewolf_transform, write_werewolf_transform};
 
 const HOSTILE: u32 = 1;

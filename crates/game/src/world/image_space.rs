@@ -6,11 +6,32 @@
 use std::collections::BTreeSet;
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::VmError;
 
 use super::save::{read_form_id, write_form_id, FormReader};
 use super::{World, T};
+
+pub(crate) const SECTION: super::save_sections::Section<World> = super::save_sections::Section {
+    name: "MAG-72",
+    write: write_weather_selection,
+    read: read_weather_selection,
+};
+
+fn write_weather_selection(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    if world.weather_image_space.is_some() {
+        world.write_weather_image_space(writer);
+    }
+}
+
+fn read_weather_selection(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.weather_image_space = world.read_weather_image_space(reader)?;
+    Ok(())
+}
 
 /// Winning IMGS values, in the order of xEdit HNAM, CNAM, TNAM and DNAM.
 #[derive(Debug, Clone, PartialEq)]

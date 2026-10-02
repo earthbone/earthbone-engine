@@ -132,7 +132,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// level.
 /// World sections include AI-80 faction attack history, MAG-64 pending
 /// reference bindings, CRF-03 learned enchantment effects and MAG-33 command
-/// owners. AI-64 actor sections retain swimming, running and mounted flags.
+/// owners. MAG-72 retains weather and time image-space selection, MAG-19
+/// retains authored active-effect taper values and MAG-21 retains granted perks.
+/// AI-64 actor sections retain swimming, running and mounted flags.
 /// AI-15 retains stacked package tree frames. The TST-01 world section retains each
 /// subsystem's independent random stream. AI-21 retains the driver record.
 /// World sections also include SAV-53 base-object fields, SAV-42 static-object
@@ -549,8 +551,6 @@ impl World {
             }
         }
         self.write_detection(&mut body);
-        self.write_weather_image_space(&mut body);
-
         save_sections::write_sections_with_pool(&mut body, self, WORLD_SECTIONS, &mut pool);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
@@ -997,7 +997,7 @@ impl World {
             }
         }
         let (next_effect, mut active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r, version >= 33, version >= 36)?
+            super::magic::read_magic(&mut r, version >= 33)?
         } else {
             (1, BTreeMap::new())
         };
@@ -1170,11 +1170,6 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
-        let weather_image_space = if version >= 35 {
-            self.read_weather_image_space(&mut r)?
-        } else {
-            None
-        };
         // Read world sections against candidate state while keeping the live
         // world unchanged if any section rejects its payload.
         let previous_factions = std::mem::replace(&mut self.factions, factions);
@@ -1191,6 +1186,7 @@ impl World {
             &mut self.learned_enchantment_effects,
             learned_enchantment_effects.clone(),
         );
+        let previous_weather_image_space = std::mem::take(&mut self.weather_image_space);
         let previous_cloaks = std::mem::take(&mut self.cloak_effects);
         let previous_effect_shaders = std::mem::take(&mut self.effect_shaders);
         let fallback_player_level = player
@@ -1248,6 +1244,8 @@ impl World {
             &mut self.learned_enchantment_effects,
             previous_learned_effects,
         );
+        let weather_image_space =
+            std::mem::replace(&mut self.weather_image_space, previous_weather_image_space);
         let cloak_effects = std::mem::take(&mut self.cloak_effects);
         let effect_shaders = std::mem::replace(&mut self.effect_shaders, previous_effect_shaders);
         self.unresolved_records = previous_unresolved;
@@ -1264,6 +1262,14 @@ impl World {
         }
         r.expect_end()?;
         for (id, effect) in &active_effects {
+            // CONTEXT: MAG-19 must restore taper before checking the expiry bound.
+            if effect
+                .duration
+                .is_some_and(|duration| duration + effect.taper_duration < effect.elapsed)
+            {
+                return Err(VmError::State("invalid active effect state".into()));
+            }
+
             let headless_ability = effect.source == effect.target
                 && effect.caster == Some(effect.target)
                 && self.spell(effect.spell).is_ok_and(|spell| {

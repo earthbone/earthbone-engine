@@ -57,6 +57,8 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-64", write: write_reference_bindings, read: read_reference_bindings },
     Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
     super::magic::GRANTED_PERK_SECTION,
+    super::image_space::SECTION,
+    super::magic::TAPER_SECTION,
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
 

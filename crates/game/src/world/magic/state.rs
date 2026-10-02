@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW version 5 stores active applications after the version 4 world body.
-//! Loaded actor values already contain recoverable modifiers.
+//! SOEW active applications retain the frozen version 37 body. Authored taper
+//! values use the `MAG-19` world section, granted perks use `MAG-21`, command
+//! owners use `MAG-33` and Reanimate owners use `MAG-43`. Loaded actor values
+//! already contain recoverable modifiers. The frozen repository writer and
+//! `save_sections` define this engine-owned layout.
 
 use std::collections::BTreeMap;
 
@@ -35,6 +38,72 @@ pub(crate) const PERK_SECTION: crate::world::save_sections::Section<World> =
         read: read_granted_perks,
     };
 
+pub(crate) const TAPER_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-19",
+        write: write_taper_values,
+        read: read_taper_values,
+    };
+
+fn write_taper_values(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let tapered: Vec<_> = world
+        .active_effects
+        .values()
+        .filter(|effect| {
+            effect.taper_weight != 1.0 || effect.taper_curve != 0.0 || effect.taper_duration != 0.0
+        })
+        .collect();
+    if tapered.is_empty() {
+        return;
+    }
+    w.len(tapered.len());
+    for effect in tapered {
+        w.u64(effect.id.0);
+        w.f32(effect.taper_weight);
+        w.f32(effect.taper_curve);
+        w.f64(effect.taper_duration);
+    }
+}
+
+fn read_taper_values(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 24 {
+        return Err(VmError::State(
+            "MAG-19 taper count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let weight = r.f32()?;
+        let curve = r.f32()?;
+        let duration = r.f64()?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-19 duplicate effect identity".into()));
+        }
+        if !weight.is_finite()
+            || !curve.is_finite()
+            || !duration.is_finite()
+            || duration < 0.0
+            || (duration > 0.0 && curve <= -1.0)
+        {
+            return Err(VmError::State("MAG-19 invalid taper values".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-19 missing active effect".into()))?;
+        effect.taper_weight = weight;
+        effect.taper_curve = curve;
+        effect.taper_duration = duration;
+    }
+    Ok(())
+}
+
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
         w.u64(self.next_effect);
@@ -48,9 +117,6 @@ impl World {
             write_opt_form_id(w, effect.caster);
             write_form_id(w, effect.target);
             w.f32(effect.magnitude);
-            w.f32(effect.taper_weight);
-            w.f32(effect.taper_curve);
-            w.f64(effect.taper_duration);
             w.bool(effect.duration.is_some());
             if let Some(duration) = effect.duration {
                 w.f64(duration);
@@ -264,7 +330,6 @@ fn read_command_owners(
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
-    has_taper_values: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -278,11 +343,6 @@ pub(in crate::world) fn read_magic(
         let caster = read_opt_form_id(r)?;
         let target = read_form_id(r)?;
         let magnitude = r.f32()?;
-        let (taper_weight, taper_curve, taper_duration) = if has_taper_values {
-            (r.f32()?, r.f32()?, r.f64()?)
-        } else {
-            (1.0, 0.0, 0.0)
-        };
         let duration = if r.bool()? { Some(r.f64()?) } else { None };
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
@@ -295,14 +355,9 @@ pub(in crate::world) fn read_magic(
             || id.0 >= next
             || !magnitude.is_finite()
             || magnitude < 0.0
-            || !taper_weight.is_finite()
-            || !taper_curve.is_finite()
-            || !taper_duration.is_finite()
-            || taper_duration < 0.0
             || !elapsed.is_finite()
             || elapsed < 0.0
-            || duration.is_some_and(|d| !d.is_finite() || d + taper_duration < elapsed)
-            || (taper_duration > 0.0 && taper_curve <= -1.0)
+            || duration.is_some_and(|d| !d.is_finite())
         {
             return Err(VmError::State("invalid active effect state".into()));
         }
@@ -329,9 +384,9 @@ pub(in crate::world) fn read_magic(
             target,
             magnitude,
             duration,
-            taper_weight,
-            taper_curve,
-            taper_duration,
+            taper_weight: 1.0,
+            taper_curve: 0.0,
+            taper_duration: 0.0,
             elapsed,
             summoned,
             granted_perk: None,
