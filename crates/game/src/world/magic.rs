@@ -25,6 +25,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
+use soe_esm::records::hazd::{self as hazard_data, Hazard};
 use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
@@ -38,6 +39,7 @@ use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_
 use super::{Alloc, Handle, Pending, World, T};
 
 mod state;
+pub(crate) use state::REANIMATE_SECTION;
 pub(crate) use state::SECTION as SAVE_SECTION;
 pub(super) use state::{read_magic, read_werewolf_transform, write_werewolf_transform};
 
@@ -56,6 +58,10 @@ const SPAWN_SCRIPTED_REF: u32 = 43;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
+const DETECT_LIFE_ARCHETYPE: u32 = 19;
+const REANIMATE_ARCHETYPE: u32 = 22;
+const SOUL_TRAP_ARCHETYPE: u32 = 23;
+const WEREWOLF_FEED: u32 = 26;
 const CURE_PARALYSIS_ARCHETYPE: u32 = 27;
 const DEMORALIZE: u32 = 7;
 const FRENZY_ARCHETYPE: u32 = 8;
@@ -114,6 +120,8 @@ pub struct ActiveEffect {
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
+    /// Prior reference owner while this effect commands a reanimated actor.
+    pub reanimated_previous_owner: Option<Option<GlobalFormId>>,
     /// Previous runtime owner while this effect commands a summoned actor.
     pub(crate) restore_owner: Option<PriorOwner>,
     pub(crate) recover: bool,
@@ -145,6 +153,25 @@ pub struct ConcentrationCast {
 pub(crate) struct CloakState {
     pub(crate) elapsed: f64,
     pub(crate) owned: Vec<EffectId>,
+}
+
+/// A spell was rejected before any of its effects were applied.
+/// A live actor selected by a Detect Life effect, with its authored hit shader.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectedActor {
+    pub effect: EffectId,
+    pub actor: GlobalFormId,
+    pub position: [f32; 3],
+    pub hit_shader: Option<GlobalFormId>,
+}
+
+/// A route exposed by an active Guide effect for the player's current objective.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuideRoute {
+    pub quest: GlobalFormId,
+    pub objective: u16,
+    pub destination: GlobalFormId,
+    pub points: Vec<[f32; 3]>,
 }
 
 /// A spell was rejected before any of its effects were applied.
@@ -183,8 +210,10 @@ enum DispelRule {
 
 struct PreparedEffect {
     effect: ActiveEffect,
+    feed_corpse: Option<GlobalFormId>,
     summon_base: Option<GlobalFormId>,
     werewolf_race: Option<(GlobalFormId, BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>)>,
+    hazard_base: Option<GlobalFormId>,
     command_owner: Option<GlobalFormId>,
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
@@ -203,6 +232,14 @@ struct PreparedEffect {
 }
 
 pub(super) struct PreparedWeaponEnchantment(Vec<PreparedEffect>);
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SoulGem {
+    current: u8,
+    capacity: u8,
+    filled: GlobalFormId,
+    can_hold_npc_soul: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CastDelivery {
     Direct,
@@ -428,6 +465,14 @@ impl World {
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
+    }
+
+    /// Whether a live command effect currently owns this actor.
+    #[must_use]
+    pub fn is_commanded_actor(&self, target: GlobalFormId) -> bool {
+        self.active_effects
+            .values()
+            .any(|effect| effect.target == target && effect.restore_owner.is_some())
     }
 
     /// Whether an actor currently has a live Calm application.
@@ -1069,14 +1114,9 @@ impl World {
                     return Err(MagicError::Unsupported("ethereal action"));
                 }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
-                if actor.dead || actor.ghost {
+                if (actor.dead && data.archetype != REANIMATE_ARCHETYPE) || actor.ghost {
                     return Err(MagicError::Target);
                 }
-            }
-            if data.archetype == 40 {
-                return Err(MagicError::Unsupported(
-                    "spawn hazard requires hazard ownership and expiry",
-                ));
             }
             if !matches!(
                 data.archetype,
@@ -1100,7 +1140,11 @@ impl World {
                     | LOCK
                     | OPEN
                     | 17
-                    | 18
+                    | DETECT_LIFE_ARCHETYPE
+                    | REANIMATE_ARCHETYPE
+                    | SOUL_TRAP_ARCHETYPE
+                    | 25
+                    | WEREWOLF_FEED
                     | 20
                     | 38
                     | DEMORALIZE
@@ -1201,14 +1245,17 @@ impl World {
                     },
                     elapsed: 0.0,
                     summoned: None,
+                    reanimated_previous_owner: None,
                     restore_owner: None,
                     recover: data.flags & RECOVER != 0
                         || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
                     changes,
                 },
+                feed_corpse: None,
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
                 werewolf_race: None,
+                hazard_base: None,
                 command_owner: None,
                 light_base: None,
                 bound_weapon: None,
@@ -1334,7 +1381,14 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        if self.spell(spell)?.data.cast_type == 2 {
+        let definition = self.spell(spell)?;
+        if definition.data.cast_type == 2
+            && !definition.effects.iter().all(|entry| {
+                self.resolve_from(spell, entry.base_effect)
+                    .and_then(|effect| self.magic_effect(effect).ok())
+                    .is_some_and(|effect| effect.data.archetype == DETECT_LIFE_ARCHETYPE)
+            })
+        {
             return Err(MagicError::Unsupported(
                 "concentration requires a held cast",
             ));
@@ -2184,14 +2238,18 @@ impl World {
                 skill_use: None,
                 light_level: None,
             };
-            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+            if data.archetype != DETECT_LIFE_ARCHETYPE
+                && !conditions::evaluate_without_vm(self, context, &entry.conditions)?
+            {
                 continue;
             }
             let context = Context {
                 owner: effect,
                 ..context
             };
-            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+            if data.archetype != DETECT_LIFE_ARCHETYPE
+                && !conditions::evaluate_without_vm(self, context, &base.conditions)?
+            {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
@@ -2199,14 +2257,9 @@ impl World {
                     return Err(MagicError::Unsupported("ethereal action"));
                 }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
-                if actor.dead || actor.ghost {
+                if (actor.dead && data.archetype != REANIMATE_ARCHETYPE) || actor.ghost {
                     return Err(MagicError::Target);
                 }
-            }
-            if data.archetype == 40 {
-                return Err(MagicError::Unsupported(
-                    "spawn hazard requires hazard ownership and expiry",
-                ));
             }
             if !matches!(
                 data.archetype,
@@ -2227,6 +2280,11 @@ impl World {
                     | LOCK
                     | OPEN
                     | 17
+                    | DETECT_LIFE_ARCHETYPE
+                    | REANIMATE_ARCHETYPE
+                    | SOUL_TRAP_ARCHETYPE
+                    | 25
+                    | WEREWOLF_FEED
                     | 35
                     | 29
                     | 31
@@ -2242,6 +2300,7 @@ impl World {
                     | 10
                     | 20
                     | 38
+                    | 40
                     | DEMORALIZE
                     | FRENZY_ARCHETYPE
                     | TURN_UNDEAD
@@ -2256,6 +2315,11 @@ impl World {
                     return Err(MagicError::Unsupported("lock area"));
                 }
             } else if self.actor(target).is_none() {
+                return Err(MagicError::Target);
+            }
+            if data.archetype == REANIMATE_ARCHETYPE
+                && (caster.is_none() || !self.reanimate_eligible(target, entry.data.magnitude))
+            {
                 return Err(MagicError::Target);
             }
             if data.archetype == TURN_UNDEAD
@@ -2280,7 +2344,10 @@ impl World {
             if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 && data.archetype != 35 {
+            let magnitude = if data.flags & NO_MAGNITUDE != 0
+                && data.archetype != 35
+                && data.archetype != REANIMATE_ARCHETYPE
+            {
                 0.0
             } else {
                 entry.data.magnitude
@@ -2346,6 +2413,34 @@ impl World {
             };
             let vampire_form = if data.archetype == 46 {
                 Some(self.vampire_lord_race(effect, data.associated_item)?)
+            } else {
+                None
+            };
+            let hazard_base = if data.archetype == 40 {
+                let base = self
+                    .resolve_from(effect, data.associated_item)
+                    .filter(|base| self.tag_of(*base) == Some(super::T(b"HAZD")))
+                    .ok_or(MagicError::Unsupported("spawn hazard base"))?;
+                let record = self.record(base).ok_or(MagicError::Missing(base))?;
+                let hazard = Hazard::from_record(record)?;
+                if !hazard.radius.is_finite()
+                    || hazard.radius < 0.0
+                    || !hazard.lifetime.is_finite()
+                    || hazard.lifetime < 0.0
+                    || !hazard.target_interval.is_finite()
+                    || hazard.target_interval <= 0.0
+                {
+                    return Err(MagicError::Unsupported(
+                        "invalid hazard radius, lifetime or target interval",
+                    ));
+                }
+                if hazard.spell != 0 {
+                    let contact_spell = self
+                        .resolve_from(base, hazard.spell)
+                        .ok_or(MagicError::Missing(base))?;
+                    self.spell(contact_spell)?;
+                }
+                Some(base)
             } else {
                 None
             };
@@ -2415,15 +2510,18 @@ impl World {
                 None
             };
             let duration = if (definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD)
+                || (concentration && data.archetype == DETECT_LIFE_ARCHETYPE)
                 || (data.archetype == 32 && data.flags & NO_DURATION != 0)
             {
                 None
             } else {
-                Some(if data.flags & NO_DURATION != 0 {
-                    0.0
-                } else {
-                    f64::from(entry.data.duration)
-                })
+                Some(
+                    if data.flags & NO_DURATION != 0 && data.archetype != REANIMATE_ARCHETYPE {
+                        0.0
+                    } else {
+                        f64::from(entry.data.duration)
+                    },
+                )
             };
             let stagger_duration = (data.archetype == 33)
                 .then(|| {
@@ -2453,7 +2551,7 @@ impl World {
                 }
                 dispel_rules.push(DispelRule::Keywords(keywords));
             }
-            let radius = if data.flags & NO_AREA != 0 {
+            let radius = if data.flags & NO_AREA != 0 && data.archetype != REANIMATE_ARCHETYPE {
                 0.0
             } else {
                 entry.data.area as f32
@@ -2470,7 +2568,7 @@ impl World {
             } else {
                 self.area_targets(target, radius)
             };
-            if data.flags & HOSTILE != 0 {
+            if data.flags & HOSTILE != 0 && data.archetype != REANIMATE_ARCHETYPE {
                 recipients.retain(|&id| {
                     self.actor(id)
                         .is_some_and(|actor| !actor.dead && !actor.ghost)
@@ -2478,6 +2576,11 @@ impl World {
                 });
             }
             for recipient in recipients {
+                if data.archetype == REANIMATE_ARCHETYPE
+                    && !self.reanimate_eligible(recipient, magnitude)
+                {
+                    continue;
+                }
                 let restore_owner = if data.archetype == 10 {
                     let is_summoned = self
                         .active_effects
@@ -2517,7 +2620,9 @@ impl World {
                     magnitude
                 };
                 let mut recipient_changes = Vec::new();
-                if matches!(data.archetype, 0 | 4 | 5 | 31 | 32 | PEAK_VALUE_MODIFIER) {
+                if data.archetype == PARALYSIS_ARCHETYPE {
+                    recipient_changes.push(("paralysis".into(), signed));
+                } else if matches!(data.archetype, 0 | 4 | 5 | 31 | 32 | PEAK_VALUE_MODIFIER) {
                     let name = actor_value_name(data.primary_actor_value)
                         .ok_or(MagicError::Unsupported("actor value"))?;
                     recipient_changes.push((
@@ -2537,8 +2642,6 @@ impl World {
                         }
                         recipient_changes.push((name.to_string(), amount));
                     }
-                } else if data.archetype == PARALYSIS_ARCHETYPE {
-                    recipient_changes.push(("paralysis".into(), signed));
                 } else if data.archetype == 6 {
                     recipient_changes.push(("aggression".into(), -magnitude));
                 } else if data.archetype == DEMORALIZE {
@@ -2547,27 +2650,56 @@ impl World {
                 if data.archetype == FRENZY_ARCHETYPE {
                     recipient_changes.push(("aggression".into(), signed));
                 }
+                let mut active_effect = ActiveEffect {
+                    id: EffectId(0),
+                    spell,
+                    effect,
+                    effect_index: index as u32,
+                    source,
+                    caster,
+                    target: recipient,
+                    magnitude,
+                    duration,
+                    elapsed: 0.0,
+                    summoned: None,
+                    reanimated_previous_owner: None,
+                    restore_owner,
+                    recover: data.flags & RECOVER != 0
+                        || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
+                    changes: recipient_changes,
+                };
+                if let Some(base) = hazard_base {
+                    let record = self.record(base).ok_or(MagicError::Missing(base))?;
+                    let hazard = Hazard::from_record(record)?;
+                    let hazard_lifetime = if hazard.lifetime > 0.0 {
+                        f64::from(hazard.lifetime)
+                    } else {
+                        duration.unwrap_or(0.0)
+                    };
+                    active_effect.duration = Some(
+                        if hazard.flags & hazard_data::flags::INHERIT_DURATION != 0 {
+                            duration.unwrap_or(hazard_lifetime)
+                        } else {
+                            hazard_lifetime
+                        },
+                    );
+                }
+                active_effect.reanimated_previous_owner =
+                    (data.archetype == REANIMATE_ARCHETYPE).then_some(None);
+                let feed_corpse = if data.archetype == WEREWOLF_FEED {
+                    let feeder = caster.unwrap_or(source);
+                    self.validate_feed_target(feeder, recipient)?;
+                    Some(recipient)
+                } else {
+                    None
+                };
                 prepared.push(PreparedEffect {
-                    effect: ActiveEffect {
-                        id: EffectId(0),
-                        spell,
-                        effect,
-                        effect_index: index as u32,
-                        source,
-                        caster,
-                        target: recipient,
-                        magnitude,
-                        duration,
-                        elapsed: 0.0,
-                        summoned: None,
-                        restore_owner,
-                        recover: data.flags & RECOVER != 0
-                            || matches!(data.archetype, PARALYSIS_ARCHETYPE | DEMORALIZE | 38),
-                        changes: recipient_changes,
-                    },
+                    effect: active_effect,
+                    feed_corpse,
                     no_recast: data.flags & NO_RECAST != 0 || data.archetype == 46,
                     summon_base,
                     werewolf_race: werewolf_race.clone(),
+                    hazard_base,
                     command_owner,
                     light_base,
                     bound_weapon,
@@ -2667,9 +2799,22 @@ impl World {
         disarms: Vec<(GlobalFormId, f32)>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
+        let mut feed_targets = std::collections::BTreeSet::new();
         for mut prepared in prepared {
             let id = prepared.effect.id;
             self.next_effect = id.0 + 1;
+            if let Some(corpse) = prepared.feed_corpse {
+                feed_targets.insert(corpse);
+                continue;
+            }
+            if prepared.effect.reanimated_previous_owner.is_some() {
+                let target = prepared.effect.target;
+                let previous_owner = self.reference(target).ok_or(MagicError::Target)?.owner;
+                self.resurrect_actor(target)
+                    .map_err(|_| MagicError::Target)?;
+                self.reference(target).ok_or(MagicError::Target)?.owner = prepared.effect.caster;
+                prepared.effect.reanimated_previous_owner = Some(previous_owner);
+            }
             if let Some(weapon) = prepared.bound_weapon {
                 let inventory = &mut self
                     .reference(prepared.effect.target)
@@ -2715,6 +2860,14 @@ impl World {
                     shouts,
                     alloc,
                 )?;
+            }
+            if let Some(base) = prepared.hazard_base {
+                let hazard = self.place_at(base, prepared.effect.target, false);
+                let owner = prepared.effect.caster.unwrap_or(prepared.effect.source);
+                if let Some(reference) = self.reference(hazard) {
+                    reference.owner = Some(owner);
+                }
+                prepared.effect.summoned = Some(hazard);
             }
             if let Some(previous_owner) = prepared.effect.restore_owner {
                 if let Some(reference) = self.reference(prepared.effect.target) {
@@ -2874,6 +3027,9 @@ impl World {
         }
         for (target, magnitude) in disarms {
             self.disarm_equipped_weapon(target, magnitude, alloc);
+        }
+        for corpse in feed_targets {
+            self.feed_corpse(corpse)?;
         }
         Ok(applied)
     }
@@ -3202,6 +3358,20 @@ impl World {
         for cloak in self.cloak_effects.values_mut() {
             cloak.owned.retain(|owned| *owned != id);
         }
+        if let Some(hazard) = effect.summoned.filter(|_| {
+            self.magic_effect(effect.effect)
+                .is_ok_and(|base| base.data.archetype == 40)
+        }) {
+            let owned: Vec<_> = self
+                .active_effects
+                .values()
+                .filter(|child| child.source == hazard)
+                .map(|child| child.id)
+                .collect();
+            for child in owned {
+                self.dispel_effect(child, alloc);
+            }
+        }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
@@ -3229,6 +3399,12 @@ impl World {
                     PriorOwner::Owned(owner) => Some(owner),
                 };
             }
+        }
+        if let Some(previous_owner) = effect.reanimated_previous_owner {
+            if let Some(reference) = self.reference(effect.target) {
+                reference.owner = previous_owner;
+            }
+            self.kill_actor(effect.target, None);
         }
         if let Ok(definition) = self.magic_effect(effect.effect) {
             if definition.data.archetype == 17 {
@@ -3296,6 +3472,22 @@ impl World {
         let mut errors = Vec::new();
         if !seconds.is_finite() || seconds < 0.0 {
             return errors;
+        }
+        let active_effects: Vec<_> = self.active_effects.values().cloned().collect();
+        let mut trapped_corpses: Vec<_> = active_effects
+            .iter()
+            .filter_map(|effect| {
+                (self.actor(effect.target).is_some_and(|actor| actor.dead)
+                    && self
+                        .magic_effect(effect.effect)
+                        .is_ok_and(|base| base.data.archetype == SOUL_TRAP_ARCHETYPE))
+                .then_some(effect.target)
+            })
+            .collect();
+        trapped_corpses.sort_unstable();
+        trapped_corpses.dedup();
+        for corpse in trapped_corpses {
+            self.resolve_soul_trap_death(corpse, &mut *alloc);
         }
         let ids: Vec<_> = self.active_effects.keys().copied().collect();
         for id in ids {
@@ -3382,6 +3574,18 @@ impl World {
                     }
                 }
                 effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+                if self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 40)
+                {
+                    if let Err(error) =
+                        self.tick_spawn_hazard(&effect, effect.elapsed - dt, effect.elapsed, alloc)
+                    {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
                 if reached_check {
                     effect.elapsed = effect.elapsed.round();
                 }
@@ -3422,6 +3626,72 @@ impl World {
             }
         }
         errors
+    }
+
+    fn tick_spawn_hazard(
+        &mut self,
+        effect: &ActiveEffect,
+        previous: f64,
+        current: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let base_effect = self.magic_effect(effect.effect)?;
+        let base = self
+            .resolve_from(effect.effect, base_effect.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let record = self.record(base).ok_or(MagicError::Missing(base))?;
+        let hazard = Hazard::from_record(record)?;
+        if hazard.spell == 0 {
+            return Ok(());
+        }
+        let contact_spell = self
+            .resolve_from(base, hazard.spell)
+            .ok_or(MagicError::Missing(base))?;
+        let hazard_ref = effect.summoned.ok_or(MagicError::Target)?;
+        let center = self
+            .reference_ref(hazard_ref)
+            .filter(|reference| reference.enabled && !reference.deleted)
+            .map(|reference| reference.position)
+            .ok_or(MagicError::Target)?;
+        let inherited_radius = if hazard.flags & hazard_data::flags::INHERIT_RADIUS != 0 {
+            self.magic_item_effect(effect.spell, effect.effect_index)
+                .map(|entry| entry.data.area as f32)
+                .unwrap_or(0.0)
+        } else {
+            hazard.radius
+        };
+        let interval = f64::from(hazard.target_interval);
+        let first = (previous / interval).floor() + 1.0;
+        let last = (current / interval).floor();
+        if !first.is_finite() || !last.is_finite() || last < first {
+            return Ok(());
+        }
+        if last - first > 255.0 {
+            return Err(MagicError::Unsupported("spawn hazard pulse limit"));
+        }
+        let owner = effect.caster.unwrap_or(effect.source);
+        for _ in 0..=(last - first) as usize {
+            let mut targets = self.area_targets_at_position(center, inherited_radius);
+            targets.retain(|target| {
+                *target != owner
+                    && self
+                        .actor(*target)
+                        .is_some_and(|actor| !actor.dead && !actor.ghost)
+                    && !self.is_ethereal(*target)
+            });
+            for target in targets {
+                let mut prepared =
+                    self.prepare_spell_cast(contact_spell, hazard_ref, Some(owner), Some(target))?;
+                for child in &mut prepared {
+                    child.effect.magnitude *= effect.magnitude;
+                    if !child.effect.magnitude.is_finite() {
+                        return Err(MagicError::Number);
+                    }
+                }
+                self.apply_prepared_effects(prepared, alloc)?;
+            }
+        }
+        Ok(())
     }
 
     fn accumulate_effect_value(
@@ -3506,6 +3776,10 @@ impl World {
             .get(effect.effect_index as usize)
             .ok_or(MagicError::Unsupported("active effect entry"))?;
         let base = self.magic_effect(effect.effect)?;
+        if base.data.archetype == DETECT_LIFE_ARCHETYPE {
+            // CONTEXT: Detection conditions select candidates, not the origin actor.
+            return Ok(true);
+        }
         let context = |owner| Context {
             owner,
             subject: effect.target,
@@ -3624,6 +3898,370 @@ impl World {
             self.kill_actor(effect.target, effect.caster);
         }
         Ok(())
+    }
+
+    pub fn detect_life_targets(&mut self) -> Result<Vec<DetectedActor>, MagicError> {
+        let mut detected = Vec::new();
+        let active_effects: Vec<_> = self.active_effects.values().cloned().collect();
+        for active in active_effects {
+            let definition = self.magic_effect(active.effect)?;
+            if definition.data.archetype != DETECT_LIFE_ARCHETYPE
+                || !active.magnitude.is_finite()
+                || active.magnitude <= 0.0
+            {
+                continue;
+            }
+            let Some(origin) = self.reference_ref(active.target).map(|r| r.position) else {
+                continue;
+            };
+            if !origin.iter().all(|value| value.is_finite()) {
+                continue;
+            }
+            let radius_squared = active.magnitude * active.magnitude;
+            let hit_shader = self.magic_effect_hit_shader(active.effect)?;
+            let entry = self.magic_item_effect(active.spell, active.effect_index)?;
+            let candidates: Vec<_> = self
+                .refs
+                .iter()
+                .map(|(&id, reference)| {
+                    (
+                        id,
+                        reference.is_actor,
+                        reference.enabled,
+                        reference.deleted,
+                        reference.position,
+                    )
+                })
+                .collect();
+            for (actor, is_actor, enabled, deleted, position) in candidates {
+                if actor == active.target || !is_actor || !enabled || deleted {
+                    continue;
+                }
+                if self.actor(actor).is_none_or(|state| state.dead) {
+                    continue;
+                }
+                if !position.iter().all(|value| value.is_finite()) {
+                    continue;
+                }
+                let distance_squared = (0..3)
+                    .map(|axis| {
+                        let delta = position[axis] - origin[axis];
+                        delta * delta
+                    })
+                    .sum::<f32>();
+                if distance_squared > radius_squared {
+                    continue;
+                }
+                let context = Context {
+                    owner: active.spell,
+                    subject: actor,
+                    target: active.caster,
+                    quest: None,
+                    tempering_enchanted: None,
+                    tempering_item: None,
+                    alchemy_making_poison: None,
+                    alchemy_effect: None,
+                    magic_item: None,
+                    dual_cast: None,
+                    skill_use: None,
+                    light_level: None,
+                };
+                if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+                    continue;
+                }
+                let context = Context {
+                    owner: active.effect,
+                    ..context
+                };
+                if conditions::evaluate_without_vm(self, context, &definition.conditions)? {
+                    detected.push(DetectedActor {
+                        effect: active.id,
+                        actor,
+                        position,
+                        hit_shader,
+                    });
+                }
+            }
+        }
+        detected.sort_by_key(|target| (target.effect, target.actor));
+        Ok(detected)
+    }
+
+    fn magic_effect_hit_shader(
+        &self,
+        id: GlobalFormId,
+    ) -> Result<Option<GlobalFormId>, MagicError> {
+        let Some(reference) = self.order.winner_ref(id) else {
+            return Err(MagicError::Missing(id));
+        };
+        let record = self.order.record(reference);
+        let data = record.required(super::T(b"DATA"))?;
+        if data.len() < 36 {
+            return Err(MagicError::Record(soe_esm::Error::Truncated {
+                at: 32,
+                need: 4,
+                have: data.len().saturating_sub(32),
+            }));
+        }
+        let raw = u32::from_le_bytes([data[32], data[33], data[34], data[35]]);
+        Ok((raw != 0).then(|| self.order.resolve(reference.file, raw)))
+    }
+
+    pub fn guide_route(&mut self) -> Option<GuideRoute> {
+        let player = self.player();
+        let guided = self.active_effects.values().any(|effect| {
+            effect.target == player
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 25)
+        });
+        if !guided {
+            return None;
+        }
+
+        let mut candidates: Vec<_> = self
+            .quests
+            .iter()
+            .filter(|(_, quest)| quest.running && quest.active && !quest.completed && !quest.failed)
+            .flat_map(|(&quest_id, quest)| {
+                quest
+                    .def
+                    .objectives
+                    .iter()
+                    .filter(|objective| {
+                        quest.objectives.get(&objective.index).is_some_and(|state| {
+                            state.displayed && !state.completed && !state.failed
+                        })
+                    })
+                    .map(move |objective| {
+                        (
+                            quest_id,
+                            quest.def.priority,
+                            objective.index,
+                            objective.targets.clone(),
+                        )
+                    })
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)).then(a.2.cmp(&b.2)));
+
+        let player_position = self.reference(player)?.position;
+        for (quest, _, objective, targets) in candidates {
+            let mut destinations = Vec::new();
+            for target in targets {
+                let Ok(alias) = u32::try_from(target.alias) else {
+                    continue;
+                };
+                let Some(destination) = self.alias_ref(quest, alias) else {
+                    continue;
+                };
+                let Some(reference) = self.reference(destination) else {
+                    continue;
+                };
+                if reference.enabled
+                    && !reference.deleted
+                    && reference.position.iter().all(|n| n.is_finite())
+                {
+                    let delta = [
+                        reference.position[0] - player_position[0],
+                        reference.position[1] - player_position[1],
+                        reference.position[2] - player_position[2],
+                    ];
+                    destinations.push((
+                        delta.iter().map(|n| n * n).sum::<f32>(),
+                        destination,
+                        reference.position,
+                    ));
+                }
+            }
+            destinations.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let Some((_, destination, position)) = destinations.into_iter().next() else {
+                continue;
+            };
+            let points = crate::ai::path_points(self, player_position, position);
+            if !points.is_empty() && points.iter().flatten().all(|n| n.is_finite()) {
+                return Some(GuideRoute {
+                    quest,
+                    objective,
+                    destination,
+                    points,
+                });
+            }
+        }
+        None
+    }
+
+    fn validate_feed_target(
+        &mut self,
+        feeder: GlobalFormId,
+        corpse: GlobalFormId,
+    ) -> Result<(), MagicError> {
+        if self.actor(feeder).is_none() {
+            return Err(MagicError::Target);
+        }
+        let dead_actor = self.actor(corpse).is_some_and(|actor| actor.dead);
+        let eligible_reference = self
+            .reference(corpse)
+            .is_some_and(|reference| reference.is_actor && reference.enabled && !reference.deleted);
+        if !dead_actor || !eligible_reference {
+            return Err(MagicError::Target);
+        }
+        Ok(())
+    }
+
+    fn feed_corpse(&mut self, corpse: GlobalFormId) -> Result<(), MagicError> {
+        let reference = self.reference(corpse).ok_or(MagicError::Target)?;
+        if !reference.is_actor || !reference.enabled || reference.deleted {
+            return Err(MagicError::Target);
+        }
+        reference.deleted = true;
+        reference.enabled = false;
+        Ok(())
+    }
+
+    fn reanimate_eligible(&mut self, target: GlobalFormId, magnitude: f32) -> bool {
+        let Some(reference) = self.reference_ref(target) else {
+            return false;
+        };
+        if !reference.enabled || reference.deleted {
+            return false;
+        }
+        self.actor(target).is_some_and(|actor| {
+            actor.dead
+                && !actor.ghost
+                && !actor.essential
+                && (magnitude == 0.0 || actor.level as f32 <= magnitude)
+        })
+    }
+
+    pub(crate) fn resolve_soul_trap_death(&mut self, target: GlobalFormId, alloc: Alloc<'_>) {
+        let mut traps: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|active| {
+                active.target == target
+                    && self
+                        .magic_effect(active.effect)
+                        .is_ok_and(|effect| effect.data.archetype == SOUL_TRAP_ARCHETYPE)
+            })
+            .map(|active| active.id)
+            .collect();
+        traps.sort_unstable();
+        if let Some(id) = traps.first() {
+            if let Some(effect) = self.active_effects.get(id).cloned() {
+                if let Some(caster) = effect.caster {
+                    self.fill_soul_gem(caster, target, alloc);
+                }
+            }
+        }
+        for id in traps {
+            self.dispel_effect(id, alloc);
+        }
+    }
+
+    fn fill_soul_gem(&mut self, caster: GlobalFormId, target: GlobalFormId, alloc: Alloc<'_>) {
+        let Some(level) = self.actor_ref(target).map(|actor| actor.level) else {
+            return;
+        };
+        let soul_size = self.soul_size(level);
+        let npc_soul = self.is_npc_soul_target(target);
+        let candidates: Vec<_> = self
+            .reference_ref(caster)
+            .into_iter()
+            .flat_map(|reference| reference.inventory.iter())
+            .filter_map(|(&item, count)| {
+                (count > 0)
+                    .then(|| self.soul_gem(item))
+                    .flatten()
+                    .filter(|gem| gem.current == 0 && gem.capacity >= soul_size)
+                    .filter(|gem| !npc_soul || gem.can_hold_npc_soul)
+                    .map(|gem| (gem.capacity, item, gem.filled))
+            })
+            .collect();
+        let Some((_, empty, filled)) = candidates
+            .into_iter()
+            .min_by_key(|(capacity, item, _)| (*capacity, *item))
+        else {
+            return;
+        };
+        let Some(reference) = self.reference(caster) else {
+            return;
+        };
+        if reference.inventory.count(filled) == i32::MAX {
+            return;
+        }
+        let removed = reference.inventory.take(empty, 1);
+        if removed.count() != 1 || reference.inventory.add(filled, 1).is_err() {
+            return;
+        }
+        self.inventory_event(caster, empty, -1, None, alloc);
+        self.inventory_event(caster, filled, 1, None, alloc);
+    }
+
+    fn soul_size(&self, level: u32) -> u8 {
+        let threshold = |setting: &str, default: i32| match self.game_setting(setting) {
+            Some(Value::Int(value)) => value.max(1) as u32,
+            _ => default as u32,
+        };
+        if level >= threshold("iGrandSoulActorLevel", 38) {
+            5
+        } else if level >= threshold("iGreaterSoulActorLevel", 28) {
+            4
+        } else if level >= threshold("iCommonSoulActorLevel", 16) {
+            3
+        } else if level >= threshold("iLesserSoulActorLevel", 4) {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn is_npc_soul_target(&mut self, target: GlobalFormId) -> bool {
+        let Some(keyword) = self.form("ActorTypeNPC") else {
+            return false;
+        };
+        let Some(base) = self.base_of(target) else {
+            return false;
+        };
+        if self.has_keyword(base, keyword) {
+            return true;
+        }
+        self.actor_base_race(base)
+            .ok()
+            .flatten()
+            .is_some_and(|race| self.has_keyword(race, keyword))
+    }
+
+    fn soul_gem(&self, id: GlobalFormId) -> Option<SoulGem> {
+        let rref = self.order.winner_ref(id)?;
+        let record = self.order.record(rref);
+        if record.is_deleted() || record.tag != super::T(b"SLGM") {
+            return None;
+        }
+        let current = *record.find(super::T(b"SOUL"))?.first()?;
+        let capacity = *record.find(super::T(b"SLCP"))?.first()?;
+        let raw_filled = record.find(super::T(b"NAM0"))?;
+        if raw_filled.len() < 4 {
+            return None;
+        }
+        let raw_filled = u32::from_le_bytes(raw_filled[..4].try_into().ok()?);
+        if raw_filled == 0 {
+            return None;
+        }
+        let filled = self.order.resolve(rref.file, raw_filled);
+        let filled_record = self.record(filled)?;
+        if filled_record.is_deleted()
+            || filled_record.tag != super::T(b"SLGM")
+            || filled_record.find(super::T(b"SOUL"))?.first().copied()? == 0
+        {
+            return None;
+        }
+        Some(SoulGem {
+            current,
+            capacity,
+            filled,
+            can_hold_npc_soul: record.flags & (1 << 17) != 0,
+        })
     }
 
     fn is_peak_value_effect(&self, effect: GlobalFormId) -> Result<bool, MagicError> {
@@ -3827,6 +4465,7 @@ impl World {
                 duration: None,
                 elapsed: 0.0,
                 summoned: None,
+                reanimated_previous_owner: None,
                 restore_owner: Some(PriorOwner::Unowned),
                 recover: false,
                 changes: Vec::new(),

@@ -34,10 +34,18 @@ struct Entry {
 
 #[derive(Arbitrary, Debug)]
 struct Plan {
+    format: ArchiveKind,
     sse: bool,
     archive_compressed_flag: bool,
     entries: Vec<Entry>,
     truncate_by: u16,
+}
+
+#[derive(Arbitrary, Debug)]
+enum ArchiveKind {
+    Bsa,
+    Ba2General,
+    Ba2Dx10,
 }
 
 fn pack(payload: &[u8], sse: bool) -> Vec<u8> {
@@ -52,7 +60,7 @@ fn pack(payload: &[u8], sse: bool) -> Vec<u8> {
     }
 }
 
-fuzz_target!(|plan: Plan| {
+fn fuzz_bsa(plan: &Plan) {
     let entries: Vec<&Entry> = plan.entries.iter().take(6).collect();
     if entries.is_empty() {
         return;
@@ -151,4 +159,121 @@ fuzz_target!(|plan: Plan| {
             );
         }
     }
+}
+
+fn fuzz_ba2(plan: &Plan, dx10: bool) {
+    let entries: Vec<&Entry> = plan.entries.iter().take(6).collect();
+    if entries.is_empty() {
+        return;
+    }
+
+    let names: Vec<Vec<u8>> = entries
+        .iter()
+        .map(|entry| format!("textures/f{}.dds", entry.name).into_bytes())
+        .collect();
+    let name_table_len: usize = names.iter().map(|name| 2 + name.len()).sum();
+    let record_size = if dx10 { 48 } else { 36 };
+    let records_end = 24 + record_size * entries.len();
+    let data_start = records_end + name_table_len;
+    let mut chunks = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        let body = &entry.payload[..entry.payload.len().min(4096)];
+        let packed = if entry.compressed {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            let _ = encoder.write_all(body);
+            encoder.finish().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        chunks.push((body.to_vec(), packed));
+    }
+
+    let mut d = Vec::new();
+    d.extend_from_slice(b"BTDX");
+    d.extend_from_slice(&1u32.to_le_bytes());
+    d.extend_from_slice(if dx10 { b"DX10" } else { b"GNRL" });
+    d.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    d.extend_from_slice(&(records_end as u64).to_le_bytes());
+
+    let mut data_at = data_start as u64;
+    for (entry, (body, packed)) in entries.iter().zip(&chunks) {
+        d.extend_from_slice(&0u32.to_le_bytes());
+        d.extend_from_slice(b"dds\0");
+        d.extend_from_slice(&0u32.to_le_bytes());
+        if dx10 {
+            d.push(0);
+            d.push(1);
+            d.extend_from_slice(&24u16.to_le_bytes());
+            d.extend_from_slice(&4u16.to_le_bytes());
+            d.extend_from_slice(&4u16.to_le_bytes());
+            d.push(1);
+            d.push(98); // DXGI_FORMAT_BC7_UNORM
+            d.extend_from_slice(&0u16.to_le_bytes());
+            d.extend_from_slice(&data_at.to_le_bytes());
+            d.extend_from_slice(&(packed.len() as u32).to_le_bytes());
+            d.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            d.extend_from_slice(&0u16.to_le_bytes());
+            d.extend_from_slice(&0u16.to_le_bytes());
+            d.extend_from_slice(&0xBAAD_F00Du32.to_le_bytes());
+        } else {
+            d.extend_from_slice(&0u32.to_le_bytes());
+            d.extend_from_slice(&data_at.to_le_bytes());
+            d.extend_from_slice(&(packed.len() as u32).to_le_bytes());
+            d.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            d.extend_from_slice(&0u32.to_le_bytes());
+        }
+        data_at += if entry.compressed {
+            packed.len() as u64
+        } else {
+            body.len() as u64
+        };
+    }
+    for name in &names {
+        d.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        d.extend_from_slice(name);
+    }
+    for (entry, (body, packed)) in entries.iter().zip(&chunks) {
+        if entry.compressed {
+            d.extend_from_slice(packed);
+        } else {
+            d.extend_from_slice(body);
+        }
+    }
+
+    let cut = usize::from(plan.truncate_by).min(d.len());
+    d.truncate(d.len() - cut);
+    let path = Path::new("fuzz.ba2");
+    let Ok(index) = soe_bsa::index_archive_in(&d, path) else {
+        return;
+    };
+    let Ok(archive) = soe_bsa::Archive::from_bytes(path, d) else {
+        return;
+    };
+    for (i, record) in index.records.iter().enumerate() {
+        let Ok(bytes) = archive.read_record(i) else {
+            continue;
+        };
+        if dx10 {
+            assert!(
+                bytes.starts_with(b"DDS "),
+                "DX10 read must rebuild a DDS header"
+            );
+            assert!(bytes.len() >= 148, "rebuilt DDS must include DX10 header");
+            assert_eq!(u32::from_le_bytes(bytes[128..132].try_into().unwrap()), 98);
+            assert_eq!(
+                &bytes[148..],
+                &chunks[i].0,
+                "rebuilt DDS payload must contain the decompressed chunk"
+            );
+        } else if record.uncompressed_size > 0 {
+            assert_eq!(bytes.len(), record.uncompressed_size as usize);
+        }
+    }
+}
+
+fuzz_target!(|plan: Plan| match plan.format {
+    ArchiveKind::Bsa => fuzz_bsa(&plan),
+    ArchiveKind::Ba2General => fuzz_ba2(&plan, false),
+    ArchiveKind::Ba2Dx10 => fuzz_ba2(&plan, true),
 });

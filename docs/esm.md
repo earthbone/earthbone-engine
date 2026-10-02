@@ -142,9 +142,16 @@ owner, location, layer, encounter zone, emittance, teleport door, enable
 parent, lock key, linked reference, navmesh door, location ref type and idle
 links are remapped. Texture set and grass links, navmesh base object lists,
 magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
-quest links, INFO topic, response and response-sound links, WEAP and ARMO
-enchantments, and HAZD image-space and DATA
-links are remapped at their documented offsets. Scalar values remain intact.
+quest links, INFO topic, response and response-sound links, and ARMO
+enchantments are remapped. WEAP enchantment, impact, material, scope,
+first-person model, sound, critical effect, and template links are remapped,
+including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
+links in `DSTD` are remapped for their applicable records.
+The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
+the 24-byte layout. Destruction stage explosion and debris links are at offsets
+8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
+remapped at their documented offsets. Scalar values remain intact. These
+fields and nested layouts follow local xEdit `Core/wbDefinitionsTES5.pas`.
 The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
 `REFR.wikitext`. VMAD object
 properties and arrays in object formats 1 and 2 are remapped while trailing
@@ -270,6 +277,16 @@ truncated entries, and all five installed masters.
 - `tests/real_files.rs`: gated on `SKYRIM_DATA`. Loads the five base masters, prints
   `file  TAG  count` lines for diffing against xDump, and checks that every CELL and
   REFR under Tamriel resolves and every REFR base is in the table.
+- `tests/tst_09_xedit_dump.rs`: compares an xEdit record/subrecord manifest with
+  `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
+  tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
+  Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
+  repeated-field ordinal, and hexadecimal bytes. Counts, record identities, and every
+  subrecord payload are compared. Differences are printed by category and cause the
+  gated test to fail. Malformed rows also fail with their line number. xEdit's
+  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) emits a nested display tree,
+  so the dump must be normalized into this manifest before setting the environment
+  variable. The test does not parse the display tree directly.
 
 ## Scripted patch passes
 
@@ -289,6 +306,21 @@ ordered passes and omission of records no patcher changed. The Rust implementati
 the existing raw record model because the crate does not provide Mutagen's generated typed
 record graph. `tests/edt_24_patcher.rs` verifies deterministic output, reloads the patch,
 checks the new winner, and confirms unchanged records are not emitted.
+
+### Instruction count gate
+
+`benches/tst_04_perf_gate.rs` measures `Plugin::parse` on a generated plugin with
+128 MISC records. The input is assembled before Callgrind starts counting. Its
+hard limit is 500,000 instructions, enforced by `iai-callgrind` so exceeding the
+recorded ceiling fails the benchmark command. The companion
+`tests/tst_04_perf_gate.rs` checks the fixture parses all 128 records and retains
+the final editor id.
+
+The `performance` CI workflow runs it with
+`cargo bench --locked -p soe-esm --bench tst_04_perf_gate`. The benchmark
+uses `iai-callgrind` 0.16.1 and its absolute `EventKind::Ir` hard limit, as
+documented in the upstream iai-callgrind library docs. Running requires Valgrind
+and a matching `iai-callgrind-runner` 0.16.1 in PATH.
 
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
@@ -348,6 +380,10 @@ cell moves it in the index, and a winner with the deleted flag is dropped.
 `tests/cell_index.rs` checks both on a synthetic master plus a patch, round
 tripped through bytes so the placements come from the parser, and that adding a
 file drops the cached index.
+`tests/tst_03_load_order.rs` checks empty and populated form-table queries and
+created FormID packing. The TST-03 case in `tests/cell_index.rs` checks deleted
+reference and world counts, plus lowest-id selection within an interior class
+and interior priority when a lower-id exterior cell shares its editor id.
 
 `soe-godot-host`'s `DataSource` builds the index at open and streams a cell from
 it, see `docs/performance.md` for what that changed.

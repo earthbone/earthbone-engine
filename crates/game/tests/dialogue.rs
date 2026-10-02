@@ -1405,7 +1405,8 @@ fn failed_end_dispatch_preserves_a_saveable_response_cursor() {
 
 #[test]
 fn old_world_save_starts_without_dialogue_state() {
-    let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
+    let fixture = || game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
+    let mut game = fixture();
     let mut old = game.world().save_state();
     legacy::truncate_to_version(&mut old, 4, |candidate| {
         self::game(plugin(vec![info(INFO, 0, &["New conversation"], false)]))

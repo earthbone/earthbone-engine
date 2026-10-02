@@ -55,12 +55,24 @@ pub fn export_collision_mesh(mesh: &CollisionMesh) -> Result<Option<NifFile>> {
     }
 
     // CONTEXT: Imported positions describe the surface, so no shell is added.
-    let mut shape = Vec::with_capacity(40 + mesh.positions.len() * 16);
+    let mut positions = mesh.positions.clone();
+    positions.sort_by(|left, right| {
+        left[0]
+            .total_cmp(&right[0])
+            .then_with(|| left[1].total_cmp(&right[1]))
+            .then_with(|| left[2].total_cmp(&right[2]))
+    });
+
+    let mut shape = Vec::with_capacity(40 + positions.len() * 16);
     put_u32(&mut shape, 1); // Havok material
     put_f32(&mut shape, 0.0);
-    shape.resize(shape.len() + 24, 0);
-    put_u32(&mut shape, mesh.positions.len() as u32);
-    for point in &mesh.positions {
+    for _ in 0..2 {
+        put_u32(&mut shape, 0); // property data
+        put_u32(&mut shape, 0); // property size
+        put_u32(&mut shape, 0x8000_0000); // capacity and flags
+    }
+    put_u32(&mut shape, positions.len() as u32);
+    for point in &positions {
         for coordinate in point {
             put_f32(&mut shape, coordinate / UNITS_PER_METER);
         }

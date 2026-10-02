@@ -19,9 +19,10 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
+use crate::crime::CrimeType;
 use crate::world::{
     reaction, AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
-    LosListener, MenuRequest, World,
+    LosListener, MenuRequest, ReferencePhysicsRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -105,13 +106,13 @@ fn keyword_story_event(
         |index: usize| StoryParameter::Integer(args.get(index).map_or(0, Value::as_int) as u32);
     StoryEvent {
         id: world.runtime_id(keyword),
-        code: *b"SCRP",
+        code: *b"SCPT",
         parameters: vec![
             StoryParameter::Reference {
-                kind: 2,
+                kind: 1,
                 reference: Some(keyword),
             },
-            reference(0, 4),
+            reference(0, 2),
             reference(1, 0),
             reference(2, 0),
             integer(3),
@@ -241,7 +242,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 383;
+pub const NATIVE_COUNT: usize = 385;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -504,6 +505,99 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         |world, call, me| {
             let scene = world.current_scene(me);
             form_value(world, call, scene)
+        }
+    );
+    let animation_waits = w.clone();
+    vm.natives.register_method(
+        "ObjectReference",
+        "PlayAnimationAndWait",
+        Box::new(move |call| {
+            let Some(source) = call
+                .self_object
+                .and_then(|object| animation_waits.borrow().form_of(object))
+            else {
+                return b(false);
+            };
+            let animation = text(&call.arg(0));
+            let event = text(&call.arg(1));
+            if animation.is_empty()
+                || event.is_empty()
+                || animation_waits.borrow_mut().reference(source).is_none()
+            {
+                return b(false);
+            }
+            let latent = call.defer();
+            let mut world = animation_waits.borrow_mut();
+            world.request_animation(source, &animation);
+            world.wait_for_animation_event(source, &event, latent);
+            NativeReturn::Latent(latent)
+        }),
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlayGamebryoAnimation",
+        |world, call, me| {
+            let animation = text(&call.arg(0));
+            if animation.is_empty() || world.reference(me).is_none() {
+                return b(false);
+            }
+            b(true)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetMotionType",
+        |world, call, me| {
+            let motion_type = call.arg(0).as_int();
+            if !(1..=7).contains(&motion_type) || world.reference(me).is_none() {
+                return none();
+            }
+            let allow_activate = call.args.get(1).is_none_or(Value::as_bool);
+            world.request_reference_physics(ReferencePhysicsRequest::MotionType {
+                reference: me,
+                motion_type: motion_type as u32,
+                allow_activate,
+            });
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "ApplyHavokImpulse",
+        |world, call, me| {
+            let mut direction = [
+                call.arg(0).as_float(),
+                call.arg(1).as_float(),
+                call.arg(2).as_float(),
+            ];
+            let magnitude = call.arg(3).as_float();
+            let length = direction
+                .iter()
+                .map(|value| f64::from(*value) * f64::from(*value))
+                .sum::<f64>()
+                .sqrt();
+            if world.reference(me).is_none()
+                || !magnitude.is_finite()
+                || !length.is_finite()
+                || length == 0.0
+            {
+                return none();
+            }
+            for value in &mut direction {
+                *value = (f64::from(*value) / length) as f32;
+            }
+            world.request_reference_physics(ReferencePhysicsRequest::Impulse {
+                reference: me,
+                direction,
+                magnitude,
+            });
+            none()
         }
     );
     method!(
@@ -970,7 +1064,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "PlayAnimation",
         |world, call, me| {
             let event = text(&call.arg(0));
-            world.animation_event(me, &event, alloc!(call));
+            world.request_animation(me, &event);
             b(true)
         }
     );
@@ -1193,7 +1287,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             "AddInventoryEventFilter",
             |world, call, me| {
                 if let Some(filter) = world.form_arg(&call.arg(0)) {
-                    world.inventory_filters.entry(me).or_default().push(filter);
+                    world.add_inventory_event_filter(me, filter);
                 }
                 none()
             }
@@ -1205,9 +1299,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             "RemoveInventoryEventFilter",
             |world, call, me| {
                 let filter = world.form_arg(&call.arg(0));
-                if let Some(list) = world.inventory_filters.get_mut(&me) {
-                    list.retain(|f| Some(*f) != filter);
-                }
+                world.remove_inventory_event_filter(me, filter);
                 none()
             }
         );
@@ -1217,7 +1309,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             class,
             "RemoveAllInventoryEventFilters",
             |world, call, me| {
-                world.inventory_filters.remove(&me);
+                world.remove_all_inventory_event_filters(me);
                 none()
             }
         );
@@ -1286,6 +1378,36 @@ fn actor(vm: &mut Vm, w: &Shared) {
             }),
         );
     }
+    method!(vm, w, "Actor", "IsChild", |world, call, me| {
+        match world.actor_is_child(me) {
+            Ok(child) => b(child),
+            Err(error) => {
+                call.log.push(call.time, error.to_string());
+                b(false)
+            }
+        }
+    });
+    method!(vm, w, "Actor", "IsDetectedBy", |world, call, me| {
+        let Some(observer) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        match world.is_actor_detected_by(me, observer) {
+            Ok(detected) => b(detected),
+            Err(error) => {
+                call.log.push(call.time, error.to_string());
+                b(false)
+            }
+        }
+    });
+    method!(vm, w, "Actor", "IsCommandedActor", |world, _call, me| b(
+        world.is_commanded_actor(me)
+    ));
+    method!(vm, w, "Actor", "IsOnMount", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.riding_mount)));
+    method!(vm, w, "Actor", "IsTrespassing", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.trespassing)));
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -1386,6 +1508,17 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    method!(vm, w, "Actor", "SetEssential", |world, call, me| {
+        world.set_actor_essential(me, call.arg(0).as_bool());
+        none()
+    });
+    method!(vm, w, "Actor", "SetHeadTracking", |world, call, me| {
+        let enabled = call.args.first().is_none_or(Value::as_bool);
+        if let Err(error) = world.set_head_tracking(me, enabled) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -1522,6 +1655,24 @@ fn actor(vm: &mut Vm, w: &Shared) {
         if let Some(a) = world.actor(me) {
             a.in_combat = false;
             a.combat_target = None;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "StopCombatAlarm", |world, call, me| {
+        world.stop_combat_alarm(me);
+        none()
+    });
+    method!(vm, w, "Actor", "SendTrespassAlarm", |world, call, me| {
+        let Some(criminal) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "Actor.SendTrespassAlarm: akCriminal must be an Actor",
+            );
+            return none();
+        };
+        if let Err(error) = world.record_witnessed_crime(criminal, me, CrimeType::Trespass) {
+            call.log
+                .push(call.time, format!("Actor.SendTrespassAlarm: {error}"));
         }
         none()
     });
@@ -1816,6 +1967,25 @@ fn actor(vm: &mut Vm, w: &Shared) {
             return b(false);
         };
         b(world.actor(me).is_some_and(|a| a.equipped.contains(&item)))
+    });
+    method!(vm, w, "Actor", "GetEquippedWeapon", |world, call, me| {
+        let hand = if call.arg(0).as_bool() {
+            Hand::Left
+        } else {
+            Hand::Right
+        };
+        let weapon = world.hand_weapon(me, hand);
+        form_value(world, call, weapon)
+    });
+    method!(vm, w, "Actor", "GetEquippedShield", |world, call, me| {
+        match world.equipped_shield(me) {
+            Ok(shield) => form_value(world, call, shield),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetEquippedShield: {error}"));
+                none()
+            }
+        }
     });
     // "Gets the spell the actor currently has equipped in the specified
     // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
@@ -2990,15 +3160,8 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
         .unwrap_or_default()));
     method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
         let event = keyword_story_event(world, me, &call.args);
-        let mut alloc = |name: &str, class: &str| call.create_object(name, class);
-        match world.send_story_event_without_vm(&event, &mut alloc) {
-            Ok(_) => none(),
-            Err(error) => {
-                call.log
-                    .push(call.time, format!("Keyword.SendStoryEvent: {error}"));
-                none()
-            }
-        }
+        world.pending_story_events.push(event);
+        none()
     });
     method!(
         vm,
@@ -3995,7 +4158,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "AddInventoryEventFilter",
         |world, call, me| {
             if let Some(filter) = world.form_arg(&call.arg(0)) {
-                world.inventory_filters.entry(me).or_default().push(filter);
+                world.add_inventory_event_filter(me, filter);
             }
             none()
         }
@@ -4007,9 +4170,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "RemoveInventoryEventFilter",
         |world, call, me| {
             let filter = world.form_arg(&call.arg(0));
-            if let Some(list) = world.inventory_filters.get_mut(&me) {
-                list.retain(|entry| Some(*entry) != filter);
-            }
+            world.remove_inventory_event_filter(me, filter);
             none()
         }
     );
@@ -4019,7 +4180,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "ActiveMagicEffect",
         "RemoveAllInventoryEventFilters",
         |world, _call, me| {
-            world.inventory_filters.remove(&me);
+            world.remove_all_inventory_event_filters(me);
             none()
         }
     );
@@ -4658,11 +4819,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
-        ("Actor", "IsChild", false),
-        ("Actor", "IsCommandedActor", false),
-        ("Actor", "IsOnMount", false),
-        ("Actor", "IsTrespassing", false),
-        ("Actor", "IsDetectedBy", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
@@ -4688,25 +4844,12 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "PlayAnimationAndWait"),
-        ("ObjectReference", "PlayGamebryoAnimation"),
-        ("ObjectReference", "SetMotionType"),
-        ("ObjectReference", "ApplyHavokImpulse"),
-        ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
-        ("Actor", "SetHeadTracking"),
-        ("Actor", "ShowBarterMenu"),
-        ("Actor", "OpenInventory"),
-        ("Actor", "SendTrespassAlarm"),
-        ("Actor", "StopCombatAlarm"),
-        ("Actor", "ClearForcedMovement"),
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Actor", "GetEquippedWeapon"),
-        ("Actor", "GetEquippedShield"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Actor", "PlayIdleWithTarget"),
@@ -4719,6 +4862,22 @@ fn stubs(vm: &mut Vm) -> usize {
     for (class, name) in methods_none {
         vm.natives
             .register_method(class, name, Box::new(|_| none()));
+        n += 1;
+    }
+    for name in ["ShowBarterMenu", "OpenInventory", "ClearForcedMovement"] {
+        vm.natives.register_method(
+            "Actor",
+            name,
+            Box::new(move |call| {
+                let detail = match name {
+                    "ShowBarterMenu" => "barter transactions and menu are not implemented",
+                    "OpenInventory" => "actor inventory presenter is not implemented",
+                    _ => "forced movement state is not implemented",
+                };
+                call.log.push(call.time, format!("Actor.{name}: {detail}"));
+                none()
+            }),
+        );
         n += 1;
     }
     // No warmth system (the survival plugin is not loaded) and no sun to

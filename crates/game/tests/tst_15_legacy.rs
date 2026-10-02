@@ -109,6 +109,23 @@ fn tst_15_corruption_offsets_follow_serialized_fields() {
     );
 }
 
+#[test]
+fn tst_15_world_section_search_preserves_a_false_table_prefix() {
+    let mut sections = vec![1, 0, 6];
+    sections.extend_from_slice(b"SAV-59");
+    sections.extend_from_slice(&1_u32.to_le_bytes());
+    sections.push(0);
+
+    // CONTEXT: A zero-length name lets ordinary fields resemble an enclosing table.
+    let mut bytes = vec![1, 0, 0];
+    bytes.extend_from_slice(&(sections.len() as u32).to_le_bytes());
+    let prefix = bytes.clone();
+    bytes.extend_from_slice(&sections);
+
+    assert_eq!(legacy::strip_world_sections(&mut bytes), sections.len());
+    assert_eq!(bytes, prefix);
+}
+
 fn check_tail_offsets(path: &Path) {
     if path.is_dir() {
         for entry in std::fs::read_dir(path).unwrap() {

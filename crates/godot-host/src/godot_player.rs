@@ -110,6 +110,7 @@ pub struct PlayerNode {
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
+    aimed_projectile_contacts: crate::combat::AimedProjectileContacts,
     /// One server body per loaded actor, rebuilt from the shared World on
     /// each physics tick. No scene node is allocated per reference.
     actor_bodies: crate::godot_physics::ActorBodies,
@@ -126,6 +127,7 @@ pub struct PlayerNode {
     footstep_count: u64,
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
     game_fade: GameFade,
@@ -146,6 +148,9 @@ pub struct PlayerNode {
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
     grabbed_host: Option<(GlobalFormId, Vec3)>,
+    /// Distance from the eye to the host body held by Telekinesis.
+    telekinesis_distance: Option<f32>,
+    host_telekinesis_target: Option<GlobalFormId>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
@@ -195,6 +200,7 @@ impl INode3D for PlayerNode {
             pending_debug_latents: Vec::new(),
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
+            aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
             last_melee_target: None,
             last_melee_obstruction: None,
@@ -208,6 +214,7 @@ impl INode3D for PlayerNode {
             footstep_count: 0,
             footstep_errors: 0,
             game_streamer: None,
+            swing_doors: HashMap::new(),
             loaded_cell: None,
             door_fade: DoorFade::default(),
             game_fade: GameFade::default(),
@@ -223,6 +230,8 @@ impl INode3D for PlayerNode {
             last_activate_hit: false,
             last_activate_reference: None,
             grabbed_host: None,
+            telekinesis_distance: None,
+            host_telekinesis_target: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
@@ -591,6 +600,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
+                self.clear_swing_doors();
                 self.load_control_map(&source);
                 if self.base().is_node_ready() {
                     self.register_actions();
@@ -655,6 +665,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn enter_cell(&mut self, editor_id: GString, x: f32, y: f32, z: f32) -> i32 {
+        self.clear_swing_doors();
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("PlayerNode::enter_cell: load_data was not called");
             return -1;
@@ -749,6 +760,7 @@ impl PlayerNode {
                 pressed: input.right_attack_pressed,
             },
         );
+        self.update_telekinesis(input.activate_pressed);
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
@@ -837,7 +849,7 @@ impl PlayerNode {
             None
         };
 
-        self.advance_game(delta);
+        self.advance_game(delta, intent.sprinting);
         let player_motion = if input.is_moving() {
             if input.sprint || self.driver.always_run != input.walk {
                 soe_game::detection::Motion::Running
@@ -1109,6 +1121,52 @@ impl PlayerNode {
             result.push(&row);
         }
         result
+    }
+
+    /// Unlocked non-teleport doors in the current cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_swing_doors(&self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell), Some(source)) =
+            (&self.game, self.loaded_cell, &self.data_source)
+        else {
+            return Array::new();
+        };
+        let world = game.world();
+        let mut result = Array::new();
+        for id in source.cell_index().references(cell).iter().copied() {
+            let Some(reference_record) = source.order().winner(id) else {
+                continue;
+            };
+            if reference_record.find(soe_esm::Tag::new(b"XTEL")).is_some() {
+                continue;
+            }
+            let Some(record_ref) = source.order().winner_ref(id) else {
+                continue;
+            };
+            let Ok(reference) = soe_esm::records::refr::Refr::from_record(reference_record) else {
+                continue;
+            };
+            let base = source.order().resolve(record_ref.file, reference.base);
+            if source
+                .order()
+                .winner(base)
+                .is_none_or(|record| record.tag != soe_esm::Tag::new(b"DOOR"))
+                || world.reference_ref(id).is_some_and(|state| state.locked)
+            {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Number of animated swing doors currently attached to the player.
+    #[func]
+    pub fn swing_door_count(&self) -> i32 {
+        i32::try_from(self.swing_doors.len()).unwrap_or(i32::MAX)
     }
 
     /// Drive the same activation path from a runtime harness using a resolved FormID.
@@ -1585,6 +1643,7 @@ mod mag_42_tests {
             jump: true,
             crouch: false,
             activate: false,
+            sprinting: false,
         };
         assert_eq!(player_locomotion(intent, true), (Vec3::ZERO, 0.0, false));
     }
@@ -1597,6 +1656,7 @@ mod mag_42_tests {
             jump: true,
             crouch: false,
             activate: false,
+            sprinting: false,
         };
         assert_eq!(
             player_locomotion(intent, false),

@@ -21,10 +21,10 @@ use soe_papyrus::VmError;
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "ANM-58", write: write_animation_waits, read: read_animation_waits },
     Section { name: "CRF-03", write: super::save::write_learned_enchantment_effects, read: super::save::read_learned_enchantment_effects },
-    Section { name: "DLG-09", write: super::save::write_scene_runs, read: super::save::read_scene_runs },
     Section { name: "MAG-67", write: write_vampire_lord_state, read: read_vampire_lord_state },
     Section { name: "AI-04", write: write_empty_section, read: read_pending_script_calls },
     Section { name: "PRG-01.player-level", write: write_player_level, read: read_player_level },
+    Section { name: "SAV-17", write: write_created_bases, read: read_created_bases },
     Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
     Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
     Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
@@ -32,11 +32,15 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
-    Section { name: "SAV-58", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
-    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
     super::magic::SAVE_SECTION,
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-58", write: write_empty_section, read: super::record_save::read_unresolved_records },
+    Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
+    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks_section },
+    Section { name: "TST-01", write: write_rng_streams, read: read_rng_streams },
+    super::magic::REANIMATE_SECTION,
+    Section { name: "DLG-09", write: write_scene_runtime, read: read_scene_runtime },
     Section { name: "DLG-16", write: write_training_sessions, read: read_training_sessions },
     Section { name: "MAG-56", write: write_cloaks_section, read: read_cloaks_section },
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
@@ -110,6 +114,18 @@ fn read_expression_override(
     World::read_expression_override(actor, reader)
 }
 
+fn write_scr_12(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_scr_12(actor, writer);
+}
+
+fn read_scr_12(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_scr_12(actor, reader)
+}
+
 fn write_character_progression(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     super::super::progression::write_character_progression(actor, writer);
 }
@@ -133,6 +149,18 @@ fn read_player_level(
 ) -> Result<(), soe_papyrus::VmError> {
     world.player_level = reader.u32()?;
     Ok(())
+}
+
+fn write_created_bases(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::reference_restore::write_created_base_section(world, writer);
+}
+
+fn read_created_bases(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    super::reference_restore::read_created_base_section(world, reader)
 }
 
 fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
@@ -209,6 +237,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
+    Section { name: "AI-67", write: write_being_ridden, read: read_being_ridden },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
@@ -219,6 +248,8 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
     Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
+    Section { name: "SCR-12", write: write_scr_12, read: read_scr_12 },
+    Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
 ];
 
 fn write_stagger_metadata(
@@ -243,6 +274,19 @@ fn read_stagger_metadata(
     }
     state.stagger_magnitude = magnitude;
     state.stagger_direction = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
+fn write_being_ridden(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(state.being_ridden);
+}
+
+fn read_being_ridden(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    state.being_ridden = reader.bool()?;
     Ok(())
 }
 
@@ -317,20 +361,40 @@ fn read_werewolf_transform(
     super::magic::read_werewolf_transform(state, reader)
 }
 
-fn write_trespassing(
-    state: &ActorState,
-    writer: &mut soe_papyrus::vm::state::Writer,
-    _pool: &mut soe_papyrus::vm::state::ArrayPool,
-) {
+fn write_trespassing(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
     writer.bool(state.trespassing);
 }
 
 fn read_trespassing(
     state: &mut ActorState,
-    reader: &mut super::save::FormReader<'_, '_>,
-    _table: &soe_papyrus::vm::state::ArrayTable,
-) -> Result<(), soe_papyrus::VmError> {
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
     state.trespassing = reader.bool()?;
+    Ok(())
+}
+
+fn write_known_magic_effects(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(state.known_forms.len());
+    for form in &state.known_forms {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_known_magic_effects(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "AI-76 known form count exceeds remaining bytes".into(),
+        ));
+    }
+    for _ in 0..count {
+        state.known_forms.insert(super::save::read_form_id(reader)?);
+    }
     Ok(())
 }
 
@@ -712,5 +776,108 @@ fn read_saved_form_flags(
         value.saved_form_flags = Some((flags, unknown));
         value.record.flags = flags;
     }
+    Ok(())
+}
+
+fn write_rng_streams(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    for state in world.rng_streams {
+        writer.u64(state);
+    }
+}
+
+fn read_rng_streams(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    for state in &mut world.rng_streams {
+        *state = reader.u64()?;
+    }
+    Ok(())
+}
+
+fn write_scene_runtime(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(world.scene_runs.len());
+    for (id, run) in &world.scene_runs {
+        super::save::write_form_id(writer, *id);
+        writer.u32(run.phase);
+        writer.len(run.completed_actions.len());
+        for slot in &run.completed_actions {
+            writer.u32(*slot);
+        }
+    }
+}
+
+fn read_scene_runtime(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let count = reader.len()?;
+    let mut runs = BTreeMap::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        let phase = reader.u32()?;
+        let action_count = reader.len()?;
+        let mut completed_actions = BTreeSet::new();
+        for _ in 0..action_count {
+            if !completed_actions.insert(reader.u32()?) {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-09 duplicate completed scene action".into(),
+                ));
+            }
+        }
+        let scene_record = world.record(id).ok_or_else(|| {
+            soe_papyrus::VmError::State("DLG-09 scene runtime state names a missing form".into())
+        })?;
+        let scene =
+            soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(|error| {
+                soe_papyrus::VmError::State(format!("DLG-09 invalid scene: {error}"))
+            })?;
+        let valid_phase = if scene.phases.is_empty() {
+            phase == 0 && completed_actions.is_empty()
+        } else {
+            (phase as usize) < scene.phases.len()
+        };
+        if !world.scenes.contains(&id)
+            || !valid_phase
+            || completed_actions.iter().any(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_none_or(|action| action.end_phase != Some(phase))
+            })
+            || runs
+                .insert(
+                    id,
+                    super::SceneRunState {
+                        phase,
+                        completed_actions,
+                        ..Default::default()
+                    },
+                )
+                .is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "DLG-09 invalid scene runtime state".into(),
+            ));
+        }
+    }
+    if runs.len() != world.scenes.len() || world.scenes.iter().any(|id| !runs.contains_key(id)) {
+        return Err(soe_papyrus::VmError::State(
+            "DLG-09 scene runtime state is incomplete".into(),
+        ));
+    }
+    world.scene_runs = runs;
     Ok(())
 }

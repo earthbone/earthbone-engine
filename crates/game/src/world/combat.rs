@@ -186,6 +186,37 @@ impl World {
         Ok(())
     }
 
+    /// Return the actor's equipped shield, if its worn armor occupies the
+    /// shield biped slot (BOD2 bit 9).
+    ///
+    /// # Errors
+    /// Missing actor or malformed equipped armor record.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn equipped_shield(&mut self, actor: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let equipped = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for item in equipped {
+            if self.item_count(actor, item) <= 0
+                || self
+                    .record(item)
+                    .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
+                continue;
+            }
+            if self.combat_armor_record(item)?.slots & (1 << 9) != 0 {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
     /// Set whether an actor currently holds a block stance, matching the
     /// host's animation graph. Ordinary melee contacts read this flag to
     /// decide whether shield block reduction applies. It is not part of
@@ -646,6 +677,13 @@ impl World {
             self.validate_weapon_enchantment_after_hit(prepared, &values)?;
         }
         let lethal = values.get("health").current() <= 0.0;
+        let attacked_factions = if self.player == Some(hit.attacker) {
+            self.actor(hit.target)
+                .map(|actor| actor.factions.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
         let args = vec![
@@ -696,6 +734,11 @@ impl World {
         if let Some(values) = attacker_stamina {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values = values;
+            }
+        }
+        for faction in attacked_factions {
+            if let Some(state) = self.faction(faction) {
+                state.player_attacked = true;
             }
         }
         // Poison (CMB-25) applies and clears last, after every other part of
@@ -891,22 +934,6 @@ impl World {
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
-        }
-        for name in [
-            "onehandedmodifier",
-            "twohandedmodifier",
-            "marksmanmodifier",
-            "onehandedpowermodifier",
-            "twohandedpowermodifier",
-            "marksmanpowermodifier",
-            "lightarmormodifier",
-            "heavyarmormodifier",
-            "lightarmorpowermodifier",
-            "heavyarmorpowermodifier",
-        ] {
-            if actor.values.entries.contains_key(name) {
-                return Err(Error::Unsupported("combat actor-value multipliers"));
-            }
         }
         Ok(())
     }

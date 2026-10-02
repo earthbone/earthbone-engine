@@ -9,7 +9,7 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, condition, CompValue, Condition, Location, Schedule};
-use soe_game::Game;
+use soe_game::{world::RngStream, Game};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const TEMPLATE: u32 = 0x800;
@@ -473,7 +473,7 @@ fn random_runs_exactly_one_child_and_can_choose_either_child() {
     for offset in 0..64 {
         let mut game = game(random_pair(false), 0);
         for _ in 0..offset {
-            game.world_mut().random_u64();
+            game.world_mut().random_u64_for(RngStream::BehaviorTree);
         }
         game.tick(0.1);
         let destination = game
@@ -534,8 +534,8 @@ fn a_random_child_and_rng_survive_save_load_without_rerolling() {
         assert_eq!(restored.world().save_state(), original.world().save_state());
     }
     assert_eq!(
-        restored.world_mut().random_u64(),
-        original.world_mut().random_u64()
+        restored.world_mut().random_u64_for(RngStream::BehaviorTree),
+        original.world_mut().random_u64_for(RngStream::BehaviorTree)
     );
 }
 
@@ -628,13 +628,18 @@ fn random_selection_does_not_evaluate_the_selected_condition_twice() {
     let tree = tree.sub(T(b"CTDA"), roll.to_bytes());
     let control = game(tree.clone(), 0);
     let mut game = game(tree, 0);
-    control.world_mut().random_u64();
-    control.world_mut().random_u64();
+    control.world_mut().random_u64_for(RngStream::Ai);
+    control.world_mut().random_u64_for(RngStream::BehaviorTree);
     game.tick(0.1);
     assert_eq!(
-        game.world_mut().random_u64(),
-        control.world_mut().random_u64(),
-        "one condition roll and one branch selection, then no additional roll"
+        game.world_mut().random_u64_for(RngStream::Ai),
+        control.world_mut().random_u64_for(RngStream::Ai),
+        "one condition roll, then no additional roll"
+    );
+    assert_eq!(
+        game.world_mut().random_u64_for(RngStream::BehaviorTree),
+        control.world_mut().random_u64_for(RngStream::BehaviorTree),
+        "one branch selection, then no additional roll"
     );
 }
 

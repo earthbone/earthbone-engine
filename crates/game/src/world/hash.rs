@@ -284,6 +284,7 @@ fn faction_state(h: &mut StateHasher, f: &FactionState) {
     h.i32(f.infamy_nonviolent);
     h.bool(f.player_expelled);
     h.bool(f.player_enemy);
+    h.bool(f.player_attacked);
     h.bool(f.tracks_crime);
 }
 
@@ -455,8 +456,10 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.swimming,
         a.running,
         a.riding_mount,
+        a.being_ridden,
         a.weapon_drawn,
         a.sprinting,
+        a.flying,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -543,6 +546,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
     }
+    match a.head_tracking {
+        None => h.u32(0),
+        Some(false) => h.u32(1),
+        Some(true) => h.u32(2),
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -589,6 +597,9 @@ impl World {
 
         let mut h = StateHasher::new();
         h.u64(self.rng);
+        for state in self.rng_streams {
+            h.u64(state);
+        }
         let rng = h.finish();
 
         let mut h = StateHasher::new();
@@ -678,6 +689,25 @@ impl World {
         let form_lists = h.finish();
 
         let mut h = StateHasher::new();
+        h.len(self.pending_story_events.len());
+        for event in &self.pending_story_events {
+            h.u32(event.id);
+            h.bytes(&event.code);
+            h.len(event.parameters.len());
+            for parameter in &event.parameters {
+                match parameter {
+                    crate::quest::state::StoryParameter::Reference { kind, reference } => {
+                        h.u8(0);
+                        h.u32(*kind);
+                        opt_form(&mut h, *reference);
+                    }
+                    crate::quest::state::StoryParameter::Integer(value) => {
+                        h.u8(1);
+                        h.u32(*value);
+                    }
+                }
+            }
+        }
         h.len(self.pending.len());
         for p in &self.pending {
             match p {
@@ -795,6 +825,36 @@ impl World {
         for (latent, result) in &self.completed_animation_waits {
             h.u64(latent.0);
             h.bool(*result);
+        }
+        h.len(self.animation_requests.len());
+        for request in &self.animation_requests {
+            form(&mut h, request.target);
+            h.str(&request.animation);
+        }
+        h.len(self.animation_waits.len());
+        for wait in &self.animation_waits {
+            form(&mut h, wait.target);
+            h.str(&wait.event);
+            h.u64(wait.latent.0);
+        }
+        h.len(self.animation_host_notices.len());
+        for notice in &self.animation_host_notices {
+            match notice {
+                super::AnimationHostNotice::Event { source, name } => {
+                    h.u8(0);
+                    form(&mut h, *source);
+                    h.str(name);
+                }
+                super::AnimationHostNotice::Unloaded { target } => {
+                    h.u8(1);
+                    form(&mut h, *target);
+                }
+            }
+        }
+        h.len(self.animation_completions.len());
+        for completion in &self.animation_completions {
+            h.u64(completion.latent.0);
+            h.bool(completion.succeeded);
         }
         h.bool(self.player_controls);
         for enabled in self.player_control_flags {
@@ -1003,6 +1063,7 @@ impl World {
         }
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
+        super::reference_restore::write_created_base_section(self, &mut records);
         h.bytes(&records.out);
         let scenes = h.finish();
 

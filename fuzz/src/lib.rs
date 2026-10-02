@@ -1,5 +1,7 @@
 //! Shared valid inputs for byte-oriented fuzz targets and their seed checker.
 
+pub mod nif_grammar;
+
 pub fn state_probe() -> soe_papyrus::Vm {
     use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
     use soe_papyrus::pex::Opcode;

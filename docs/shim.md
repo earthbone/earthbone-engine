@@ -112,9 +112,11 @@ after changing the header mapping with `cargo run -p soe-commonlib-shim --bin ge
 The RE and SKSE interface declarations are source-level headers only. They do not provide engine
 bindings or a C ABI. Selected contracts are implemented by adapters in the game crate. The
 separate `SKSE/Plugin.h` entry point lets the loader validate and call adapted shared libraries,
-but does not provide engine interfaces.
-The RE and SKSE interface declarations are source-level headers and do not provide engine
-bindings. `SKSE/Plugin.h` supplies a separate C entry point for adapted shared libraries.
+but does not provide engine interfaces. It declares the `SKSEPlugin_Query`, `SKSEPlugin_Load` and
+`SKSEPlugin_Version` exports used by CommonLibSSE-NG plugins. The loader checks the version data,
+calls query and then load, and reports failures from either entry point. It supplies a non-null
+runtime descriptor to both entry points, but its interface query callback returns no services and
+does not bind to a running engine.
 Condition methods delegate to `ConditionRuntime`. The game implementation evaluates against the
 current world and VM. Native condition copying reports `UnsupportedHook`.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
@@ -124,13 +126,13 @@ flag and two-byte padding layout. The Rust shim event carries the resolved runti
 the quest's failed state. `soe-game` emits it after successful start and stop transitions through
 the MIT event sink API.
 
-`SKSE/Plugin.h` declares a small native module entry point for source adaptations. A module
-exports `SOEPlugin_Manifest` with an ABI version, name and the names of unsupported hooks, plus
-`SOEPlugin_Load`. The C++ loader at `crates/commonlib-shim/tools/plugin-loader.cpp` opens a
-shared library, validates those exports, prints every unsupported hook and invokes the load
-entry point. It rejects an unnamed hook, a missing export, an invalid manifest and a failed
-entry point. The loader does not supply engine interfaces. Its ABI is separate from SKSE's
-Windows DLL ABI.
+The SHM-02 fixture models Papyrus Extender's startup shape cited from
+`engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
+exports, compiles as a shared library against the shim headers, and runs through
+`crates/commonlib-shim/tools/plugin-loader.cpp`. It prints unsupported trampoline, scene graph
+and Havok hooks declared in its unsupported-hook metadata. The fixture validates the source-level
+entry-point path on this host, not a build of the upstream Papyrus Extender source, the unavailable
+engine services, or compatibility with Windows SKSE binaries.
 
 `RE/World.h` exposes a `WorldState` contract for actor critical stages,
 actor-value modifier components, the selected AI package and procedure,
@@ -342,23 +344,26 @@ unsupported, and the C++ contract fixture checks that diagnostic.
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
-module through the new entry point and checks its unsupported hook report. The SHM-03 test
-compiles the generated headers, and its game-side test calls the adapter over live actor and AI
-state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust. No sample
-plugin has been compiled against the headers or loaded. The C++ declarations are not linked
-through an FFI bridge. The counts are token counts,
-module through the new entry point and checks its unsupported hook report. SHM-20 compiles the
-five typed event payload contracts and checks sink dispatch against synthetic state fixtures.
-SHM-22 checks the additional payload contracts, live-state receiver calls and unsupported hook
-results in Rust and C++ fixtures.
-SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline rejection
-marker. A game integration test checks that live quest start and failed-stop transitions reach
-the MIT sink with current state. SHM-11 C++ fixtures check the world type contract, and game tests
-exercise its Rust adapter against `World`. SHM-13 checks magic contracts with test doubles, not
-live game state. SHM-14 exercises player and process-list reads against synthetic `World` state.
-No surveyed plugin has been compiled against the headers or loaded, and the generated declarations
-are not linked to engine behavior or a C++ to Rust ABI. The counts are token counts.
+signatures for the Rust methods they project. The SHM-02 test compiles a Papyrus Extender startup
+adaptation against the headers, checks PluginVersionData's layout, loads it through the standard
+SKSE export names and checks its unsupported-hook metadata. It does not compile the surveyed
+upstream plugin, whose game interfaces and trampoline hooks have no engine implementation here.
+The SHM-03 test compiles the generated headers, and its game-side test calls the adapter over live
+actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust.
+SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
+`World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
+player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
+payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
+additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
+C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
+rejection marker. A game integration test checks that live quest start and failed-stop transitions
+reach the MIT sink with current state. No surveyed plugin has been compiled against the headers or
+loaded, and the generated declarations are not linked to engine behavior or a C++ to Rust ABI.
+The counts are token counts,
+so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
+Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
+is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
+site because TDM dominates. The alandtse fork's 390 added headers were counted, not read.
 
 SHM-14 adds `RE/World.h` and the matching MIT Rust boundary in `world.rs`.
 `PlayerCharacter` reads player identity, position and actor values from the

@@ -123,6 +123,7 @@ pub enum Check {
     Notification(String),
     Trace(String),
     TracesMatch(String),
+    TraceSequence(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +150,18 @@ pub enum Step {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Scenario {
     pub steps: Vec<(usize, Step)>,
+}
+
+impl Scenario {
+    /// Add the nonempty trace lines from a vanilla Papyrus log as one ordered
+    /// expectation at the end of this scenario.
+    pub fn append_papyrus_log_expectations(&mut self, text: &str) {
+        let line = self.steps.last().map_or(1, |(line, _)| line + 1);
+        self.steps.push((
+            line,
+            Step::Expect(Check::TraceSequence(papyrus_log_traces(text))),
+        ));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -520,6 +533,7 @@ fn evaluate(game: &mut Game, check: &Check) -> Result<(), String> {
             let actual = game.traces();
             diff_traces(&expected, &actual)
         }
+        Check::TraceSequence(expected) => diff_traces(expected, &game.traces()),
     }
 }
 
@@ -527,6 +541,7 @@ fn evaluate(game: &mut Game, check: &Check) -> Result<(), String> {
 /// actual lines are allowed, since the engine logs its own errors too.
 fn diff_traces(expected: &[String], actual: &[String]) -> Result<(), String> {
     let mut pos = 0;
+    let mut divergences = Vec::new();
     for (i, e) in expected.iter().enumerate() {
         match actual[pos..].iter().position(|a| a == e) {
             Some(k) => pos += k + 1,
@@ -539,11 +554,15 @@ fn diff_traces(expected: &[String], actual: &[String]) -> Result<(), String> {
                 if let Some(next) = actual.get(pos) {
                     let _ = write!(msg, ", next actual line is {next:?}");
                 }
-                return Err(msg);
+                divergences.push(msg);
             }
         }
     }
-    Ok(())
+    if divergences.is_empty() {
+        Ok(())
+    } else {
+        Err(divergences.join("\n"))
+    }
 }
 
 #[cfg(test)]

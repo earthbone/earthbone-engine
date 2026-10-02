@@ -191,6 +191,7 @@ fn scr_42_translation_natives_move_and_stop_with_failure_event() {
         .bytes();
     game.load_script(&listener).unwrap();
     game.start();
+    game.load_cell(id(CELL));
     let linear = [
         Value::Float(110.0),
         Value::Float(20.0),
