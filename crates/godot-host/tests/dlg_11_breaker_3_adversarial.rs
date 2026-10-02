@@ -196,7 +196,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	var status := GDExtensionManager.load_extension("res://soe.gdextension")
-	if status != 0:
+	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
 		printerr("could not load extension: ", status)
 		quit(1)
 		return
