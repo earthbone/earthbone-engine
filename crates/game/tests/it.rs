@@ -1016,6 +1016,8 @@ mod sav_68_reset;
 mod save_generations;
 #[path = "scr_01_adversarial.rs"]
 mod scr_01_adversarial;
+#[path = "scr_01_breaker_adversarial.rs"]
+mod scr_01_breaker_adversarial;
 #[path = "scr_02_adversarial.rs"]
 mod scr_02_adversarial;
 #[path = "scr_02_native_contract_inventory.rs"]
