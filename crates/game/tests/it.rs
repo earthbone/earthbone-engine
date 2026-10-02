@@ -1222,6 +1222,8 @@ mod scr_68_native_contracts;
 mod scr_69_adversarial;
 #[path = "scr_69_native_contract_audit.rs"]
 mod scr_69_native_contract_audit;
+#[path = "scr_69_breaker_adversarial.rs"]
+mod scr_69_breaker_adversarial;
 #[path = "scr_70_adversarial.rs"]
 mod scr_70_adversarial;
 #[path = "scr_71_adversarial.rs"]
