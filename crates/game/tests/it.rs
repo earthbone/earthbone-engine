@@ -70,6 +70,8 @@ mod ai_23_adversarial;
 mod ai_24_adversarial;
 #[path = "ai_25_adversarial.rs"]
 mod ai_25_adversarial;
+#[path = "ai_25_breaker_adversarial.rs"]
+mod ai_25_breaker_adversarial;
 #[path = "ai_25_orbit.rs"]
 mod ai_25_orbit;
 #[path = "ai_26_adversarial.rs"]
