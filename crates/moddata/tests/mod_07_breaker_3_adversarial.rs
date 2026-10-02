@@ -9,7 +9,11 @@ fn mod_07_discovers_distributor_files_below_data_root() {
     let nested = root.path().join("mods/Example");
     std::fs::create_dir_all(&nested).unwrap();
     std::fs::write(nested.join("Example_DISTR.ini"), "Spell = 0x123|NONE\n").unwrap();
-    std::fs::write(nested.join("Example_KID.ini"), "Keyword = 0x123|Armor|Iron\n").unwrap();
+    std::fs::write(
+        nested.join("Example_KID.ini"),
+        "Keyword = 0x123|Armor|Iron\n",
+    )
+    .unwrap();
     std::fs::write(nested.join("Example_SWAP.ini"), "[Forms]\nRock|Tree\n").unwrap();
 
     let found = discover(root.path()).unwrap();

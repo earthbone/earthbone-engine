@@ -128,10 +128,11 @@ matching `Parsing.cpp`.
 ## Conflicts resolve by file name
 
 All three ini formats resolve a conflict the same way: the file whose name sorts
-last alphabetically wins. `discover` therefore returns files sorted by path, and
-a `Patch` carries the file and line it came from so a conflict can be reported
-rather than silently applied. Base Object Swapper documents this behaviour, and
-a third party tool exists only to override it, which is a fair sign that
+last alphabetically wins. `discover` walks the data root and its subdirectories,
+then returns files sorted by path. A `Patch` carries the file and line it came
+from so a conflict can be reported rather than silently applied. Base Object
+Swapper documents this behaviour, and a third party tool exists only to
+override it, which is a fair sign that
 alphabetical order is a poor conflict rule. The engine keeps the behaviour
 because mods depend on it, and the source on every patch is what a better rule
 would be built from later.
