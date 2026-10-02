@@ -154,15 +154,17 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
-supplied cart and horse body RIDs and keys ownership by both resolved
-reference IDs, each encoded as `(file << 32) | object`. Creating another link
-for either endpoint first frees the old one. `untether_reference` frees links
-for explicit untethering. The player
-sync path also releases a link when either endpoint is missing or disabled,
-and `clear` or node teardown frees every remaining joint. The caller supplies
-the rigid bodies and local pivots. The host API does not infer cart bones or
-build the wheel, pole, chassis or horse rig from NIF collision data.
+`ObjectReference.TetherToHorse` queues a cart and horse FormID after applying
+the CK local offset and copying cart placement to the horse. During reference
+sync, the host retains that request until both collision bodies are resident,
+then connects them with a PhysicsServer pin joint. The pivot coordinates use
+the CK cart chassis pivot `(0, 3.5, -0.2)` and horse pivot `(0, 0, -0.5)` in
+Havok axes, mapped to Godot metres. Links are keyed by both resolved FormIDs.
+Replacing a link for either endpoint frees the old joint. Missing or disabled
+endpoints release a live link, and `clear` or node teardown frees remaining
+joints and pending pairs. The host does not sample the `HorseSpine2` skeleton
+bone, build the wheel and pole constraints, or reproduce the cart suspension
+and upright recovery action.
 
 ### Editor forms dock, EDT-02
 

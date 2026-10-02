@@ -765,13 +765,15 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse 100
-Skyrim units behind the cart along its local Y axis, copies the cart rotation,
-and moves the horse into the cart's cell. The CK page specifies positioning
-relative to the cart but no offset, so this is the runtime's simple placement
-rule. `CellStreamerNode` owns pin joints between supplied rigid body RIDs, but
-the Papyrus runtime does not yet connect cart and horse references to those
-host bodies or pivots.
+**ObjectReference.TetherToHorse.** The native moves the supplied horse by the
+CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
+cart yaw, copies the cart rotation and cell, then queues the pair for host
+physics. The host waits until both references have resident collision bodies
+before creating their pin joint. A missing or invalid argument leaves the
+world unchanged. The CK `TetherToHorse_-_ObjectReference.wikitext` page also
+describes chassis and horse connection pivots, which the host converts to
+Godot axes and metres. The runtime does not sample the horse's `HorseSpine2`
+bone or build the cart wheels, pole and suspension rig from NIF data.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure

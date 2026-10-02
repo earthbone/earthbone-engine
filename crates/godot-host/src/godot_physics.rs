@@ -114,6 +114,12 @@ impl CellBodies {
             .iter()
             .find(|entry| entry.reference == Some(reference))
             .map(|entry| entry.body)
+            .or_else(|| {
+                self.movable
+                    .iter()
+                    .find(|entry| entry.reference == reference && entry.body.is_valid())
+                    .map(|entry| entry.body)
+            })
     }
 
     /// Put a reference body into kinematic mode while the player holds it.
@@ -196,6 +202,9 @@ impl CellBodies {
                         Vector3::new(direction.x, direction.y, direction.z),
                     );
                     applied += 1;
+                }
+                request @ ReferencePhysicsRequest::TetherToHorse { .. } => {
+                    world.request_reference_physics(request);
                 }
             }
         }
