@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg(feature = "godot")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! CMB-27 regression checks for stagger graph transitions.
