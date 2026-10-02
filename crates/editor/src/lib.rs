@@ -400,6 +400,9 @@ impl EditorDocument {
             if matching.next().is_some() {
                 return Err(EditorError::RepeatedSubrecord { form, tag });
             }
+            if subrecord.data == data {
+                return Ok(());
+            }
             subrecord.data = data;
         } else {
             record.subrecords.push(Subrecord::new(tag, data));

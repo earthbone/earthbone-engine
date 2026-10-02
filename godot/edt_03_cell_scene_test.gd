@@ -25,9 +25,25 @@ func _run() -> void:
 				selected = row
 				break
 	assert(not selected.is_empty(), "no populated interior cell was available")
+	var replacement: Dictionary = {}
+	for row: Dictionary in rows:
+		if row.interior and row.references > 50 and row.id != selected.id:
+			replacement = row
+			break
+	assert(not replacement.is_empty(), "no second populated interior cell was available")
+
 	assert(streamer.open_cell_id(selected.id) >= 0, "the selected cell did not open")
 	assert(streamer.last_stats().references > 0, "the opened cell has no placed references")
 	assert(streamer.instance_count() > 0, "the shared host scene path created no render instances")
-	assert(streamer.cell_instances().size() == 1, "the scene view does not contain only the selected cell")
+	var first_scene: Dictionary = streamer.cell_instances()
+	assert(first_scene.size() == 1 and first_scene.has(selected.id), "the scene view does not contain the selected cell")
+
+	assert(streamer.open_cell_id(replacement.id) >= 0, "the replacement cell did not open")
+	assert(streamer.last_stats().references > 0, "the replacement cell has no placed references")
+	assert(streamer.instance_count() > 0, "the replacement scene has no render instances")
+	var replacement_scene: Dictionary = streamer.cell_instances()
+	assert(replacement_scene.size() == 1, "replacing the selected cell left other cells in the scene")
+	assert(replacement_scene.has(replacement.id), "the scene view does not contain the replacement cell")
+	assert(not replacement_scene.has(selected.id), "the previously selected cell remains in the scene")
 	streamer.free()
 	quit(0)

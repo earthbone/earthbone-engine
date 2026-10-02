@@ -157,6 +157,8 @@ pub struct PlayerNode {
     /// Distance from the eye to the host body held by Telekinesis.
     telekinesis_distance: Option<f32>,
     host_telekinesis_target: Option<GlobalFormId>,
+    /// The live Grab Actor effect and actor currently driven by the host.
+    host_grab_actor: Option<(soe_game::world::magic::EffectId, GlobalFormId)>,
     pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
@@ -240,6 +242,7 @@ impl INode3D for PlayerNode {
             grabbed_host: None,
             telekinesis_distance: None,
             host_telekinesis_target: None,
+            host_grab_actor: None,
             pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
@@ -384,6 +387,7 @@ impl INode3D for PlayerNode {
         if self.auto_step {
             self.advance(delta);
             self.sync_actor_bodies();
+            self.update_grab_actor();
         }
     }
 
@@ -956,6 +960,19 @@ impl PlayerNode {
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
         self.start_game_runtime()
+    }
+
+    /// Apply actor-value damage to the player through the active shared game.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn damage_player_actor_value(&mut self, name: GString, amount: f32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        game.world_mut()
+            .damage_actor_value(player, &name.to_string(), amount)
+            .is_ok()
     }
 
     /// Read one reference's current simulated placement in Skyrim units.
