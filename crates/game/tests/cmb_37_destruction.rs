@@ -66,7 +66,8 @@ fn cmb_37_damage_crosses_thresholds_emits_events_and_selects_stage_models() {
     assert!(matches!(
         game.world().pending.last(),
         Some(Pending::Event { name, args, .. })
-            if name == "OnDestructionStageChanged" && args == &[soe_papyrus::Value::Int(0)]
+            if name == "OnDestructionStageChanged"
+                && args == &[soe_papyrus::Value::Int(-1), soe_papyrus::Value::Int(0)]
     ));
 
     deal(&mut game, reference, 50.0);
@@ -99,7 +100,8 @@ fn cmb_37_clear_destruction_restores_health_stage_model_and_enable_state() {
     assert!(!game.world().pending.iter().any(|pending| matches!(
         pending,
         Pending::Event { name, args, .. }
-            if name == "OnDestructionStageChanged" && args == &[soe_papyrus::Value::Int(-1)]
+            if name == "OnDestructionStageChanged"
+                && args == &[soe_papyrus::Value::Int(1), soe_papyrus::Value::Int(-1)]
     )));
 }
 

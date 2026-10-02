@@ -89,8 +89,8 @@ pub struct ActorState {
     pub blocking: bool,
 }
 
-/// Unsupported binary hooks are returned as data so source ports can fail
-/// explicitly instead of silently installing a no-op.
+/// Unsupported binary hooks are returned as data so source ports can report
+/// the failed operation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HookError {
     AddressPatch,

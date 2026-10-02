@@ -550,11 +550,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "ObjectReference",
         "PlayGamebryoAnimation",
         |world, call, me| {
-            let animation = text(&call.arg(0));
-            if animation.is_empty() || world.reference(me).is_none() {
-                return b(false);
-            }
-            b(true)
+            let _ = (world, call, me);
+            b(false)
         }
     );
     method!(
@@ -598,6 +595,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 || !length.is_finite()
                 || length == 0.0
             {
+                if length == 0.0 {
+                    call.log.push(
+                        call.time,
+                        "Warning: ApplyHavokImpulse called with a zero-length direction",
+                    );
+                }
                 return none();
             }
             for value in &mut direction {
@@ -1256,11 +1259,20 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             else {
                 return none();
             };
+            if me == horse || world.reference(horse).is_none() {
+                return none();
+            }
+            world.request_reference_physics(ReferencePhysicsRequest::Tether {
+                cart: me,
+                horse,
+                cart_pivot: [0.0, 3.5, -0.2],
+                horse_pivot: [0.0, 0.0, -0.5],
+            });
             if let Some(horse) = world.reference(horse) {
                 let yaw = rotation[2];
                 horse.position = [
-                    position[0] + yaw.sin() * 100.0,
-                    position[1] - yaw.cos() * 100.0,
+                    position[0] + yaw.cos() * 72.0 - yaw.sin() * 300.0,
+                    position[1] + yaw.sin() * 72.0 + yaw.cos() * 300.0,
                     position[2],
                 ];
                 horse.rotation = rotation;

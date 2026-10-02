@@ -128,10 +128,11 @@ matching `Parsing.cpp`.
 ## Conflicts resolve by file name
 
 All three ini formats resolve a conflict the same way: the file whose name sorts
-last alphabetically wins. `discover` therefore returns files sorted by path, and
-a `Patch` carries the file and line it came from so a conflict can be reported
-rather than silently applied. Base Object Swapper documents this behaviour, and
-a third party tool exists only to override it, which is a fair sign that
+last alphabetically wins. `discover` walks the data root and its subdirectories,
+then returns files sorted by path. A `Patch` carries the file and line it came
+from so a conflict can be reported rather than silently applied. Base Object
+Swapper documents this behaviour, and a third party tool exists only to
+override it, which is a fair sign that
 alphabetical order is a poor conflict rule. The engine keeps the behaviour
 because mods depend on it, and the source on every patch is what a better rule
 would be built from later.
@@ -164,12 +165,18 @@ parses the exact rule, resolves its keyword against a synthetic load order,
 and checks the source path and line. The rule refers to a form supplied by
 Schlongs of Skyrim, so the test models that keyword record rather than needing
 the external mod installed. No real SPID, BOS or OAR mod fixture is available
-yet, and this test does not run the rule through `soe-game`.
+in the local reference tree. The `mod_07_real_mod_parsers_keep_fixture_provenance`
+test scans one child directory per mod under `SOE_MOD_CORPUS`, requires a real
+SPID, KID, BOS and OAR or DAR configuration when that corpus is set, and checks
+nonempty parsed rules, source paths and source lines. For OAR it checks that
+the selected submod points back to its `config.json` or `user.json`. This
+corpus test does not run the rules through `soe-game`.
 
 | Test suite | Count | What it covers |
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 14 | Resolution against a synthetic load order, including absent forms, patch provenance for all three ini formats and the real KID rule |
+| `tests/mod_07_adversarial.rs` | 4 | Synthetic source-line provenance for all three ini formats and a corpus-gated parse and provenance survey for SPID, KID, BOS and OAR or DAR |
 | `tests/mod_04_adversarial.rs` | 4 | A user priority override changes selection, disabled overrides exclude submods, user conditions replace author conditions, and an empty animation folder keeps the submod path |
 | `tests/mod_04_breaker_adversarial.rs` | 4 | Negative and maximum priorities select correctly, missing user priority does not fall back, and out of range priority is rejected |
 | `game/tests/mod_04_breaker_2_adversarial.rs` | 2 | User priority selects the game clip and `overrideAnimationsFolder` supplies it from a sibling directory |
@@ -177,7 +184,9 @@ yet, and this test does not run the rule through `soe-game`.
 ## Not done
 
 - MOD-07 covers one real KID rule. Real SPID, BOS and OAR mod fixtures and
-  game-side application of a real mod remain untested.
+  game-side application of a real mod remain untested. Set `SOE_MOD_CORPUS`
+  to a directory containing one mod directory per child to run the corpus
+  provenance check.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written.

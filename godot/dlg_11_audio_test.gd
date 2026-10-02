@@ -32,6 +32,9 @@ func _wait_for_peak(capture: AudioEffectCapture, player: AudioStreamPlayer3D) ->
 	return peak
 
 func _run() -> void:
+	# CONTEXT: A fresh checkout has no editor-generated extension discovery cache.
+	if not GDExtensionManager.is_extension_loaded("res://soe.gdextension"):
+		GDExtensionManager.load_extension("res://soe.gdextension")
 	if not ClassDB.class_exists("SoundBank"):
 		printerr("FAIL: SoundBank is not registered, the extension did not load")
 		quit(1)
@@ -44,13 +47,16 @@ func _run() -> void:
 		quit(1)
 		return
 
+	var listener := AudioListener3D.new()
+	get_root().add_child(listener)
+	listener.make_current()
 	var camera := Camera3D.new()
 	get_root().add_child(camera)
 	camera.make_current()
 	var bank := ClassDB.instantiate("SoundBank") as Node3D
 	get_root().add_child(bank)
 	await process_frame
-	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive")
+	_check(bank.call("open_data", data), "SoundBank could not open the voice fixture archive: " + str(bank.call("last_error")))
 	if failures != 0:
 		quit(1)
 		return
@@ -58,8 +64,9 @@ func _run() -> void:
 	var capture := AudioEffectCapture.new()
 	capture.buffer_length = 2.0
 	AudioServer.add_bus_effect(0, capture)
-	var first_position := Vector3(1.25, 2.5, -3.75)
-	var second_position := Vector3(7.0, 8.0, 9.0)
+	await process_frame
+	var first_position := Vector3(1.25, 0.0, -1.0)
+	var second_position := Vector3(2.0, 0.0, -1.0)
 	var first_slot: int = bank.call("play_voice", first_path, first_position)
 	_check(first_slot >= 0, "first resolved voice did not start: " + str(bank.call("last_error")))
 	if first_slot < 0:
@@ -89,7 +96,8 @@ func _run() -> void:
 	_check(second_peak > MIN_PEAK, "replacement voice produced no Godot mixer output")
 	_check(bank.call("stop_voice", second_slot), "cleanup did not stop the replacement voice")
 	AudioServer.remove_bus_effect(0, AudioServer.get_bus_effect_count(0) - 1)
-	bank.queue_free()
+	bank.free()
+	listener.free()
 	camera.queue_free()
 	print("DLG-11 mixer peaks: first=", first_peak, " replacement=", second_peak)
 	print("RESULT: ", "PASS" if failures == 0 else "FAIL", " dialogue audio playback")
