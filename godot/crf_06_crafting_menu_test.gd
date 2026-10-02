@@ -25,6 +25,18 @@ func _recipe_buttons(player: Node3D) -> Array[Button]:
 			result.append(child as Button)
 	return result
 
+func _region_has_ink(image: Image, control: Control) -> bool:
+	var rect := control.get_global_rect()
+	var left := maxi(0, floori(rect.position.x))
+	var top := maxi(0, floori(rect.position.y))
+	var right := mini(image.get_width(), ceili(rect.end.x))
+	var bottom := mini(image.get_height(), ceili(rect.end.y))
+	for y in range(top, bottom):
+		for x in range(left, right):
+			if image.get_pixel(x, y).get_luminance() > 0.2:
+				return true
+	return false
+
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
 	if data.is_empty() or not ClassDB.class_exists("PlayerNode"):
@@ -53,9 +65,14 @@ func _run() -> void:
 		_check(player.call("is_menu_open"), "bench activation did not open the native menu")
 		if not player.call("is_menu_open"):
 			continue
+		await process_frame
+		await process_frame
 		var buttons := _recipe_buttons(player)
 		if not buttons.is_empty():
 			opened_with_rows = true
+			var panel := player.get_node("MenuLayer/MenuPanel") as Control
+			_check(panel.is_visible_in_tree(), "recipe menu was not visible in the scene tree")
+			var rendered := get_root().get_texture().get_image()
 			var enabled: Button
 			for button in buttons:
 				if not button.disabled:
@@ -68,12 +85,25 @@ func _run() -> void:
 				if callback.get_object() == player and callback.get_method() == "confirm_crafting_recipe":
 					wired = true
 			_check(wired, "recipe button is not connected to PlayerNode confirmation")
+			_check(recipe_button.is_visible_in_tree(), "recipe button was not visible in the scene tree")
+			_check(_region_has_ink(rendered, recipe_button), "recipe button produced no viewport pixels")
 			if enabled == null:
 				# A fresh runtime player has no inventory. Exercise the connected
 				# callback's rejected Game::craft path without changing any state.
 				recipe_button.disabled = false
-			recipe_button.pressed.emit()
+			var click := InputEventMouseButton.new()
+			click.button_index = MOUSE_BUTTON_LEFT
+			click.position = recipe_button.get_global_rect().get_center()
+			click.pressed = true
+			Input.parse_input_event(click)
+			Input.flush_buffered_events()
 			await process_frame
+			click = InputEventMouseButton.new()
+			click.button_index = MOUSE_BUTTON_LEFT
+			click.position = recipe_button.get_global_rect().get_center()
+			click.pressed = false
+			Input.parse_input_event(click)
+			Input.flush_buffered_events()
 			_check(player.call("is_menu_open"), "recipe confirmation closed the bench menu")
 			_check(not _recipe_buttons(player).is_empty(),
 				"recipe widget disappeared after confirmation")

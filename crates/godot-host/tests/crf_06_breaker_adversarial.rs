@@ -72,7 +72,11 @@ fn crf_06_recipe_requires_its_resolved_output_and_ingredient_records() {
     let mut game = game(
         1,
         Some(KEYWORD),
-        vec![recipe(RECIPE, KEYWORD, OUTPUT, INGREDIENT), malformed_output, malformed_ingredient],
+        vec![
+            recipe(RECIPE, KEYWORD, OUTPUT, INGREDIENT),
+            malformed_output,
+            malformed_ingredient,
+        ],
     );
 
     let rows = crafting_menu::entries(&mut game, id(PLAYER), id(ACTOR + 10));
@@ -85,11 +89,7 @@ fn crf_06_recipe_requires_its_resolved_output_and_ingredient_records() {
 
 #[test]
 fn crf_06_create_object_bench_must_carry_the_recipe_bench_keyword() {
-    let mut game = game(
-        1,
-        None,
-        vec![recipe(RECIPE, KEYWORD, OUTPUT, INGREDIENT)],
-    );
+    let mut game = game(1, None, vec![recipe(RECIPE, KEYWORD, OUTPUT, INGREDIENT)]);
     game.world_mut().add_item(id(PLAYER), id(INGREDIENT), 1);
 
     assert!(crafting_menu::is_creation_bench(&game, id(ACTOR + 10)));
