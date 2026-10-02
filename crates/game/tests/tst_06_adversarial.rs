@@ -52,7 +52,10 @@ fn tst_06_termination_after_replace_leaves_a_complete_loadable_save() {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "child_writer_pauses_after_replacement",
+            &crate::common::child_test_name(
+                module_path!(),
+                "child_writer_pauses_after_replacement",
+            ),
             "--nocapture",
         ])
         .env("SOE_TST06_PATH", &path)

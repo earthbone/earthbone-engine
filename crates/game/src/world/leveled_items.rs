@@ -91,10 +91,10 @@ impl World {
         }
         let mut lists = BTreeMap::new();
         self.prepare_item_lists(list, &mut lists, &mut BTreeSet::new(), metadata)?;
-        let previous_rng = self.rng;
+        let previous_rng = self.rng_streams;
         let result = self.roll_item_list(list, level, count, player_level, &lists, &mut 65_536);
         if result.is_err() {
-            self.rng = previous_rng;
+            self.rng_streams = previous_rng;
         }
         result
     }

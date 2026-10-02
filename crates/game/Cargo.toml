@@ -17,10 +17,6 @@ path = "tests/it.rs"
 [features]
 save-fault-tests = ["soe-save/fault-injection"]
 
-[[test]]
-name = "tst_06_adversarial"
-required-features = ["save-fault-tests"]
-
 [dependencies]
 thiserror = "2.0"
 crc32fast = "1"
