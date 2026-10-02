@@ -680,10 +680,13 @@ A comma after a relational comparison repeats its left operand for one more
 relational comparison and combines the two results with logical AND. Thus
 `staggerMagnitude > .3 , < .7` passes strictly inside the two bounds and fails
 at either bound. `serde-hkx` declares a comma token but does not document its
-evaluation. This interpretation is exercised by a state-machine trace and by
-a gated check of the serialized troll guard in `tests/conditions.rs` and the
-`expression` unit tests. The local source establishes the token and the shipped
-expression. No capture from the original runtime was available.
+evaluation. Synthetic state-machine and expression tests cover the operator.
+The gated `tests/anm_50_adversarial.rs` check loads the shipped troll behavior,
+finds its authored transition and records the active troll machine state after
+the event at both bounds and just inside them. This exercises the decoded graph
+through the behavior interpreter, rather than substituting a synthetic graph.
+The local source establishes the token and the shipped expression. No capture
+from Skyrim's original Havok runtime was available.
 
 `DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
 transition. An event guard must match its event as well as its expression.
@@ -700,6 +703,8 @@ Sources read locally before implementation:
   `hkbStringCondition.json` supply the serialized string offsets.
 - `serde-hkx/assets/classes/hkbCompiledExpressionSetToken.json` supplies the
   operator inventory and `hkReal` operand representation.
+- `hkxcmd/compat/hkbCompiledExpressionSetToken_0.h` confirms comma is a
+  compiled expression token type.
 - `serde-hkx/assets/classes/hkbStateMachineTransitionInfo.json` supplies
   the condition pointer and disable-condition flag.
 - `serde-hkx/assets/serde_hkx_schema.json` supplies the
@@ -735,7 +740,9 @@ transitions. It checks every serialized expression/string condition appears
 in the decoded graph. Two draugr conditions refer to the undeclared variable
 `SpeedSampled` and stay closed, asserted as exact diagnostics. The troll guard
 containing `staggerMagnitude > .3 , < .7` now compiles under the comma rule
-described above. The initial survey guessed
+described above. The ANM-50 installed test also exercises the authored troll
+transition at both magnitude bounds in the behavior interpreter. The initial
+survey guessed
 more than 1,000 guards and failed that count check. The final coverage check
 compares serialized conditions directly instead of using that guessed count.
 
