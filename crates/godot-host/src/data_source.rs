@@ -58,6 +58,8 @@ mod water;
 mod workers;
 
 #[cfg(test)]
+mod destruction_tests;
+#[cfg(test)]
 mod marker_survey_tests;
 
 #[cfg(feature = "godot")]
@@ -751,6 +753,49 @@ impl DataSource {
             stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
+        Ok(LoadedCell { stats, surfaces })
+    }
+
+    /// Builds the selected destruction-stage model for one placed reference
+    /// through the same VFS and NIF path as its base model.
+    pub fn stream_destruction_model(
+        &self,
+        reference: GlobalFormId,
+        model: &str,
+    ) -> Result<LoadedCell, DataSourceError> {
+        let winner = self
+            .order
+            .winner_ref(reference)
+            .ok_or_else(|| DataSourceError::CellNotFound(reference.to_string()))?;
+        let refr = Refr::from_record(self.order.record(winner))?;
+        let loaded = self.load_static_surfaces(model, &refr, false)?;
+        let LoadedStatic::Surfaces {
+            built,
+            marker_shapes_filtered,
+            marker_only,
+            ..
+        } = loaded;
+        let mut stats = CellStats {
+            references: 1,
+            meshes_parsed: 1,
+            editor_markers_filtered: marker_shapes_filtered,
+            editor_marker_only_models: usize::from(marker_only),
+            ..CellStats::default()
+        };
+        let surfaces = built
+            .into_iter()
+            .map(|(arrays, textures)| {
+                stats.triangles += arrays.triangle_count();
+                LoadedSurface {
+                    reference,
+                    arrays,
+                    textures,
+                    placement: placement_iso(&refr),
+                    instance_transform: None,
+                    mesh_identity: None,
+                }
+            })
+            .collect();
         Ok(LoadedCell { stats, surfaces })
     }
 
