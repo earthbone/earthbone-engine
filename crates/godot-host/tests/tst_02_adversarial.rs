@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used, dead_code)]
 
 use std::time::Duration;
 
@@ -17,7 +17,6 @@ pub use soe_godot_host::mesh;
 #[path = "../src/data_source/workers.rs"]
 mod workers;
 
-use workers::WorkerPools;
 use soe_esm::LoadOrder;
 use soe_game::determinism::{compare, Divergence, TickHash};
 use soe_game::Game;
@@ -25,6 +24,7 @@ use soe_godot_host::mesh::{
     build_surface, Aabb, MaterialDesc, MeshData, MeshOptions, SurfaceArrays,
 };
 use soe_godot_host::units::GodotPos;
+use workers::WorkerPools;
 
 fn feed(hash: &mut u64, value: u32) {
     for byte in value.to_le_bytes() {
@@ -33,30 +33,63 @@ fn feed(hash: &mut u64, value: u32) {
     }
 }
 
+fn feed_values(hash: &mut u64, tag: u32, values: impl IntoIterator<Item = u32>) {
+    feed(hash, tag);
+    let values: Vec<_> = values.into_iter().collect();
+    feed(hash, values.len() as u32);
+    for value in values {
+        feed(hash, value);
+    }
+}
+
 fn hash_surfaces(surfaces: &[SurfaceArrays]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    feed(&mut hash, surfaces.len() as u32);
     for surface in surfaces {
-        for value in surface.positions.iter().flatten() {
-            feed(&mut hash, value.to_bits());
-        }
-        for value in surface.normals.iter().flatten() {
-            feed(&mut hash, value.to_bits());
-        }
-        for value in &surface.tangents {
-            feed(&mut hash, value.to_bits());
-        }
-        for value in surface.uvs.iter().flatten() {
-            feed(&mut hash, value.to_bits());
-        }
-        for value in &surface.indices {
-            feed(&mut hash, *value as u32);
-        }
-        for value in &surface.bones {
-            feed(&mut hash, *value as u32);
-        }
-        for value in &surface.weights {
-            feed(&mut hash, value.to_bits());
-        }
+        feed_values(
+            &mut hash,
+            1,
+            surface
+                .positions
+                .iter()
+                .flatten()
+                .map(|value| value.to_bits()),
+        );
+        feed_values(
+            &mut hash,
+            2,
+            surface
+                .normals
+                .iter()
+                .flatten()
+                .map(|value| value.to_bits()),
+        );
+        feed_values(
+            &mut hash,
+            3,
+            surface.tangents.iter().map(|value| value.to_bits()),
+        );
+        feed_values(
+            &mut hash,
+            4,
+            surface.uvs.iter().flatten().map(|value| value.to_bits()),
+        );
+        feed_values(
+            &mut hash,
+            5,
+            surface.indices.iter().map(|value| *value as u32),
+        );
+        feed_values(
+            &mut hash,
+            6,
+            surface.bones.iter().map(|value| *value as u32),
+        );
+        feed_values(
+            &mut hash,
+            7,
+            surface.weights.iter().map(|value| value.to_bits()),
+        );
+        feed(&mut hash, 8);
         for value in [
             surface.bounds.min.x,
             surface.bounds.min.y,
@@ -71,7 +104,7 @@ fn hash_surfaces(surfaces: &[SurfaceArrays]) -> u64 {
     hash
 }
 
-fn build(value: &u64) -> SurfaceArrays {
+fn build(value: u64) -> SurfaceArrays {
     let x = (value % 10_000) as f32;
     let mesh = MeshData {
         positions: vec![[x, 0.0, 0.0], [x + 3.0, 0.0, 0.0], [x, 0.0, 3.0]],
@@ -87,11 +120,11 @@ fn tst_02_out_of_order_workers_match_serial_results_across_batch_shapes() {
     let pools = WorkerPools::default();
     for (len, workers) in [(0, 8), (1, 8), (2, 4), (31, 4), (64, 7)] {
         let input: Vec<u64> = (0..len).map(|value| value * 97 + 11).collect();
-        let expected: Vec<_> = input.iter().map(build).collect();
+        let expected: Vec<_> = input.iter().map(|value| build(*value)).collect();
         let actual = pools
             .ordered_map(&input, workers, |value| {
                 std::thread::sleep(Duration::from_micros((64 - value % 64) + 1));
-                build(value)
+                build(*value)
             })
             .expect("workers return a complete batch");
         assert_eq!(actual, expected, "len={len}, workers={workers}");
@@ -115,7 +148,7 @@ fn tst_02_hash_distinguishes_surface_boundaries() {
         }
     }
 
-    let mut single = build(&11);
+    let mut single = build(11);
     single.positions = vec![[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]];
     single.normals.clear();
     single.tangents.clear();
@@ -168,17 +201,21 @@ fn tst_02_host_hashes_are_seeded_per_tick_and_name_only_the_changed_tick() {
                     random
                 })
                 .collect();
-            let serial: Vec<_> = inputs.iter().map(build).collect();
+            let serial: Vec<_> = inputs.iter().map(|value| build(*value)).collect();
             let parallel = pools
                 .ordered_map(&inputs, 4, |value| {
                     std::thread::sleep(Duration::from_micros((value % 97) + 1));
-                    build(value)
+                    build(*value)
                 })
                 .expect("workers return a complete batch");
             assert_eq!(parallel, serial, "tick {tick} retains input order");
             let game_tick = game.hash_log().last().expect("game tick was recorded");
             assert_eq!(game_tick.tick, tick);
-            log.push(game_tick.clone().with_host_builder_hash(hash_surfaces(&parallel)));
+            log.push(
+                game_tick
+                    .clone()
+                    .with_host_builder_hash(hash_surfaces(&parallel)),
+            );
         }
         log
     }
@@ -187,7 +224,9 @@ fn tst_02_host_hashes_are_seeded_per_tick_and_name_only_the_changed_tick() {
     let repeated = run(0x5eed);
     assert_eq!(compare(&first, &repeated), Ok(()));
     assert!(first.iter().all(|tick| {
-        tick.parts.last().is_some_and(|(name, _)| *name == "host.builders")
+        tick.parts
+            .last()
+            .is_some_and(|(name, _)| *name == "host.builders")
     }));
 
     let mut changed = repeated;

@@ -255,7 +255,10 @@ mod tests {
             }
         }
 
-        fn feed_values(hash: &mut u64, values: impl IntoIterator<Item = u32>) {
+        fn feed_values(hash: &mut u64, tag: u32, values: impl IntoIterator<Item = u32>) {
+            feed(hash, tag);
+            let values: Vec<_> = values.into_iter().collect();
+            feed(hash, values.len() as u32);
             for value in values {
                 feed(hash, value);
             }
@@ -263,10 +266,12 @@ mod tests {
 
         fn hash_surfaces(surfaces: &[crate::mesh::SurfaceArrays]) -> u64 {
             let mut hash = 0xcbf2_9ce4_8422_2325u64;
+            feed(&mut hash, surfaces.len() as u32);
             for surface in surfaces {
                 let bounds = surface.bounds;
                 feed_values(
                     &mut hash,
+                    1,
                     surface
                         .positions
                         .iter()
@@ -275,6 +280,7 @@ mod tests {
                 );
                 feed_values(
                     &mut hash,
+                    2,
                     surface
                         .normals
                         .iter()
@@ -283,20 +289,33 @@ mod tests {
                 );
                 feed_values(
                     &mut hash,
+                    3,
                     surface.tangents.iter().map(|value| value.to_bits()),
                 );
                 feed_values(
                     &mut hash,
+                    4,
                     surface.uvs.iter().flatten().map(|value| value.to_bits()),
                 );
-                feed_values(&mut hash, surface.indices.iter().map(|value| *value as u32));
-                feed_values(&mut hash, surface.bones.iter().map(|value| *value as u32));
                 feed_values(
                     &mut hash,
-                    surface.weights.iter().map(|value| value.to_bits()),
+                    5,
+                    surface.indices.iter().map(|value| *value as u32),
                 );
                 feed_values(
                     &mut hash,
+                    6,
+                    surface.bones.iter().map(|value| *value as u32),
+                );
+                feed_values(
+                    &mut hash,
+                    7,
+                    surface.weights.iter().map(|value| value.to_bits()),
+                );
+                feed(&mut hash, 8);
+                feed_values(
+                    &mut hash,
+                    9,
                     [
                         bounds.min.x.to_bits(),
                         bounds.min.y.to_bits(),

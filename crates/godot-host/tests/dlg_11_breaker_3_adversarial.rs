@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_audio::{fuz, SoundSource};
+use soe_audio::fuz;
 use soe_bsa::{write_bsa, BsaFile, BsaVersion};
 use soe_esm::{
     Entry as PluginEntry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,

@@ -21,11 +21,6 @@ func _captured_peak(capture: AudioEffectCapture) -> float:
 	return peak
 
 func _run() -> void:
-	var extension_status := GDExtensionManager.load_extension("res://soe.gdextension")
-	if extension_status != 0:
-		printerr("FAIL: could not load soe.gdextension, status ", extension_status)
-		quit(1)
-		return
 	if not ClassDB.class_exists("SoundBank"):
 		printerr("FAIL: SoundBank is not registered, the extension did not load")
 		quit(1)

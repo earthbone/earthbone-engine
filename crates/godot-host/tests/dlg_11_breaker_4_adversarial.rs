@@ -12,8 +12,8 @@ fn wave() -> Vec<u8> {
     let sample_rate = 22_050_u32;
     let samples = (0..sample_rate as usize)
         .map(|index| {
-            ((index as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin()
-                * 12_000.0) as i16
+            ((index as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32).sin() * 12_000.0)
+                as i16
         })
         .collect::<Vec<_>>();
     let data_bytes = (samples.len() * 2) as u32;
