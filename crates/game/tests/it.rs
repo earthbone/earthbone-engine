@@ -1032,6 +1032,8 @@ mod scr_05_lazy_cell_binding;
 mod scr_08_actor_native_contracts;
 #[path = "scr_08_adversarial.rs"]
 mod scr_08_adversarial;
+#[path = "scr_08_breaker_adversarial.rs"]
+mod scr_08_breaker_adversarial;
 #[path = "scr_09_actor_queries.rs"]
 mod scr_09_actor_queries;
 #[path = "scr_09_adversarial.rs"]
