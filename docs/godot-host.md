@@ -426,9 +426,10 @@ switch, default on, and the generated normals follow it.
 ## Determinism
 
 `data_source::workers::ordered_map` returns builder results in input order for
-both sequential and threaded runs. The TST-02 test hashes those results into
-the game's per-tick `host.builders` partition, so worker output participates
-in the same divergence report as world and VM state.
+both sequential and threaded runs. TST-02 compares threaded surfaces with
+serial results for the same inputs, then hashes their arrays and bounds into
+the matching game's per-tick `host.builders` partition. Worker output
+therefore participates in the same divergence report as world and VM state.
 
 ## Streaming
 
