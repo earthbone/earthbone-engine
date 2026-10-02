@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "scr_23_breaker_adversarial.rs"]
+mod scr_23_breaker_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
