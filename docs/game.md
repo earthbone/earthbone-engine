@@ -146,7 +146,7 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   effect owns the runtime reference, which expires with the effect and is
   removed on its final tick. A missing or non-LIGH associated form rejects
   the cast before effect or reference state changes. The archetype number and
-  associated-item field follow local xEdit `wbDefinitionsTES5.pas`; the CK
+  associated-item field follow local xEdit `wbDefinitionsTES5.pas`. The CK
   magic-effect pages in the local corpus do not specify additional Light
   runtime semantics.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
