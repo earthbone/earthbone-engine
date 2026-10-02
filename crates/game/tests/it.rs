@@ -106,6 +106,8 @@ mod ai_32_adversarial;
 mod ai_33_adversarial;
 #[path = "ai_33_breaker_adversarial.rs"]
 mod ai_33_breaker_adversarial;
+#[path = "ai_33_breaker_adversarial_2.rs"]
+mod ai_33_breaker_adversarial_2;
 #[path = "ai_33_find.rs"]
 mod ai_33_find;
 #[path = "ai_35_adversarial.rs"]

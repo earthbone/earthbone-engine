@@ -2384,7 +2384,7 @@ actor section in SOEW version 37 saves the Follow procedure tag.
 cell and radius, skips deleted and destroyed markers, walks the actor to it,
 and holds that marker. When it arrives, the driver resolves the first valid
 `IDLA` link on the IDLM base to an `IDLE` record and queues that record's
-editor ID as an animation graph event. An actor with an active
+`ENAM` animation event. An actor with an active
 `UseIdleMarker` procedure reserves its selected marker. Other actors skip that
 reservation when choosing a marker. Changing or ending the package clears the
 reservation with the procedure state. This uses the PACK input layout from
@@ -2472,7 +2472,7 @@ procedure contract page.
 around that point at the authored `Height`. It keeps the actor between the
 authored `InnerRadius` and `OuterRadius`, and advances only when the sampled
 arc stays inside both bounds and over a navmesh. The arc and direct movement
-segment sample at intervals no longer than 0.25 world units, so a direct step
+segment sample at intervals no longer than 0.05 world units, so a direct step
 cannot cut across an off-nav gap when a route exists around it.
 Missing inputs, non-finite values, negative inner radii or an outer radius
 below the inner radius leave an unsupported procedure. The local CK wiki dump

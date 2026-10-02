@@ -96,7 +96,11 @@ fn game() -> Game {
         .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     plugin.push_top(Record::new(T(b"IDLM"), MARKER_BASE).sub(T(b"IDLA"), IDLE.to_le_bytes()));
-    plugin.push_top(Record::new(T(b"IDLE"), IDLE).zsub(T(b"EDID"), "MarkerIdle"));
+    plugin.push_top(
+        Record::new(T(b"IDLE"), IDLE)
+            .zsub(T(b"EDID"), "MarkerIdle")
+            .zsub(T(b"ENAM"), "MarkerIdleEvent"),
+    );
     plugin.push_top(
         Record::new(T(b"GLOB"), INTERRUPT)
             .sub(T(b"FNAM"), b"f")
@@ -239,8 +243,8 @@ fn ai_23_plays_the_authored_idle_once_when_the_reserved_marker_is_reached() {
     assert_eq!(
         requests,
         [
-            (id(ACTOR_A), "MarkerIdle".to_owned()),
-            (id(ACTOR_B), "MarkerIdle".to_owned()),
+            (id(ACTOR_A), "MarkerIdleEvent".to_owned()),
+            (id(ACTOR_B), "MarkerIdleEvent".to_owned()),
         ]
     );
 

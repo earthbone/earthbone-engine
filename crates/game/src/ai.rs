@@ -16,7 +16,7 @@
 //! within its authored follow radius and running beyond its catch-up radius.
 //! `Orbit` circles a resolved package location at its authored height and
 //! stays between its inner and outer radii on the navmesh, checking both its
-//! arc and each direct movement segment at intervals no longer than 0.25 units.
+//! arc and each direct movement segment at intervals no longer than 0.05 units.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
 //! `DialogueActivate` starts a conversation with its resolved actor target
@@ -1763,7 +1763,7 @@ fn idle_markers(
     eligible
 }
 
-/// The first valid authored idle animation on an IDLM base, in IDLA order.
+/// The first valid authored idle animation event on an IDLM base, in IDLA order.
 fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<String> {
     let base = world.base_of(marker)?;
     let record = world
@@ -1775,9 +1775,14 @@ fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<Stri
         }
         let raw = form_id(&subrecord.data)?;
         let idle = world.resolve_from(base, raw)?;
-        (world.tag_of(idle) == Some(T(b"IDLE")) && !world.record(idle)?.is_deleted())
-            .then(|| world.editor_id(idle))
-            .flatten()
+        if world.tag_of(idle) != Some(T(b"IDLE")) || world.record(idle)?.is_deleted() {
+            return None;
+        }
+        let event = world
+            .record(idle)?
+            .find(T(b"ENAM"))
+            .map(crate::quest::zstring)?;
+        (!event.is_empty()).then_some(event)
     })
 }
 
@@ -3071,7 +3076,7 @@ fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> b
 }
 
 fn orbit_sample_count(length: f32) -> usize {
-    (length / 0.25).ceil().max(1.0) as usize
+    (length / 0.05).ceil().max(1.0) as usize
 }
 
 // ----- save and load -----
@@ -3567,6 +3572,30 @@ mod tests {
         let from = [50.0, 50.0, 0.0];
         let to = [250.0, 250.0, 0.0];
         assert!(graph.find_path_between(from, to).is_some());
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
+
+    #[test]
+    fn ai_25_orbit_segment_rejects_a_gap_narrower_than_old_sample_spacing() {
+        let mut graph = NavGraph::new();
+        let vertices = vec![
+            [0.0, 0.0, 0.0],
+            [0.45, 0.0, 0.0],
+            [0.45, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.55, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.55, 1.0, 0.0],
+        ];
+        let triangles = [[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]];
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [0.2, 0.5, 0.0];
+        let to = [0.8, 0.5, 0.0];
+        for point in [from, [0.4, 0.5, 0.0], [0.6, 0.5, 0.0], to] {
+            assert!(graph.locate(point).is_some());
+        }
         assert!(!orbit_segment_on_navmesh(&graph, from, to));
     }
 
