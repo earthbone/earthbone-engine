@@ -35,6 +35,44 @@ fn read_projectile_section(
     super::record_save::read_projectile_section(world, reader)
 }
 
+fn write_scr_14_actor(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(actor.keep_offset.is_some());
+    if let Some(offset) = actor.keep_offset {
+        super::save::write_form_id(writer, offset.target);
+        for value in offset.offset.into_iter().chain(offset.angles) {
+            writer.f32(value);
+        }
+        writer.f32(offset.catch_up_radius);
+        writer.f32(offset.follow_radius);
+    }
+    super::save::write_opt_form_id(writer, actor.forced_landing_marker);
+}
+
+fn read_scr_14_actor(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.keep_offset = if reader.bool()? {
+        let target = super::save::read_form_id(reader)?;
+        let offset = [reader.f32()?, reader.f32()?, reader.f32()?];
+        let angles = [reader.f32()?, reader.f32()?, reader.f32()?];
+        let catch_up_radius = reader.f32()?;
+        let follow_radius = reader.f32()?;
+        Some(super::ActorKeepOffset {
+            target,
+            offset,
+            angles,
+            catch_up_radius,
+            follow_radius,
+        })
+    } else {
+        None
+    };
+    actor.forced_landing_marker = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
@@ -258,6 +296,7 @@ fn read_woop_mgef_section(
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "SCR-14", write: write_scr_14_actor, read: read_scr_14_actor },
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     Section { name: "MAG-54", write: write_stagger_metadata, read: read_stagger_metadata },

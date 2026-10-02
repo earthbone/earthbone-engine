@@ -340,6 +340,10 @@ pub struct ActorState {
     pub right_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// Papyrus KeepOffsetFromActor movement request.
+    pub keep_offset: Option<ActorKeepOffset>,
+    /// Reference forced as this actor's landing marker.
+    pub forced_landing_marker: Option<GlobalFormId>,
     /// SPID packages and their zero-based insertion positions in the base
     /// package list. Persisted with the actor because distribution is not
     /// rerun when SOEW restores an existing actor.
@@ -443,6 +447,21 @@ pub struct ActorState {
     pub days_in_jail: u32,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
+}
+
+/// Papyrus request for an actor to maintain a body-space offset from a target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorKeepOffset {
+    /// Actor whose body space defines the offset.
+    pub target: GlobalFormId,
+    /// X, Y and Z body-space offsets.
+    pub offset: [f32; 3],
+    /// X, Y and Z angle offsets in degrees.
+    pub angles: [f32; 3],
+    /// Distance beyond which the actor catches up at run speed.
+    pub catch_up_radius: f32,
+    /// Distance within which the actor stays still.
+    pub follow_radius: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
