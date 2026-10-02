@@ -1018,6 +1018,8 @@ mod save_generations;
 mod scr_01_adversarial;
 #[path = "scr_02_adversarial.rs"]
 mod scr_02_adversarial;
+#[path = "scr_02_breaker_adversarial.rs"]
+mod scr_02_breaker_adversarial;
 #[path = "scr_02_native_contract_inventory.rs"]
 mod scr_02_native_contract_inventory;
 #[path = "scr_03_adversarial.rs"]
