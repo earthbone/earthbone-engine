@@ -119,8 +119,8 @@ impl EntryPointDispatcher {
         self.handlers.insert(entry_point, handler);
     }
 
-    /// Evaluate matching entries on the actor's owned PERK forms in load-order
-    /// and source order. Conditions are evaluated before their handlers run.
+    /// Evaluate rank-eligible entries by winning-record, ascending priority,
+    /// then source order. Conditions are evaluated before their handlers run.
     ///
     /// # Errors
     ///
@@ -147,7 +147,9 @@ impl EntryPointDispatcher {
     }
 }
 
-/// Collect eligible entry-point operations in winning-record and source order.
+/// Collect eligible entry-point operations by winning-record, ascending
+/// priority, then source order. Priority direction and cross-perk ordering
+/// have not been confirmed against the reference runtime.
 ///
 /// # Errors
 /// Malformed sections, missing tab subjects and unsupported conditions.
@@ -167,8 +169,13 @@ pub fn entry_point_invocations(
         .collect::<Result<Vec<_>, _>>()?;
     let mut invocations = Vec::new();
     for (perk_id, sections) in entries {
+        let rank = actor_perk_rank(world, &owned, perk_id)?;
+        let mut matching = Vec::new();
         for section in sections {
             if section.entry_point != entry_point {
+                continue;
+            }
+            if u16::from(section.rank) + 1 > rank {
                 continue;
             }
             if !entry_conditions(world, vm, perk_id, &section, context)? {
@@ -183,10 +190,90 @@ pub fn entry_point_invocations(
                 data_type: section.data_type,
                 data: section.data,
             };
-            invocations.push(invocation);
+            matching.push(invocation);
         }
+        matching.sort_by_key(|invocation| invocation.priority);
+        invocations.extend(matching);
     }
     Ok(invocations)
+}
+
+fn actor_perk_rank(
+    world: &World,
+    owned: &BTreeSet<GlobalFormId>,
+    perk: GlobalFormId,
+) -> Result<u16, DispatchError> {
+    let records = world
+        .order()
+        .winners_of(Tag(*b"PERK"))
+        .filter(|(_, record)| !record.is_deleted())
+        .collect::<Vec<_>>();
+    let mut predecessors = BTreeMap::<GlobalFormId, Vec<GlobalFormId>>::new();
+    let mut successors = BTreeMap::<GlobalFormId, GlobalFormId>::new();
+    for (id, record) in &records {
+        let next_fields = record
+            .subrecords
+            .iter()
+            .filter(|sub| sub.tag == Tag(*b"NNAM"))
+            .collect::<Vec<_>>();
+        if next_fields.len() > 1 {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        }
+        let Some(field) = next_fields.first() else {
+            continue;
+        };
+        let Ok(bytes) = <[u8; 4]>::try_from(field.data.as_slice()) else {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        };
+        let raw = u32::from_le_bytes(bytes);
+        if raw == 0 {
+            continue;
+        }
+        let Some(next) = world.resolve_from(*id, raw) else {
+            if *id == perk {
+                return Err(DispatchError::Malformed(*id));
+            }
+            continue;
+        };
+        successors.insert(*id, next);
+        predecessors.entry(next).or_default().push(*id);
+    }
+
+    let mut root = perk;
+    let mut seen = BTreeSet::new();
+    while let Some(previous) = predecessors.get(&root) {
+        if previous.len() != 1 || !seen.insert(root) {
+            return Err(DispatchError::Malformed(perk));
+        }
+        root = previous[0];
+    }
+    let mut cursor = root;
+    let mut actor_rank = 0u16;
+    let mut position = 0u16;
+    seen.clear();
+    while seen.insert(cursor) {
+        position = position.saturating_add(1);
+        if owned.contains(&cursor) {
+            actor_rank = position;
+        }
+        let Some(next) = successors.get(&cursor) else {
+            break;
+        };
+        cursor = *next;
+    }
+    if seen.contains(&cursor) && successors.contains_key(&cursor) {
+        return Err(DispatchError::Malformed(perk));
+    }
+    if actor_rank == 0 {
+        return Err(DispatchError::Malformed(perk));
+    }
+    Ok(actor_rank)
 }
 
 struct EntrySection {

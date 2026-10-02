@@ -7136,12 +7136,13 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order, then each record's
-complex entry sections in file order. It passes the PRKE rank as a one-based
-value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
-for the handler. The dispatcher does not sort by priority. The local sources
-do not establish equal-priority execution order or exact versus cumulative
-effect-rank selection.
+actor's owned winning PERK records in load-order order. Within each PERK it
+filters out complex entries above the highest owned rank in that PERK's NNAM
+chain, then orders eligible entries by ascending PRKE priority. Equal
+priorities retain their source order. The invocation carries the entry's
+one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
+behavior and cross-perk interleaving still need a vanilla capture. The local
+sources do not establish exact versus cumulative effect-rank selection.
 
 Each PRKC tab evaluates its own CTDA conditions against the matching supplied
 tab subject. Conditions within a tab use the shared evaluator's file-order
@@ -7157,9 +7158,13 @@ to the staged weapon damage, with outgoing effects before incoming effects.
 Their condition tabs are owner/weapon/target and owner/attacker/weapon,
 respectively. Malformed function payloads, unknown actor values, unsupported
 functions and condition errors reject the hit before health or events change.
-This path retains the dispatcher's winning-record and source-section order.
+This path retains winning-record order, followed by ascending priority and
+source order for ties within each PERK. These ordering choices have not been
+compared with the reference runtime.
 It does not claim the unresolved priority-tie, acquisition-order or exact
-versus cumulative rank behavior documented above.
+versus cumulative rank behavior documented above. Source-order ties and
+ascending priority are deterministic engine choices, not captured vanilla
+behavior. Cross-perk ordering also needs a capture.
 
 ## Leveled item entry extras
 
