@@ -955,12 +955,12 @@ restraint, and active magic. The concrete contract differences found were:
 
 | Binding | CK contract | Current registry behavior | Owning work |
 |---|---|---|---|
-| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Quietly returns 0 because search state is not represented. | SCR-10, with AI engagement state prerequisite CMB-17. |
+| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Reads `in_combat` as 1 and `alerted` as 2, otherwise 0. | SCR-10. |
 | Actor.GetEquippedWeapon | Returns the left or right hand weapon selected by its Boolean argument. | Reads the actor's selected hand, with the right hand as default. | SCR-14. |
 | Actor.GetEquippedShield | Returns the currently equipped shield. | Returns equipped inventory armor whose resolved BOD2 mask includes shield slot 9. | SCR-14. |
-| Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
-| Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
-| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11. Flight state also depends on AI-66. |
+| Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
+| Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
+| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
 | Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | No current backlog row owns the lock and message behavior. |
 
 `Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
@@ -971,6 +971,12 @@ matching the mutually exclusive state described by its function page. The
 SCR-02 registry regression checks the ActiveMagicEffect registrations and the
 Actor discrepancy bindings against this inventory. It does not claim original
 runtime parity for state which the engine does not model yet.
+
+The SCR-10 tests cover the state codes and argument boundaries described
+above. `HasLOS` does not query collision geometry, and `PathToReference` does
+not start a latent movement request. GetSleepState cannot report the documented
+wants-to-wake state 4 because the actor state has no wake transition. These
+bindings remain limited until the runtime has those owning behaviors.
 
 `natives::register` has 388 stateful registrations and 163 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
@@ -1220,19 +1226,21 @@ Current behavior and compatibility limits:
   Invalid indices return an empty name, zero and false. The CK Utility page
   documents these global signatures, and SKSE's vanilla `Utility.psc` declares
   them as global natives.
-`Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
-and 0 otherwise. Searching state 2 is not represented by the combat system.
-`Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
-the sleep procedure is active and 0 otherwise. Transitional sleep states are
-not represented, including 2 (wants to sleep) and 4 (wants to wake). These values follow the CK pages
+`Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true,
+2 when the actor's alert flag is set, and 0 otherwise. `Actor.GetSleepState`
+returns 3 while the AI driver marks the actor sleeping, 2 while its Sleep
+procedure is active but not yet sleeping, and 0 otherwise. The driver does not
+represent wants-to-wake state 4. These values follow the CK pages
 `GetCombatState_-_Actor` and `GetSleepState_-_Actor` in the local `ck-wiki`
 corpus.
 
-`Actor.HasLOS` returns true when both references are at the same position and
-the target is visible. Other geometry is not checked. `Actor.PathToReference`
-returns true for a visible target already at the actor's position and valid
-speed. Other requests need a latent path completion API. `Actor.IsFlying`
-remains a quiet stub because the actor model has no current flight state.
+`Actor.HasLOS` returns true for finite reference positions in the same cell,
+and only the player can query a non-actor target. It does not query collision
+geometry, clip checks to the player's camera or make the three documented
+visibility picks. `Actor.PathToReference` returns true
+only when a valid speed is supplied and the target is already at the actor's
+position. Other requests need a latent path completion API. `Actor.IsFlying`
+reads live actor flight flags or the Hover procedure.
 Their CK contracts are described by
 `HasLOS_-_Actor`, `PathToReference_-_Actor` and `IsFlying_-_Actor` in the local
 `ck-wiki` corpus.

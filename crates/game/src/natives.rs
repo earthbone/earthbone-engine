@@ -1561,24 +1561,48 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.in_combat)));
     method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
-        i32::from(world.actor(me).is_some_and(|a| a.in_combat))
+        world.actor(me).map_or(0, |actor| {
+            if actor.in_combat {
+                1
+            } else if actor.alerted {
+                2
+            } else {
+                0
+            }
+        })
     ));
-    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(
-        if world.actor(me).is_some_and(|a| a.ai.sleeping) {
-            3
-        } else {
-            0
-        }
-    ));
+    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(world
+        .actor(me)
+        .map_or(0, |actor| {
+            if actor.ai.sleeping {
+                3
+            } else if actor.ai.procedure == crate::ai::Procedure::Sleep {
+                2
+            } else {
+                0
+            }
+        })));
     method!(vm, w, "Actor", "HasLOS", |world, call, me| {
         let Some(target) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
+        if world.actor(target).is_none() && !world.is_player(me) {
+            return b(false);
+        }
         let from = world.reference(me).map(|reference| reference.position);
         let to = world.reference(target).and_then(|reference| {
             (reference.enabled && !reference.deleted).then_some(reference.position)
         });
-        b(from.zip(to).is_some_and(|(from, to)| from == to))
+        let same_space = world
+            .reference_ref(me)
+            .zip(world.reference_ref(target))
+            .is_some_and(|(viewer, target)| viewer.cell == target.cell);
+        b(same_space
+            && from.zip(to).is_some_and(|(from, to)| {
+                from.into_iter()
+                    .zip(to)
+                    .all(|(a, b)| a.is_finite() && b.is_finite())
+            }))
     });
     method!(vm, w, "Actor", "PathToReference", |world, call, me| {
         let speed = call.arg(1).as_float();
@@ -4435,7 +4459,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
-    // The Hover package owns the only flight state implemented by the driver.
+    // The host supplies live flight state, and Hover supplies the package path.
     method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
         i32::from(
             world
@@ -4445,9 +4469,13 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     ));
     method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
         .actor(me)
-        .is_some_and(
-            |actor| actor.ai.procedure == crate::ai::Procedure::Hover
-        )));
+        .is_some_and(|actor| {
+            actor.flying
+                || actor
+                    .flying_state
+                    .is_some_and(|state| (1..=4).contains(&state))
+                || actor.ai.procedure == crate::ai::Procedure::Hover
+        })));
     // "Can this actor fly here?" Allowed to fly, and out under the sky.
     method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
         if !world.actor(me).is_some_and(|a| a.allow_flying) {

@@ -91,10 +91,20 @@ fn scr_08_breaker_bleedout_threshold_is_inclusive() {
     let mut game = game();
     let actor = id(ACTOR);
     game.world_mut().actor(actor).unwrap().unconscious = true;
-    game.world_mut().set_actor_value(actor, "health", 20.01).unwrap();
-    assert_eq!(actor_bool(&mut game, "IsBleedingOut", &[]), Value::Bool(false));
-    game.world_mut().set_actor_value(actor, "health", 20.0).unwrap();
-    assert_eq!(actor_bool(&mut game, "IsBleedingOut", &[]), Value::Bool(true));
+    game.world_mut()
+        .set_actor_value(actor, "health", 20.01)
+        .unwrap();
+    assert_eq!(
+        actor_bool(&mut game, "IsBleedingOut", &[]),
+        Value::Bool(false)
+    );
+    game.world_mut()
+        .set_actor_value(actor, "health", 20.0)
+        .unwrap();
+    assert_eq!(
+        actor_bool(&mut game, "IsBleedingOut", &[]),
+        Value::Bool(true)
+    );
 }
 
 #[test]
@@ -110,11 +120,22 @@ fn scr_08_breaker_missing_actor_has_quiet_false_for_each_query() {
             .ins(CallMethod, vec![s(method), ident("actor"), ident("result")])
             .ins(Return, vec![ident("result")])
             .build();
-        game.load_script(&ScriptBuilder::new(&class, "Form").function(function).bytes())
+        game.load_script(
+            &ScriptBuilder::new(&class, "Form")
+                .function(function)
+                .bytes(),
+        )
+        .unwrap();
+        let thread = game
+            .vm
+            .call_global(&class, "Run", std::slice::from_ref(&missing))
             .unwrap();
-        let thread = game.vm.call_global(&class, "Run", &[missing.clone()]).unwrap();
         assert!(game.run_until_idle(64));
-        assert_eq!(game.vm.thread_result(thread).unwrap(), Value::Bool(false), "{method}");
+        assert_eq!(
+            game.vm.thread_result(thread).unwrap(),
+            Value::Bool(false),
+            "{method}"
+        );
     }
 }
 
@@ -133,11 +154,17 @@ fn scr_08_breaker_hostility_is_specific_to_the_argument_actor() {
         state.combat_target = Some(target);
     }
     let other_object = Value::Object(game.object_of_form(other));
-    assert_eq!(actor_bool(&mut game, "IsHostileToActor", &[other_object]), Value::Bool(false));
+    assert_eq!(
+        actor_bool(&mut game, "IsHostileToActor", &[other_object]),
+        Value::Bool(false)
+    );
 }
 
 #[test]
 fn scr_08_breaker_hostility_with_null_argument_returns_false() {
     let mut game = game();
-    assert_eq!(actor_bool(&mut game, "IsHostileToActor", &[Value::None]), Value::Bool(false));
+    assert_eq!(
+        actor_bool(&mut game, "IsHostileToActor", &[Value::None]),
+        Value::Bool(false)
+    );
 }

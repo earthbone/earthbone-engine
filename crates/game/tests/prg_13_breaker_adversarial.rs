@@ -48,9 +48,7 @@ fn game(plcn: Option<Vec<u8>>, stol: Option<Vec<u8>>, include_evidence: bool) ->
     plugin.push_top(Record::new(T(b"MISC"), ITEM.object).zsub(T(b"EDID"), "Item"));
     plugin.push_top(Record::new(T(b"NPC_"), OWNER.object).zsub(T(b"EDID"), "Owner"));
     plugin.push_top(Record::new(T(b"CONT"), 0x704).zsub(T(b"EDID"), "JailChest"));
-    plugin.push_top(
-        Record::new(T(b"REFR"), PLCN.object).sub(T(b"NAME"), 0x704_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(T(b"REFR"), PLCN.object).sub(T(b"NAME"), 0x704_u32.to_le_bytes()));
     if include_evidence {
         plugin.push_top(
             Record::new(T(b"REFR"), STOL.object).sub(T(b"NAME"), 0x704_u32.to_le_bytes()),
@@ -163,4 +161,24 @@ fn prg_13_confiscated_property_and_release_survive_engine_save_load() {
     world.clear_prison();
     assert_eq!(world.item_count(player, ITEM), 2);
     assert_eq!(world.item_count(STOL, ITEM), 1);
+}
+
+#[test]
+fn prg_13_release_uses_the_faction_that_served_the_sentence() {
+    let game = game(Some(form_bytes(PLCN)), Some(form_bytes(STOL)), true);
+    let mut world = game.world_mut();
+    let player = world.player();
+    world.add_item(player, ITEM, 2);
+    world.actor(player).unwrap().crime_faction = Some(FACTION);
+    world.faction(FACTION).unwrap().crime_gold_violent = 100;
+
+    assert_eq!(world.serve_jail_time(FACTION), Ok(1));
+    assert_eq!(world.item_count(player, ITEM), 0);
+    assert_eq!(world.item_count(PLCN, ITEM), 2);
+
+    world.actor(player).unwrap().crime_faction = None;
+    world.clear_prison();
+
+    assert_eq!(world.item_count(player, ITEM), 2);
+    assert_eq!(world.item_count(PLCN, ITEM), 0);
 }
