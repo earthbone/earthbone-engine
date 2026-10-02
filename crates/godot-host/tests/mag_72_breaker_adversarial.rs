@@ -45,26 +45,21 @@ fn world_with_sources() -> World {
                 [floats(&[0.8, 600.0, 300.0]), vec![0, 0, 0, 64]].concat(),
             ),
     );
-    plugin.push_top(Record::new(Tag::new(b"CELL"), 20).sub(
-        Tag::new(b"XCIM"),
-        10_u32.to_le_bytes(),
-    ));
+    plugin
+        .push_top(Record::new(Tag::new(b"CELL"), 20).sub(Tag::new(b"XCIM"), 10_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag::new(b"CELL"), 21));
-    plugin.push_top(Record::new(Tag::new(b"CELL"), 22).sub(
-        Tag::new(b"XCIM"),
-        12_u32.to_le_bytes(),
-    ));
-    plugin.push_top(Record::new(Tag::new(b"IMGS"), 12).sub(
-        Tag::new(b"HNAM"),
-        vec![0; 8],
-    ));
-    plugin.push_top(Record::new(Tag::new(b"WTHR"), 30).sub(
-        Tag::new(b"IMSP"),
-        [10_u32, 11, 0, 0]
-            .iter()
-            .flat_map(|value| value.to_le_bytes())
-            .collect::<Vec<_>>(),
-    ));
+    plugin
+        .push_top(Record::new(Tag::new(b"CELL"), 22).sub(Tag::new(b"XCIM"), 12_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag::new(b"IMGS"), 12).sub(Tag::new(b"HNAM"), vec![0; 8]));
+    plugin.push_top(
+        Record::new(Tag::new(b"WTHR"), 30).sub(
+            Tag::new(b"IMSP"),
+            [10_u32, 11, 0, 0]
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>(),
+        ),
+    );
     let mut order = LoadOrder::new();
     order.add("Mag72Breaker.esm", plugin).unwrap();
     World::new(order)
