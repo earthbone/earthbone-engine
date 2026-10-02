@@ -1052,6 +1052,8 @@ mod scr_13_adversarial;
 mod scr_14_adversarial;
 #[path = "scr_15_adversarial.rs"]
 mod scr_15_adversarial;
+#[path = "scr_15_native_behavior.rs"]
+mod scr_15_native_behavior;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
 #[path = "scr_17_adversarial.rs"]

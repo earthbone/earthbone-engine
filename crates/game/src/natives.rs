@@ -4663,6 +4663,42 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         world.animation_event(me, &name, alloc!(call));
         b(true)
     });
+    method!(vm, w, "Actor", "PlayIdleWithTarget", |world, call, me| {
+        let Some(idle) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        if world.tag_of(idle) != Some(Tag(*b"IDLE")) {
+            return b(false);
+        }
+        let Some(name) = world.editor_id(idle) else {
+            return b(false);
+        };
+        if let Some(target) = world.form_arg(&call.arg(1)) {
+            if world.reference(target).is_none() {
+                return b(false);
+            }
+        } else if !matches!(call.arg(1), Value::None) {
+            return b(false);
+        }
+        world.request_animation(me, &name);
+        b(true)
+    });
+    method!(vm, w, "Actor", "Dismount", |world, _call, me| {
+        let Some(actor) = world.actor(me) else {
+            return b(false);
+        };
+        if !actor.riding_mount {
+            return b(false);
+        }
+        actor.riding_mount = false;
+        b(true)
+    });
+    method!(vm, w, "Actor", "Trespass", |world, _call, me| {
+        if let Some(actor) = world.actor(me) {
+            actor.trespassing = true;
+        }
+        none()
+    });
     // "Returns the nth linked ref of this object", the keyword filtered
     // list GetLinkedRef reads the head of.
     method!(
@@ -4864,9 +4900,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "SetForcedLandingMarker"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("Actor", "PlayIdleWithTarget"),
-        ("Actor", "Dismount"),
-        ("Actor", "Trespass"),
         ("Actor", "StartCannibal"),
         // Attached-arrow state is owned by the host renderer.
         ("Actor", "ClearExtraArrows"),

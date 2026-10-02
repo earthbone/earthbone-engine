@@ -1440,8 +1440,11 @@ Creation Engine frame capture or memory budgets.
 - `Actor.IsChild` reads the Child bit from the actor's current race `DATA`.
   `Actor.IsDetectedBy` reads the target's current observer-specific awareness
   from the shared detection state and returns true for Alert or Combat. The
-  query does not generate an observation or advance detection. Commanded actor,
-  mount and trespass state do not yet have runtime producers.
+  query does not generate an observation or advance detection. Commanded actor
+  state still has no runtime producer. `Actor.Dismount` clears the actor's
+  mounted flag and reports whether it was set. `Actor.Trespass` sets the same
+  trespassing flag read by `IsTrespassing`. These methods do not create host
+  mount placement or crime witness events.
 - `Cell.SetActorOwner` accepts an `NPC_` base or `None`, and
   `Cell.SetFactionOwner` accepts a `FACT` or `None`. Other record types leave
   the existing owner unchanged. The SCR-56 registry-derived CK comparison
@@ -2257,6 +2260,18 @@ section table. The CK package procedure page is absent from the local wiki
 snapshot. The execution uses the local `EquipShout_-_Actor` and
 `GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
 entries, and the existing xEdit PACK and shared spell APIs.
+
+`Actor.GetVoiceRecoveryTime` reads the remaining duration from that actor's
+real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
+for the calling actor and returns false for a missing idle or invalid target
+reference. A target is validated but is not yet routed to paired animation
+playback. `Actor.Dismount` returns true only when it clears a set mounted flag.
+`Actor.Trespass` sets the shared actor flag read by `IsTrespassing`. The local
+CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
+`GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and
+`Dismount_-_Actor`; the CK snapshot has no `Trespass_-_Actor` page. The
+existing world model does not provide paired-idle target routing or host mount
+placement, and these calls do not create crime witness events.
 
 Nested `Sequence` branches finish after their children, and `Repeat when
 Complete` restarts only the branch carrying that flag. `Success Completes
