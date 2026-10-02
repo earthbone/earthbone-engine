@@ -3835,5 +3835,5 @@ are specific to this scene, machine and renderer.
 `crates/godot-host/tests/rnd_07_adversarial.rs` checks empty and nonopaque
 input, deterministic source ordering for ties, top-four opaque selection,
 valid combined indices and transformed `MultiMesh` placement. The frame-time
-comparison was run through `godot/bench.gd`; an exterior attempt was rejected
+comparison was run through `godot/bench.gd`. An exterior attempt was rejected
 because its large world coordinates produced zero rendered primitives.
