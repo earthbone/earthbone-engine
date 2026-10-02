@@ -117,8 +117,11 @@ but does not provide engine interfaces. It declares the `SKSEPlugin_Query`, `SKS
 calls query and then load, and reports failures from either entry point. It supplies a non-null
 runtime descriptor to both entry points, but its interface query callback returns no services and
 does not bind to a running engine.
-Condition methods delegate to `ConditionRuntime`. The game implementation evaluates against the
-current world and VM. Native condition copying reports `UnsupportedHook`.
+Condition methods delegate to `ConditionRuntime`. `ConditionRuntimeBridge` forwards condition
+items and caller context over request/reply streams. The game evaluates each request against its
+current world and VM. Native condition copying reports `UnsupportedHook`. The SHM-17 integration
+fixture calls this bridge from compiled C++ and serves it from a live `Game` instance. The bridge
+is a condition-call transport for integration and is not a general plugin loader interface.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword. `RE::TESQuestStartStopEvent` matches CommonLib's 8-byte form id, started flag, failed
@@ -179,9 +182,9 @@ runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
 values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
 source-level API. The C++ save fixture also changes live payload state, loads
-the saved bytes, and verifies the payload is restored. The shim has no C ABI,
-so C++ declarations alone cannot call into the Rust engine from a compiled
-binary.
+the saved bytes, and verifies the payload is restored. Other generated C++
+declarations remain source-level contracts. The condition request/reply bridge
+is the current C++ to Rust runtime call path used by integration tests.
 
 ## SHM-07 world contracts
 

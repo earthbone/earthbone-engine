@@ -1177,6 +1177,8 @@ const RE_CONDITIONS: &str = r#"// Generated from crates/commonlib-shim/src/condi
 #include "RE/Reference.h"
 #include <cstddef>
 #include <cstdint>
+#include <istream>
+#include <ostream>
 #include <vector>
 
 namespace RE {
@@ -1218,6 +1220,33 @@ public:
     virtual ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
                                          const ConditionContext& context,
                                          bool& result) = 0;
+};
+class ConditionRuntimeBridge final : public ConditionRuntime {
+public:
+    ConditionRuntimeBridge(std::istream& input, std::ostream& output) :
+        input_(input), output_(output) {}
+    ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
+                                 const ConditionContext& context,
+                                 bool& result) override {
+        output_ << static_cast<unsigned>(item.flags) << ' '
+                << static_cast<unsigned>(item.comparison.is_global) << ' '
+                << item.comparison.number << ' ' << item.comparison.global.value << ' '
+                << item.function << ' ' << item.parameters[0] << ' ' << item.parameters[1] << ' '
+                << item.run_on << ' ' << item.reference.value << ' ' << item.parameter_3 << ' '
+                << static_cast<unsigned>(item.object) << ' ' << context.owner.value << ' '
+                << context.subject.value << ' ' << context.target.value << ' '
+                << static_cast<unsigned>(context.has_target) << ' ' << context.quest.value << ' '
+                << static_cast<unsigned>(context.has_quest) << '\n' << std::flush;
+        unsigned code = 0;
+        std::uint32_t detail = 0;
+        if (!(input_ >> code >> detail >> result)) {
+            return {ConditionErrorCode::UnavailableState, 0};
+        }
+        return {static_cast<ConditionErrorCode>(code), detail};
+    }
+private:
+    std::istream& input_;
+    std::ostream& output_;
 };
 struct TESConditionItem {
     CONDITION_ITEM_DATA data;

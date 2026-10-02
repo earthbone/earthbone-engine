@@ -620,7 +620,9 @@ state. Projectile runtime access returns an explicit unsupported-hook result
 because projectile simulation is not implemented. The matching local
 CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 `ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
-shim exposes source-level C++ declarations only, without an FFI bridge.
+condition API also has a request/reply bridge for compiled C++ condition
+calls. The game handles each request against the current world and VM. This
+transport does not provide general plugin loader services.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. The
