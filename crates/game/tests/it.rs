@@ -208,6 +208,9 @@ mod ai_59_magic_conditions;
 mod ai_60_adversarial;
 #[path = "ai_60_magic_conditions.rs"]
 mod ai_60_magic_conditions;
+
+#[path = "ai_60_breaker_adversarial.rs"]
+mod ai_60_breaker_adversarial;
 #[path = "ai_61_adversarial.rs"]
 mod ai_61_adversarial;
 #[path = "ai_61_magic_conditions.rs"]

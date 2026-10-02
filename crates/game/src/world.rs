@@ -366,6 +366,13 @@ pub struct ActorState {
     /// re-signals it from the live graph after load, through
     /// `World::set_blocking`.
     pub blocking: bool,
+    /// Ward animation state supplied by the host. `None` means the host has
+    /// not reported a state for this actor in the current session.
+    pub ward_state: Option<u32>,
+    /// Whether the host animation graph reports an active dual cast.
+    pub dual_casting: Option<bool>,
+    /// Active shout voice variation reported by the host animation graph.
+    pub shout_variation: Option<i32>,
     pub restrained: bool,
     pub arrested: bool,
     pub attack_on_sight: bool,

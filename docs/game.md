@@ -829,8 +829,19 @@ keywords. Function 579 compares the equipped shout, and 632 reports a held
 concentration cast. Casting source values outside Left, Right, Voice and
 Instant return a parameter error. Voice and Instant have no selected spell in
 this runtime, so spell comparisons return false and casting type returns zero.
-Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
-state, dual-cast animation state and active voice variation are not tracked.
+Functions 602, 627 and 676 read host-reported actor state. Function 602
+compares the supplied ward state against xEdit's None, Absorb and Break values.
+Function 627 returns the host's dual-casting flag, and 676 returns the current
+shout voice variation as an integer-valued condition result. `World` setters
+signal these values, and unset state returns an unavailable-state diagnostic.
+These host signals are transient and reset when an actor is rebuilt after load.
+They participate in the determinism hash while present.
+The condition ids and parameter types follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`; the ward enum is also defined there.
+CommonLibSSE-NG's `Actor::IsDualCasting` reads the high-process flag, which
+supports treating this as animation/process state. The local CK dump has no
+condition pages for these three natives, so shout variation's numeric value is
+passed through as reported by the host without interpreting its range.
 
 **Follower services.** `World::recruit_follower` validates the actor,
 service faction and follow package. It enables teammate status and the
