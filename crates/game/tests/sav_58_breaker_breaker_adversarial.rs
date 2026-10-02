@@ -25,7 +25,9 @@ fn live_order() -> LoadOrder {
 
 fn source_order() -> LoadOrder {
     let mut order = live_order();
-    order.add("Gone.esp", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Gone.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
     order
         .add(
             "GoneLight.esl",
@@ -73,10 +75,19 @@ fn sav_58_removed_records_keep_exact_links_and_unrelated_pose_for_two_native_cyc
     let mut reloaded = Game::new(live_order());
     reloaded.load_state(&second).unwrap();
 
-    assert_eq!(reloaded.world().unresolved_records().get(&regular.id), Some(&regular));
-    assert_eq!(reloaded.world().unresolved_records().get(&light.id), Some(&light));
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&regular.id),
+        Some(&regular)
+    );
+    assert_eq!(
+        reloaded.world().unresolved_records().get(&light.id),
+        Some(&light)
+    );
     let placement = reloaded.world().ref_placement(id(0x101)).unwrap();
     assert_eq!(placement.position, [15.0, -30.0, 7.0]);
     assert_eq!(placement.rotation, [0.1, 0.2, 0.3]);
-    assert_eq!(reloaded.world().record(id(0x800)).unwrap().tag, Tag(*b"STAT"));
+    assert_eq!(
+        reloaded.world().record(id(0x800)).unwrap().tag,
+        Tag(*b"STAT")
+    );
 }

@@ -47,7 +47,12 @@ fn fixture() -> Game {
             .sub(Tag(*b"EFID"), EFFECT.to_le_bytes())
             .sub(
                 Tag(*b"EFIT"),
-                [0.0f32.to_le_bytes(), 0u32.to_le_bytes(), 30u32.to_le_bytes()].concat(),
+                [
+                    0.0f32.to_le_bytes(),
+                    0u32.to_le_bytes(),
+                    30u32.to_le_bytes(),
+                ]
+                .concat(),
             ),
     );
     let mut order = LoadOrder::new();
@@ -70,7 +75,10 @@ fn cast(game: &mut Game, target: u32, caster: u32) -> EffectId {
             id(SOURCE),
             Some(id(caster)),
             Some(id(target)),
-            &mut |_, _| game.vm.create_object_of("GrabActorEffect", "ActiveMagicEffect"),
+            &mut |_, _| {
+                game.vm
+                    .create_object_of("GrabActorEffect", "ActiveMagicEffect")
+            },
         )
         .unwrap()[0];
     released
@@ -81,13 +89,24 @@ fn mag_66_each_effect_controls_only_its_selected_actor_and_finishes_independentl
     let mut game = fixture();
     let first = cast(&mut game, TARGET_A, CASTER);
     let second = cast(&mut game, TARGET_B, SOURCE);
-    assert_eq!(game.world().grab_actor_effect_on(id(TARGET_A)).unwrap().id, first);
-    assert_eq!(game.world().grab_actor_effect_on(id(TARGET_B)).unwrap().id, second);
+    assert_eq!(
+        game.world().grab_actor_effect_on(id(TARGET_A)).unwrap().id,
+        first
+    );
+    assert_eq!(
+        game.world().grab_actor_effect_on(id(TARGET_B)).unwrap().id,
+        second
+    );
 
     let shared = game.shared_world();
-    assert!(shared.borrow_mut().dispel_effect(first, &mut |name, class| {
-        game.vm.create_object_of(name, class)
-    }));
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(first, &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        }));
     assert!(game.world().grab_actor_effect_on(id(TARGET_A)).is_none());
-    assert_eq!(game.world().grab_actor_effect_on(id(TARGET_B)).unwrap().id, second);
+    assert_eq!(
+        game.world().grab_actor_effect_on(id(TARGET_B)).unwrap().id,
+        second
+    );
 }
