@@ -123,6 +123,14 @@ NIF count, TRI count, byte total and paths missing from the active data VFS.
 counts. The asset buffers are CPU-side file data. This does not upload preview
 meshes or apply morphs to a rendered actor.
 
+The SCR-30 cache tests check retained file and byte counts, clear every cache
+counter after a cache load, and load installed head-part models and
+morph files when `SKYRIM_DATA` is set. The training presentation test checks
+the offer values used for the trainer heading and purchase button, including
+an unavailable trainer. The camera visibility test checks the value passed to
+the rendered actor instances for first and third person. These Rust checks do
+not inspect pixels from a live player appearance.
+
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
 model field and the NAM0 chargen TRI path.
@@ -137,8 +145,12 @@ initialization, and the resulting player actor state.
 `Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
 the actor form. Valid trainers also reach the UI-16 presenter through its
 pending request. The host opens the training menu once and consumes the typed
-request without presenting it again. Camera-target and first-person geometry
-requests are applied through the transient camera controls.
+request without presenting it again. The menu heading and purchase label are
+built from the current offer returned by `training_menu::entry`, while an
+invalid offer displays the unavailable label. Camera-target and first-person
+geometry requests are applied through transient camera controls. The first-
+person visibility flag reaches each player appearance RenderingServer
+instance only in first-person view.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the

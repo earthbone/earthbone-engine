@@ -1577,11 +1577,11 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
 | `Game.PlayBink` | Quiet stub. CK takes a filename and four playback flags. |
 | `Game.AdvanceSkill` | Quiet stub. CK takes a skill name and usage magnitude. |
-| `Game.PrecacheCharGen` | Quiet stub for preloading character-generation assets. |
-| `Game.PrecacheCharGenClear` | Quiet stub for clearing the character-generation cache. |
-| `Game.ShowTrainingMenu` | Quiet stub. CK takes the trainer actor. |
-| `Game.ShowFirstPersonGeometry` | Quiet stub. CK takes a visibility flag. |
-| `Game.SetCameraTarget` | Quiet stub. CK takes the target actor. |
+| `Game.PrecacheCharGen` | Queues the host to retain available race head-part models and chargen TRI assets. |
+| `Game.PrecacheCharGenClear` | Queues the host to release retained race head-part and chargen TRI assets. |
+| `Game.ShowTrainingMenu` | Queues a valid trainer actor for the host training presenter. |
+| `Game.ShowFirstPersonGeometry` | Sets whether the player's first-person geometry is shown in first-person view. |
+| `Game.SetCameraTarget` | Sets a valid actor as the camera anchor target. |
 | `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
 | `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
 | `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |

@@ -302,8 +302,8 @@ impl PlayerNode {
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
                 visual.bind_mut().set_first_person_geometry_visible(
-                    self.rig.mode != super::CameraMode::First
-                        || self.camera_state.first_person_geometry_visible(),
+                    self.camera_state
+                        .rendered_first_person_geometry_visible(self.rig.mode),
                 );
             } else {
                 self.player_appearance = None;
