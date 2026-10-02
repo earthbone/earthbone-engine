@@ -67,6 +67,15 @@ documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
 
+### Debug collision switch, SCR-21
+
+`Debug.ToggleCollisions` changes `World::debug_collisions_enabled`. The host
+applies that value to resident cell collision bodies and the player's query
+bodies by setting their physics collision layer and mask to zero while off,
+then restoring layer and mask one when on. Bodies synchronized after a switch
+receive the current setting on the next host sync. Player movement still uses
+the `soe-physics` `SimpleWorld` solver.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each

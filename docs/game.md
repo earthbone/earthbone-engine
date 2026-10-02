@@ -397,18 +397,21 @@ Stack profiling uses the current Papyrus thread. A failed file write is added
 to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
 native layer has no host frame-capture request path.
 
-**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`; while
+enabled, incoming player health damage is ignored by melee, magic and
+`DamageActorValue` paths. Other actors and non-health actor values keep their
+normal damage behavior.
 `Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
 package driver while it is false. `Debug.ToggleCollisions` flips
-`World::debug_collisions_enabled`. The host collision path does not read this
-flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
+`World::debug_collisions_enabled`. The Godot host applies this flag to resident
+cell collision bodies and player query collision bodies. `Debug.DumpAliasData`
+logs each runtime alias id and its filled form
 or `empty`, and logs a diagnostic when its argument is not a quest or has no
 runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments
 as `[channel] message`. The CK `Debug` class page documents these global
 functions. The local Skyrim Platform function catalog supplies the two-string
 signature for `DebugChannelNotify`, which is absent from that CK page.
-God-mode damage immunity and host collision switching are not implemented by
-these runtime flags.
+Player movement continues to use the `soe-physics` `SimpleWorld` solver.
 
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402

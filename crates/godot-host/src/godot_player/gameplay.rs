@@ -139,6 +139,10 @@ impl PlayerNode {
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
+        if let Some(game) = &self.game {
+            self.query_collision
+                .set_collisions_enabled(game.world().debug_collisions_enabled);
+        }
         self.sync_camera_controls();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];

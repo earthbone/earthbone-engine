@@ -783,6 +783,37 @@ fn scr_21_set_god_mode_updates_the_shared_runtime_switch() {
 }
 
 #[test]
+fn scr_21_god_mode_blocks_player_health_damage_only() {
+    let mut game = game();
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        world.actor(player).expect("player actor");
+        let health = world.actor(player).unwrap().values.get("health").current();
+        let stamina = world.actor(player).unwrap().values.get("stamina").current();
+        world.debug_god_mode = true;
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        let actor = world.actor(player).unwrap();
+        assert_eq!(actor.values.get("health").current(), health);
+        world.damage_actor_value(player, "stamina", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("stamina").current(),
+            stamina - 25.0
+        );
+    }
+    {
+        let mut world = game.world_mut();
+        world.debug_god_mode = false;
+        let health = world.actor(player).unwrap().values.get("health").current();
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("health").current(),
+            health - 25.0
+        );
+    }
+}
+
+#[test]
 fn scr_21_toggle_ai_alternates_the_package_driver_switch() {
     let mut game = game();
     assert!(game.world().debug_ai_enabled);

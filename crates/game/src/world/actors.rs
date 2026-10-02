@@ -616,6 +616,13 @@ impl World {
         name: &str,
         value: f32,
     ) -> Result<(), crate::actor_values::Error> {
+        if self.debug_god_mode
+            && self.player == Some(id)
+            && name.eq_ignore_ascii_case("health")
+            && value > 0.0
+        {
+            return Ok(());
+        }
         self.change_actor_value(id, name, value, crate::actor_values::Values::damage)
     }
 
