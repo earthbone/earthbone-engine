@@ -262,6 +262,11 @@ pub struct ScriptEventSourceHolder {
     dragon_souls_gained: EventSource<DragonSoulsGained>,
     level_increase: EventSource<LevelIncrease>,
     location_discovery: EventSource<LocationDiscovery>,
+    shout_attack: EventSource<ShoutAttack>,
+    skill_increase: EventSource<SkillIncrease>,
+    souls_trapped: EventSource<SoulsTrapped>,
+    spells_learned: EventSource<SpellsLearned>,
+    cell_fully_loaded: EventSource<TESCellFullyLoadedEvent>,
 }
 
 impl ScriptEventSourceHolder {
@@ -279,6 +284,26 @@ impl ScriptEventSourceHolder {
 
     pub fn location_discovery(&mut self) -> &mut EventSource<LocationDiscovery> {
         &mut self.location_discovery
+    }
+
+    pub fn shout_attack(&mut self) -> &mut EventSource<ShoutAttack> {
+        &mut self.shout_attack
+    }
+
+    pub fn skill_increase(&mut self) -> &mut EventSource<SkillIncrease> {
+        &mut self.skill_increase
+    }
+
+    pub fn souls_trapped(&mut self) -> &mut EventSource<SoulsTrapped> {
+        &mut self.souls_trapped
+    }
+
+    pub fn spells_learned(&mut self) -> &mut EventSource<SpellsLearned> {
+        &mut self.spells_learned
+    }
+
+    pub fn cell_fully_loaded(&mut self) -> &mut EventSource<TESCellFullyLoadedEvent> {
+        &mut self.cell_fully_loaded
     }
 }
 

@@ -474,11 +474,7 @@ impl Actor for LiveActor<'_> {
     fn add_spell(&mut self, spell: FormId) -> bool {
         self.world
             .from_runtime_id(spell.0)
-            .and_then(|spell| {
-                self.world
-                    .actor(self.id)
-                    .map(|actor| actor.spells.insert(spell))
-            })
+            .map(|spell| self.world.add_actor_spell(self.id, spell))
             .unwrap_or(false)
     }
 

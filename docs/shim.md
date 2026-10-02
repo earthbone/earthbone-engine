@@ -79,9 +79,12 @@ carry resolved form ids, actor handles or actor values so a sink can resolve
 the event against the same engine state used by the other shim interfaces.
 The payload layouts follow alandtse CommonLibSSE-NG's
 `include/RE/S/ShoutAttack.h`, `SkillIncrease.h`, `SoulsTrapped.h`,
-`SpellsLearned.h` and `include/RE/T/TESCellFullyLoadedEvent.h`. The source-level
-headers do not connect these channels to runtime producers. The game must
-raise them when those mechanics are implemented.
+`SpellsLearned.h` and `include/RE/T/TESCellFullyLoadedEvent.h`. The MIT event
+holder exposes one source per payload. The game emits shout
+attacks after successful casts, player skill increases after a skill rank is
+gained, soul traps after a soul gem is filled, learned player spells when
+newly added, and fully loaded cells when streamed into the world. Binary hooks
+remain unsupported.
 
 SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
 read-only snapshot of the states the runtime currently tracks. The
