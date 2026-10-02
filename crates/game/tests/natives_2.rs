@@ -2055,7 +2055,7 @@ fn actor_flags_round_trip() {
     assert_eq!(call(&mut g, &guard, "IsArrested", &[]), Value::Bool(false));
     call(&mut g, &guard, "SetAttackActorOnSight", &[]);
     call(&mut g, &guard, "SetDontMove", &[]);
-    call(&mut g, &guard, "SetAllowPCDialogue", &[Value::Bool(false)]);
+    call(&mut g, &guard, "AllowPCDialogue", &[Value::Bool(false)]);
     let a = g.world_mut().actor(id).unwrap().clone();
     assert!(a.attack_on_sight && a.dont_move && !a.allow_pc_dialogue);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
