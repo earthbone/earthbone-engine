@@ -29,6 +29,7 @@ fn shm_09_extra_data_headers_match_the_rust_api() {
     let scratch = std::env::temp_dir().join(format!("soe-shm-09-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let source = scratch.join("shm_09.cpp");
+    let executable = scratch.join("shm_09");
     fs::write(
         &source,
         r#"#include <RE/Skyrim.h>
@@ -64,10 +65,11 @@ int main() {
     .unwrap();
     let output = Command::new("c++")
         .arg("-std=c++20")
-        .arg("-fsyntax-only")
         .arg("-I")
         .arg(&include)
         .arg(&source)
+        .arg("-o")
+        .arg(&executable)
         .output()
         .expect("a C++20 compiler is required by the SHM-09 done check");
     assert!(
@@ -75,5 +77,25 @@ int main() {
         "C++ fixture failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let output = Command::new(&executable)
+        .output()
+        .expect("the C++ fixture executable should run");
+    assert!(
+        output.status.success(),
+        "C++ fixture assertions failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn shm_09_extra_data_hooks_report_the_unsupported_boundary() {
+    let hook = soe_commonlib_shim::refr::EXTRA_DATA_HOOKS
+        .first()
+        .expect("the unsupported extra-data hook is declared");
+    assert_eq!(hook.name, "CommonLib extra-data vtable hooks");
+    assert_eq!(
+        hook.reason,
+        "Skyrim executable vtables have no target in the Rust engine"
+    );
 }
