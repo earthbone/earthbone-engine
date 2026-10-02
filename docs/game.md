@@ -1440,8 +1440,15 @@ Creation Engine frame capture or memory budgets.
 - `Actor.IsChild` reads the Child bit from the actor's current race `DATA`.
   `Actor.IsDetectedBy` reads the target's current observer-specific awareness
   from the shared detection state and returns true for Alert or Combat. The
-  query does not generate an observation or advance detection. Commanded actor,
-  mount and trespass state do not yet have runtime producers.
+  query takes the observer actor as its argument and does not generate an
+  observation or advance detection. Invalid race or actor forms are logged by
+  the Papyrus native and return false. `Actor.IsCommandedActor` reads whether a
+  live command effect owns the actor. `Actor.IsOnMount` reads the actor's
+  `riding_mount` state, and `Actor.IsTrespassing` reads its trespass state.
+  Those values are supplied by the shared world and magic systems. The five
+  native signatures and query meanings follow the local CK pages
+  `IsChild_-_Actor`, `IsCommandedActor_-_Actor`, `IsOnMount_-_Actor`,
+  `IsTrespassing_-_Actor` and `IsDetectedBy_-_Actor`.
 - `Cell.SetActorOwner` accepts an `NPC_` base or `None`, and
   `Cell.SetFactionOwner` accepts a `FACT` or `None`. Other record types leave
   the existing owner unchanged. The SCR-56 registry-derived CK comparison
