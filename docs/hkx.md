@@ -717,16 +717,19 @@ Neither the class tables nor the editor implement expression evaluation, so
 this crate uses its own bounded scalar parser instead of adding a dependency
 on a serializer or a Qt editor. The operator inventory supplies names and
 operand data types, not runtime formulas. ANM-49 implements the listed scalar
-functions and deterministic random evaluation. Tests compare the supported
-math functions with their scalar results and replay random guards from the
-same interpreter seed. No Havok runtime capture was used and timing
-arbitration outside these guards remains separate work.
+functions and deterministic random evaluation. The ANM-49 scalar oracle test
+computes reference values separately with `f64` standard math and checks each
+function through an authored guard. Random guard replay uses two interpreters
+with the same fixed initial seed. The local references do not provide Havok
+function formulas, and no Havok runtime capture was used. Timing arbitration
+outside these guards remains separate work.
 
 `tests/conditions.rs` covers binary decoding, bool/int/real changes, false
 guards, condition-only polling, cycles, disabled conditions, malformed or
 unknown input, parent/subgraph symbol reordering, child-only properties,
 variable/property name collisions, repeated linking and property binding IDs,
-math-function guards and seeded random guard replay. Expression unit tests
+math-function guards, independent scalar references and seeded random guard
+replay. Expression unit tests
 cover precedence, short circuiting, typed storage, character properties,
 operator function results, random replay and malformed-input limits.
 
