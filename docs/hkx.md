@@ -1064,10 +1064,13 @@ interpreter resolves bindings for all four fields. On an enabled modifier
 update, it copies the bound or authored `goalSpeed` to `speedOut`, then
 publishes that value through the output binding. A disabled sampler leaves its
 output variable unchanged. `state` and `direction` bindings are accepted but
-do not change this output calculation. The class layout and local editor
-source expose the fields but do not document a more detailed sampling formula.
-The `anm_36_speed_sampler` tests cover field decoding, bindings, output and
-disabled behavior. No original-runtime capture establishes further semantics.
+do not change this output calculation in this interpreter. The serde-hkx
+class declaration establishes the field types, defaults, layout and serialized
+names. The local behavior editor reads and writes those fields, but neither
+source defines their runtime semantics. `anm_36_speed_sampler` varies state and
+direction while checking the goal-speed output, and also covers field decoding,
+binding resolution and disabled behavior. No original-runtime capture
+establishes a more detailed sampling formula.
 
 ### Every-N event modifier (2026-09-28)
 
