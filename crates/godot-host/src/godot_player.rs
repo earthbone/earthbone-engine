@@ -481,6 +481,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();

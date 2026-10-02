@@ -288,7 +288,16 @@ units of the eye ray and within the 180-unit reach. It confirms the World grab
 before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
-`OnGrab` and `OnRelease` events.
+`OnGrab` and `OnRelease` events. Losing input focus ends both hand casts and
+immediately releases any host body held by Telekinesis.
+
+`CellStreamerNode` exposes `telekinesis_grab_reference`,
+`telekinesis_move_reference` and `telekinesis_release_reference` for host
+integration checks. The move call accepts a position in Skyrim units. The
+release call restores rigid simulation at the body's current pose.
+`godot/mag_41_telekinesis_host_test.gd` uses the Bannered Mare's installed
+movable-reference body to check host movement and resumed rigid simulation
+after the release path.
 
 ### Grab Actor, MAG-66
 
