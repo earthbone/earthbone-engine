@@ -36,7 +36,11 @@ the VM. A valid request reports unsupported ranged projectile execution and
 does not change health, inventory or the event queue. `Weapon.Fire` therefore
 does not execute ranged combat yet. The local SKSE vanilla `Weapon.psc` page
 documents this signature and the source-reference contract. A projectile
-execution system is a prerequisite for completing this native.
+execution system is a prerequisite for completing this native. The lower-level
+`World::release_projectile` transaction handles an equipped bow or crossbow
+with host-supplied launch coordinates and direction. Those inputs do not cover
+the native's arbitrary source reference and optional ammunition contract, so
+the native does not call that transaction.
 
 ## Record and runtime inputs
 
