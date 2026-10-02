@@ -916,6 +916,8 @@ mod prg_15_actor_skills;
 mod prg_16_data_length_adversarial;
 #[path = "prg_16_purchase_data_semantics.rs"]
 mod prg_16_purchase_data_semantics;
+#[path = "prg_21_adversarial.rs"]
+mod prg_21_adversarial;
 #[path = "quest_flow.rs"]
 mod quest_flow;
 #[path = "real_crafting.rs"]
@@ -1321,5 +1323,3 @@ mod ui_17_adversarial;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
-#[path = "prg_21_adversarial.rs"]
-mod prg_21_adversarial;

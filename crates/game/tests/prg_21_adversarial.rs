@@ -48,11 +48,17 @@ fn world(records: Vec<Record>, extra: &[Record]) -> World {
 fn defined_lvsp_flag_bits_are_accepted_and_reserved_bits_reject() {
     for flags in 0..=7 {
         let mut world = world(vec![lvsp(flags, &[(1, SPELL, 1)])], &[]);
-        assert!(world.select_leveled_spells(id(LIST), 1).is_ok(), "flags {flags}");
+        assert!(
+            world.select_leveled_spells(id(LIST), 1).is_ok(),
+            "flags {flags}"
+        );
     }
     for flags in [8, 0x80, 0xff] {
         let mut world = world(vec![lvsp(flags, &[(1, SPELL, 1)])], &[]);
-        assert!(world.select_leveled_spells(id(LIST), 1).is_err(), "flags {flags}");
+        assert!(
+            world.select_leveled_spells(id(LIST), 1).is_err(),
+            "flags {flags}"
+        );
     }
 }
 
@@ -61,7 +67,10 @@ fn lvsp_entries_reject_forms_outside_spell_or_nested_lvsp_types() {
     for invalid_form in [0x300, 0x301] {
         let mut world = world(
             vec![lvsp(4, &[(1, invalid_form, 1)])],
-            &[Record::new(T(b"ARMO"), 0x300), Record::new(T(b"SHOU"), 0x301)],
+            &[
+                Record::new(T(b"ARMO"), 0x300),
+                Record::new(T(b"SHOU"), 0x301),
+            ],
         );
         assert!(world.select_leveled_spells(id(LIST), 1).is_err());
     }
@@ -77,10 +86,16 @@ fn lvsp_nested_entries_resolve_to_concrete_spells_and_reject_a_cycle() {
         ],
         &[],
     );
-    assert_eq!(nested.select_leveled_spells(id(LIST), 1).unwrap(), [id(SPELL)].into());
+    assert_eq!(
+        nested.select_leveled_spells(id(LIST), 1).unwrap(),
+        [id(SPELL)].into()
+    );
 
     let mut cyclic = world(
-        vec![lvsp(0, &[(1, child, 1)]), lvsp_form(child, 0, &[(1, LIST, 1)])],
+        vec![
+            lvsp(0, &[(1, child, 1)]),
+            lvsp_form(child, 0, &[(1, LIST, 1)]),
+        ],
         &[],
     );
     assert!(cyclic.select_leveled_spells(id(LIST), 1).is_err());
