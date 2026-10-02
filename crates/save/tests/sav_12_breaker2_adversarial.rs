@@ -17,9 +17,10 @@ fn sav_12_all_observed_sequence_entries_round_trip_before_the_next_extra() {
     };
 
     let mut occurrences = BTreeSet::new();
-    for row in LEDGER.lines().filter(|row| {
-        row.ends_with("PD18-SEQUENCE\tOPAQUE-CONTINUATION")
-    }) {
+    for row in LEDGER
+        .lines()
+        .filter(|row| row.ends_with("PD18-SEQUENCE\tOPAQUE-CONTINUATION"))
+    {
         let columns: Vec<_> = row.split('\t').collect();
         occurrences.insert((columns[1].to_owned(), columns[2].to_owned()));
     }
@@ -39,15 +40,28 @@ fn sav_12_all_observed_sequence_entries_round_trip_before_the_next_extra() {
             .unwrap()
             .unwrap_or_else(|| panic!("missing reference contents for {raw_form:06x}"));
         let encoded = contents.data_bytes().unwrap();
-        assert_eq!(encoded, payload[contents.start..contents.end], "{save_name}");
-        assert_eq!(contents.remaining_bytes, payload.len() - contents.end, "{save_name}");
+        assert_eq!(
+            encoded,
+            payload[contents.start..contents.end],
+            "{save_name}"
+        );
+        assert_eq!(
+            contents.remaining_bytes,
+            payload.len() - contents.end,
+            "{save_name}"
+        );
 
-        let extras = contents.extra.unwrap_or_else(|| panic!("no extras in {save_name}"));
+        let extras = contents
+            .extra
+            .unwrap_or_else(|| panic!("no extras in {save_name}"));
         let sequence_at = extras.entries.iter().position(|extra| {
             extra.kind == 108
-                && matches!(extra.fields.get(0), Some(Field::Byte(18)))
+                && matches!(extra.fields.first(), Some(Field::Byte(18)))
                 && matches!(extra.fields.get(2), Some(Field::String(name)) if name.bytes() == b"Sequence")
         }).unwrap_or_else(|| panic!("no Sequence PackageData in {save_name}"));
-        assert!(sequence_at < extras.entries.len(), "Sequence extra was lost in {save_name}");
+        assert!(
+            sequence_at < extras.entries.len(),
+            "Sequence extra was lost in {save_name}"
+        );
     }
 }

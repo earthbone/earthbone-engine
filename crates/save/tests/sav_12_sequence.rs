@@ -467,7 +467,7 @@ fn sav_12_vanilla_pack_trees_match_all_saved_sequence_child_indices() {
                     break;
                 }
                 let owner = order.winner_ref(id).unwrap().file;
-                id = order.resolve(usize::from(owner), template);
+                id = order.resolve(owner, template);
             }
             let authored = tree(order.winner(id).unwrap());
             assert_eq!(authored.name, "Sequence");

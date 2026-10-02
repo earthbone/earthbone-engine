@@ -83,13 +83,17 @@ fn sav_22_baseline_occurrences_account_for_decoded_sequence_and_unsupported_stac
                         })
                     });
                     if is_sequence {
-                        let occurrence = MANIFEST.lines().find(|row| {
-                            let columns: Vec<_> = row.split('\t').collect();
-                            columns.len() == 9 && columns[0] == "occurrence"
-                                && columns[1] == name
-                                && columns[2] == format!("{:06x}", form.form.raw())
-                                && columns[7] == "PD18-SEQUENCE"
-                        }).unwrap();
+                        let occurrence = MANIFEST
+                            .lines()
+                            .find(|row| {
+                                let columns: Vec<_> = row.split('\t').collect();
+                                columns.len() == 9
+                                    && columns[0] == "occurrence"
+                                    && columns[1] == name
+                                    && columns[2] == format!("{:06x}", form.form.raw())
+                                    && columns[7] == "PD18-SEQUENCE"
+                            })
+                            .unwrap();
                         let offset = occurrence.split('\t').nth(5).unwrap();
                         let at: usize = offset.parse().unwrap();
                         assert_eq!(&payload[at..at + 13], b"\x6c\x12\0\x08\0Sequence");
