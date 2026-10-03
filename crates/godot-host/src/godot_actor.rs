@@ -742,7 +742,9 @@ impl SkinnedActorNode {
                 let placement = self.actor_placement();
                 match LiveRagdoll::create(world.get_space(), placement, source, map, &self.model) {
                     Ok(ragdoll) => self.ragdoll = Some(ragdoll),
-                    Err(error) => godot_error!("SkinnedActorNode ragdoll: {error}"),
+                    Err(error) => {
+                        godot_error!("SkinnedActorNode ragdoll: {error}");
+                    }
                 }
             }
             (ActorRenderMode::Animated, true) => {
