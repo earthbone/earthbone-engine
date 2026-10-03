@@ -147,10 +147,15 @@ pub struct Log {
 
 impl Log {
     pub fn push(&mut self, time: f64, message: impl Into<String>) {
-        self.entries.push(LogEntry {
-            time,
-            message: message.into(),
-        });
+        let message = message.into();
+        if message.starts_with("error:") {
+            soe_trace::error!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        } else if message.starts_with("warning:") {
+            soe_trace::warn!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        } else {
+            soe_trace::info!(target: "papyrus", system = "papyrus", vm_time = time, message = %message);
+        }
+        self.entries.push(LogEntry { time, message });
     }
     pub fn messages(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.message.as_str()).collect()
@@ -1130,7 +1135,11 @@ impl Vm {
 
     fn err(&mut self, t: usize, msg: &str) {
         let at = self.where_am_i(t);
-        self.log.push(self.time, format!("error: {msg} ({at})"));
+        soe_trace::error!(target: "papyrus", system = "papyrus", script = %at, thread = self.threads[t].id.0, message = msg);
+        self.log.entries.push(LogEntry {
+            time: self.time,
+            message: format!("error: {msg} ({at})"),
+        });
     }
 
     fn describe(&self, v: &Value) -> String {

@@ -8282,3 +8282,12 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## Shared logging, TOOL-06
+
+Runtime ticks emit trace events and AI reference-index construction emits debug
+events through `soe-trace`. AI events include the resolved cell FormID.
+`Console::run` accepts `log` to read the active filter and `log <directives>`
+to reload it. Invalid directives leave the current filter in place. A missing
+host subscriber returns a console error. The command uses the shared
+[logging controls](trace.md) and changes no saved game state.

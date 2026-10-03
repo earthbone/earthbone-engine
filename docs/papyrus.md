@@ -582,3 +582,13 @@ with the same function name cannot intercept the call. Resolution uses the
 instance's current state, then its empty state. Calls use the existing frame
 builder and scheduler. The game dialogue tests attach two colliding fragment
 names and verify that only the named script changes the owning quest.
+
+## Shared logging, TOOL-06
+
+`Log::push` retains the existing VM entries and forwards them through
+`soe-trace`. The `error:` and `warning:` prefixes select error and warning,
+other messages select info. VM execution errors emit error events with script
+location and thread identity while retaining their original in-memory text.
+The transient subscriber does not change the VM log's saved representation.
+The `tool_06_logging` tests check severity and VM error context. Subscriber
+filtering, counts and file output follow [trace.md](trace.md).

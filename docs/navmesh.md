@@ -369,3 +369,10 @@ planned routes. Those changes must bind the footprint to the specific crossing
 link before runtime lock or door state can close that link and reopening can
 restore it. `NavGraph::door_nodes` only retains the authored association. It
 does not close a link based on runtime state.
+
+## Shared logging, TOOL-06
+
+Path search emits a trace event with source and destination node identities
+and system through `soe-trace`. Release builds remove the event and its
+argument evaluation. Subscribers, filters, counts and output follow
+[trace.md](trace.md). The navmesh crate does not install a subscriber.
