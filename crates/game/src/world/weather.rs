@@ -35,7 +35,10 @@ impl World {
         override_weather: bool,
         accelerate: bool,
     ) -> Result<(), VmError> {
-        if self.tag_of(weather) != Some(T(b"WTHR")) {
+        if self
+            .record(weather)
+            .is_none_or(|record| record.is_deleted() || record.tag != T(b"WTHR"))
+        {
             return Err(VmError::State(format!(
                 "Weather.SetActive requires a WTHR form, got {weather}"
             )));

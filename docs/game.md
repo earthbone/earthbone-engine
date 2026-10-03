@@ -158,8 +158,9 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
   resolved RFCT and placed-reference forms. Calls stack, finite durations
   expire on unpaused game ticks, and `Stop` removes all matching instances.
-  Hosts can inspect the active requests in stable call order. Rendering the
-  RFCT art object is not connected yet.
+  Hosts can inspect the active requests in stable call order. The Godot host
+  renders a temporary target visual and uses the linked EFSH start texture
+  when available. Authored ARTO model rendering is not implemented.
 - MGEF archetype 12, Light, resolves its associated LIGH form through the
   winning load order and places that light at the effect target. The active
   effect owns the runtime reference, which expires with the effect and is
@@ -1302,10 +1303,10 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
 | `Utility.GetBudgetCount` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
 | `Utility.GetBudgetName` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so valid indices log an explicit error and return an empty string. |
-| `Utility.GetCurrentBudget` | Returns measured Papyrus instructions or exterior cell loads for the latest update. |
-| `Utility.OverBudget` | Compares the measured count with its configured cap. |
-| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
-| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
+| `Utility.GetCurrentBudget` | Reports measured Papyrus instructions or exterior cell loads for the latest update, indexed by the two engine categories documented below. |
+| `Utility.OverBudget` | Compares the measured count with its configured cap for the indexed engine category. |
+| `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. The shared World retains each call, and the Godot host presents active RFCT effects as described in [godot-host](godot-host.md#papyrus-visual-effects-scr-52). Authored ARTO model lifecycle belongs to MAG-24. |
+| `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. The shared World removes matching calls and the host releases their render instances. |
 
 The latent `Utility.Wait`, `WaitMenuMode` and `WaitGameTime` calls are
 registered by the Papyrus VM rather than `game::natives::register`, so they are
@@ -1480,18 +1481,18 @@ Their CK contracts are described by
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
 by `Game::tick`. Without captured frames, they return `None` and log that beta
 capture data is unavailable. `GetCurrentMemory`, `GetBudgetCount`, and
-`GetBudgetName` are available only when memory tracking is enabled. This
-runtime has no game-owned memory tracker, so `GetCurrentMemory` and
-`GetBudgetCount` return `None` and log an explicit error. `GetBudgetName`
-requires exactly one integer index. It returns an empty string for an invalid
-index, or logs an explicit error and returns an empty string when tracking is
-unavailable. The scheduler budget methods `GetCurrentBudget` and `OverBudget`
-read separate runtime counters. `GetCurrentBudget` reads the instruction count
-returned by the most recent VM scheduler slice or the number of exterior cells committed by
-the most recent host streaming update. Before a measurement, each value is
-zero. `OverBudget` compares that measured value with its configured cap. The
-CK Utility page documents these signatures, and SKSE's vanilla `Utility.psc`
-declares them as global natives.
+`GetBudgetName` require memory tracking. The runtime has no game-owned memory
+tracker, so `GetCurrentMemory` and `GetBudgetCount` return `None` and log an
+explicit error. `GetBudgetName` validates its single integer index, returns an
+empty string for invalid indices, and logs an error before returning an empty
+string when tracking is unavailable. The scheduler methods `GetCurrentBudget`
+and `OverBudget` read separate runtime counters for Papyrus instructions per
+slice and exterior cell loads per update. `GetCurrentBudget` reads the
+instruction count returned by the most recent VM scheduler slice or the number
+of exterior cells committed by the most recent host streaming update. Before a
+measurement, each value is zero. `OverBudget` compares that measured value with
+its configured cap. The CK Utility page documents these signatures, and SKSE's
+vanilla `Utility.psc` declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
@@ -1582,12 +1583,15 @@ Creation Engine frame capture or memory budgets.
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing
   reference is retained. `VisualEffect.Stop` removes every matching instance
-  on its target. Rendering the RFCT art object is not connected yet.
+  on its target. Godot follows these instances for host presentation, with
+  rendering details and the ARTO limit in [godot-host](godot-host.md#papyrus-visual-effects-scr-52).
 - `Weather.SetActive` stores the selected `WTHR` form and its optional override
   and acceleration flags in `World::weather_request`. Both flags default to
   false. A non-weather receiver logs an error and leaves the previous request
-  unchanged. This transient request is not saved, and no host sky currently
-  consumes it to render weather.
+  unchanged. This transient request is not saved. The host image-space view
+  uses the request's daytime WTHR `IMSP` entry unless an explicit image-space
+  selection is active. The shipped `Weather.psc` defines the native defaults.
+  WTHR sky colors, clouds, precipitation and transition timing are not rendered.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -3331,8 +3335,10 @@ the appearance empty.
   arrest implementation. Arrest choice accounting and jail sentences exist,
   but guard movement, jail placement and resistance combat are not implemented.
 - `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
-  the shared form table. It logs a typed unsupported error for valid requests
-  until ranged projectile execution exists. See [combat](combat.md).
+  the shared form table. Invalid Papyrus arguments and invalid forms are logged
+  as typed errors. A valid request logs an unsupported error until ranged
+  projectile execution exists, without changing inventory or queuing events.
+  See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
@@ -6989,10 +6995,12 @@ The selected weather, slots and blend survive save/load in the `MAG-72`
 world section. An absent section restores an empty selection.
 Invalid selection leaves the previous one intact.
 SCR-73's audit records the registered `Weather.SetActive` method and eight
-additional vanilla Weather natives missing from the registry. SCR-54 exposes
-the selected `WTHR` and transition flags through the shared weather request
-API, but `Weather.SetActive` remains a quiet stub and does not select or
-release weather. Host sky rendering remains outside the native binding.
+additional vanilla Weather natives missing from the registry. SCR-54 binds
+`Weather.SetActive` to the shared request API and rejects deleted or
+non-weather receivers and non-Boolean flags without replacing the current
+request. The host applies the selected weather's image-space values. It does
+not render weather transitions, clouds, sky colors or precipitation, and does
+not apply the override or acceleration flags.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation

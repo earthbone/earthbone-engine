@@ -170,6 +170,7 @@ pub struct Game {
     bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
+    budget_usage: Rc<natives::BudgetUsage>,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
     /// Parsed OAR submods, ordered by descending priority.
@@ -242,7 +243,11 @@ impl Game {
     pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
-        let registered = natives::register(&mut vm, &world);
+        let budget_usage = Rc::new(natives::BudgetUsage::default());
+        budget_usage
+            .vm_instruction_limit
+            .set(PAPYRUS_INSTRUCTIONS_PER_SLICE);
+        let registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
         Game {
             vm,
             world,
@@ -251,6 +256,7 @@ impl Game {
             bound_forms: BTreeSet::new(),
             bound_cells: BTreeSet::new(),
             budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
+            budget_usage,
             hash_log: None,
             oar_submods: Vec::new(),
             mcm_registered: Vec::new(),
@@ -370,6 +376,7 @@ impl Game {
     /// Record how many exterior cells the host loaded during its latest update.
     pub fn record_exterior_cell_loads(&mut self, count: usize) {
         self.world.borrow_mut().exterior_cell_loads_last_update = count;
+        self.budget_usage.exterior_cell_loads.set(count);
     }
 
     /// Route an authored Story Manager event through the shared runtime.
@@ -1629,8 +1636,10 @@ impl Game {
         }
         for _ in 0..max_rounds {
             self.pump();
+            self.budget_usage.vm_instruction_limit.set(self.budget);
             let instructions = self.vm.run(self.budget);
             self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
+            self.budget_usage.vm_instructions.set(instructions);
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
             let world = self.world.borrow();
             let queued = world.has_pending_calls() || !world.completed_animation_waits.is_empty();

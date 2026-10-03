@@ -1245,6 +1245,102 @@ impl PlayerNode {
         result
     }
 
+    /// Winning RFCT records with a resolved art object or effect shader.
+    #[func]
+    pub fn gameplay_visual_effect_forms(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        let Some(game) = &self.game else {
+            return result;
+        };
+        for (id, _) in game.world().order().winners_of(soe_esm::Tag::new(b"RFCT")) {
+            let Some(data) = game.world().visual_effect_data(id) else {
+                continue;
+            };
+            if data.art.is_none() && data.shader.is_none() {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i32::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set("art", data.art.is_some());
+            row.set("shader", data.shader.is_some());
+            row.set("flags", i64::from(data.flags));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Start an RFCT effect through the shared game's World API.
+    #[func]
+    pub fn gameplay_play_visual_effect(
+        &mut self,
+        effect_file: i32,
+        effect_object: i64,
+        target_file: i32,
+        target_object: i64,
+        duration: f64,
+    ) -> bool {
+        let (Ok(effect_file), Ok(effect_object), Ok(target_file), Ok(target_object)) = (
+            u16::try_from(effect_file),
+            u32::try_from(effect_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        game.world_mut()
+            .play_visual_effect(
+                GlobalFormId {
+                    file: effect_file,
+                    object: effect_object,
+                },
+                GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                duration,
+                None,
+            )
+            .is_ok()
+    }
+
+    /// Stop RFCT instances for the exact effect and target pair.
+    #[func]
+    pub fn gameplay_stop_visual_effect(
+        &mut self,
+        effect_file: i32,
+        effect_object: i64,
+        target_file: i32,
+        target_object: i64,
+    ) -> i64 {
+        let (Ok(effect_file), Ok(effect_object), Ok(target_file), Ok(target_object)) = (
+            u16::try_from(effect_file),
+            u32::try_from(effect_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return -1;
+        };
+        let Some(game) = self.game.as_mut() else {
+            return -1;
+        };
+        game.world_mut()
+            .stop_visual_effect(
+                GlobalFormId {
+                    file: effect_file,
+                    object: effect_object,
+                },
+                GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+            )
+            .map_or(-1, |count| i64::try_from(count).unwrap_or(i64::MAX))
+    }
+
     /// Logical cell currently represented by the host.
     #[func]
     pub fn gameplay_cell(&self) -> GString {

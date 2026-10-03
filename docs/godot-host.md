@@ -90,6 +90,19 @@ and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
 
+### Papyrus weather image-space selection, SCR-54
+
+`Weather.SetActive` requests flow from `World` into `ImageSpaceStack` on the
+next host sync. If no explicit image-space selection is active, the stack reads
+the selected WTHR record's daytime `IMSP` slot and resolves its `IMGS` values.
+The camera renderer applies those values through Godot's `Environment` and
+`CameraAttributesPractical`. An explicit image-space selection takes
+precedence. This path renders image-space adjustments only. It does not render
+WTHR cloud layers, sky colors, precipitation, ambient lighting or transition
+timing, and the daytime slot is used at all game hours. The override and
+acceleration flags are retained in the request but do not change this
+presentation.
+
 ### Debug collision switch, SCR-21
 
 `Debug.ToggleCollisions` changes `World::debug_collisions_enabled`. The host
@@ -551,6 +564,38 @@ corpus includes UESP's EFSH field list and xEdit's record layout. Its CK wiki
 corpus has no EffectShader page. The synthetic tests verify request data and
 host fade/blend selection. Live rendered output has not been verified.
 
+## Papyrus visual effects, SCR-52
+
+`PlayerNode` advances active `World::visual_effect_instances` into its shared
+`CellStreamerNode`. The streamer creates one `RenderingServer` sphere instance
+per active `VisualEffect.Play` call, keys it by the game-owned call identity,
+and follows the target reference's current placement. Expiry, `Stop`, target
+disable and node clear release the render instance. If the linked EFSH record
+has an `ICON` start texture, it is loaded through the shared DDS cache. A
+shader-linked effect uses a blue tint, while an ARTO-only effect uses amber.
+This is a visible host placeholder, not the authored ARTO NIF or full EFSH
+animation. The placeholder follows RFCT attach-to-camera and inherit-rotation
+flags, and rotates toward the optional facing reference when the RFCT flag is
+set. It does not reproduce authored ARTO animation or EFSH timing.
+
+The rendering resource uses server IDs and creates no scene node per effect.
+`godot/scr_52_visual_effect_test.gd` starts an installed game, picks a winning
+RFCT with a linked art or shader, captures the scene before and after playing
+it on the player reference, verifies changed pixels and one renderer instance,
+then stops it and checks the instance is freed. Run windowed with
+`SKYRIM_DATA` and the extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script scr_52_visual_effect_test.gd --resolution 640x360
+```
+
+The source layouts are UESP `RFCT.wikitext`, `ARTO.wikitext` and `EFSH.wikitext`,
+and xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no
+VisualEffect function page or shipped `VisualEffect.psc`. The existing game
+tests cover native argument handling, errors, stacking, expiry and target
+specific stop. The Godot capture verifies instance creation and release, not
+fidelity to Skyrim's complete authored effect appearance.
+
 ## Invisibility rendering, MAG-34
 
 `SkinnedActorNode` reads invisibility from the actor's shared World state and
@@ -706,10 +751,10 @@ proxy update in Godot. The editor crate tests verify the record operation, undo,
 streamed cell preview after a placement edit are not implemented by this milestone.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
-per update. After a successful streaming update, it records the number of committed
-exterior cell loads in the shared game world. Papyrus exposes this measured count as the
-`Exterior cell loads per update` category through `Utility.GetCurrentBudget`.
-`OverBudget` compares it with the same configured cap.
+per update. It reports the successfully entered cell count to the shared `Game` and
+Papyrus budget usage. Papyrus reads the latest count through
+`Utility.GetCurrentBudget` and compares it with the configured cap through
+`OverBudget`. The counter resets to zero at the start of each host update.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -3066,12 +3111,15 @@ configured script form.
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
 option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
-presentation under the project intent. The UI-11 fixture starts a Papyrus quest
-using the `SKI_ConfigBase` lifecycle shape, then adds text and toggle rows,
-changes toggle enabled state and checks the `OnOptionSelect` callback count.
-The test uses a focused script fixture rather than executing SkyUI's complete
-source scripts. The host menu manager and Scaleform APIs remain outside this
-path.
+presentation under the project intent. The UI-11 VM fixture adds text and
+toggle rows, changes toggle enabled state and checks that one enabled selection
+delivers one `OnOptionSelect` callback. A separate source fixture reads the
+unmodified `SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` files, checking the
+text and toggle constructors, flag packing, page-strided selection callback
+and manager forwarding. Set `SOE_SKYUI_CONFIG_BASE` and
+`SOE_SKYUI_CONFIG_MANAGER` to use different source paths. The full upstream
+scripts are not compiled or executed by the Papyrus VM fixture. The host menu
+manager and Scaleform APIs remain outside this path.
 
 ### MCM slider and menu dialogs, UI-12
 

@@ -10,6 +10,31 @@ use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, PropSet};
 use soe_papyrus::Value;
 
 const CONFIG_QUEST: u32 = 0x800;
+const SKYUI_SOURCE: &str = "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/skyui/dist/Data/Scripts/Source";
+
+fn skyui_source(name: &str, variable: &str) -> String {
+    let path = std::env::var_os(variable)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(SKYUI_SOURCE).join(name));
+    std::fs::read_to_string(path).unwrap()
+}
+
+fn function_body(source: &str, signature: &str) -> String {
+    let lower = source.to_ascii_lowercase();
+    let signature = signature.to_ascii_lowercase();
+    let start = lower.find(&signature).unwrap();
+    let body_start = source[start..].find('\n').unwrap() + start + 1;
+    let body_end = lower[body_start..].find("endfunction").unwrap() + body_start;
+    lower[body_start..body_end].to_owned()
+}
+
+fn normalized(source: &str) -> String {
+    source
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
 
 fn skyui_fixture() -> Game {
     let vmad = Vmad {
@@ -250,4 +275,34 @@ fn ui_11_ski_config_fixture_builds_rows_updates_flags_and_calls_once() {
     assert!(!page.select(&mut game, form, toggle));
     assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
     assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0));
+}
+
+#[test]
+fn ui_11_unmodified_skyui_sources_define_text_toggle_flags_and_callback() {
+    let base = skyui_source("SKI_ConfigBase.psc", "SOE_SKYUI_CONFIG_BASE");
+    let manager = skyui_source("SKI_ConfigManager.psc", "SOE_SKYUI_CONFIG_MANAGER");
+    let declarations = normalized(&base);
+
+    assert!(declarations.contains("int property option_type_text = 0x02 autoreadonly"));
+    assert!(declarations.contains("int property option_type_toggle = 0x03 autoreadonly"));
+    assert!(declarations.contains("int property option_flag_disabled = 0x01 autoreadonly"));
+    assert!(declarations.contains("int property option_flag_hidden = 0x02 autoreadonly"));
+
+    let add_text = function_body(&base, "int function AddTextOption(");
+    assert!(add_text.contains("return addoption(option_type_text, a_text, a_value, 0, a_flags)"));
+    let add_toggle = function_body(&base, "int function AddToggleOption(");
+    assert!(add_toggle
+        .contains("return addoption(option_type_toggle, a_text, none, a_checked as int, a_flags)"));
+
+    let set_flags = function_body(&base, "function SetOptionFlags(");
+    assert!(set_flags.contains("int index = a_option % 0x100"));
+    assert!(set_flags.contains("oldflags %= 0x100"));
+    assert!(set_flags.contains("oldflags += a_flags * 0x100"));
+
+    let select = function_body(&base, "function SelectOption(");
+    assert!(select.contains("int option = a_index + _currentpagenum * 0x100"));
+    assert!(select.contains("onoptionselect(option)"));
+
+    let manager_select = function_body(&manager, "event OnOptionSelect(");
+    assert!(manager_select.contains("_activeconfig.selectoption(optionindex)"));
 }

@@ -1386,18 +1386,32 @@ mod scr_50_breaker_adversarial;
 mod scr_50_utility_runtime_queries;
 #[path = "scr_51_adversarial.rs"]
 mod scr_51_adversarial;
+#[path = "scr_51_breaker2_adversarial.rs"]
+mod scr_51_breaker2_adversarial;
+#[path = "scr_51_breaker_adversarial.rs"]
+mod scr_51_breaker_adversarial;
 #[path = "scr_51_utility_budgets.rs"]
 mod scr_51_utility_budgets;
 #[path = "scr_52_adversarial.rs"]
 mod scr_52_adversarial;
+#[path = "scr_52_breaker_adversarial.rs"]
+mod scr_52_breaker_adversarial;
 #[path = "scr_52_visual_effects.rs"]
 mod scr_52_visual_effects;
 #[path = "scr_53_adversarial.rs"]
 mod scr_53_adversarial;
+#[path = "scr_53_breaker2_adversarial.rs"]
+mod scr_53_breaker2_adversarial;
+#[path = "scr_53_breaker_adversarial.rs"]
+mod scr_53_breaker_adversarial;
 #[path = "scr_53_weapon_fire.rs"]
 mod scr_53_weapon_fire;
 #[path = "scr_54_adversarial.rs"]
 mod scr_54_adversarial;
+#[path = "scr_54_breaker2_adversarial.rs"]
+mod scr_54_breaker2_adversarial;
+#[path = "scr_54_breaker_adversarial.rs"]
+mod scr_54_breaker_adversarial;
 #[path = "scr_54_weather_set_active.rs"]
 mod scr_54_weather_set_active;
 #[path = "scr_55_adversarial.rs"]
