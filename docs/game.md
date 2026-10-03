@@ -2845,6 +2845,12 @@ finished state. Loading an engine save lets the driver continue that branch.
 Vanilla ESS package state is not connected to this cursor: named Sequence and
 Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
 its vanilla procedure.
+`sav_13_saved_actor_resumes_at_its_saved_package_procedure` checks that an
+engine save restores the running package, procedure and tree cursor before
+both actors continue to the same route result. CK documents
+`GetCurrentPackage` as returning the package the actor is running, while
+`EvaluatePackage` forces its stack to be evaluated again. This check covers
+engine-save continuation. It does not apply ESS `PackageData` to live actors.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
