@@ -1328,6 +1328,9 @@ mod scr_65_adversarial;
 mod scr_66_adversarial;
 #[path = "scr_67_adversarial.rs"]
 mod scr_67_adversarial;
+
+#[path = "scr_67_breaker_adversarial.rs"]
+mod scr_67_breaker_adversarial;
 #[path = "scr_67_native_registry.rs"]
 mod scr_67_native_registry;
 #[path = "scr_68_adversarial.rs"]
