@@ -368,8 +368,10 @@ animation transition states are available in the contract but not produced by th
 
 The runtime does not implement `TESObjectREFR::SetBaseObject` for an existing reference. Its
 MIT trait returns an `Unsupported` value naming that operation, leaving the current base intact.
-The C++ fixture compiles and calls the exported contracts, while game tests query the live
-`World` adapter. These are source-level contracts, not a compiled SKSE plugin or binary ABI.
+The C++ fixture compiles and calls the source-level contracts. The game test samples populated
+views from `World` and passes those values to a compiled C++ consumer, which checks the contract
+results and unsupported-hook values. The C++ contract objects remain fixture implementations,
+and this does not provide a C++ to Rust ABI or a compiled SKSE plugin.
 The declarations were checked against alandtse CommonLib's `TESDataHandler.h`, `TESFile.h`,
 `TESObjectREFR.h` and `ActorState.h`.
 The existing `SKSE::TRAMPOLINE` declaration continues to identify machine-code patching as
