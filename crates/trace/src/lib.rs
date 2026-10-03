@@ -325,7 +325,7 @@ mod tests {
         {
             let _s = Span::new("off", "test");
         }
-        assert!(Trace::events().is_empty());
+        assert_eq!(Trace::events(), Vec::<Event>::new());
         Trace::enable();
         {
             let _s = Span::with_payload("outer", "test", 7);
