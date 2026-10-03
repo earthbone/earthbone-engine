@@ -4000,3 +4000,13 @@ input, deterministic source ordering for ties, top-four opaque selection,
 valid combined indices and transformed `MultiMesh` placement. The frame-time
 comparison was run through `godot/bench.gd`. An exterior attempt was rejected
 because its large world coordinates produced zero rendered primitives.
+
+## Restored player attachment, SAV-19
+
+`PlayerNode::attach_restored_generation` reads a verified native generation
+into a fresh `Game`, installs the restored player cell, collision and camera,
+and advances one frame before reporting success. A failed generation read
+leaves the active game untouched. The destination cell and all six pose
+components must be present and finite before the host sync starts. The Godot
+acceptance check saves a live player's generation and attaches it to a fresh
+player using the same installed cell data.

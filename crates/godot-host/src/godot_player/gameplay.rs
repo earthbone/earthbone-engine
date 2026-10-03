@@ -115,24 +115,28 @@ impl PlayerNode {
             return false;
         }
 
-        self.game = Some(game);
+        let previous_game = self.game.replace(game);
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.last_activate_reference = None;
         self.footstep_cadence.reset();
         if !self.sync_game_pose() {
-            self.game = None;
+            self.game = previous_game;
             return false;
         }
 
         self.advance(1.0 / 60.0);
-        self.game.is_some()
+        let attached = self.game.is_some()
             && self.character.is_some()
             && self.loaded_cell.is_some()
             && self
                 .camera
                 .as_ref()
-                .is_some_and(|camera| camera.is_instance_valid())
+                .is_some_and(|camera| camera.is_instance_valid());
+        if !attached {
+            self.game = previous_game;
+        }
+        attached
     }
 
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -936,6 +940,18 @@ mod sav_19_tests {
         let pose = restored_player_destination(Some(cell), [1.0, 2.0, 3.0], [0.0; 3]);
         assert_eq!(pose, Some((cell, [1.0, 2.0, 3.0], [0.0; 3])));
         assert!(restored_player_destination(None, [1.0, 2.0, 3.0], [0.0; 3]).is_none());
-        assert!(restored_player_destination(Some(cell), [f32::NAN, 2.0, 3.0], [0.0; 3]).is_none());
+        for axis in 0..3 {
+            for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let mut position = [1.0, 2.0, 3.0];
+                position[axis] = invalid;
+                assert!(restored_player_destination(Some(cell), position, [0.0; 3]).is_none());
+
+                let mut rotation = [0.0; 3];
+                rotation[axis] = invalid;
+                assert!(
+                    restored_player_destination(Some(cell), [1.0, 2.0, 3.0], rotation).is_none()
+                );
+            }
+        }
     }
 }
