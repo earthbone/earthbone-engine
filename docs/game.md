@@ -1630,13 +1630,14 @@ Creation Engine frame capture or memory budgets.
   for zero maximum and CarryWeight.
 - Actor initialization resolves separate stats and traits template chains.
   Manual attributes use race starting values plus NPC offsets. Manual skills
-  preserve the DNAM cache while race-bonus semantics remain unresolved.
-  Fixed-level auto-calculated skills
-  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
-  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
-  initialized actor values, so reload does not seed bonuses again. Leveled
-  templates return an error pending spawn selection. Missing race DATA
-  retains the synthetic-record fallback. See [actor values](actor-values.md).
+  use their DNAM values and skill offsets without an additional race bonus.
+  UESP's `CLAS.wikitext` race-bonus term is part of the auto-calculated skill
+  formula. Fixed-level auto-calculated skills use class weights, actor level
+  and race boosts. `PC_LEVEL_MULT`, missing class and zero-weight cases keep
+  the authored DNAM skill cache. SOEW saves initialized actor values, so reload
+  does not seed bonuses again. Leveled templates return an error pending spawn
+  selection. Missing race DATA retains the synthetic-record fallback. See
+  [actor values](actor-values.md).
 - `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
   multipliers and offsets. The improve multiplier and offset plus
   `fSkillUseCurve` determine experience needed at each current skill level.
