@@ -258,6 +258,11 @@ pub struct LocationDiscovery {
 /// API batch. The engine owns this value and emits events into its channels.
 #[derive(Default)]
 pub struct ScriptEventSourceHolder {
+    grab_release: EventSource<TesGrabReleaseEvent>,
+    harvested: EventSource<TesHarvestedEvent>,
+    hit: EventSource<TesHitEvent>,
+    object_loaded: EventSource<TesObjectLoadedEvent>,
+    quest_stage: EventSource<TesQuestStageEvent>,
     disarmed: EventSource<DisarmedEvent>,
     dragon_souls_gained: EventSource<DragonSoulsGained>,
     level_increase: EventSource<LevelIncrease>,
@@ -270,6 +275,26 @@ pub struct ScriptEventSourceHolder {
 }
 
 impl ScriptEventSourceHolder {
+    pub fn grab_release(&mut self) -> &mut EventSource<TesGrabReleaseEvent> {
+        &mut self.grab_release
+    }
+
+    pub fn harvested(&mut self) -> &mut EventSource<TesHarvestedEvent> {
+        &mut self.harvested
+    }
+
+    pub fn hit(&mut self) -> &mut EventSource<TesHitEvent> {
+        &mut self.hit
+    }
+
+    pub fn object_loaded(&mut self) -> &mut EventSource<TesObjectLoadedEvent> {
+        &mut self.object_loaded
+    }
+
+    pub fn quest_stage(&mut self) -> &mut EventSource<TesQuestStageEvent> {
+        &mut self.quest_stage
+    }
+
     pub fn disarmed(&mut self) -> &mut EventSource<DisarmedEvent> {
         &mut self.disarmed
     }

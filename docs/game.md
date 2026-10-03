@@ -212,10 +212,19 @@ emits the caster and target after the weapon is dropped. `AddToMap` emits
 location discovery only when it first adds the reference, using the cell's
 resolved worldspace when available. Level increase reads the current player
 identity and rejects levels outside the event's `u16` field before dispatch.
-These events add no saved state. Binary hook requests return the requested
-hook name as an unsupported result without changing runtime state. The
-corresponding source-level API and C++ contract fixture are in
-`crates/commonlib-shim`.
+The grab and release channel follows held-reference changes, harvest follows a
+successful `World::harvest_item` inventory addition, hit follows a committed
+melee contact, object loaded follows reference 3D residency changes, and quest
+stage follows a successful defined stage change. Quest stage events use item
+index zero because quest log callbacks are not run individually here. Form and
+reference identities use the live load order's runtime IDs. These channels add
+no saved state. Disarm, dragon soul awards and location discovery remain event
+entry points for gameplay callers, with successful weapon disarms, accepted
+dragon soul changes and first-time map additions already wired to dispatch.
+Binary hook requests return the requested hook name as an unsupported result
+without changing runtime state. Event payloads, generated C++
+declarations, the CommonLib source-level API, and its contract fixtures are in
+`crates/commonlib-shim`; source headers are documented in `docs/shim.md`.
 
 ## Design
 

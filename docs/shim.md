@@ -262,6 +262,27 @@ published field meaning and event source names informed this API. The Rust
 surface uses engine independent form identities and owns its own event source
 implementation.
 
+## SHM-22 event contracts
+
+`ScriptEventSourceHolder` also exposes the `TESGrabReleaseEvent`,
+`TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
+`TESQuestStageEvent` channels. Payload fields follow the local alandtse
+CommonLib headers `RE/T/TESGrabReleaseEvent.h`, `RE/I/ItemHarvested.h`,
+`RE/T/TESHitEvent.h`, `RE/T/TESObjectLoadedEvent.h`,
+`RE/T/TESQuestStageEvent.h` and `RE/S/ScriptEventSourceHolder.h`. Runtime
+references and actors use resolved runtime handles. Hit flags retain the four
+published low bits. The executable callback pointer in the quest stage event
+is not exposed.
+
+The game emits grab and release events when its held-reference state changes,
+harvest events after produce has been added to an actor inventory, and hit
+events after a melee contact commits. Reference loaded events follow 3D
+resource residency changes. Quest stage events follow successful defined
+stage changes and use item index zero because this runtime does not execute
+individual quest log callbacks. These channels have in-process Rust producers
+and generated source-level C++ declarations. They do not install executable
+hooks or connect an independently loaded binary plugin to the game.
+
 The event batch declares `TESContainerChangedEvent`, `TESDeathEvent`,
 `TESEnterBleedoutEvent`, `TESFormDeleteEvent` and `TESFurnitureEvent` payloads. `EventState`
 defines queries for current inventory count, death, bleedout, deletion and furniture occupancy.

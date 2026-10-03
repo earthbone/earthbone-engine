@@ -1384,6 +1384,10 @@ mod shm_20_live_bindings;
 mod shm_21_adversarial;
 #[path = "shm_21_live_event_state.rs"]
 mod shm_21_live_event_state;
+#[path = "shm_22_adversarial.rs"]
+mod shm_22_adversarial;
+#[path = "shm_22_live_events.rs"]
+mod shm_22_live_events;
 #[path = "shm_23_adversarial.rs"]
 mod shm_23_adversarial;
 #[path = "shm_23_quest_start_stop.rs"]

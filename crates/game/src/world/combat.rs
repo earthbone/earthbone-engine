@@ -764,6 +764,26 @@ impl World {
             self.record_player_assault(hit.attacker, hit.target);
         }
         self.break_invisibility(hit.attacker, alloc);
+        let mut event_flags = soe_commonlib_shim::events::HitFlags::default();
+        if hit.is_power_attack {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::POWER_ATTACK.0;
+        }
+        if sneak_attacked {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::SNEAK_ATTACK.0;
+        }
+        if hit.is_bash {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::BASH_ATTACK.0;
+        }
+        if blocked {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::HIT_BLOCKED.0;
+        }
+        self.commonlib_hit(soe_commonlib_shim::events::TesHitEvent {
+            target: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.target)),
+            cause: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.attacker)),
+            source: soe_commonlib_shim::form::FormId(self.runtime_id(hit.weapon)),
+            projectile: soe_commonlib_shim::form::FormId(0),
+            flags: event_flags,
+        });
         Ok(HitResult {
             weapon_damage,
             armor_rating,

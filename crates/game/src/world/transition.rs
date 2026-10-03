@@ -357,6 +357,7 @@ impl World {
             return 0;
         }
         let built = self.prefetch_cell(cell);
+        self.mark_cell_3d_loaded(cell);
         self.reset_cell_on_load(cell);
         self.attached_cells.insert(cell);
         self.loaded_cell = Some(cell);
@@ -388,8 +389,13 @@ impl World {
 
     fn mark_cell_3d_loaded(&mut self, cell: GlobalFormId) {
         for id in self.cell_reference_ids(cell) {
-            if self.refs.contains_key(&id) {
-                self.loaded_3d_references.insert(id);
+            if self
+                .refs
+                .get(&id)
+                .is_some_and(|reference| reference.enabled)
+                && self.loaded_3d_references.insert(id)
+            {
+                self.commonlib_object_loaded(id, true);
             }
         }
         self.commonlib_cell_fully_loaded(cell);
@@ -435,7 +441,9 @@ impl World {
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
         for id in self.cell_reference_ids(cell) {
-            self.loaded_3d_references.remove(&id);
+            if self.loaded_3d_references.remove(&id) {
+                self.commonlib_object_loaded(id, false);
+            }
         }
         let ids = self.cell_temporary_ids(cell);
         let (mut dropped, mut kept) = (0, 0);

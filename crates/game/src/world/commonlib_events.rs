@@ -5,7 +5,8 @@
 use soe_commonlib_shim::events::{
     DisarmedEvent, DragonSoulsGained, EventState, FormIdentity, FurnitureEvent, FurnitureEventKind,
     LevelIncrease, LocationDiscovery, ScriptEventSourceHolder, ShoutAttack, SkillIncrease,
-    SoulsTrapped, SpellsLearned, TESCellFullyLoadedEvent, UnsupportedHook,
+    SoulsTrapped, SpellsLearned, TESCellFullyLoadedEvent, TesGrabReleaseEvent, TesHarvestedEvent,
+    TesHitEvent, TesObjectLoadedEvent, TesQuestStageEvent, UnsupportedHook,
 };
 use soe_commonlib_shim::form::FormId;
 use soe_commonlib_shim::refr::{ActorHandle, ActorValue, ObjectRefHandle};
@@ -22,6 +23,47 @@ impl World {
     /// Access the CommonLib sources subscribed to by in-process plugins.
     pub fn commonlib_event_sources(&mut self) -> &mut ScriptEventSourceHolder {
         &mut self.commonlib_events
+    }
+
+    pub(crate) fn commonlib_grab_release(&mut self, reference: GlobalFormId, grabbed: bool) {
+        let event = TesGrabReleaseEvent {
+            reference: ObjectRefHandle(self.runtime_id(reference)),
+            grabbed,
+        };
+        self.commonlib_events.grab_release().send(&event);
+    }
+
+    pub(crate) fn commonlib_harvested(
+        &mut self,
+        produce_item: GlobalFormId,
+        harvester: GlobalFormId,
+    ) {
+        let event = TesHarvestedEvent {
+            produce_item: FormId(self.runtime_id(produce_item)),
+            harvester: ActorHandle(self.runtime_id(harvester)),
+        };
+        self.commonlib_events.harvested().send(&event);
+    }
+
+    pub(crate) fn commonlib_hit(&mut self, event: TesHitEvent) {
+        self.commonlib_events.hit().send(&event);
+    }
+
+    pub(crate) fn commonlib_object_loaded(&mut self, reference: GlobalFormId, loaded: bool) {
+        let event = TesObjectLoadedEvent {
+            form_id: FormId(self.runtime_id(reference)),
+            loaded,
+        };
+        self.commonlib_events.object_loaded().send(&event);
+    }
+
+    pub(crate) fn commonlib_quest_stage(&mut self, quest: GlobalFormId, stage: u16) {
+        let event = TesQuestStageEvent {
+            quest: FormId(self.runtime_id(quest)),
+            stage,
+            item_index: 0,
+        };
+        self.commonlib_events.quest_stage().send(&event);
     }
 
     /// Emit the event produced by a successful disarm operation.
