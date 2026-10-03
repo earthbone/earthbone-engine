@@ -34,7 +34,7 @@ fn fixture() -> Game {
     Game::new(order)
 }
 
-fn call_fire(game: &mut Game, weapon: u32, source: u32, ammo: Value) -> Value {
+fn call_fire(game: &mut Game, weapon: u32, source: Value, ammo: Value) -> Value {
     let script = "Scr53WeaponFireProbe";
     let function = FunctionBuilder::new("Run", "None")
         .param("source", "Var")
@@ -60,13 +60,13 @@ fn call_fire(game: &mut Game, weapon: u32, source: u32, ammo: Value) -> Value {
     .unwrap();
     let weapon_object = game.object_of_form(id(weapon));
     game.vm.attach(weapon_object, script).unwrap();
-    let source_object = game.object_of_form(id(source));
-    let thread = game
-        .vm
-        .call(weapon_object, "Run", &[Value::Object(source_object), ammo])
-        .unwrap();
+    let thread = game.vm.call(weapon_object, "Run", &[source, ammo]).unwrap();
     assert!(game.run_until_idle(32));
     game.vm.thread_result(thread).unwrap()
+}
+
+fn source_value(game: &mut Game, object: u32) -> Value {
+    Value::Object(game.object_of_form(id(object)))
 }
 
 #[test]
@@ -109,21 +109,24 @@ fn scr_53_world_validates_weapon_source_and_optional_ammo_before_rejecting_execu
 #[test]
 fn scr_53_weapon_fire_native_logs_unavailable_execution_without_damage_or_events() {
     let mut game = fixture();
-    let ammo = Value::Object(game.object_of_form(id(0x201)));
-    assert_eq!(call_fire(&mut game, 0x200, 0x300, ammo), Value::None);
+    let source = source_value(&mut game, 0x300);
+    let ammo = source_value(&mut game, 0x201);
+    assert_eq!(call_fire(&mut game, 0x200, source, ammo), Value::None);
     assert!(game
         .vm
         .log
         .contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"));
     assert!(game.world().pending.is_empty());
     assert!(game.world().spell_casts.is_empty());
+    assert_eq!(game.world_mut().item_count(id(0x300), id(0x201)), 0);
 }
 
 #[test]
 fn scr_53_weapon_fire_native_reports_bad_optional_ammo_argument() {
     let mut game = fixture();
+    let source = source_value(&mut game, 0x300);
     assert_eq!(
-        call_fire(&mut game, 0x200, 0x300, Value::string("bad ammo")),
+        call_fire(&mut game, 0x200, source, Value::string("bad ammo")),
         Value::None
     );
     assert!(game
@@ -136,10 +139,43 @@ fn scr_53_weapon_fire_native_reports_bad_optional_ammo_argument() {
 #[test]
 fn scr_53_weapon_fire_native_rejects_a_non_reference_source() {
     let mut game = fixture();
-    assert_eq!(call_fire(&mut game, 0x200, 0x100, Value::None), Value::None);
+    let source = source_value(&mut game, 0x100);
+    assert_eq!(
+        call_fire(&mut game, 0x200, source, Value::None),
+        Value::None
+    );
     assert!(game
         .vm
         .log
         .contains("weapon fire source is not a reference"));
+    assert!(game.world().pending.is_empty());
+}
+
+#[test]
+fn scr_53_weapon_fire_native_rejects_a_non_form_source_argument() {
+    let mut game = fixture();
+    assert_eq!(
+        call_fire(&mut game, 0x200, Value::string("bad source"), Value::None),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("weapon fire source argument is not a form"));
+    assert!(game.world().pending.is_empty());
+}
+
+#[test]
+fn scr_53_weapon_fire_native_accepts_none_ammo_then_reports_execution_error() {
+    let mut game = fixture();
+    let source = source_value(&mut game, 0x300);
+    assert_eq!(
+        call_fire(&mut game, 0x200, source, Value::None),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"));
     assert!(game.world().pending.is_empty());
 }

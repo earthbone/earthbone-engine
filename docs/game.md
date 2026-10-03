@@ -3080,8 +3080,10 @@ the appearance empty.
   arrest implementation. Arrest choice accounting and jail sentences exist,
   but guard movement, jail placement and resistance combat are not implemented.
 - `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
-  the shared form table. It logs a typed unsupported error for valid requests
-  until ranged projectile execution exists. See [combat](combat.md).
+  the shared form table. Invalid Papyrus arguments and invalid forms are logged
+  as typed errors. A valid request logs an unsupported error until ranged
+  projectile execution exists, without changing inventory or queuing events.
+  See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
