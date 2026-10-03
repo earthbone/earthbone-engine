@@ -60,6 +60,26 @@ impl World {
             })
     }
 
+    /// Add a reference to the map and report its first discovery.
+    pub fn add_to_map(&mut self, reference: GlobalFormId, fast_travel: bool) {
+        let (newly_added, cell_id) = {
+            let Some(state) = self.reference(reference) else {
+                return;
+            };
+            let newly_added = !state.on_map;
+            state.on_map = true;
+            state.fast_travel = fast_travel;
+            (newly_added, state.cell)
+        };
+        if newly_added {
+            let worldspace = cell_id
+                .and_then(|cell| self.record(cell).and_then(|cell| cell.placement.world))
+                .zip(cell_id)
+                .and_then(|(raw, cell)| self.resolve_from(cell, raw));
+            self.commonlib_location_discovery(reference, worldspace);
+        }
+    }
+
     /// Binary patch hooks have no implementation in the source-level shim.
     pub fn reject_commonlib_hook(&self, name: &'static str) -> Result<(), UnsupportedHook> {
         soe_commonlib_shim::events::install_hook(UnsupportedHook::new(name))

@@ -199,14 +199,17 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 channels for disarm, dragon souls gained, level increase and location
 discovery. The matching `commonlib_*` methods send those event payloads to
 registered sinks. Form identities retain both the load-order file index and
-object id. Level increase reads `player_level` and the current player identity
-from the live world, and rejects levels outside the event's `u16` field before
-dispatch. These events add no saved state. Disarm, dragon soul awards and
-location discovery are event entry points for their gameplay callers. This
-crate does not currently implement those gameplay systems. Binary hook
-requests return the requested hook name as an unsupported result without
-changing runtime state. The corresponding source-level API and C++ contract
-fixture are in `crates/commonlib-shim`.
+object id. Player level increases are emitted after progression changes the
+live player level. Positive `ModActorValue` changes to the player's
+`dragonsouls` value emit the accepted increase. A successful weapon disarm
+emits the caster and target after the weapon is dropped. `AddToMap` emits
+location discovery only when it first adds the reference, using the cell's
+resolved worldspace when available. Level increase reads the current player
+identity and rejects levels outside the event's `u16` field before dispatch.
+These events add no saved state. Binary hook requests return the requested
+hook name as an unsupported result without changing runtime state. The
+corresponding source-level API and C++ contract fixture are in
+`crates/commonlib-shim`.
 
 ## Design
 

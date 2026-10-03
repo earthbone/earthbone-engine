@@ -416,6 +416,22 @@ The event type declarations follow CommonLibSSE-NG-alandtse
 `include/RE/B/BSTEvent.h`. The C++ contract fixture checks payload fields,
 sizes, notify-control values, dispatch and the unsupported hook result.
 
+## Event binding batch SHM-19
+
+The MIT event API also projects `DisarmedEvent`, `DragonSoulsGained`,
+`LevelIncrease` and `LocationDiscovery` through `ScriptEventSourceHolder`.
+Their source-level payloads carry actor identities, awarded soul count,
+player identity and level, and map-marker identity with an optional
+worldspace identity. The C++ contract fixture checks these source methods,
+constructs and dispatches each payload, and verifies that hook installation
+returns an unsupported result with the requested hook name.
+
+The payloads follow CommonLibSSE-NG-alandtse `include/RE/D/DisarmedEvent.h`,
+`include/RE/D/DragonSoulsGained.h`, `include/RE/L/LevelIncrease.h`,
+`include/RE/L/LocationDiscovery.h` and
+`include/RE/S/ScriptEventSourceHolder.h`. The source-level declarations do
+not reproduce CommonLib pointer layouts or connect directly to a runtime.
+
 ## Appendix: the 349 names by group
 
 **Forms and record enums** (86): `AlchemyItem`, `BGSArtObject`, `BGSAssociationType`, `BGSBaseAlias`, `BGSBipedObjectForm`, `BGSBodyPart`, `BGSBodyPartData`, `BGSBodyPartDefs`, `BGSColorForm`, `BGSConstructibleObject`, `BGSDebris`, `BGSFootstepSet`, `BGSHazard`, `BGSHazardData`, `BGSHeadPart`, `BGSIdleCollection`, `BGSImpactDataSet`, `BGSKeyword`, `BGSKeywordForm`, `BGSLightingTemplate`, `BGSListForm`, `BGSLocation`, `BGSMaterialObject`, `BGSMessage`, `BGSMovementType`, `BGSOutfit`, `BGSPerk`, `BGSProjectile`, `BGSRefAlias`, `BGSReferenceEffect`, `BGSRelationship`, `BGSScene`, `BGSSoundDescriptorForm`, `BGSTextureSet`, `BIPED_MODEL`, `BIPED_OBJECT`, `COL_LAYER`, `Effect`, `EffectSetting`, `EnchantmentItem`, `FACTION_RANK`, `FormID`, `FormType`, `MATERIAL_ID`, `MagicItem`, `OBJECT_TYPE`, `OBJ_BOOK`, `PackageNS`, `QUEST_DATA`, `RACE_SIZE`, `SEX`, `ScrollItem`, `SpellItem`, `TESAmmo`, `TESBoundObject`, `TESDescription`, `TESEffectShader`, `TESFaction`, `TESForm`, `TESFurniture`, `TESGlobal`, `TESIdleForm`, `TESImageSpaceModifier`, `TESKey`, `TESLevCharacter`, `TESLevItem`, `TESLevSpell`, `TESLeveledList`, `TESNPC`, `TESObjectARMA`, `TESObjectARMO`, `TESObjectBOOK`, `TESObjectCELL`, `TESObjectLIGH`, `TESObjectWEAP`, `TESPackage`, `TESQuest`, `TESRace`, `TESRegion`, `TESRegionList`, `TESShout`, `TESSound`, `TESTopicInfo`, `TESWeather`, `TESWorldSpace`, `TES_LIGHT_FLAGS`
