@@ -15,7 +15,9 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     for object in [0x900, 0x901, 0x902] {
-        plugin.push_top(Record::new(Tag(*b"ACHR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
     }
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));

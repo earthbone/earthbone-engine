@@ -2,10 +2,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin,
-    Record, Tag,
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::package::{self, condition, CompValue, Condition as PackageCondition, Location, Schedule};
+use soe_game::package::{
+    self, condition, CompValue, Condition as PackageCondition, Location, Schedule,
+};
 use soe_game::{conditions, Game};
 
 const TEMPLATE: u32 = 0x800;
@@ -79,7 +81,10 @@ fn fixture() -> Game {
     );
     let mut order = LoadOrder::new();
     order
-        .add("Ai65Breaker4.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Ai65Breaker4.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     Game::new(order)
 }

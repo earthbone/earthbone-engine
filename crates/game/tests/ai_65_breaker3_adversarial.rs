@@ -2,10 +2,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin,
-    Record, Tag,
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
-use soe_game::package::{self, condition, CompValue, Condition as PackageCondition, Location, Schedule};
+use soe_game::package::{
+    self, condition, CompValue, Condition as PackageCondition, Location, Schedule,
+};
 use soe_game::{conditions, Game};
 
 const TEMPLATE: u32 = 0x800;
@@ -58,9 +60,7 @@ fn order() -> LoadOrder {
         0,
     );
     plugin.push_top(package::with_actions(package::finish(hover)));
-    plugin.push_top(
-        Record::new(Tag(*b"NPC_"), BASE).sub(Tag(*b"PKID"), PACK.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"NPC_"), BASE).sub(Tag(*b"PKID"), PACK.to_le_bytes()));
     for (tag, form, base, position) in [
         (*b"ACHR", ACTOR, BASE, [0.0f32; 3]),
         (*b"REFR", DEST, 0, [50.0f32, 25.0, 10.0]),
@@ -81,7 +81,9 @@ fn order() -> LoadOrder {
             .sub(Tag(*b"FLTV"), 1.0f32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
-    order.add("Ai65Flight.esm", Plugin::parse(&plugin.to_bytes()).unwrap()).unwrap();
+    order
+        .add("Ai65Flight.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
     order
 }
 

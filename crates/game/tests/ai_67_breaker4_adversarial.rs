@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin,
-    Record, Tag,
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
 use soe_game::{conditions, Game};
 
@@ -14,9 +14,7 @@ fn id(object: u32) -> GlobalFormId {
 fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Ai67Breaker4.esm", plugin).unwrap();
     Game::new(order)
