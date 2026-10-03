@@ -202,18 +202,18 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and
-horse body RIDs and keys ownership by both resolved reference IDs, each
-encoded as `(file << 32) | object`. Papyrus queues the two references and the
-CK Havok pivots. The cell host resolves each reference to its resident body,
-maps the pivots into Godot's axis basis and creates the joint. Creating
-another link for either endpoint first frees the old one. `untether_reference`
-frees links for explicit untethering. The player sync path releases a link
-when either endpoint is missing or disabled. Releasing the collision cell,
-calling `clear`, or tearing down the node frees its joints before its bodies.
-The CK page names `HorseSpine2` and describes the chassis and horse connection
-pivots. The host connects whole reference bodies and does not infer that bone
-or build wheel, pole and chassis rig constraints from NIF collision data.
+`ObjectReference.TetherToHorse` queues a cart and horse FormID after applying
+the CK local offset and copying cart placement to the horse. During reference
+sync, the host retains that request until both collision bodies are resident,
+then connects them with a PhysicsServer pin joint. The pivot coordinates use
+the CK cart chassis pivot `(0, 3.5, -0.2)` and horse pivot `(0, 0, -0.5)` in
+Havok axes, mapped to Godot metres. `CellStreamerNode::tether_bodies` also
+accepts caller-supplied body RIDs and pivots for direct host use. Links are
+keyed by both resolved FormIDs. Replacing a link for either endpoint frees the
+old joint. Missing or disabled endpoints release a live link, and `clear`,
+collision-cell release or node teardown frees joints and pending pairs. The
+host does not sample the `HorseSpine2` skeleton bone, build the wheel and pole
+constraints, or reproduce the cart suspension and upright recovery action.
 
 ### Editor forms dock, EDT-02
 

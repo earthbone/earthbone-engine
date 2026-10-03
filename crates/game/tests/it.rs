@@ -1259,6 +1259,8 @@ mod scr_40_adversarial;
 mod scr_40_object_reference;
 #[path = "scr_41_adversarial.rs"]
 mod scr_41_adversarial;
+#[path = "scr_41_breaker_adversarial.rs"]
+mod scr_41_breaker_adversarial;
 #[path = "scr_42_adversarial.rs"]
 mod scr_42_adversarial;
 #[path = "scr_42_object_reference.rs"]

@@ -830,15 +830,17 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse at
-the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
-horse into the cart's cell. It queues a transient host request for the cart and
-horse references using the CK page's chassis and horse connection pivots. The
-host resolves those forms to resident rigid body RIDs and connects them with a
-pin joint. The CK page names `HorseSpine2` as the horse connection and gives
-pivots in Havok units. This runtime connects the reference body as a whole and
-does not resolve that bone or build the cart's wheel and pole constraints.
-Replacing a tether or unloading its collision cell frees the old joint.
+**ObjectReference.TetherToHorse.** The native moves the supplied horse by the
+CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
+cart yaw, copies the cart rotation and cell, then queues the pair for host
+physics. The host waits until both references have resident collision bodies
+before creating their pin joint, using the CK chassis pivot `[0, 3.5, -0.2]`
+and horse pivot `[0, 0, -0.5]` in Havok units. A missing, invalid or
+self-reference argument leaves the world unchanged. The CK
+`TetherToHorse_-_ObjectReference.wikitext` page names `HorseSpine2` as the
+horse connection. The runtime connects whole reference bodies and does not
+sample that bone or build the cart wheels, pole and suspension rig from NIF
+data. Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure

@@ -12,7 +12,7 @@ use soe_esm::{Plugin, Tag};
 #[test]
 fn edt_14_gizmo_bridge_edits_record_undoes_proxy_and_saves_restored_pose() {
     let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
-        eprintln!("skipping: set SOE_GODOT_BIN to Godot 4.4 or newer");
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
         return;
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
