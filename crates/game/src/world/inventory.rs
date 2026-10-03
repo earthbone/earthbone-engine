@@ -856,6 +856,17 @@ impl World {
     ) -> i32 {
         let bundle =
             self.remove_item_bundle_with_ownership(holder, item, count, target, keep_ownership);
+        self.notify_item_bundle(holder, item, target, &bundle, alloc)
+    }
+
+    pub(crate) fn notify_item_bundle(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        target: Option<GlobalFormId>,
+        bundle: &Bundle,
+        alloc: Alloc<'_>,
+    ) -> i32 {
         let moved = bundle.count();
         if moved == 0 {
             return 0;

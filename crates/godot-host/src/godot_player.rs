@@ -51,6 +51,7 @@ mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod quick_loot;
 mod race;
 mod saves;
 mod training;
@@ -146,6 +147,9 @@ pub struct PlayerNode {
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
     item_card_view: Option<item_card::ItemCardView>,
+    quick_loot: crate::quick_loot::QuickLoot,
+    quick_loot_view: Option<quick_loot::QuickLootView>,
+    quick_loot_card: Option<item_card::ItemCardView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -279,6 +283,9 @@ impl INode3D for PlayerNode {
             restore_mouse_on_focus: None,
             hud_view: None,
             item_card_view: None,
+            quick_loot: crate::quick_loot::QuickLoot::default(),
+            quick_loot_view: None,
+            quick_loot_card: None,
         }
     }
 
@@ -316,6 +323,10 @@ impl INode3D for PlayerNode {
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
         if !self.input_focused {
+            return;
+        }
+        if self.quick_loot_input(&event) {
+            if let Some(mut viewport) = self.base().get_viewport() { viewport.set_input_as_handled(); }
             return;
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
@@ -408,6 +419,8 @@ impl INode3D for PlayerNode {
         if let Some(view) = self.item_card_view.as_mut() {
             view.tick(delta);
         }
+        self.update_quick_loot();
+        if let Some(view) = self.quick_loot_card.as_mut() { view.tick(delta); }
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }
@@ -448,6 +461,9 @@ impl INode3D for PlayerNode {
         self.actor_bodies.free();
 
         self.close_menu();
+        self.quick_loot.close();
+        self.quick_loot_view = None;
+        self.quick_loot_card = None;
         self.menu_view = None;
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
