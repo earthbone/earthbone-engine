@@ -88,7 +88,10 @@ fn hst_05_missing_sound_fails_without_an_audio_check_marker() {
     };
     let text = Harness::output_text(&output);
     assert_eq!(output.status.code(), Some(1), "{text}");
-    assert!(text.contains("SoundBank could not play no/such/sound.wav"), "{text}");
+    assert!(
+        text.contains("SoundBank could not play no/such/sound.wav"),
+        "{text}"
+    );
     assert!(!text.contains("AUDIO_CHECK device="), "{text}");
 }
 
