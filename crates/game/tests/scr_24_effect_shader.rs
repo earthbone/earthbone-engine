@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, none, s};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -153,14 +153,16 @@ fn scr_24_invalid_arguments_log_errors_without_changing_active_playbacks() {
         );
     }
     assert!(game.world_mut().stop_effect_shader(id(20), id(10)).is_err());
-    assert!(game
-        .world_mut()
-        .play_effect_shader(id(20), id(10), 1.0)
-        .is_err());
-    assert!(game
-        .world_mut()
-        .play_effect_shader(id(1), id(10), f32::INFINITY)
-        .is_err());
+    assert!(
+        game.world_mut()
+            .play_effect_shader(id(20), id(10), 1.0)
+            .is_err()
+    );
+    assert!(
+        game.world_mut()
+            .play_effect_shader(id(1), id(10), f32::INFINITY)
+            .is_err()
+    );
     assert_eq!(active(&game), before);
     assert!(game.world_mut().take_effect_shader_requests().is_empty());
 }
@@ -221,9 +223,11 @@ fn scr_24_unread_section_payload_preserves_live_state_and_renderer_requests() {
         .unwrap();
     let before = restored.world().save_state();
     let error = restored.world_mut().load_state(&saved).unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("section SCR-24 at world left unread bytes"));
+    assert!(
+        error
+            .to_string()
+            .contains("section SCR-24 at world left unread bytes")
+    );
     assert_eq!(restored.world().save_state(), before);
     let requests = restored.world_mut().take_effect_shader_requests();
     assert_eq!(requests.len(), 1);

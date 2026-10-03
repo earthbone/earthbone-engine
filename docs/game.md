@@ -704,8 +704,8 @@ assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
 and lethal player hits do not add an assault bounty. The victim's witnessed
 perpetrator set and the faction's violent bounty are updated through the
 existing crime recorder. `Faction.SendAssaultAlarm` also records a player
-assault using the nearest built actor in its faction as witness. The Actor
-alarm and other witness-driven natives remain later work.
+assault using the nearest built actor in its faction as witness and marks that
+actor alarmed.
 
 **Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
 `LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
@@ -730,9 +730,9 @@ record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
 this path, so prison placement and stolen-item confiscation or belongings
 restoration are not implemented. `Faction.SendPlayerToJail` serves the
 receiver faction's bounty through this accounting path and marks the player
-arrested after a positive sentence. Its inventory-removal and real-jail options
-are reported in the Papyrus trace because belongings storage and jail-marker
-travel are not implemented.
+arrested after a positive sentence. Its inventory-removal option removes the
+player's inventory. The real-jail option still produces a Papyrus trace because
+jail-marker travel is not implemented.
 
 **Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
 when the player has enough `Gold001`, jail for a positive bounty, and
@@ -914,12 +914,14 @@ given faction, defaulting an absent reaction to neutral and saturating at the
 `i32` bounds through `World::mod_faction_reaction`. The shipped
 `skse64/scripts/vanilla/Faction.psc` supplies the argument contract.
 `Faction.SendAssaultAlarm` chooses the nearest built actor belonging to its
-faction, then records the player's assault through the witnessed-crime API.
+faction, marks it alarmed, then records the player's assault through the
+witnessed-crime API.
 The CK `SendAssaultAlarm_-_Actor.wikitext` page describes the actor alarm as
 simulating an assault by the player. `Faction.SendPlayerToJail` routes its
 receiver faction through the existing sentence accounting API. The vanilla
-PSC declares the inventory and real-jail flags, which currently produce a
-trace because inventory storage and jail travel are not implemented.
+PSC declares the inventory and real-jail flags. Inventory removal is applied
+when requested. Real-jail travel still produces a trace because jail-marker
+travel is not implemented.
 
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,

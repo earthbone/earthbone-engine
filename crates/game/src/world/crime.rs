@@ -4,8 +4,8 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 
 use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
 
@@ -51,7 +51,12 @@ impl World {
             })
             .map(|(id, _)| id)
             .ok_or(Error::NoAssaultWitness(faction))?;
-        self.record_witnessed_crime_in_faction(player, witness, CrimeType::Assault, faction)
+        let bounty =
+            self.record_witnessed_crime_in_faction(player, witness, CrimeType::Assault, faction)?;
+        if let Some(actor) = self.actor(witness) {
+            actor.alerted = true;
+        }
+        Ok(bounty)
     }
 
     /// Serve the player's bounty with `faction` and mark the player arrested
@@ -66,10 +71,29 @@ impl World {
     ///
     /// # Panics
     /// This operation does not panic.
-    pub fn send_player_to_jail(&mut self, faction: GlobalFormId) -> Result<u32, Error> {
+    pub fn send_player_to_jail(
+        &mut self,
+        faction: GlobalFormId,
+        remove_inventory: bool,
+    ) -> Result<u32, Error> {
         let days = self.serve_jail_time(faction)?;
+        let player = self.player();
+        if remove_inventory {
+            let inventory: Vec<_> = self
+                .reference(player)
+                .map(|reference| {
+                    reference
+                        .inventory
+                        .iter()
+                        .map(|(item, count)| (*item, count))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (item, count) in inventory {
+                self.remove_item(player, item, count, None);
+            }
+        }
         if days > 0 {
-            let player = self.player();
             if let Some(actor) = self.actor(player) {
                 actor.arrested = true;
             }

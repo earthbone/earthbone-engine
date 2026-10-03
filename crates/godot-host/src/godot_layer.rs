@@ -30,7 +30,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
 use crate::batch::{
-    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
+    BatchMember, InstanceGroup, batch_surfaces, cell_occluder_mesh, instancing_candidates,
 };
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
@@ -40,8 +40,8 @@ use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
 use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
 use crate::units::{
-    direction_to_godot, direction_to_skyrim, placement_to_godot, GodotPos, GodotTransform,
-    SkyrimPos,
+    GodotPos, GodotTransform, SkyrimPos, direction_to_godot, direction_to_skyrim,
+    placement_to_godot,
 };
 use soe_physics::{Iso, Vec3};
 
@@ -1127,7 +1127,7 @@ impl CellStreamerNode {
         }
         let requests = game.world_mut().take_effect_shader_requests();
         let world = game.world();
-        self.sync_effect_shaders(&world, requests, delta);
+        self.sync_effect_shaders(&world, requests, &[], delta);
         i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
     }
 
@@ -1904,11 +1904,7 @@ impl CellStreamerNode {
                 _ => {}
             }
         }
-        if found {
-            largest
-        } else {
-            -1.0
-        }
+        if found { largest } else { -1.0 }
     }
 
     /// Starts distant-terrain LOD for the worldspace named

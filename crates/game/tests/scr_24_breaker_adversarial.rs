@@ -3,9 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, none, s};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -92,8 +92,18 @@ fn scr_24_stop_removes_only_the_requested_shader_target_pair() {
     let mut game = game();
     let first_target = Value::Object(game.object_of_form(id(10)));
     let other_target = Value::Object(game.object_of_form(id(11)));
-    call(&mut game, 1, "Play", &[first_target.clone(), Value::Float(9.0)]);
-    call(&mut game, 1, "Play", &[other_target.clone(), Value::Float(9.0)]);
+    call(
+        &mut game,
+        1,
+        "Play",
+        &[first_target.clone(), Value::Float(9.0)],
+    );
+    call(
+        &mut game,
+        1,
+        "Play",
+        &[other_target.clone(), Value::Float(9.0)],
+    );
 
     call(&mut game, 1, "Stop", &[first_target]);
 
@@ -101,5 +111,9 @@ fn scr_24_stop_removes_only_the_requested_shader_target_pair() {
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].target, id(11));
     let requests = game.world_mut().take_effect_shader_requests();
-    assert!(requests.iter().any(|request| !request.playing && request.target == id(10)));
+    assert!(
+        requests
+            .iter()
+            .any(|request| !request.playing && request.target == id(10))
+    );
 }

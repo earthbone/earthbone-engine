@@ -3,7 +3,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{Opcode::*, Value};
 
 fn id(object: u32) -> GlobalFormId {
@@ -124,5 +124,8 @@ fn scr_26_zero_length_look_vector_is_not_sungazing() {
     let mut game = fixture();
     game.world_mut().camera_look = [0.0, 0.0, 0.0];
 
-    assert_eq!(global(&mut game, "IsPlayerSungazing", &[]), Value::Bool(false));
+    assert_eq!(
+        global(&mut game, "IsPlayerSungazing", &[]),
+        Value::Bool(false)
+    );
 }

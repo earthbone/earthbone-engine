@@ -22,8 +22,8 @@ use crate::conditions;
 use crate::crime::CrimeType;
 use crate::world::magic::MagicExecution;
 use crate::world::{
-    reaction, AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
-    LosListener, MenuRequest, ReferencePhysicsRequest, World,
+    AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
+    LosListener, MenuRequest, ReferencePhysicsRequest, World, reaction,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -3560,21 +3560,21 @@ fn faction(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Faction", "SendPlayerToJail", |world, call, me| {
-        let remove_inventory = call.arg(0).as_bool();
-        let real_jail = call.arg(1).as_bool();
-        if remove_inventory || real_jail {
-            let unsupported = match (remove_inventory, real_jail) {
-                (true, true) => "inventory removal and jail placement",
-                (true, false) => "inventory removal",
-                (false, true) => "jail placement",
-                (false, false) => "requested jail options",
-            };
+        let remove_inventory = call
+            .args
+            .first()
+            .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
+        let real_jail = call
+            .args
+            .get(1)
+            .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
+        if real_jail {
             call.log.push(
                 call.time,
-                format!("Faction.SendPlayerToJail: {unsupported} is not implemented"),
+                "Faction.SendPlayerToJail: jail placement is not implemented",
             );
         }
-        if let Err(error) = world.send_player_to_jail(me) {
+        if let Err(error) = world.send_player_to_jail(me, remove_inventory) {
             call.log
                 .push(call.time, format!("Faction.SendPlayerToJail: {error}"));
         }

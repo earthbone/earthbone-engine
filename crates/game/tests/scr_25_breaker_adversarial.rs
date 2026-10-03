@@ -11,7 +11,13 @@ fn scr_25_assault_alarm_alerts_the_nearest_faction_member() {
     let mut game = game();
     let guards = obj(&mut game, "GuardsFaction");
     let witness = game.form("GuardRef").expect("fixture guard");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
     let player = game.world_mut().player();
+    game.world_mut()
+        .actor(witness)
+        .expect("resident guard actor")
+        .factions
+        .insert(faction, 0);
 
     call(&mut game, &guards, "SendAssaultAlarm", &[]);
 
@@ -19,12 +25,13 @@ fn scr_25_assault_alarm_alerts_the_nearest_faction_member() {
         game.world_mut().actor_is_alarmed(witness),
         "the nearby NPC must behave as if the player assaulted them"
     );
-    assert!(game
-        .world_mut()
-        .actor(witness)
-        .unwrap()
-        .witnessed_crimes
-        .contains(&player));
+    assert!(
+        game.world_mut()
+            .actor(witness)
+            .unwrap()
+            .witnessed_crimes
+            .contains(&player)
+    );
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
 
@@ -70,7 +77,10 @@ fn scr_25_jail_default_arguments_remove_inventory_and_request_real_jail() {
     let faction = game.form("GuardsFaction").expect("fixture faction");
     let player = game.world_mut().player();
     game.world_mut().add_item(player, gold, 3);
-    game.world_mut().faction(faction).unwrap().crime_gold_nonviolent = 1;
+    game.world_mut()
+        .faction(faction)
+        .unwrap()
+        .crime_gold_nonviolent = 1;
 
     call(&mut game, &guards, "SendPlayerToJail", &[]);
 
