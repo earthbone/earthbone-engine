@@ -32,6 +32,7 @@ pub type Shared = Rc<RefCell<World>>;
 #[derive(Default)]
 pub(crate) struct BudgetUsage {
     pub vm_instructions: Cell<usize>,
+    pub vm_instruction_limit: Cell<usize>,
     pub exterior_cell_loads: Cell<usize>,
 }
 
@@ -3155,7 +3156,11 @@ fn utility(vm: &mut Vm, w: &Shared, budget_usage: &Rc<BudgetUsage>) {
                 BudgetKind::PapyrusInstructions => over_budget_usage.vm_instructions.get(),
                 BudgetKind::ExteriorCellLoads => over_budget_usage.exterior_cell_loads.get(),
             };
-            b(usage > budget.1)
+            let limit = match budget.0 {
+                BudgetKind::PapyrusInstructions => over_budget_usage.vm_instruction_limit.get(),
+                BudgetKind::ExteriorCellLoads => budget.1,
+            };
+            b(usage > limit)
         }),
     );
     // Memory tracking depends on a process-wide allocator service that is not
@@ -4147,8 +4152,26 @@ fn weapon(vm: &mut Vm, w: &Shared) {
 /// Weather requests are retained by the world for the host sky implementation.
 fn weather(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Weather", "SetActive", |world, call, me| {
-        let override_weather = call.args.first().is_some_and(Value::as_bool);
-        let accelerate = call.args.get(1).is_some_and(Value::as_bool);
+        let override_weather = match call.args.first() {
+            None => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => {
+                call.log
+                    .push(call.time, "Weather.SetActive: override flag must be a Bool");
+                return none();
+            }
+        };
+        let accelerate = match call.args.get(1) {
+            None => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => {
+                call.log.push(
+                    call.time,
+                    "Weather.SetActive: accelerate flag must be a Bool",
+                );
+                return none();
+            }
+        };
         if let Err(error) = world.set_active_weather(me, override_weather, accelerate) {
             call.log
                 .push(call.time, format!("Weather.SetActive: {error}"));

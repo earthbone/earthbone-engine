@@ -6739,10 +6739,12 @@ The selected weather, slots and blend survive save/load in the `MAG-72`
 world section. An absent section restores an empty selection.
 Invalid selection leaves the previous one intact.
 SCR-73's audit records the registered `Weather.SetActive` method and eight
-additional vanilla Weather natives missing from the registry. SCR-54 exposes
-the selected `WTHR` and transition flags through the shared weather request
-API, but `Weather.SetActive` remains a quiet stub and does not select or
-release weather. Host sky rendering remains outside the native binding.
+additional vanilla Weather natives missing from the registry. SCR-54 binds
+`Weather.SetActive` to the shared request API and rejects deleted or
+non-weather receivers and non-Boolean flags without replacing the current
+request. The host applies the selected weather's image-space values. It does
+not render weather transitions, clouds, sky colors or precipitation, and does
+not apply the override or acceleration flags.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation

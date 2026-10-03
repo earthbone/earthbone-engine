@@ -790,9 +790,37 @@ impl CellStreamerNode {
                 placement.position[2],
             )
             .to_godot();
+            let mut origin = Vector3::new(position.x, position.y, position.z);
+            let mut basis = Basis::IDENTITY;
+            if request.flags & 0x02 != 0 {
+                if let Some(camera) = self
+                    .base()
+                    .get_viewport()
+                    .and_then(|viewport| viewport.get_camera_3d())
+                {
+                    let camera_transform = camera.get_global_transform();
+                    origin = camera_transform.origin
+                        - camera_transform.basis * Vector3::new(0.0, 0.0, 2.0);
+                    if request.flags & 0x04 != 0 {
+                        basis = camera_transform.basis;
+                    }
+                }
+            }
+            if request.flags & 0x01 != 0 {
+                let facing_target = request.facing;
+                if let Some(facing) = facing_target.and_then(|target| world.ref_placement(target)) {
+                    let facing =
+                        SkyrimPos::new(facing.position[0], facing.position[1], facing.position[2])
+                            .to_godot();
+                    let direction = Vector3::new(facing.x, facing.y, facing.z) - origin;
+                    if direction.length_squared() > f32::EPSILON {
+                        basis = Basis::looking_at(direction.normalized());
+                    }
+                }
+            }
             let transform = Transform3D::new(
-                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
-                Vector3::new(position.x, position.y, position.z),
+                basis.scaled(Vector3::splat(placement.scale.max(0.01))),
+                origin,
             );
             if let Some(effect) = self.visual_effects.get_mut(&request.id) {
                 server.instance_set_transform(effect.rid, transform);

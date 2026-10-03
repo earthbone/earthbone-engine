@@ -244,6 +244,9 @@ impl Game {
         let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
         let budget_usage = Rc::new(natives::BudgetUsage::default());
+        budget_usage
+            .vm_instruction_limit
+            .set(PAPYRUS_INSTRUCTIONS_PER_SLICE);
         let registered = natives::register_with_budget_usage(&mut vm, &world, &budget_usage);
         Game {
             vm,
@@ -1633,6 +1636,7 @@ impl Game {
         }
         for _ in 0..max_rounds {
             self.pump();
+            self.budget_usage.vm_instruction_limit.set(self.budget);
             let instructions = self.vm.run(self.budget);
             self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
             self.budget_usage.vm_instructions.set(instructions);

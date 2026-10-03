@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use soe_esm::LoadOrder;
-use soe_game::{Game, EXTERIOR_CELL_LOADS_PER_UPDATE};
+use soe_game::Game;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
@@ -41,5 +41,4 @@ fn exterior_budget_saturates_the_papyrus_integer_and_remains_over_limit() {
         Value::Int(i32::MAX)
     );
     assert_eq!(query(&mut game, "OverBudget", 1), Value::Bool(true));
-    assert!(EXTERIOR_CELL_LOADS_PER_UPDATE < usize::MAX);
 }

@@ -99,7 +99,9 @@ The camera renderer applies those values through Godot's `Environment` and
 `CameraAttributesPractical`. An explicit image-space selection takes
 precedence. This path renders image-space adjustments only. It does not render
 WTHR cloud layers, sky colors, precipitation, ambient lighting or transition
-timing, and the daytime slot is used at all game hours.
+timing, and the daytime slot is used at all game hours. The override and
+acceleration flags are retained in the request but do not change this
+presentation.
 
 ### Crosshair and held references, HST-18
 
@@ -481,15 +483,16 @@ disable and node clear release the render instance. If the linked EFSH record
 has an `ICON` start texture, it is loaded through the shared DDS cache. A
 shader-linked effect uses a blue tint, while an ARTO-only effect uses amber.
 This is a visible host placeholder, not the authored ARTO NIF or full EFSH
-animation. RFCT attach-to-camera, inherit-rotation and rotate-to-target flags
-are retained by the game data reader but do not alter this placeholder.
+animation. The placeholder follows RFCT attach-to-camera and inherit-rotation
+flags, and rotates toward the optional facing reference when the RFCT flag is
+set. It does not reproduce authored ARTO animation or EFSH timing.
 
 The rendering resource uses server IDs and creates no scene node per effect.
 `godot/scr_52_visual_effect_test.gd` starts an installed game, picks a winning
-RFCT with a linked art or shader, plays it on the player reference, verifies
-the renderer owns one instance, saves a window capture, then stops it and
-checks the instance is freed. Run windowed with `SKYRIM_DATA` and the extension
-loaded:
+RFCT with a linked art or shader, captures the scene before and after playing
+it on the player reference, verifies changed pixels and one renderer instance,
+then stops it and checks the instance is freed. Run windowed with
+`SKYRIM_DATA` and the extension loaded:
 
 ```text
 SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script scr_52_visual_effect_test.gd --resolution 640x360

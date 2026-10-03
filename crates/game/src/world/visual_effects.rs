@@ -24,6 +24,8 @@ pub struct VisualEffectInstance {
     pub target: GlobalFormId,
     pub remaining: Option<f64>,
     pub facing: Option<GlobalFormId>,
+    /// RFCT DATA flags carried to host presentation.
+    pub flags: u32,
 }
 
 /// Identity of one VisualEffect.Play call.
@@ -109,6 +111,9 @@ impl World {
             return Err(VisualEffectError::Duration);
         }
         let id = VisualEffectId(self.next_visual_effect);
+        let data = self
+            .visual_effect_data(effect)
+            .ok_or(VisualEffectError::Effect(effect))?;
         let next = self
             .next_visual_effect
             .checked_add(1)
@@ -121,6 +126,7 @@ impl World {
                 target,
                 remaining: (duration >= 0.0 && duration.is_finite()).then_some(duration),
                 facing,
+                flags: data.flags,
             },
         );
         self.attach_visual_effect(effect, target);
@@ -217,7 +223,6 @@ impl World {
     }
 
     fn is_effect_form(&self, id: GlobalFormId) -> bool {
-        self.record(id)
-            .is_some_and(|record| !record.is_deleted() && record.tag.as_bytes() == b"RFCT")
+        self.visual_effect_data(id).is_some()
     }
 }

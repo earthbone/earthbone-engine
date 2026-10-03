@@ -37,8 +37,16 @@ fn test_game() -> Game {
         author: "soe".into(),
         ..Default::default()
     });
-    plugin.push_top(Record::new(T(b"RFCT"), EFFECT_A).zsub(T(b"EDID"), "EffectA"));
-    plugin.push_top(Record::new(T(b"RFCT"), EFFECT_B).zsub(T(b"EDID"), "EffectB"));
+    plugin.push_top(
+        Record::new(T(b"RFCT"), EFFECT_A)
+            .zsub(T(b"EDID"), "EffectA")
+            .sub(T(b"DATA"), [0; 12]),
+    );
+    plugin.push_top(
+        Record::new(T(b"RFCT"), EFFECT_B)
+            .zsub(T(b"EDID"), "EffectB")
+            .sub(T(b"DATA"), [0; 12]),
+    );
     plugin.push_top(Record::new(T(b"MISC"), BASE).zsub(T(b"EDID"), "Base"));
     for (reference, edid) in [
         (TARGET_A, "TargetA"),
