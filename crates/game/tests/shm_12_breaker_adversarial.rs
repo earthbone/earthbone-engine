@@ -2,8 +2,8 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use soe_commonlib_shim::form::FormId;
-use soe_game::{commonlib, Game};
 use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+use soe_game::{commonlib, Game};
 
 #[test]
 fn shm_12_reference_handle_lookup_rejects_non_reference_and_unknown_ids() {
@@ -15,5 +15,10 @@ fn shm_12_reference_handle_lookup_rejects_non_reference_and_unknown_ids() {
     let game = Game::new(order);
     assert!(commonlib::lookup_reference_by_handle(&mut game.world_mut(), FormId(0x100)).is_err());
     assert!(commonlib::lookup_reference_by_handle(&mut game.world_mut(), FormId(0x999)).is_err());
-    assert_eq!(commonlib::lookup_reference_by_handle(&mut game.world_mut(), FormId(0x200)).unwrap().form_id, FormId(0x200));
+    assert_eq!(
+        commonlib::lookup_reference_by_handle(&mut game.world_mut(), FormId(0x200))
+            .unwrap()
+            .form_id,
+        FormId(0x200)
+    );
 }

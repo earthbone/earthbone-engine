@@ -67,7 +67,7 @@ fn shm_17_cpp_condition_calls_live_game_and_reports_unsupported_operations() {
         return;
     };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let shim = root.join("../../commonlib-shim");
+    let shim = root.join("../commonlib-shim");
     let scratch = std::env::temp_dir().join(format!("soe-shm-17-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).unwrap();
     let binary = scratch.join("condition_bridge");

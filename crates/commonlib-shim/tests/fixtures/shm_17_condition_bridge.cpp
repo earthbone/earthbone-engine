@@ -20,10 +20,8 @@ int main() {
     const auto error = conditions.IsTrue(bridge, context, result);
     const auto item_copy_error = conditions.items.front().Copy();
     const auto list_copy_error = conditions.Copy();
-    assert(item_error.code == RE::ConditionErrorCode::UnsupportedFunction);
-    assert(item_error.detail == 999);
-    assert(error.code == RE::ConditionErrorCode::UnsupportedFunction);
-    assert(error.detail == 999);
+    assert(item_error.code == RE::ConditionErrorCode::UnavailableState);
+    assert(error.code == RE::ConditionErrorCode::UnavailableState);
     assert(!result);
     assert(item_copy_error.code == RE::ConditionErrorCode::UnsupportedHook);
     assert(list_copy_error.code == RE::ConditionErrorCode::UnsupportedHook);

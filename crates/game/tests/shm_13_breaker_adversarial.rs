@@ -6,7 +6,9 @@ use soe_commonlib_shim::world::MagicWorldState;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::{commonlib_magic::CommonLibMagic, World};
 
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: 0, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 #[test]
 fn shm_13_favorite_state_survives_save_round_trip_and_removal() {
@@ -20,7 +22,9 @@ fn shm_13_favorite_state_survives_save_round_trip_and_removal() {
     let actor = FormId(world.order().runtime_id(id(0x200)));
     let spell = FormId(world.order().runtime_id(id(0x101)));
     let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
-    CommonLibMagic::new(&mut world, &mut alloc).set_favorite(actor, spell, true).unwrap();
+    CommonLibMagic::new(&mut world, &mut alloc)
+        .set_favorite(actor, spell, true)
+        .unwrap();
     let bytes = world.save_state();
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x100));

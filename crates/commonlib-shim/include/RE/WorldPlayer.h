@@ -4,6 +4,7 @@
 #include "RE/WorldTypes.h"
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -194,7 +195,10 @@ public:
         SettingValue value{};
         switch (record.kind) {
         case 0: value.kind = SettingValue::Kind::Bool; value.boolean_value = record.integer != 0; break;
-        case 1: value.kind = SettingValue::Kind::Int; value.int_value = static_cast<std::int32_t>(record.integer); break;
+        case 1:
+            if (record.integer < std::numeric_limits<std::int32_t>::min() ||
+                record.integer > std::numeric_limits<std::int32_t>::max()) return std::nullopt;
+            value.kind = SettingValue::Kind::Int; value.int_value = static_cast<std::int32_t>(record.integer); break;
         case 2: value.kind = SettingValue::Kind::Float; value.float_value = static_cast<float>(record.float_value); break;
         case 3: value.kind = SettingValue::Kind::String; value.string_value = record.string_value; break;
         default: return std::nullopt;

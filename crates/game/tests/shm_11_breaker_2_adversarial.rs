@@ -4,7 +4,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::world::World;
 
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: 0, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 #[test]
 fn shm_11_hazard_view_rejects_non_hazard_base_and_missing_reference() {

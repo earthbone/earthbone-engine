@@ -263,6 +263,14 @@ impl LiveDataHandler {
                 },
             })
             .collect();
+        let mut files: Vec<FileInfo> = files;
+        files.sort_by_key(|file| {
+            (
+                file.is_light(),
+                file.regular_index.unwrap_or_default(),
+                file.light_index.unwrap_or_default(),
+            )
+        });
         Self { forms, files }
     }
 }

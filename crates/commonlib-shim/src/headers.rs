@@ -656,6 +656,7 @@ const RE_WORLD_PLAYER: &str = r#"// Generated from crates/commonlib-shim/src/wor
 #include "RE/WorldTypes.h"
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -846,7 +847,10 @@ public:
         SettingValue value{};
         switch (record.kind) {
         case 0: value.kind = SettingValue::Kind::Bool; value.boolean_value = record.integer != 0; break;
-        case 1: value.kind = SettingValue::Kind::Int; value.int_value = static_cast<std::int32_t>(record.integer); break;
+        case 1:
+            if (record.integer < std::numeric_limits<std::int32_t>::min() ||
+                record.integer > std::numeric_limits<std::int32_t>::max()) return std::nullopt;
+            value.kind = SettingValue::Kind::Int; value.int_value = static_cast<std::int32_t>(record.integer); break;
         case 2: value.kind = SettingValue::Kind::Float; value.float_value = static_cast<float>(record.float_value); break;
         case 3: value.kind = SettingValue::Kind::String; value.string_value = record.string_value; break;
         default: return std::nullopt;
@@ -1281,7 +1285,9 @@ const RE_CONDITIONS: &str = r#"// Generated from crates/commonlib-shim/src/condi
 #include "RE/Reference.h"
 #include <cstddef>
 #include <cstdint>
+#include <iomanip>
 #include <istream>
+#include <limits>
 #include <ostream>
 #include <vector>
 
@@ -1332,6 +1338,8 @@ public:
     ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
                                  const ConditionContext& context,
                                  bool& result) override {
+        const auto precision = output_.precision();
+        output_ << std::setprecision(std::numeric_limits<float>::max_digits10);
         output_ << static_cast<unsigned>(item.flags) << ' '
                 << static_cast<unsigned>(item.comparison.is_global) << ' '
                 << item.comparison.number << ' ' << item.comparison.global.value << ' '
@@ -1341,10 +1349,14 @@ public:
                 << context.subject.value << ' ' << context.target.value << ' '
                 << static_cast<unsigned>(context.has_target) << ' ' << context.quest.value << ' '
                 << static_cast<unsigned>(context.has_quest) << '\n' << std::flush;
+        output_.precision(precision);
         unsigned code = 0;
         std::uint32_t detail = 0;
         if (!(input_ >> code >> detail >> result)) {
             return {ConditionErrorCode::UnavailableState, 0};
+        }
+        if (code > static_cast<unsigned>(ConditionErrorCode::InvalidCondition)) {
+            return {ConditionErrorCode::InvalidCondition, code};
         }
         return {static_cast<ConditionErrorCode>(code), detail};
     }
