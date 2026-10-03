@@ -43,7 +43,7 @@ impl PlayerNode {
         let mut bank = bank.bind_mut();
         bank.stop_ambience();
         if let Some(track) = track {
-            if !bank.play_ambience(&track.path) {
+            if !bank.play_ambience(track.path.as_str().into()) {
                 godot_error!("cell ambience {}: {}", track.path, bank.last_error());
             }
         }

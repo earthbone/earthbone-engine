@@ -85,6 +85,11 @@ documented by local `godot-docs/classes/class_audioserver.rst`. Track looping,
 crossfades, multiple regional sound descriptors and MUSC priority arbitration
 are not implemented.
 
+`tests/aud_09_godot_ambience.rs` launches Godot with a generated WAV fixture
+and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
+the cell ambience is released. The test uses a windowed 640 by 360 Godot
+process and exits when the transition check finishes.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
@@ -2359,6 +2364,12 @@ children. A transition fades the old MUST using its authored fade-out and
 brings in the selected track using the MUSC fade. Abrupt transitions skip both
 ramps. Starting another transition stops the earlier outgoing slot, so it
 cannot continue under the latest selection.
+
+`aud_05_godot_interrupted_transition_replaces_stale_player_stream` runs the
+SoundBank in Godot with three synthetic archive tracks. It checks both players
+during the first fade, verifies each configured fade changes player volume,
+then interrupts the fade and checks that the reused slot no longer has the
+first track assigned. AudioEffectCapture confirms mixer output during playback.
 
 Loose `.xwm` music and xWMA files in FUZ require the optional
 `xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
