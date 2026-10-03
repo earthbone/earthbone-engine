@@ -35,6 +35,7 @@ pub mod image_space;
 pub mod input;
 pub mod interior_prefetch;
 pub mod inventory_menu;
+pub mod lod_rebuild;
 pub mod magic_menu;
 pub mod mcm_menu;
 pub mod mesh;
@@ -42,6 +43,7 @@ pub mod objective_map;
 pub mod quest_journal;
 pub mod race_menu;
 pub mod ragdoll;
+pub mod save_recovery;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
@@ -71,6 +73,8 @@ pub mod godot_physics;
 pub mod godot_player;
 #[cfg(feature = "godot")]
 pub mod godot_ragdoll;
+#[cfg(feature = "godot")]
+pub mod godot_reference_editor;
 #[cfg(feature = "godot")]
 pub mod godot_tether;
 #[cfg(feature = "godot")]

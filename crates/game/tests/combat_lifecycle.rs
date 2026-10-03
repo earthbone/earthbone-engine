@@ -441,5 +441,7 @@ fn installed_npc_deaths_respect_essential_flags_and_persist() {
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);
     assert_eq!(world.save_state(), bytes);
-    eprintln!("Death lifecycle: {initialized} actors, {killed} deaths, {essential} essential, {suppressed} suppressed spawns");
+    eprintln!(
+        "Death lifecycle: {initialized} actors, {killed} deaths, {essential} essential, {suppressed} suppressed spawns"
+    );
 }

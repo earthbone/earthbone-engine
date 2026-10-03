@@ -11,10 +11,16 @@ mod reference_extras;
 mod npcs;
 
 #[path = "vanilla_save/references.rs"]
-mod references;
+pub(crate) mod references;
 
 #[path = "vanilla_save/projectiles.rs"]
 mod projectiles;
+
+#[path = "sav_26_adversarial.rs"]
+mod sav_26_adversarial;
+
+#[path = "sav_26_breaker_adversarial.rs"]
+mod sav_26_breaker_adversarial;
 
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
@@ -79,11 +85,11 @@ use soe_save::{
     Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save, WString,
 };
 
-fn id(file: u16, object: u32) -> GlobalFormId {
+pub(crate) fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
 }
 
-fn reference(raw: u32) -> RefId {
+pub(crate) fn reference(raw: u32) -> RefId {
     RefId::from_bytes([(raw >> 16) as u8, (raw >> 8) as u8, raw as u8])
 }
 

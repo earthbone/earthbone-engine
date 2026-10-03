@@ -108,6 +108,22 @@ impl BaseImageSpace {
 }
 
 impl World {
+    /// Configure the modifier triggered when the player first looks at the sun.
+    ///
+    /// # Errors
+    /// Returns an error for a missing or invalid image-space modifier.
+    pub fn set_sun_gaze_image_space_modifier(
+        &mut self,
+        modifier: Option<GlobalFormId>,
+    ) -> Result<(), VmError> {
+        if let Some(id) = modifier {
+            self.image_space_duration(id)?;
+        }
+        self.sun_gaze_modifier = modifier;
+        self.sun_gazing_last_tick = false;
+        Ok(())
+    }
+
     /// Select one authored weather and two of its four time entries.
     ///
     /// # Errors
@@ -188,17 +204,14 @@ impl World {
                     let raw: [u8; 4] = data
                         .try_into()
                         .map_err(|_| VmError::State("invalid CELL XCIM size".into()))?;
-                    Ok(self.resolve_from(id, u32::from_le_bytes(raw)))
+                    self.read_linked_base_image_space(id, u32::from_le_bytes(raw))
                 })
                 .transpose()?
                 .flatten()
         } else {
             None
         };
-        let cell_base = cell
-            .map(|id| self.read_base_image_space(id))
-            .transpose()?
-            .flatten();
+        let cell_base = cell;
         let Some(selection) = self.weather_image_space else {
             return Ok(cell_base);
         };
@@ -217,10 +230,7 @@ impl World {
                     .try_into()
                     .map_err(|_| VmError::State("invalid WTHR IMSP entry".into()))?,
             );
-            self.resolve_from(selection.weather, raw)
-                .map(|id| self.read_base_image_space(id))
-                .transpose()
-                .map(Option::flatten)
+            self.read_linked_base_image_space(selection.weather, raw)
         };
         let from = slot(selection.from)?.or_else(|| cell_base.clone());
         let to = slot(selection.to)?.or_else(|| cell_base.clone());
@@ -232,13 +242,25 @@ impl World {
         })
     }
 
-    fn read_base_image_space(&self, id: GlobalFormId) -> Result<Option<BaseImageSpace>, VmError> {
-        let Some(record) = self
+    fn read_linked_base_image_space(
+        &self,
+        owner: GlobalFormId,
+        raw: u32,
+    ) -> Result<Option<BaseImageSpace>, VmError> {
+        if raw == 0 {
+            return Ok(None);
+        }
+        let id = self
+            .resolve_from(owner, raw)
+            .ok_or_else(|| VmError::State("unresolved image-space form link".into()))?;
+        self.read_base_image_space(id).map(Some)
+    }
+
+    fn read_base_image_space(&self, id: GlobalFormId) -> Result<BaseImageSpace, VmError> {
+        let record = self
             .record(id)
             .filter(|r| r.tag == T(b"IMGS") && !r.is_deleted())
-        else {
-            return Ok(None);
-        };
+            .ok_or_else(|| VmError::State("image-space link does not resolve to IMGS".into()))?;
         let mut base = BaseImageSpace::default();
         if let Some(data) = record.find(T(b"ENAM")) {
             let old = floats::<14>(data)?;
@@ -264,7 +286,7 @@ impl World {
             base.depth_flags = u16::from_le_bytes([data[12], data[13]]);
             base.sky_blur_radius = u16::from_le_bytes([data[14], data[15]]);
         }
-        Ok(Some(base))
+        Ok(base)
     }
 }
 
@@ -628,6 +650,36 @@ impl World {
         for modifier in expired {
             self.image_space.remove(modifier);
         }
+        let sungazing = self.player_is_sungazing();
+        if sungazing && !self.sun_gazing_last_tick {
+            if let Some(modifier) = self.sun_gaze_modifier {
+                self.image_space.remove(modifier);
+                self.image_space.ordinary.push(ImageSpaceLayer {
+                    modifier,
+                    strength: 1.0,
+                    age: 0.0,
+                });
+            }
+        }
+        self.sun_gazing_last_tick = sungazing;
+    }
+
+    pub(crate) fn write_sun_gaze_modifier(&self, writer: &mut Writer) {
+        super::save::write_opt_form_id(writer, self.sun_gaze_modifier);
+        writer.bool(self.sun_gazing_last_tick);
+    }
+
+    pub(crate) fn read_sun_gaze_modifier(
+        &mut self,
+        reader: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let modifier = super::save::read_opt_form_id(reader)?;
+        if let Some(id) = modifier {
+            self.image_space_duration(id)?;
+        }
+        self.sun_gaze_modifier = modifier;
+        self.sun_gazing_last_tick = reader.bool()?;
+        Ok(())
     }
 
     pub(crate) fn write_image_space(&self, writer: &mut Writer) {

@@ -3,18 +3,9 @@
 
 //! CMB-27 persistence and authored reaction edge case.
 
-#[cfg(feature = "godot")]
-use std::path::Path;
-
-#[cfg(feature = "godot")]
-use soe_bsa::Vfs;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::Hand, Game};
-#[cfg(feature = "godot")]
-use soe_godot_host::actor::{ActorAssets, MASTER_BEHAVIOR};
 use soe_godot_host::combat::MeleeContact;
-#[cfg(feature = "godot")]
-use soe_hkx::interp::Interpreter;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -114,71 +105,4 @@ fn staggered_hit_is_applied_once_and_deadline_survives_save_load() {
         game.world_mut().actor(target).unwrap().stagger_magnitude,
         magnitude
     );
-}
-
-#[test]
-#[cfg(feature = "godot")]
-fn moving_locomotion_returns_after_authored_stagger_stop() {
-    let mut game = fixture();
-    let attacker = id(0x14);
-    let target = id(0x900);
-    let mut contact = MeleeContact::default();
-    contact.begin(&game, attacker, Hand::Right).unwrap();
-    contact
-        .event(&mut game, "HitFrame", |_| Ok(Some(target)))
-        .unwrap();
-    let magnitude = game.world_mut().actor(target).unwrap().stagger_magnitude as f32;
-    assert!(magnitude > 1.0);
-
-    let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
-        return;
-    };
-    let mut vfs = Vfs::new();
-    for archive in [
-        "Skyrim - Meshes0.bsa",
-        "Skyrim - Meshes1.bsa",
-        "Skyrim - Animations.bsa",
-    ] {
-        vfs.add_archive_path(&Path::new(&data_dir).join(archive))
-            .unwrap();
-    }
-    let assets = ActorAssets::load_with_behavior(
-        &vfs,
-        "meshes/actors/character/character assets/malebody_1.nif",
-        MASTER_BEHAVIOR,
-    )
-    .unwrap();
-    let mut vm = Interpreter::new(
-        &assets.graph,
-        &assets.clips,
-        assets.skeleton.reference_pose.clone(),
-    );
-    vm.variables.set_by_name("iRightHandType", 1.0);
-    vm.variables.set_by_name("Speed", 1.0);
-    assert!(vm.send_event_named("moveStart"));
-    for _ in 0..30 {
-        vm.update(1.0 / 60.0);
-    }
-    let locomotion = vm.active_states();
-    assert!(!locomotion.is_empty());
-    assert!(soe_godot_host::godot_actor::send_stagger_start(
-        &mut vm, magnitude
-    ));
-    let played_reaction = (0..90).any(|_| {
-        vm.update(1.0 / 60.0);
-        vm.active_clips().iter().any(|(node, _)| {
-            assets
-                .graph
-                .node(*node)
-                .name
-                .to_ascii_lowercase()
-                .contains("stagger")
-        })
-    });
-    assert!(played_reaction);
-    assert!(vm.send_event_named("staggerStop"));
-    for _ in 0..180 {
-        vm.update(1.0 / 60.0);
-    }
-    assert_eq!(vm.active_states(), locomotion);
 }

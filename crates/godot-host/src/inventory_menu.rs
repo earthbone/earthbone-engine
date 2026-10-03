@@ -97,17 +97,25 @@ pub fn gift_entries(game: &Game, request: &soe_game::world::GiftMenuRequest) -> 
         });
     }
     if !request.show_stolen {
-        entries.retain(|entry| {
-            world
-                .reference_ref(request.source)
-                .is_none_or(|reference| {
-                    reference.inventory.stacks(entry.item).iter().all(|stack| {
-                        stack.extra(33).is_none_or(|owner| {
-                            !matches!(owner.fields.as_slice(), [soe_game::inventory::Field::Form(Some(id))] if *id != request.giver)
-                        })
+        for entry in &mut entries {
+            let Some(reference) = world.reference_ref(request.source) else {
+                entry.count = 0;
+                continue;
+            };
+            let stacks = reference.inventory.stacks(entry.item);
+            if stacks.is_empty() {
+                continue;
+            }
+            entry.count = stacks
+                .iter()
+                .filter(|stack| {
+                    stack.extra(33).is_none_or(|owner| {
+                        !matches!(owner.fields.as_slice(), [soe_game::inventory::Field::Form(Some(id))] if *id != request.giver)
                     })
                 })
-        });
+                .fold(0_i32, |count, stack| count.saturating_add(stack.count()));
+        }
+        entries.retain(|entry| entry.count > 0);
     }
     entries
 }
@@ -290,6 +298,7 @@ mod tests {
             let mut world = game.world_mut();
             world.add_item(player, id(0x100), 2);
             world.add_item(player, id(0x101), 1);
+            world.add_item(player, id(0x103), 1);
         }
         let request = soe_game::world::GiftMenuRequest {
             latent: soe_papyrus::vm::LatentId(1),
@@ -303,12 +312,50 @@ mod tests {
         };
         let entries = gift_entries(&game, &request);
         assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.name.as_str())
-                .collect::<Vec<_>>(),
-            ["Sword", "Boots"]
+            entries.iter().map(|entry| entry.item).collect::<Vec<_>>(),
+            [id(0x100), id(0x101)],
+            "gift rows include the keyword match and listed form, but exclude other inventory"
         );
+    }
+
+    #[test]
+    fn ui_15_gift_menu_hides_stolen_rows_unless_requested() {
+        use soe_game::inventory::{Extra, Field, Stack};
+
+        let mut game = game();
+        let player = game.player();
+        game.world_mut()
+            .reference(player)
+            .unwrap()
+            .inventory
+            .restore(
+                id(0x100),
+                1,
+                vec![Stack::new(
+                    1,
+                    vec![Extra {
+                        kind: 33,
+                        fields: vec![Field::Form(Some(id(0x999)))],
+                    }],
+                )
+                .unwrap()],
+            )
+            .unwrap();
+        let mut request = soe_game::world::GiftMenuRequest {
+            latent: soe_papyrus::vm::LatentId(1),
+            giver: id(0x106),
+            source: player,
+            target: id(0x106),
+            filter: None,
+            show_stolen: false,
+            use_favor_points: true,
+            favor_points: 0,
+        };
+
+        assert!(gift_entries(&game, &request).is_empty());
+
+        request.show_stolen = true;
+        assert_eq!(gift_entries(&game, &request)[0].item, id(0x100));
     }
 
     #[test]

@@ -92,7 +92,7 @@ fn fixture() -> Save {
 }
 
 #[test]
-fn sav_15_rejects_unobserved_change_form_version_before_world_mutation() {
+fn sav_15_rejects_mismatched_change_form_version_before_world_mutation() {
     let mut order = LoadOrder::new();
     order
         .add("Skyrim.esm", Plugin::new(FileHeader::default()))
@@ -106,7 +106,7 @@ fn sav_15_rejects_unobserved_change_form_version_before_world_mutation() {
     assert!(
         error
             .to_string()
-            .contains("only validated for save version 12 and form versions 78"),
+            .contains("matching supported form versions"),
         "{error}"
     );
     assert_eq!(world.state_hash(), before);

@@ -73,6 +73,50 @@ fn scr_26_sun_position_is_finite_and_gaze_matches_reported_sun_direction() {
 }
 
 #[test]
+fn scr_26_sun_orbit_uses_100000_unit_radius_and_clock_cardinals() {
+    let mut game = fixture();
+    let player = game.world_mut().player();
+    let origin = [120.0, 45.0, -80.0];
+    game.world_mut().reference(player).unwrap().position = origin;
+
+    for (hour, expected) in [
+        (6.0, [100_000.0, 0.0, 0.0]),
+        (12.0, [0.0, 0.0, 100_000.0]),
+        (18.0, [-100_000.0, 0.0, 0.0]),
+        (0.0, [0.0, 0.0, -100_000.0]),
+    ] {
+        game.world_mut().set_global(id(3), hour);
+        let actual = [
+            global(&mut game, "GetSunPositionX", &[]).as_float(),
+            global(&mut game, "GetSunPositionY", &[]).as_float(),
+            global(&mut game, "GetSunPositionZ", &[]).as_float(),
+        ];
+        for axis in 0..3 {
+            assert!(
+                (actual[axis] - origin[axis] - expected[axis]).abs() < 0.02,
+                "hour {hour}: axis {axis} was {}, expected offset {}",
+                actual[axis] - origin[axis],
+                expected[axis]
+            );
+        }
+    }
+}
+
+#[test]
+fn scr_26_sungazing_uses_one_degree_angular_cutoff() {
+    let mut game = fixture();
+    for (degrees, expected) in [(0.9_f32, true), (1.1_f32, false)] {
+        let radians = degrees.to_radians();
+        game.world_mut().camera_look = [radians.cos(), radians.sin(), 0.0];
+        assert_eq!(
+            global(&mut game, "IsPlayerSungazing", &[]),
+            Value::Bool(expected),
+            "gaze offset {degrees} degrees"
+        );
+    }
+}
+
+#[test]
 fn scr_26_gaze_uses_direction_and_shake_rejects_bad_inputs_without_queueing() {
     let mut game = fixture();
     game.world_mut().camera_look = [1.0, 0.0, 0.0];

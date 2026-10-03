@@ -329,7 +329,9 @@ fn installed_skin_and_boot_sets_follow_the_authored_links() {
         "{races} race skins resolved {} distinct sets",
         distinct.len()
     );
-    eprintln!("Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets");
+    eprintln!(
+        "Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets"
+    );
 }
 
 #[test]

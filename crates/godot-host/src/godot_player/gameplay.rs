@@ -4,11 +4,14 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
-    PhysicsWorld, PlayerNode, Vec3,
+    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
+    PlayerNode, Vec3,
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode::*, Value};
+use std::collections::{BTreeMap, BTreeSet};
 
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
@@ -39,6 +42,57 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke either main-menu Game native for host integration checks.
+    pub(super) fn invoke_main_menu_native_for_check(
+        &mut self,
+        name: &GString,
+        sequence: &GString,
+    ) -> bool {
+        let name = name.to_string();
+        let native_args = match name.as_str() {
+            "QuitToMainMenu" => Vec::new(),
+            "StartTitleSequence" => vec![ident("sequence")],
+            _ => return false,
+        };
+        let script_name = "SoeUi18MainMenuHostCheck";
+        let mut function = FunctionBuilder::new("Run", "None")
+            .global()
+            .local("result", "None");
+        let mut operands = vec![s("Game"), s(&name), ident("result")];
+        if name == "StartTitleSequence" {
+            function = function.param("sequence", "String");
+        }
+        operands.extend(native_args);
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(function.ins(CallStatic, operands).build())
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            godot_error!("PlayerNode: failed to load UI-18 host check script: {error}");
+            return false;
+        }
+        let args = if name == "StartTitleSequence" {
+            vec![Value::string(&sequence.to_string())]
+        } else {
+            Vec::new()
+        };
+        let thread = match game.vm.call_global(script_name, "Run", &args) {
+            Ok(thread) => thread,
+            Err(error) => {
+                godot_error!("PlayerNode: Game.{name} host check failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            godot_error!("PlayerNode: Game.{name} host check did not complete");
+            return false;
+        }
+        self.apply_host_requests();
+        true
+    }
+
     /// Attach a Game whose vanilla-save restoration has already succeeded.
     /// Installs the restored location and camera, then advances one host frame.
     /// The caller must replace its active Game only after this returns true.
@@ -58,28 +112,44 @@ impl PlayerNode {
                 restored_player_destination(reference.cell, reference.position, reference.rotation)
             })
         };
-        if destination.is_none() {
+        let Some((cell, position, rotation)) = destination else {
             return false;
-        }
+        };
 
-        self.game = Some(game);
+        let previous_game = self.game.replace(game);
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.last_activate_reference = None;
         self.footstep_cadence.reset();
         if !self.sync_game_pose() {
-            self.game = None;
+            self.game = previous_game;
             return false;
         }
 
         self.advance(1.0 / 60.0);
-        self.game.is_some()
+        if let Some(game) = &self.game {
+            if let Some(reference) = game.world_mut().reference(player) {
+                reference.cell = Some(cell);
+                reference.position = position;
+                reference.rotation = rotation;
+            }
+        }
+        let pose_reinstalled = self.sync_game_pose();
+        if let Some(camera) = &mut self.camera {
+            camera.make_current();
+        }
+        let attached = pose_reinstalled
+            && self.game.is_some()
             && self.character.is_some()
             && self.loaded_cell.is_some()
             && self
                 .camera
                 .as_ref()
-                .is_some_and(|camera| camera.is_instance_valid())
+                .is_some_and(|camera| camera.is_instance_valid());
+        if !attached {
+            self.game = previous_game;
+        }
+        attached
     }
 
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -139,6 +209,10 @@ impl PlayerNode {
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
+        if let Some(game) = &self.game {
+            self.query_collision
+                .set_collisions_enabled(game.world().debug_collisions_enabled);
+        }
         self.sync_camera_controls();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
@@ -170,6 +244,9 @@ impl PlayerNode {
             };
             let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
             game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
+            if delta.is_finite() && delta > 0.0 {
+                game.tick(delta);
+            }
         }
         // CONTEXT: Apply game edits before reading simulated body poses back
         // into World, then draw the shared placement on this tick.
@@ -196,37 +273,11 @@ impl PlayerNode {
                 self.camera_shake = Some((0.0, shake.duration, shake.strength));
                 self.camera_shake_time = 0.0;
             }
-            let (hud_cart_mode, requests) = {
-                let mut world = game.world_mut();
-                (world.hud_cart_mode, world.take_game_ui_requests())
-            };
+            let hud_cart_mode = game.world().hud_cart_mode;
             if hud_cart_mode != self.presented_hud_cart_mode {
                 self.presented_hud_cart_mode = hud_cart_mode;
                 self.base_mut()
                     .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
-            }
-            for request in requests {
-                match request {
-                    soe_game::world::GameUiRequest::ShowRaceMenu => {
-                        self.base_mut().emit_signal("race_menu_requested", &[]);
-                    }
-                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
-                        self.base_mut()
-                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
-                    }
-                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
-                        self.base_mut().emit_signal(
-                            "bink_requested",
-                            &[
-                                Variant::from(GString::from(file_name.as_str())),
-                                Variant::from(options.interruptible),
-                                Variant::from(options.mute_audio),
-                                Variant::from(options.mute_music),
-                                Variant::from(options.letterbox),
-                            ],
-                        );
-                    }
-                }
             }
         }
         self.refresh_image_space();
@@ -263,21 +314,79 @@ impl PlayerNode {
                 soe_game::world::MenuRequest::Training(_) => {}
             }
         }
+        if let Some(game) = &mut self.game {
+            let requests = game.world_mut().take_game_ui_requests();
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        if let Some(view) = self.hud_view.as_mut() {
+                            view.trigger_screen_blood(value);
+                        }
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
+        }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let detections = {
+                let mut world = game.world_mut();
+                match crate::detect_life::presentations(&mut world) {
+                    Ok(detections) => detections,
+                    Err(error) => {
+                        godot_error!("PlayerNode: Detect Life presentation failed: {error}");
+                        Vec::new()
+                    }
+                }
+            };
             let requests = game.world_mut().take_effect_shader_requests();
             let world = game.world();
-            streamer
-                .bind_mut()
-                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+            streamer.bind_mut().sync_effect_shaders(
+                &world,
+                requests,
+                &detections,
+                delta.max(0.0) as f32,
+            );
         }
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
+        }
+        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
+            let world = game.world();
+            let layers = world.shader_particle_layers();
+            let player = soe_esm::GlobalFormId {
+                file: 0,
+                object: soe_game::world::PLAYER_OBJECT,
+            };
+            let origin = world
+                .ref_placement(player)
+                .filter(|placement| placement.visible)
+                .map_or([0.0; 3], |placement| placement.position);
+            streamer
+                .bind_mut()
+                .sync_shader_particles(&layers, origin, delta.max(0.0) as f32);
         }
         self.apply_host_requests();
         if self.main_menu.is_active() {
             return;
         }
         if self.sync_game_pose() {
+            self.sync_debug_ref_markers();
             if let Some(game) = &mut self.game {
                 for latent in self.pending_debug_latents.drain(..) {
                     game.vm
@@ -286,15 +395,23 @@ impl PlayerNode {
             }
             self.prefetch_nearby_interior(delta);
         } else {
+            if let Some(game) = &mut self.game {
+                for latent in self.pending_debug_latents.drain(..) {
+                    game.vm
+                        .resolve_latent(latent, soe_papyrus::Value::Float(-1.0));
+                }
+            }
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
         }
     }
 
     pub(super) fn sync_camera_controls(&mut self) {
-        let Some(game) = &self.game else {
+        let Some(game) = &mut self.game else {
             return;
         };
+        game.world_mut()
+            .set_player_first_person(self.rig.mode == super::CameraMode::First);
         let controls = game.world().camera_controls;
         self.camera_state.apply(controls);
         self.rig
@@ -302,8 +419,8 @@ impl PlayerNode {
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
                 visual.bind_mut().set_first_person_geometry_visible(
-                    self.rig.mode != super::CameraMode::First
-                        || self.camera_state.first_person_geometry_visible(),
+                    self.camera_state
+                        .rendered_first_person_geometry_visible(self.rig.mode),
                 );
             } else {
                 self.player_appearance = None;
@@ -361,12 +478,25 @@ impl PlayerNode {
                     );
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
-                    self.rig.mode = CameraMode::First;
+                    crate::camera::apply_game_camera_request(&mut self.rig, true);
                     self.update_camera();
                 }
                 soe_game::HostRequest::CameraThirdPerson => {
-                    self.rig.mode = CameraMode::Third;
+                    crate::camera::apply_game_camera_request(&mut self.rig, false);
                     self.update_camera();
+                }
+                soe_game::HostRequest::ControllerShake {
+                    left_strength,
+                    right_strength,
+                    duration,
+                } => {
+                    let mut input = godot::classes::Input::singleton();
+                    for device in input.get_connected_joypads().iter_shared() {
+                        input
+                            .start_joy_vibration_ex(device as i32, left_strength, right_strength)
+                            .duration(duration)
+                            .done();
+                    }
                 }
                 soe_game::HostRequest::FadeOutGame {
                     fading_out,
@@ -412,6 +542,81 @@ impl PlayerNode {
                         self.pending_debug_latents.push(latent);
                     }
                 }
+                soe_game::world::DebugHostRequest::MovePlayerToReference { reference, latent } => {
+                    if game.world_mut().debug_player_move_to_reference(reference) {
+                        game.run_until_idle(64);
+                        self.pending_debug_latents.push(latent);
+                    } else {
+                        game.vm
+                            .resolve_latent(latent, soe_papyrus::Value::Float(-1.0));
+                    }
+                }
+            }
+        }
+    }
+
+    fn sync_debug_ref_markers(&mut self) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        let Some(scenario) = self.base().get_world_3d().map(|world| world.get_scenario()) else {
+            return;
+        };
+        let placements: BTreeMap<_, _> = {
+            let world = game.world();
+            world
+                .debug_ref_positions()
+                .into_iter()
+                .filter_map(|id| world.ref_placement(id).map(|placement| (id, placement)))
+                .collect()
+        };
+        let requested: BTreeSet<_> = game.world().debug_ref_positions().into_iter().collect();
+        let mut server = godot::classes::RenderingServer::singleton();
+        if !placements.is_empty() && self.debug_ref_marker_mesh.is_none() {
+            let mut mesh = godot::classes::SphereMesh::new_gd();
+            mesh.set_radius(4.0 * crate::units::METRES_PER_UNIT);
+            mesh.set_height(8.0 * crate::units::METRES_PER_UNIT);
+            let mut material = godot::classes::StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_albedo(godot::builtin::Color::from_rgba(1.0, 0.15, 0.05, 1.0));
+            material.set_feature(godot::classes::base_material_3d::Feature::EMISSION, true);
+            material.set_emission(godot::builtin::Color::from_rgb(1.0, 0.05, 0.0));
+            self.debug_ref_marker_mesh = Some(mesh);
+            self.debug_ref_marker_material = Some(material);
+        }
+        let Some(mesh) = self.debug_ref_marker_mesh.as_ref() else {
+            return;
+        };
+        let material = self.debug_ref_marker_material.as_ref();
+        for (id, placement) in placements {
+            let pos = crate::units::SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = godot::builtin::Transform3D::new(
+                godot::builtin::Basis::IDENTITY,
+                godot::builtin::Vector3::new(pos.x, pos.y, pos.z),
+            );
+            let rid = *self.debug_ref_markers.entry(id).or_insert_with(|| {
+                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                if let Some(material) = material {
+                    server.instance_geometry_set_material_override(rid, material.get_rid());
+                }
+                rid
+            });
+            server.instance_set_transform(rid, transform);
+        }
+        let stale: Vec<_> = self
+            .debug_ref_markers
+            .keys()
+            .filter(|id| !requested.contains(id))
+            .copied()
+            .collect();
+        for id in stale {
+            if let Some(rid) = self.debug_ref_markers.remove(&id) {
+                server.free_rid(rid);
             }
         }
     }
@@ -865,6 +1070,18 @@ mod sav_19_tests {
         let pose = restored_player_destination(Some(cell), [1.0, 2.0, 3.0], [0.0; 3]);
         assert_eq!(pose, Some((cell, [1.0, 2.0, 3.0], [0.0; 3])));
         assert!(restored_player_destination(None, [1.0, 2.0, 3.0], [0.0; 3]).is_none());
-        assert!(restored_player_destination(Some(cell), [f32::NAN, 2.0, 3.0], [0.0; 3]).is_none());
+        for axis in 0..3 {
+            for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let mut position = [1.0, 2.0, 3.0];
+                position[axis] = invalid;
+                assert!(restored_player_destination(Some(cell), position, [0.0; 3]).is_none());
+
+                let mut rotation = [0.0; 3];
+                rotation[axis] = invalid;
+                assert!(
+                    restored_player_destination(Some(cell), [1.0, 2.0, 3.0], rotation).is_none()
+                );
+            }
+        }
     }
 }

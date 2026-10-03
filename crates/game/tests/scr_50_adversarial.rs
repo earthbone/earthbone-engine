@@ -8,7 +8,7 @@ use soe_papyrus::{
     Value,
 };
 #[test]
-fn scr_50_negative_budget_index_is_diagnosed_without_panicking() {
+fn scr_50_negative_budget_index_uses_empty_name_without_panicking() {
     let mut g = Game::new(LoadOrder::new());
     let b = ScriptBuilder::new("Scr50Negative", "Form")
         .function(
@@ -29,9 +29,6 @@ fn scr_50_negative_budget_index_is_diagnosed_without_panicking() {
         g.vm.call_global("Scr50Negative", "Run", &[Value::Int(-1)])
             .unwrap();
     assert!(g.run_until_idle(32));
-    assert_eq!(g.vm.thread_result(t), Some(Value::None));
-    assert!(g
-        .traces()
-        .iter()
-        .any(|x| x.contains("GetBudgetName: memory tracking is unavailable")));
+    assert_eq!(g.vm.thread_result(t), Some(Value::string("")));
+    assert!(g.traces().is_empty());
 }

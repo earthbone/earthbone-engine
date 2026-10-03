@@ -474,6 +474,26 @@ impl World {
         true
     }
 
+    /// Add harvested produce to an actor and dispatch the CommonLib harvest event.
+    /// Failed or non-actor harvest attempts leave inventory and event sources unchanged.
+    pub fn harvest_item(
+        &mut self,
+        harvester: GlobalFormId,
+        produce_item: GlobalFormId,
+        count: i32,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        if count <= 0
+            || !self.is_inventory_base(produce_item)
+            || self.actor_ref(harvester).is_none()
+            || !self.add_item_notified(harvester, produce_item, count, alloc)
+        {
+            return false;
+        }
+        self.commonlib_harvested(produce_item, harvester);
+        true
+    }
+
     fn container_changed(
         &mut self,
         reference: GlobalFormId,
@@ -821,7 +841,21 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> i32 {
-        let bundle = self.remove_item_bundle(holder, item, count, target);
+        self.remove_item_notified_with_ownership(holder, item, count, target, true, alloc)
+    }
+
+    /// Remove or transfer items while applying RemoveAllItems ownership policy.
+    pub fn remove_item_notified_with_ownership(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: Option<GlobalFormId>,
+        keep_ownership: bool,
+        alloc: Alloc<'_>,
+    ) -> i32 {
+        let bundle =
+            self.remove_item_bundle_with_ownership(holder, item, count, target, keep_ownership);
         let moved = bundle.count();
         if moved == 0 {
             return 0;

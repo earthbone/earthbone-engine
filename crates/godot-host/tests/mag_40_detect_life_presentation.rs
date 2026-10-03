@@ -3,7 +3,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_godot_host::detect_life::presentations;
+use soe_godot_host::detect_life::{effect_shader_requests, presentations};
+use std::collections::BTreeSet;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -34,7 +35,15 @@ fn mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates
     put(&mut data, 32, 0x400);
     put(&mut data, 64, 19);
     plugin.push_top(Record::new(T(b"MGEF"), 0x200).sub(T(b"DATA"), data));
-    plugin.push_top(Record::new(T(b"EFSH"), 0x400));
+    let mut shader_data = vec![0; 96];
+    put(&mut shader_data, 4, 6);
+    shader_data[16..20].copy_from_slice(&[30, 90, 180, 220]);
+    put(&mut shader_data, 92, 7);
+    plugin.push_top(
+        Record::new(T(b"EFSH"), 0x400)
+            .sub(T(b"ICON"), b"textures/effects/detect.dds\0".to_vec())
+            .sub(T(b"DATA"), shader_data),
+    );
     let mut spit = vec![0; 36];
     plugin.push_top(
         Record::new(T(b"SPEL"), 0x300)
@@ -88,4 +97,25 @@ fn mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates
         -200.0 * soe_godot_host::units::METRES_PER_UNIT
     );
     assert_eq!(output[0].hit_shader, Some(id(0x400)));
+
+    let mut active = BTreeSet::new();
+    let started = effect_shader_requests(&world, &output, &mut active);
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].shader, id(0x400));
+    assert_eq!(started[0].target, id(0x101));
+    assert!(started[0].playing);
+    assert_eq!(started[0].duration, -1.0);
+    assert_eq!(
+        started[0].appearance.fill_texture.as_deref(),
+        Some("textures/effects/detect.dds")
+    );
+    assert_eq!(started[0].appearance.color, [30, 90, 180, 220]);
+    assert_eq!(started[0].appearance.blend, (6, 7));
+
+    let stopped = effect_shader_requests(&world, &[], &mut active);
+    assert_eq!(stopped.len(), 1);
+    assert_eq!(stopped[0].shader, id(0x400));
+    assert_eq!(stopped[0].target, id(0x101));
+    assert!(!stopped[0].playing);
+    assert!(active.is_empty());
 }

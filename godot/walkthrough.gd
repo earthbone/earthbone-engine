@@ -2,6 +2,7 @@ extends SceneTree
 
 ## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
 ## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
+const Warmup := preload("res://render_warmup.gd")
 
 var player: Node3D
 var frames := 0
@@ -27,6 +28,7 @@ func _start() -> void:
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
 	scene.add_child(streamer)
 	loading_label = Label.new()
+	loading_label.z_index = 1
 	loading_label.position = Vector2(24, 24)
 	get_root().add_child(loading_label)
 	startup_msec = Time.get_ticks_msec()
@@ -69,6 +71,15 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
+	loading_phase = "Preparing rendering"
+	var loading_cover := Warmup.cover(get_root())
+	var rendering: Dictionary = await Warmup.prepare()
+	if not rendering.error.is_empty():
+		printerr("Could not prepare rendering: ", rendering.error)
+		quit(1)
+		return
+	loading_cover.queue_free()
+	print("STARTUP rendering ", JSON.stringify(rendering))
 	loading_phase = "Starting game scripts"
 	await process_frame
 	await process_frame

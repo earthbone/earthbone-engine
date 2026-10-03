@@ -367,6 +367,11 @@ impl Game {
         self.world.borrow_mut()
     }
 
+    /// Record how many exterior cells the host loaded during its latest update.
+    pub fn record_exterior_cell_loads(&mut self, count: usize) {
+        self.world.borrow_mut().exterior_cell_loads_last_update = count;
+    }
+
     /// Route an authored Story Manager event through the shared runtime.
     ///
     /// # Errors
@@ -465,6 +470,7 @@ impl Game {
         let vm = &mut self.vm;
         let completions = {
             let mut world = self.world.borrow_mut();
+            world.consume_animation_report(source, name);
             world.animation_graph_event(source, name, &mut |object, class| {
                 vm.create_object_of(object, class)
             });
@@ -1623,9 +1629,11 @@ impl Game {
         }
         for _ in 0..max_rounds {
             self.pump();
-            self.vm.run(self.budget);
+            let instructions = self.vm.run(self.budget);
+            self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
-            let queued = self.world.borrow().has_pending_calls();
+            let world = self.world.borrow();
+            let queued = world.has_pending_calls() || !world.completed_animation_waits.is_empty();
             if self.vm.idle() && !queued {
                 return true;
             }

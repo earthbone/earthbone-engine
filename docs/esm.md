@@ -57,11 +57,17 @@ does not inspect nested `VMAD` links.
 
 The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
 and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
-links must retain their target identity while a mod is reorganized. Spriggit's
+all matching FormLinks across records are traversed. Mutagen's Skyrim
+`Records/Common Subrecords/AVirtualMachineAdapter.cs` defines typed VMAD object
+and object-array links for both object formats. Spriggit's
 `docs/spriggit-file.md` describes stable plugin identity across text
-serialization. The Rust plugin model retains raw subrecords instead of
-Mutagen's complete typed record graph, so this implementation relocates its
-known typed links and preserves other fields unchanged.
+serialization, and its Skyrim `VirtualMachineAdapterCustomization` sorts script
+entries without changing their FormKeys. The Rust plugin model retains raw
+subrecords instead of Mutagen's complete typed record graph, so this operation
+relocates the recognized fields listed here and preserves other fields
+unchanged. `tests/fmt_15_renumber.rs` independently records VMAD object-link
+offsets in both formats and a QUST alias, then compares the entire payload
+after serialization and reload so non-link bytes must remain unchanged.
 
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
@@ -147,6 +153,12 @@ enchantments are remapped. WEAP enchantment, impact, material, scope,
 first-person model, sound, critical effect, and template links are remapped,
 including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
 links in `DSTD` are remapped for their applicable records.
+COBJ output and workbench links, ingredient object IDs, and COED owner links
+are remapped while ingredient counts, owner rank and condition are preserved.
+CTDA comparison values are remapped only when the global comparison flag is
+set, and the reference field is remapped for Run On Reference. These layouts
+follow xEdit's `wbRecord(COBJ)`, `wbCNTONoReach`, `wbCOED` and `wbConditions`
+definitions, also used by the typed recipe and condition readers.
 The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
 the 24-byte layout. Destruction stage explosion and debris links are at offsets
 8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
@@ -281,12 +293,15 @@ truncated entries, and all five installed masters.
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
   tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
   Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
-  repeated-field ordinal, and hexadecimal bytes. Counts, record identities, and every
-  subrecord payload are compared. Differences are printed by category and cause the
-  gated test to fail. Malformed rows also fail with their line number. xEdit's
-  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) emits a nested display tree,
-  so the dump must be normalized into this manifest before setting the environment
-  variable. The test does not parse the display tree directly.
+  repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
+  CELL, REFR and LVLI signatures selected by the test plan, including their record
+  identities and subrecord payloads. Engine record counts retain repeated physical
+  records even when they share a FormID. Differences are printed by category and cause
+  the gated test to fail. Malformed rows also fail with their line number. xEdit's
+  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
+  `DumpRecords` and emits a nested display tree, so the dump must be normalized into
+  this manifest before setting the environment variable. The test does not parse the
+  display tree directly.
 
 ## Scripted patch passes
 

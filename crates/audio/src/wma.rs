@@ -3,7 +3,8 @@
 //! Decoding the WMA bitstream inside an xWMA file.
 //!
 //! [`Native`] decodes WMA v2 in process through `oxideav-wma`. It follows the
-//! packet and synthesized setup rules in FFmpeg's `libavformat/xwma.c`.
+//! packet and synthesized setup rules in FFmpeg's `libavformat/xwma.c`,
+//! and the channel-independent exponent-reuse flag in `libavcodec/wmadec.c`.
 //! [`Ffmpeg`] remains an optional out-of-process comparison implementation.
 //! The xWMA wrapper is parsed by [`crate::xwma`].
 
@@ -42,8 +43,6 @@ pub struct Native;
 
 impl WmaDecoder for Native {
     fn decode_xwma(&self, file: &[u8]) -> Result<Pcm> {
-        use oxideav_core::{CodecId, CodecParameters, CodecTag, Packet, TimeBase};
-
         let parsed = Xwma::parse(file)?;
         if parsed.format.format_tag != crate::xwma::WMAUDIO2 {
             return Err(Error::Decode(format!(
@@ -101,31 +100,7 @@ impl WmaDecoder for Native {
             )
         };
 
-        let mut params = CodecParameters::audio(CodecId::new("wma2"));
-        params.sample_rate = Some(parsed.format.sample_rate);
-        params.channels = Some(parsed.format.channels);
-        params.bit_rate = Some(u64::from(normalized_xwma_bitrate(&parsed)));
-        params.tag = Some(CodecTag::WaveFormat(parsed.format.format_tag));
-        // xWMA strips WMA2's private setup block. The xWMA demuxer supplies
-        // this sentinel flags2 value for the decoder.
-        params.extradata = vec![0, 0, 0, 0, 31, 0];
-        let mut decoder = oxideav_wma::make_decoder(&params)
-            .map_err(|error| Error::Decode(format!("WMA setup: {error}")))?;
-        let mut samples = Vec::new();
-        for packet in parsed.data.chunks_exact(packet_size) {
-            decoder
-                .send_packet(&Packet::new(
-                    0,
-                    TimeBase::from_rate(parsed.format.sample_rate),
-                    packet.to_vec(),
-                ))
-                .map_err(|error| Error::Decode(format!("WMA packet: {error}")))?;
-            drain_frames(&mut *decoder, &mut samples, false)?;
-        }
-        decoder
-            .flush()
-            .map_err(|error| Error::Decode(format!("WMA flush: {error}")))?;
-        drain_frames(&mut *decoder, &mut samples, true)?;
+        let mut samples = decode_packets(&parsed)?;
 
         if samples.is_empty() || samples.iter().any(|sample| !sample.is_finite()) {
             return Err(Error::Decode(
@@ -161,47 +136,81 @@ fn normalized_xwma_bitrate(xwma: &Xwma<'_>) -> u32 {
     bit_rate
 }
 
-fn drain_frames(
-    decoder: &mut dyn oxideav_core::Decoder,
-    output: &mut Vec<f32>,
-    after_flush: bool,
-) -> Result<()> {
-    use oxideav_core::{Error as CodecError, Frame};
+fn decode_packets(xwma: &Xwma<'_>) -> Result<Vec<f32>> {
+    use oxideav_wma::header::Version;
+    use oxideav_wma::packet::PacketAssembler;
+    use oxideav_wma::stream_config::StreamConfig;
+    use oxideav_wma::vendor_decode::BlockSynth;
+    use oxideav_wma::vendor_frame::{FrameParser, ReuseRule};
 
-    loop {
-        match decoder.receive_frame() {
-            Ok(Frame::Audio(frame)) => {
-                let Some(data) = frame.data.first() else {
-                    return Err(Error::Decode(
-                        "WMA decoder returned an empty audio frame".to_string(),
-                    ));
-                };
-                let (whole, tail) = data.as_chunks::<4>();
-                if !tail.is_empty() {
-                    return Err(Error::Decode(
-                        "WMA decoder returned a partial float sample".to_string(),
-                    ));
-                }
-                output.extend(whole.iter().map(|sample| f32::from_le_bytes(*sample)));
-                if output.len() > 256 * 1024 * 1024 / 4 {
-                    return Err(Error::Decode("WMA decoded PCM exceeds 256 MiB".to_string()));
-                }
-            }
-            Ok(Frame::Video(_)) => {
+    let config = StreamConfig::derive(
+        Version::V2,
+        xwma.format.sample_rate,
+        xwma.format.channels as u8,
+        normalized_xwma_bitrate(xwma) / 8,
+        xwma.format.block_align,
+        31,
+    )
+    .map_err(|error| Error::Decode(format!("WMA setup: {error}")))?;
+    let mut assembler = PacketAssembler::new(&config);
+    for packet in xwma.data.chunks_exact(usize::from(config.block_align)) {
+        assembler
+            .push_packet(packet)
+            .map_err(|error| Error::Decode(format!("WMA packet: {error}")))?;
+    }
+    let stream = assembler.finish();
+    let starts: Vec<_> = stream
+        .packets
+        .iter()
+        .map(|packet| packet.body_start_bit)
+        .collect();
+    // CONTEXT: oxideav-wma 0.0.4's factory restricts exponent reuse to
+    // stereo. FFmpeg's wma_decode_block reads the flag on all short blocks.
+    let mut parser = FrameParser::new(&config, &starts).with_reuse(ReuseRule::ShortBlockPerBlock);
+    let mut synth = BlockSynth::new(&config);
+    let mut output = Vec::new();
+    let mut cursor = stream.packets.first().map_or(0, |p| p.frames_start_bit());
+    for packet in &stream.packets {
+        if packet.discontinuity {
+            return Err(Error::Decode(
+                "WMA packet sequence is discontinuous".to_string(),
+            ));
+        }
+        if cursor != packet.frames_start_bit() {
+            if packet.header.carry_bits != 0 || cursor > packet.body_start_bit {
                 return Err(Error::Decode(
-                    "WMA decoder returned a video frame".to_string(),
+                    "WMA frame does not end at the packet carry boundary".to_string(),
                 ));
             }
-            Ok(_) => {
-                return Err(Error::Decode(
-                    "WMA decoder returned an unknown frame".to_string(),
-                ));
+            parser.raise_latch();
+        }
+        let mut reader = stream.reader_at(packet.frames_start_bit());
+        for _ in 0..packet.header.frame_count {
+            let frame = parser
+                .parse_frame(&mut reader)
+                .map_err(|error| Error::Decode(format!("WMA frame: {error}")))?;
+            for block in &frame.blocks {
+                append_samples(&mut output, &synth.block(block))?;
             }
-            Err(CodecError::NeedMore) if !after_flush => return Ok(()),
-            Err(CodecError::Eof) if after_flush => return Ok(()),
-            Err(error) => return Err(Error::Decode(format!("WMA output: {error}"))),
+        }
+        cursor = reader.position() as u64;
+    }
+    append_samples(&mut output, &synth.flush())?;
+    Ok(output)
+}
+
+fn append_samples(output: &mut Vec<f32>, channels: &[Vec<f64>]) -> Result<()> {
+    let frames = channels.first().map_or(0, Vec::len);
+    let new_samples = frames.saturating_mul(channels.len());
+    if output.len().saturating_add(new_samples) > 256 * 1024 * 1024 / 4 {
+        return Err(Error::Decode("WMA decoded PCM exceeds 256 MiB".to_string()));
+    }
+    for index in 0..frames {
+        for channel in channels {
+            output.push(channel[index] as f32);
         }
     }
+    Ok(())
 }
 
 /// A decoder that runs the `ffmpeg` binary, writing the file to its standard

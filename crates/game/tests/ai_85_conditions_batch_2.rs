@@ -67,8 +67,10 @@ fn ai_85_get_restrained_matches_actor_state_and_unconscious_exclusion() {
     game.world_mut().actor(id(0x900)).unwrap().restrained = true;
     assert_eq!(evaluate(&game, id(0x900), &condition(244, 1.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &condition(244, 0.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x900), &condition(244, 1.0)), Ok(true));
     game.world_mut().actor(id(0x900)).unwrap().unconscious = true;
     assert_eq!(evaluate(&game, id(0x900), &condition(244, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x900), &condition(244, 0.0)), Ok(true));
 }
 
 #[test]
@@ -76,6 +78,11 @@ fn ai_85_get_restrained_rejects_parameters_and_invalid_actor_context() {
     let game = fixture();
     let mut parameter = condition(244, 1.0);
     parameter.parameters[1] = 1;
+    assert_eq!(
+        evaluate(&game, id(0x900), &parameter),
+        Err(conditions::Error::Parameter(244, 1))
+    );
+    parameter.parameters = [1, 0];
     assert_eq!(
         evaluate(&game, id(0x900), &parameter),
         Err(conditions::Error::Parameter(244, 1))
@@ -94,6 +101,7 @@ fn ai_85_get_real_hours_passed_uses_real_clock_hours() {
     game.world_mut().advance_clock(5_400.0);
     assert_eq!(evaluate(&game, id(0x900), &condition(716, 1.5)), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &condition(716, 2.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x900), &condition(716, 0.0)), Ok(false));
 }
 
 #[test]
@@ -101,6 +109,11 @@ fn ai_85_parameterless_time_query_rejects_parameters_and_missing_run_on_target()
     let game = fixture();
     let mut parameter = condition(716, 0.0);
     parameter.parameters[0] = 1;
+    assert_eq!(
+        evaluate(&game, id(0x900), &parameter),
+        Err(conditions::Error::Parameter(716, 1))
+    );
+    parameter.parameters = [0, 1];
     assert_eq!(
         evaluate(&game, id(0x900), &parameter),
         Err(conditions::Error::Parameter(716, 1))

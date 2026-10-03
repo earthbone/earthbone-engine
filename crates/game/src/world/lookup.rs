@@ -21,12 +21,33 @@ impl World {
 
     /// Set the reference currently held by the host player.
     pub fn set_grabbed_reference(&mut self, reference: Option<GlobalFormId>) {
+        let previous = self.grabbed_reference;
+        if previous == reference {
+            return;
+        }
         self.grabbed_reference = reference;
+        if let Some(previous) = previous {
+            self.commonlib_grab_release(previous, false);
+        }
+        if let Some(reference) = reference {
+            self.commonlib_grab_release(reference, true);
+        }
     }
 
     /// Return the reference currently held by the host player.
     pub fn grabbed_reference(&self) -> Option<GlobalFormId> {
         self.grabbed_reference
+    }
+
+    /// Set whether the host currently presents the player camera in first person.
+    pub fn set_player_first_person(&mut self, first_person: bool) {
+        self.player_first_person = first_person;
+    }
+
+    /// Return whether the host currently presents the player camera in first person.
+    #[must_use]
+    pub fn player_first_person(&self) -> bool {
+        self.player_first_person
     }
 
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {

@@ -25,6 +25,7 @@
 
 use crate::{conditions, Game, World};
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
+use soe_papyrus::{ObjectId, Value, Vm};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A failed purchase leaves perk ownership and the point balance unchanged.
@@ -158,6 +159,28 @@ pub fn entry_point_invocations(
     entry_point: u8,
     context: &EntryPointContext,
 ) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    entry_point_invocations_with_conditions(world, Some(vm), None, actor, entry_point, context)
+}
+
+/// Collect eligible entries using a caller-provided view of conditional VM variables.
+pub(crate) fn entry_point_invocations_with_lookup(
+    world: &mut World,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    entry_point_invocations_with_conditions(world, None, Some(lookup), actor, entry_point, context)
+}
+
+fn entry_point_invocations_with_conditions(
+    world: &mut World,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
     let owned = world.perks_for_actor(actor);
     let entries = world
         .order()
@@ -171,7 +194,7 @@ pub fn entry_point_invocations(
             if section.entry_point != entry_point {
                 continue;
             }
-            if !entry_conditions(world, vm, perk_id, &section, context)? {
+            if !entry_conditions(world, vm, lookup, perk_id, &section, context)? {
                 continue;
             }
             let invocation = EntryPointInvocation {
@@ -187,6 +210,99 @@ pub fn entry_point_invocations(
         }
     }
     Ok(invocations)
+}
+
+/// Apply numeric functions from ordered value-type invocations.
+///
+/// # Errors
+/// Returns an error for malformed operation data or non-finite results.
+pub(crate) fn apply_value_modifiers(
+    world: &mut World,
+    invocations: &[EntryPointInvocation],
+    mut value: f32,
+) -> Result<f32, DispatchError> {
+    for invocation in invocations {
+        let function = invocation.function;
+        let amount = match function {
+            1..=3 => {
+                if invocation.data_type != Some(1) || invocation.data.len() != 4 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                f32::from_le_bytes(
+                    invocation
+                        .data
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                )
+            }
+            4 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let min = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let max = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !min.is_finite() || !max.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                world.random_float(min, max)
+            }
+            5 | 12..=14 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let raw_index = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let coefficient = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !raw_index.is_finite() || raw_index.fract() != 0.0 || !coefficient.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let index = i32::try_from(raw_index as i64)
+                    .map_err(|_| DispatchError::Malformed(invocation.perk))?;
+                let name = crate::actor_values::actor_value_name(index)
+                    .ok_or(DispatchError::Malformed(invocation.perk))?;
+                world.actor_value(invocation.actor, name) * coefficient
+            }
+            6 | 7 => {
+                if invocation.data_type.is_some() || !invocation.data.is_empty() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                0.0
+            }
+            _ => return Err(DispatchError::Unregistered(function)),
+        };
+        if !amount.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+        value = match function {
+            1 | 12 => amount,
+            2 | 4 | 5 => value + amount,
+            3 | 13 => value * amount,
+            6 => value.abs(),
+            7 => -value.abs(),
+            14 => value * (1.0 + amount),
+            _ => value,
+        };
+        if !value.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+    }
+    Ok(value)
 }
 
 struct EntrySection {
@@ -333,7 +449,8 @@ fn finish_section(sections: &mut Vec<EntrySection>, current: &mut Option<EntrySe
 
 fn entry_conditions(
     world: &mut World,
-    vm: &soe_papyrus::Vm,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     perk: GlobalFormId,
     section: &EntrySection,
     context: &EntryPointContext,
@@ -364,9 +481,14 @@ fn entry_conditions(
             skill_use: context.skill_use,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, condition_context, conditions)
-            .map_err(|error| DispatchError::Condition(perk, error))?
-        {
+        let result = match (vm, lookup) {
+            (Some(vm), _) => conditions::evaluate(world, vm, condition_context, conditions),
+            (_, Some(lookup)) => {
+                conditions::evaluate_with_lookup(world, condition_context, conditions, lookup)
+            }
+            (None, None) => conditions::evaluate_without_vm(world, condition_context, conditions),
+        };
+        if !result.map_err(|error| DispatchError::Condition(perk, error))? {
             return Ok(false);
         }
     }

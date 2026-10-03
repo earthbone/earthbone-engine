@@ -91,7 +91,8 @@ impl World {
         let data = record
             .find(Tag::new(b"DATA"))
             .ok_or_else(|| VmError::State("SPGD record has no DATA".into()))?;
-        if data.len() != 40 && data.len() != 48 {
+        let has_texture = record.find(Tag::new(b"ICON")).is_some();
+        if (has_texture && data.len() != 48) || (!has_texture && data.len() != 40) {
             return Err(VmError::State("invalid SPGD DATA size".into()));
         }
         let mut bytes = data;

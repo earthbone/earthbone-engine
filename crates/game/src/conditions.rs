@@ -105,6 +105,8 @@ pub enum Error {
     EquipmentRecord(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
+    #[error("intimidation perk entry point: {0}")]
+    IntimidationPerk(String),
     #[error("condition function {0} has no usable query contract")]
     NoConditionContract(u16),
 }
@@ -172,6 +174,9 @@ pub fn supports_function(function: u16) -> bool {
             | 10
             | 11
             | 14
+            | 27
+            | 36
+            | 39
             | 25
             | 26
             | 49
@@ -269,6 +274,7 @@ pub fn supports_function(function: u16) -> bool {
             | 633
             | 654
             | 655
+            | 657
             | 656
             | 659
             | 254
@@ -853,11 +859,38 @@ fn function_value(
             }
             reference.scale * actor_scale
         }
-        27 | 36 | 39 => {
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "the local CK corpus does not define a runtime contract",
-            ));
+        27 => {
+            let target = resolve_reference(world, context.owner, raw)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            if world
+                .reference(target)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(target));
+            }
+            if world.actor(target).is_none() && !world.is_player(subject) {
+                return Err(Error::Form(target));
+            }
+            boolean(world.line_of_sight.contains(&(subject, target)))
+        }
+        36 => {
+            if raw != 0 {
+                return Err(Error::UnavailableContractReason(
+                    c.function,
+                    "the runtime tracks menu mode without individual menu identities",
+                ));
+            }
+            boolean(world.menu_mode)
+        }
+        39 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let keyword = world.form("MagicDisease").ok_or(Error::Form(subject))?;
+            boolean(world.has_magic_effect_with_keyword(subject, keyword))
         }
         35 => {
             no_parameter(c)?;
@@ -2452,9 +2485,13 @@ fn function_value(
         }
         571 => {
             no_parameter_second(c)?;
-            let spell = casting_spell(world, subject, c.function, raw)?;
-            let current = world.concentration_spell(subject);
-            match spell.filter(|spell| Some(*spell) == current) {
+            let selected = casting_spell(world, subject, c.function, raw)?;
+            let pending = (raw <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let concentration =
+                selected.filter(|spell| world.concentration_spell(subject) == Some(*spell));
+            match pending.or(concentration) {
                 Some(spell) => {
                     world
                         .spell(spell)
@@ -2473,13 +2510,25 @@ fn function_value(
         }
         595 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
-            let source = casting_spell(world, subject, c.function, c.parameters[1])?;
-            boolean(source == Some(spell) && world.concentration_spell(subject) == Some(spell))
+            let selected = casting_spell(world, subject, c.function, c.parameters[1])?;
+            let pending = (c.parameters[1] <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let current = pending.or_else(|| {
+                selected.filter(|selected| world.concentration_spell(subject) == Some(*selected))
+            });
+            boolean(current == Some(spell))
         }
         596 => {
-            let source = casting_spell(world, subject, c.function, raw)?;
+            let selected = casting_spell(world, subject, c.function, raw)?;
             let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
-            let has_keyword = if let Some(spell) = source {
+            let pending = (raw <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let current = pending.or_else(|| {
+                selected.filter(|selected| world.concentration_spell(subject) == Some(*selected))
+            });
+            let has_keyword = if let Some(spell) = current {
                 let definition = world.spell(spell).map_err(|_| Error::Form(spell))?;
                 definition.effects.iter().any(|effect| {
                     world
@@ -2496,24 +2545,34 @@ fn function_value(
             if raw > 2 {
                 return Err(Error::Parameter(c.function, raw));
             }
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "ward animation state is not supplied by the host",
-            ));
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(
+                actor.ward_state.ok_or(Error::UnavailableContractReason(
+                    c.function,
+                    "ward animation state is not supplied by the host",
+                ))? == raw,
+            )
         }
         627 => {
             no_parameter(c)?;
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "dual-cast animation state is not tracked",
-            ));
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .dual_casting
+                    .ok_or(Error::UnavailableContractReason(
+                        c.function,
+                        "dual-cast animation state is not tracked",
+                    ))?,
+            )
         }
         632 => {
             no_parameter(c)?;
             world.actor(subject).ok_or(Error::Form(subject))?;
-            boolean(world.is_concentration_casting(subject))
+            boolean(
+                world.is_concentration_casting(subject)
+                    || world.pending_spell_cast(subject).is_some(),
+            )
         }
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
@@ -2611,9 +2670,14 @@ fn function_value(
                     .is_some_and(|state| !state.deleted),
             )
         }
-        391 | 415 | 416 => {
+        391 => {
             no_parameter(c)?;
-            return Err(Error::Context(c.function));
+            boolean(world.player_first_person())
+        }
+        415 | 416 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContract(c.function));
         }
         426 => {
             let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
@@ -2641,8 +2705,11 @@ fn function_value(
             boolean(world.type_code(base) == raw as i32)
         }
         463 => {
-            resolve_reference(world, context.owner, raw)?;
-            return Err(Error::Context(c.function));
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let reference = resolve_reference(world, context.owner, raw)?;
+            boolean(world.grabbed_reference() == Some(reference))
         }
         74 => {
             let global = resolve(world, context.owner, raw, Some(*b"GLOB"))?;
@@ -2651,19 +2718,10 @@ fn function_value(
         136 => boolean(subject == resolve_reference(world, context.owner, raw)?),
         157 => {
             no_parameter(c)?;
-            let (base, opened) = world
-                .reference(subject)
-                .filter(|reference| !reference.deleted)
-                .map(|reference| (reference.base, reference.opened))
-                .ok_or(Error::Form(subject))?;
-            let is_door = base.is_some_and(|base| world.tag_of(base) == Some(Tag(*b"DOOR")));
-            if !is_door {
-                0.0
-            } else if opened {
-                1.0
-            } else {
-                3.0
-            }
+            world
+                .door_open_state(subject)
+                .map(|state| state as f32)
+                .ok_or(Error::Form(subject))?
         }
         161 => {
             if c.parameters[1] != 0 {
@@ -2911,6 +2969,7 @@ fn function_value(
                 .ok_or_else(|| Error::Variable(name.into()))?
         }
         675 => {
+            no_parameter(c)?;
             let name = c.strings[0]
                 .as_deref()
                 .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
@@ -3038,6 +3097,21 @@ fn function_value(
             no_parameter(c)?;
             boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
+        657 => {
+            // CK Actor.IsArrestingTarget is false for non-guards and guards
+            // that are not alerted. The active arrest interaction is not
+            // represented in the runtime, so an alerted guard is unavailable.
+            no_parameter(c)?;
+            let guard_faction = world
+                .resolve_from(subject, 0x0008_6eee)
+                .ok_or(Error::Form(subject))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if !actor.factions.contains_key(&guard_faction) || !actor.alerted {
+                boolean(false)
+            } else {
+                return Err(Error::Unavailable(c.function));
+            }
+        }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
 
         716 => {
@@ -3051,11 +3125,15 @@ fn function_value(
         }
         676 => {
             no_parameter(c)?;
-            world.actor(subject).ok_or(Error::Form(subject))?;
-            return Err(Error::UnavailableContractReason(
-                c.function,
-                "active voice variation is not tracked",
-            ));
+            world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .shout_variation
+                .map(|variation| variation as f32)
+                .ok_or(Error::UnavailableContractReason(
+                    c.function,
+                    "active voice variation is not tracked",
+                ))?
         }
         636 => {
             no_parameter(c)?;
@@ -3385,11 +3463,11 @@ fn furniture_marker_type(
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
 }
 
-/// Approximate the player's intimidation result using Speechcraft and target
-/// Confidence. The perk entry point that supplies the complete formula is
-/// not implemented yet.
+/// Evaluate player Speechcraft against target Confidence and the player's
+/// authored Mod Player Intimidation perk entries.
 pub(crate) fn will_intimidate_succeed(
     world: &mut World,
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
     subject: GlobalFormId,
 ) -> Result<bool, Error> {
     let player = world.player();
@@ -3400,12 +3478,30 @@ pub(crate) fn will_intimidate_succeed(
         .get("speechcraft")
         .current();
     let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-    if subject_actor.values.contains("confidence") {
-        let confidence = subject_actor.values.get("confidence").current();
-        Ok(speechcraft >= confidence * 25.0)
-    } else {
-        Ok(false)
+    if !subject_actor.values.contains("confidence") {
+        return Ok(false);
     }
+    let confidence = subject_actor.values.get("confidence").current();
+    let invocations = crate::perks::entry_point_invocations_with_lookup(
+        world,
+        player,
+        43,
+        &crate::perks::EntryPointContext {
+            tabs: vec![player, subject],
+            target: Some(subject),
+            quest: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            skill_use: None,
+        },
+        lookup,
+    )
+    .map_err(|error| Error::IntimidationPerk(error.to_string()))?;
+    let effective_speechcraft =
+        crate::perks::apply_value_modifiers(world, &invocations, speechcraft)
+            .map_err(|error| Error::IntimidationPerk(error.to_string()))?;
+    Ok(effective_speechcraft >= confidence * 25.0)
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

@@ -3,7 +3,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_godot_host::image_space::ImageSpaceStack;
+use soe_godot_host::image_space::{ImageSpaceRenderLayer, ImageSpaceStack, RenderedModifiers};
 
 fn record(object: u32, channels: &[([u8; 4], usize, bool, Vec<f32>)]) -> Record {
     let mut header = vec![0; 244];
@@ -88,4 +88,76 @@ fn mag_71_duplicate_authored_channel_rejects_the_frame() {
     let mut stack = ImageSpaceStack::default();
     stack.sync(&game.world()).unwrap();
     assert!(stack.render_layers(&game.world()).is_err());
+}
+
+#[test]
+fn mag_71_composes_authored_render_channels_with_active_stack_weights() {
+    let layers = vec![
+        ImageSpaceRenderLayer {
+            modifier: id(1),
+            strength: 0.25,
+            channels: vec![
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"TNAM",
+                    values: vec![1.0, 0.0, 0.0, 0.8],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"BNAM",
+                    values: vec![4.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"WNAM",
+                    values: vec![0.8],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"XNAM",
+                    values: vec![500.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"YNAM",
+                    values: vec![200.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"\x03IAD",
+                    values: vec![2.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"\x02IAD",
+                    values: vec![2.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"CIAD",
+                    values: vec![2.0],
+                },
+                soe_game::world::image_space::ImageSpaceCurveSample {
+                    channel: *b"BIAD",
+                    values: vec![2.0],
+                },
+            ],
+        },
+        ImageSpaceRenderLayer {
+            modifier: id(2),
+            strength: 0.5,
+            channels: vec![soe_game::world::image_space::ImageSpaceCurveSample {
+                channel: *b"TNAM",
+                values: vec![0.0, 0.0, 1.0, 0.4],
+            }],
+        },
+    ];
+
+    let rendered = RenderedModifiers::from_layers(&layers);
+
+    assert_eq!(rendered.tint, [0.25, 0.0, 0.5, 0.4]);
+    assert_eq!(rendered.blur_radius, 1.0);
+    assert_eq!(rendered.depth_strength, 0.2);
+    assert_eq!(
+        rendered.depth_distance,
+        125.0 / soe_game::world::UNITS_PER_METRE
+    );
+    assert_eq!(
+        rendered.depth_range,
+        1.0 + 50.0 / soe_game::world::UNITS_PER_METRE
+    );
+    assert!((rendered.bloom_threshold - 1.525).abs() < 0.00001);
+    assert_eq!(rendered.bloom_scale, 1.0);
 }

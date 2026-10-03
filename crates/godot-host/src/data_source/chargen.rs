@@ -140,7 +140,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ui_17_chargen_cache_counts_unique_retained_assets_and_bytes() {
+    fn scr_30_chargen_cache_reports_resident_files_and_bytes() {
         let cache = ChargenCache {
             files: BTreeMap::from([
                 ("meshes/part.nif".into(), vec![1; 7]),
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn ui_17_chargen_cache_clear_releases_files_and_resets_accounting() {
+    fn scr_30_chargen_cache_clear_releases_files_and_resets_accounting() {
         let mut cache = ChargenCache {
             files: BTreeMap::from([("meshes/part.nif".into(), vec![1; 7])]),
             bytes: 7,
@@ -167,6 +167,9 @@ mod tests {
         cache.clear();
         assert_eq!(cache.file_count(), 0);
         assert_eq!(cache.resident_bytes(), 0);
+        assert_eq!(cache.model_count(), 0);
+        assert_eq!(cache.morph_count(), 0);
+        assert_eq!(cache.missing_count(), 0);
     }
 
     #[test]
@@ -182,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn ui_17_chargen_cache_loads_vanilla_head_part_and_morph_assets() {
+    fn scr_30_chargen_cache_loads_and_clears_vanilla_assets() {
         let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
             return;
         };
@@ -206,5 +209,12 @@ mod tests {
             cache.resident_bytes(),
             cache.files.values().map(Vec::len).sum::<usize>()
         );
+        let mut cache = cache;
+        cache.clear();
+        assert_eq!(cache.file_count(), 0);
+        assert_eq!(cache.model_count(), 0);
+        assert_eq!(cache.morph_count(), 0);
+        assert_eq!(cache.missing_count(), 0);
+        assert_eq!(cache.resident_bytes(), 0);
     }
 }

@@ -50,6 +50,7 @@ fn cell_and_clear_audit_covers_every_registered_binding() {
             ("cell".to_owned(), "setactorowner".to_owned()),
             ("cell".to_owned(), "setfactionowner".to_owned()),
             ("cell".to_owned(), "setpublic".to_owned()),
+            ("referencealias".to_owned(), "clear".to_owned()),
         ]
     );
     assert!(vm
@@ -69,6 +70,7 @@ fn cell_and_clear_audit_covers_every_registered_binding() {
         "Cell.SetFactionOwner",
         "Cell.SetPublic",
         "Alias.Clear",
+        "ReferenceAlias.Clear",
     ] {
         assert!(audit.contains(&format!("`{binding}`")), "missing {binding}");
     }
@@ -82,7 +84,7 @@ fn cell_and_clear_audit_covers_every_registered_binding() {
     }
     assert!(audit.contains("SCR-19 owns the live attachment query"));
     assert!(audit.contains("SCR-19 owns cell reset behavior"));
-    assert!(audit.contains("SCR-68 owns both gaps"));
+    assert!(audit.contains("Validates Optional, clears the runtime alias override and reevaluates the former target package"));
     let backlog = include_str!("../../../BACKLOG.csv");
     for row in ["SCR-19", "SCR-68"] {
         assert!(

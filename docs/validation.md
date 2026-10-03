@@ -113,6 +113,12 @@ synthetic captured log, and checks that one wrong expectation is reported by
 line number. Real captures go under `crates/game/tests/captures/` and are
 picked up by a test per directory once the first one exists.
 
+`tst_11_real_vanilla_log_differential_reports_every_trace` reads a real capture
+from `SOE_PAPYRUS_LOG` when that variable names a `Papyrus.0.log`. It verifies
+that parsing creates expectations and that the differential report names each
+expected trace absent from the VM log. The test returns without running when
+the variable is unset.
+
 ## Determinism
 
 A scenario that replays the same way twice can be bisected, recorded and
@@ -194,8 +200,9 @@ pattern is in the code and a longer or wider scenario can reach them:
 `TickHash::with_host_builder_hash` lets a host caller add its builder result
 hash to each game tick as `host.builders`. The
 `tst_02_host_runs_hash_threaded_builder_results_per_tick` test runs the same
-seeded worker batches twice, compares combined hashes for each tick, and checks
-that a changed host hash names that part as the divergence.
+seeded worker batches twice, verifies parallel results match serial input order,
+hashes each surface array and bound into the matching tick, compares the logs,
+and checks that a changed host hash names that part as the divergence.
 
 What the detector cannot see: floating point differences between machines
 or compiler versions (the hash compares bit patterns, so a different build

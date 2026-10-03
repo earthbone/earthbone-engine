@@ -22,11 +22,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use godot::builtin::Rid;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
     Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
     InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
-    Node3D,
+    Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -112,6 +113,9 @@ pub struct PlayerNode {
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
+    debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
+    debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
+    debug_ref_marker_material: Option<Gd<StandardMaterial3D>>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     aimed_projectile_contacts: crate::combat::AimedProjectileContacts,
@@ -123,6 +127,7 @@ pub struct PlayerNode {
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     image_space_renderer: crate::image_space::renderer::BaseRenderer,
+    image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer,
     image_space_tint: Option<ImageSpaceTintView>,
     presented_hud_cart_mode: bool,
     effect_shaders: crate::effect_shader::EffectShaderStack,
@@ -206,6 +211,9 @@ impl INode3D for PlayerNode {
             animation_source: None,
             player_appearance: None,
             pending_debug_latents: Vec::new(),
+            debug_ref_markers: BTreeMap::new(),
+            debug_ref_marker_mesh: None,
+            debug_ref_marker_material: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
@@ -214,6 +222,8 @@ impl INode3D for PlayerNode {
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             image_space_renderer: crate::image_space::renderer::BaseRenderer::default(),
+            image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer::default(
+            ),
             image_space_tint: None,
             presented_hud_cart_mode: false,
             effect_shaders: crate::effect_shader::EffectShaderStack::default(),
@@ -410,13 +420,23 @@ impl INode3D for PlayerNode {
         if let Some(game) = self.game.as_mut() {
             if let Some(view) = self.hud_view.as_mut() {
                 view.refresh(game, self.rig.yaw());
+                view.set_cart_mode(game.world().hud_cart_mode);
             }
         } else if let Some(view) = self.hud_view.as_mut() {
             view.hide();
         }
+        if let Some(view) = self.hud_view.as_mut() {
+            view.tick_presentation(delta);
+        }
     }
 
     fn exit_tree(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
+            server.free_rid(rid);
+        }
+        self.debug_ref_marker_mesh = None;
+        self.debug_ref_marker_material = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
         self.actor_bodies.free();
@@ -481,6 +501,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -527,6 +548,13 @@ impl PlayerNode {
             .map_or_else(GString::new, GString::from)
     }
 
+    /// Invoke a main-menu Game native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_main_menu_native(&mut self, name: GString, sequence: GString) -> bool {
+        self.invoke_main_menu_native_for_check(&name, &sequence)
+    }
+
     /// Connect an already loaded character rig to this gameplay world's live
     /// skin and equipment records. Reuses the existing character node.
     #[func]
@@ -561,8 +589,8 @@ impl PlayerNode {
                 );
                 if is_player {
                     visual.bind_mut().set_first_person_geometry_visible(
-                        self.rig.mode != CameraMode::First
-                            || self.camera_state.first_person_geometry_visible(),
+                        self.camera_state
+                            .rendered_first_person_geometry_visible(self.rig.mode),
                     );
                     self.player_appearance = Some(visual);
                 }
@@ -573,6 +601,89 @@ impl PlayerNode {
                 false
             }
         }
+    }
+
+    /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
+    ///
+    /// Returns false if the game, either form ID, or the world request is invalid.
+    #[func]
+    pub fn push_actor_away(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        target_file: i32,
+        target_object: i64,
+        force: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object), Ok(target_file), Ok(target_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .push_actor_away(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                soe_esm::GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                force,
+            )
+            .is_ok()
+    }
+
+    /// Queue the same area impulse used by ObjectReference.KnockAreaEffect.
+    ///
+    /// Returns false if the game, source form ID, or world request is invalid.
+    #[func]
+    pub fn knock_area_effect(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        magnitude: f32,
+        radius: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .knock_area_effect(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                magnitude,
+                radius,
+            )
+            .is_ok()
+    }
+
+    /// Set an actor's explicit CMB-38 ragdoll mode in the shared world.
+    ///
+    /// Returns false if the game, form ID, or actor is invalid.
+    #[func]
+    pub fn force_actor_ragdoll(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Some(game), Ok(file), Ok(object)) = (
+            self.game.as_mut(),
+            u16::try_from(file),
+            u32::try_from(object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .force_ragdoll(soe_esm::GlobalFormId { file, object }, enabled)
+            .is_ok()
     }
 
     /// Forward one authored behavior event from the bound actor rig.
@@ -1141,6 +1252,22 @@ impl PlayerNode {
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
     }
 
+    /// Animation graph events that reached the active Game, for host diagnostics.
+    #[func]
+    pub fn gameplay_animation_events(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        if let Some(game) = &self.game {
+            for (source, name) in &game.world().animation_events {
+                let mut row = VarDictionary::new();
+                row.set("source_file", i64::from(source.file));
+                row.set("source_object", i64::from(source.object));
+                row.set("name", &GString::from(name));
+                result.push(&row);
+            }
+        }
+        result
+    }
+
     /// Resident exterior cells and their physics handles for integration diagnostics.
     #[func]
     pub fn exterior_resources(&self) -> VarDictionary {
@@ -1192,6 +1319,34 @@ impl PlayerNode {
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Creation benches in the current logical cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_creation_benches(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut references = game.world_mut().cell_references(cell);
+        references.sort_unstable();
+        let mut result = Array::new();
+        for id in references {
+            if !crate::crafting_menu::is_creation_bench(game, id) {
+                continue;
+            }
+            let active = game
+                .world_mut()
+                .reference(id)
+                .is_some_and(|reference| reference.enabled && !reference.deleted);
+            if !active {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
             result.push(&row);
         }
         result
@@ -1570,6 +1725,7 @@ impl PlayerNode {
         overlay.set_mouse_filter(MouseFilter::IGNORE);
         overlay.hide();
         canvas.add_child(&overlay);
+        self.image_space_modifier_renderer.attach(&mut canvas);
         self.base_mut().add_child(&canvas);
         overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
         self.image_space_tint = Some(ImageSpaceTintView { overlay });
@@ -1580,9 +1736,21 @@ impl PlayerNode {
             .image_space
             .base()
             .map(crate::image_space::RenderedBase::from);
+        let modifiers = self
+            .game
+            .as_ref()
+            .and_then(|game| {
+                self.image_space
+                    .render_layers(&game.world())
+                    .ok()
+                    .map(|layers| crate::image_space::RenderedModifiers::from_layers(&layers))
+            })
+            .unwrap_or_default();
         if let Some(camera) = &mut self.camera {
-            self.image_space_renderer.apply(camera, rendered.as_ref());
+            self.image_space_renderer
+                .apply(camera, rendered.as_ref(), &modifiers);
         }
+        self.image_space_modifier_renderer.apply(&modifiers);
         if let Some(tint) = &mut self.image_space_tint {
             if let Some(values) = rendered.filter(|values| values.tint[0] > 0.0) {
                 tint.overlay.set_color(Color::from_rgba(
@@ -1612,18 +1780,13 @@ impl PlayerNode {
     }
 
     fn refresh_door_fade(&mut self) {
-        let door_opacity = self.door_fade.opacity();
-        let game_opacity = self.game_fade.opacity();
-        let (opacity, black) = if game_opacity > door_opacity {
-            (game_opacity, self.game_fade.is_black())
-        } else {
-            (door_opacity, true)
-        };
+        let presentation =
+            crate::door_fade::fade_overlay_presentation(&self.door_fade, &self.game_fade);
         if let Some(view) = &mut self.door_fade_view {
-            let channel = if black { 0.0 } else { 1.0 };
+            let [red, green, blue, alpha] = presentation.rgba;
             view.overlay
-                .set_color(Color::from_rgba(channel, channel, channel, opacity));
-            view.overlay.set_visible(opacity > 0.0);
+                .set_color(Color::from_rgba(red, green, blue, alpha));
+            view.overlay.set_visible(presentation.visible);
         }
     }
 
