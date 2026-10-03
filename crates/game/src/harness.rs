@@ -317,18 +317,47 @@ fn parse_step(body: &str) -> Result<Step, String> {
 pub fn papyrus_log_traces(text: &str) -> Vec<String> {
     text.lines()
         .filter_map(|l| {
-            let l = l.trim_end();
-            if l.is_empty() {
+            let body = vanilla_trace_payload(l).unwrap_or(l);
+            if body.trim().is_empty() {
                 return None;
             }
-            let body = if l.starts_with('[') {
-                l.find("] ").map_or(l, |i| &l[i + 2..])
-            } else {
-                l
-            };
             Some(body.to_string())
         })
         .collect()
+}
+
+fn vanilla_trace_payload(line: &str) -> Option<&str> {
+    let close = line.find("] ")?;
+    let timestamp = line.strip_prefix('[')?.get(..close.checked_sub(1)?)?;
+    let (date, time) = timestamp.split_once(" - ")?;
+    let mut date_parts = date.split('/');
+    let (month, day, year) = (date_parts.next()?, date_parts.next()?, date_parts.next()?);
+    if date_parts.next().is_some()
+        || month.len() != 2
+        || day.len() != 2
+        || year.len() != 4
+        || !month.bytes().all(|byte| byte.is_ascii_digit())
+        || !day.bytes().all(|byte| byte.is_ascii_digit())
+        || !year.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let time = time
+        .strip_suffix("AM")
+        .or_else(|| time.strip_suffix("PM"))?;
+    let (clock, seconds) = time.split_once(':')?;
+    let (hour, minute) = (clock, seconds.get(..2)?);
+    let second = seconds.get(3..5)?;
+    if seconds.as_bytes().get(2) != Some(&b':')
+        || seconds.len() != 5
+        || hour.len() != 2
+        || !hour.bytes().all(|byte| byte.is_ascii_digit())
+        || !minute.bytes().all(|byte| byte.is_ascii_digit())
+        || !second.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(&line[close + 2..])
 }
 
 fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {

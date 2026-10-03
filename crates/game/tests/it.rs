@@ -1410,16 +1410,35 @@ mod scr_65_adversarial;
 mod scr_66_adversarial;
 #[path = "scr_67_adversarial.rs"]
 mod scr_67_adversarial;
+
+#[path = "scr_67_breaker2_adversarial.rs"]
+mod scr_67_breaker2_adversarial;
+#[path = "scr_67_breaker_adversarial.rs"]
+mod scr_67_breaker_adversarial;
 #[path = "scr_67_native_registry.rs"]
 mod scr_67_native_registry;
 #[path = "scr_68_adversarial.rs"]
 mod scr_68_adversarial;
+#[path = "scr_68_breaker2_adversarial.rs"]
+mod scr_68_breaker2_adversarial;
+#[path = "scr_68_breaker_adversarial.rs"]
+mod scr_68_breaker_adversarial;
 #[path = "scr_68_native_contracts.rs"]
 mod scr_68_native_contracts;
 #[path = "scr_69_adversarial.rs"]
 mod scr_69_adversarial;
+#[path = "scr_69_breaker2_adversarial.rs"]
+mod scr_69_breaker2_adversarial;
+#[path = "scr_69_breaker_adversarial.rs"]
+mod scr_69_breaker_adversarial;
+#[path = "scr_69_native_contract_audit.rs"]
+mod scr_69_native_contract_audit;
 #[path = "scr_70_adversarial.rs"]
 mod scr_70_adversarial;
+#[path = "scr_70_breaker2_adversarial.rs"]
+mod scr_70_breaker2_adversarial;
+#[path = "scr_70_breaker_adversarial.rs"]
+mod scr_70_breaker_adversarial;
 #[path = "scr_71_adversarial.rs"]
 mod scr_71_adversarial;
 #[path = "scr_72_adversarial.rs"]
@@ -1540,6 +1559,10 @@ mod tst_01_rng_streams;
 mod tst_06_adversarial;
 #[path = "tst_11_adversarial.rs"]
 mod tst_11_adversarial;
+#[path = "tst_11_breaker_adversarial.rs"]
+mod tst_11_breaker_adversarial;
+#[path = "tst_11_breaker_breaker_adversarial.rs"]
+mod tst_11_breaker_breaker_adversarial;
 #[path = "tst_11_papyrus_log.rs"]
 mod tst_11_papyrus_log;
 #[path = "tst_12_additional_adversarial.rs"]

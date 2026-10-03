@@ -73,6 +73,76 @@ SKYRIM_DATA="<Data>" godot --path godot --script bench.gd
 The first run of a fresh checkout needs `godot --headless --path godot --import`
 once, see `docs/godot-host.md`.
 
+## PRF-08 first-use rendering
+
+The 2026-09-23 exterior log recorded a 69.089 ms worst frame on run one,
+but did not record its frame number or pipeline counters. The code path left
+first-use pipeline compilation outside streaming: `add_instance`,
+`add_multimesh` and `lod_instance` uploaded geometry without a surface material,
+then assigned an instance material override. The benchmark created its camera
+on its first process frame and waited ten frames without a completion check.
+Godot identifies instance overrides as unavailable to mesh-stage precompilation.
+Material combinations and view-dependent rendering were first exercised after
+the load call. Texture decode completes inside `stream_exterior_each` and
+`add_cell` uploads textures before returning. The benchmark does not request
+collision or assign a streaming focus, so neither collision construction nor
+cell streaming runs on its first exterior process frame.
+
+PRF-08 binds bulk materials to mesh surfaces before instancing and preserves
+them across placement rebakes. Benchmark and walkthrough loading draw their
+configured camera and lights behind a cover, synchronize submitted GPU work,
+and wait for three drawn frames and 500 ms with unchanged pipeline counters.
+An unsettled load fails at 30 seconds. The covered frames warm first-use
+pipelines and uploads before the cover is removed. The helper reports loading
+time, its worst frame and compilation counts independently of measurement.
+It uses stock Godot 4.4 APIs. The default disk shader cache stays enabled.
+
+This names and removes the deferred first-use path found in the source.
+It does not establish that compilation caused the historical 69.089 ms frame,
+because that log lacks a frame trace. The windowed rerun must verify the fix.
+The helper observes quiet counters, not pending background compiler jobs.
+Specialization can resume later. No headless timing is rendering evidence.
+
+Build and import the extension as described in [godot-host.md](godot-host.md),
+then run these three windowed exterior radius 1 starts with one command:
+
+```text
+rtk proxy env SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" SOE_BENCH_CELL=WhiterunOrigin SOE_BENCH_RADIUS=1 SOE_BENCH_BATCH=1 SOE_BENCH_OCCLUDERS=1 SOE_BENCH_SECONDS=5 SOE_BENCH_P99_MS=16.7 SOE_BENCH_WORST_MS=33 SOE_BENCH_SOAK=0 SOE_BENCH_CAPTURE= XDG_DATA_HOME="$PWD/target/prf-08-user" /var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/tools/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --script bench.gd -- --cold-starts 3
+```
+
+The launcher is headless, while each child uses a window and the project's
+renderer with the same executable. Each child opens data and builds the scene
+in a fresh process, measures at least 600 frames and five seconds, prints
+`godot_run N worst X ms frame F` and a `SOE_SAMPLE` row, then exits before
+the next launch. Frame indices start at one for measurement. Loading frame
+indices are separate. Capture and reporting are outside measured intervals.
+The launcher runs every requested child even after a breach. Exit 2 preserves
+any frame-budget failure, exit 1 preserves any invalid run, and exit 0 requires
+all children to pass. A soak cannot be combined with cold-start mode.
+
+Cold means fresh process caches, as in performance-limits.md. Disk shader,
+driver and operating-system file caches are retained. This command does not
+delete the user's caches. `pipelines_before_render`, `pipelines_after_load`
+and `pipelines_during_measurement` distinguish load-time compilation from
+later compilation. Compare these with `load_render_worst_ms` and the measured
+worst frame. Thresholds remain 16.7 ms p99 and 33 ms worst.
+The executable acceptance check is
+`prf_08_three_windowed_cold_whiterun_runs_under_33_ms`, gated by
+`SKYRIM_DATA`, `SOE_GODOT` and `SOE_PRF_08_WINDOWED=1`.
+Windowed acceptance is left to the lead in this sandbox.
+
+Local validation on 2026-10-02: the deterministic loading and reporting checks
+pass on stock Godot 4.4.1 and 4.7.2. The installed-data headless material check
+passes on 4.4.1 with nine cells, 287 batched instances and 805 unbatched
+instances, all with surface materials before drawing. Clearing releases both
+sets. These are correctness results, with no measured rendering throughput.
+
+References: local Godot pipeline, RenderingServer and ProjectSettings docs,
+checked against the [Godot 4.4 pipeline guide](https://docs.godotengine.org/en/4.4/tutorials/performance/pipeline_compilations.html)
+and [shader cache setting](https://docs.godotengine.org/en/4.4/classes/class_projectsettings.html#class-projectsettings-property-rendering-shader-compiler-shader-cache-enabled).
+The `soe-perf` skill's old frame-monitor description is superseded by this
+repository's wall-clock measurement contract.
+
 ## Run of 2026-09-17, branch `perf`
 
 ### Top level

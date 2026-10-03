@@ -30,11 +30,13 @@ fn timed_scene() -> Record {
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"SNAM"), 2.0f32.to_le_bytes())
         .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes())
 }
 
 fn fixture_game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(timed_scene());
+    plugin.push_top(quest::build_record(0x810, "SceneQuest", 0));
     let mut order = LoadOrder::new();
     order.add("Dlg19.esp", plugin).unwrap();
     Game::new(order)
@@ -257,8 +259,10 @@ fn dlg_19_timer_action_with_zero_duration_completes_on_first_tick() {
         .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"SNAM"), 0.0f32.to_le_bytes())
-        .sub(Tag(*b"ANAM"), []);
+        .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes());
     plugin.push_top(zero_timer);
+    plugin.push_top(quest::build_record(0x810, "SceneQuest", 0));
     let mut order = LoadOrder::new();
     order.add("Dlg19Zero.esp", plugin).unwrap();
     let mut game = Game::new(order);

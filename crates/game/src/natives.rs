@@ -1040,14 +1040,20 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "RemoveAllItems",
         |world, call, me| {
             let target = world.form_arg(&call.arg(0));
+            let keep_ownership = call.args.get(1).is_some_and(Value::as_bool);
             let items: Vec<(GlobalFormId, i32)> = world
                 .reference(me)
                 .map(|r| r.inventory.iter().map(|(k, v)| (*k, v)).collect())
                 .unwrap_or_default();
             for (item, count) in items {
-                world.remove_item_notified(me, item, count, target, &mut |name, class| {
-                    call.create_object(name, class)
-                });
+                world.remove_item_notified_with_ownership(
+                    me,
+                    item,
+                    count,
+                    target,
+                    keep_ownership,
+                    &mut |name, class| call.create_object(name, class),
+                );
             }
             none()
         }
@@ -2448,9 +2454,42 @@ fn alias(vm: &mut Vm, w: &Shared) {
                 .push(call.time, "ReferenceAlias.Clear: alias is not optional");
             return none();
         }
+        let target = world.alias_ref(quest, alias);
         world.force_alias(quest, alias, None);
+        if let Some(target) = target {
+            world.evaluate_package(target, alloc!(call));
+            world.force_alias(quest, alias, None);
+            world.evaluate_package(target, alloc!(call));
+        }
         none()
     });
+    alias_method_on!(
+        vm,
+        w,
+        "ReferenceAlias",
+        "Clear",
+        |world, call, quest, alias| {
+            let optional = world
+                .quest_state(quest)
+                .and_then(|state| state.def.alias(alias))
+                .is_some_and(|definition| {
+                    definition.flags & crate::quest::alias_flags::OPTIONAL != 0
+                });
+            if !optional {
+                call.log
+                    .push(call.time, "ReferenceAlias.Clear: alias is not optional");
+                return none();
+            }
+            let target = world.alias_ref(quest, alias);
+            world.force_alias(quest, alias, None);
+            if let Some(target) = target {
+                world.evaluate_package(target, alloc!(call));
+                world.force_alias(quest, alias, None);
+                world.evaluate_package(target, alloc!(call));
+            }
+            none()
+        }
+    );
     // A location alias holds a form the same way a reference alias does.
     alias_method_on!(
         vm,
@@ -4034,12 +4073,14 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         world.reset_help_message(&text(&call.arg(0)));
         none()
     });
-    for name in ["Start", "ForceStart"] {
-        method!(vm, w, "Scene", name, |world, call, me| {
-            world.start_scene(me, alloc!(call));
-            none()
-        });
-    }
+    method!(vm, w, "Scene", "Start", |world, call, me| {
+        world.start_scene(me, alloc!(call));
+        none()
+    });
+    method!(vm, w, "Scene", "ForceStart", |world, call, me| {
+        world.force_start_scene(me, alloc!(call));
+        none()
+    });
     method!(vm, w, "Scene", "Stop", |world, call, me| {
         world.stop_scene(me, alloc!(call));
         none()
@@ -4063,12 +4104,18 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         i(world.play_sound(me, source))
     });
+    method!(vm, w, "Sound", "PlayAndWait", |_world, _call, _me| b(false));
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
         none()
     });
     global!(vm, w, "Sound", "SetInstanceVolume", |world, call| {
-        let volume = call.arg(1).as_float().clamp(0.0, 1.0);
+        let requested = call.arg(1).as_float();
+        let volume = if requested.is_finite() {
+            requested.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         if let Some(inst) = world.sound_instances.get_mut(&call.arg(0).as_int()) {
             inst.2 = volume;
         }
@@ -5675,7 +5722,7 @@ mod tests {
         }
         assert!(audit.contains("`ActorBase` and `Alias` have no registered global bindings"));
         assert!(audit.contains("assigns the correction to SCR-18"));
-        assert!(audit.contains("SCR-68 owns optional validation and its diagnostic"));
+        assert!(audit.contains("Required aliases retain their target and emit a trace diagnostic"));
         assert!(audit.contains("Assign reference-type validation to SCR-59"));
         let backlog = include_str!("../../../BACKLOG.csv");
         assert!(backlog.contains("\"SCR-18\""));
@@ -5711,6 +5758,7 @@ mod tests {
             ("cell", "setactorowner"),
             ("cell", "setfactionowner"),
             ("cell", "setpublic"),
+            ("referencealias", "clear"),
         ];
         let mut compared: Vec<_> = compared
             .drain(..)

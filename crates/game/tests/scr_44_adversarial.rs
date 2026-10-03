@@ -28,10 +28,12 @@ fn scene_record(id: u32, name: &str) -> Record {
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x800u32.to_le_bytes())
         .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes())
 }
 fn game() -> Game {
     let mut p = Plugin::new(FileHeader::default());
     p.push_top(scene_record(0x800, "TestScene"));
+    p.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
     let mut o = LoadOrder::new();
     o.add("Scene.esm", p).unwrap();
     Game::new(o)

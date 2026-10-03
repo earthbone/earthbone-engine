@@ -1265,7 +1265,12 @@ impl CellStreamerNode {
             for (index, visible, target_iso) in targets {
                 apply_member_patch(&mut patched, &members[index], visible, &target_iso);
             }
-            let new_mesh = array_mesh_from(&patched);
+            let mut new_mesh = array_mesh_from(&patched);
+            if let InstanceMesh::Array(mesh) = &instance.mesh {
+                if let Some(material) = mesh.surface_get_material(0) {
+                    new_mesh.surface_set_material(0, &material);
+                }
+            }
             server.instance_set_base(instance.rid, new_mesh.get_rid());
             instance.mesh = InstanceMesh::Array(new_mesh);
         }
@@ -1939,6 +1944,21 @@ impl CellStreamerNode {
     #[func]
     pub fn visual_effect_render_count(&self) -> i32 {
         self.visual_effects.len() as i32
+    }
+
+    /// Number of streamed instances with a material attached to their mesh
+    /// surface before rendering, including the underlying mesh of a MultiMesh.
+    #[func]
+    pub fn surface_material_count(&self) -> i32 {
+        self.instances
+            .iter()
+            .filter(|instance| match &instance.mesh {
+                InstanceMesh::Array(mesh) => mesh.surface_get_material(0).is_some(),
+                InstanceMesh::Multi(multi) => multi
+                    .get_mesh()
+                    .is_some_and(|mesh| mesh.surface_get_material(0).is_some()),
+            })
+            .count() as i32
     }
 
     /// Render handles grouped by owning cell, for residency diagnostics.
@@ -2687,11 +2707,12 @@ impl CellStreamerNode {
             "host",
             arrays.positions.len() as u64,
         );
-        let mesh = array_mesh_from(arrays);
+        let mut mesh = array_mesh_from(arrays);
+        // CONTEXT: Mesh materials expose pipelines during loading. Instance overrides defer them.
+        mesh.surface_set_material(0, material);
         let mut server = RenderingServer::singleton();
         let rid = server.instance_create2(mesh.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
-        server.instance_geometry_set_material_override(rid, material.get_rid());
         self.bounds = Some(match self.bounds {
             Some(b) => crate::batch::merge_bounds(b, arrays.bounds),
             None => arrays.bounds,
@@ -2718,10 +2739,12 @@ impl CellStreamerNode {
         );
         let material = material_for(&mut self.materials, &group.arrays.material, &group.textures);
         let multi = multimesh_from_group(group);
+        if let Some(mut mesh) = multi.get_mesh() {
+            mesh.surface_set_material(0, &material);
+        }
         let mut server = RenderingServer::singleton();
         let rid = server.instance_create2(multi.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
-        server.instance_geometry_set_material_override(rid, material.get_rid());
         let bounds = group_bounds(group);
         self.bounds = Some(match self.bounds {
             Some(b) => crate::batch::merge_bounds(b, bounds),
@@ -2896,11 +2919,11 @@ impl CellStreamerNode {
             &surface.arrays.material,
             &surface.textures,
         );
-        let mesh = array_mesh_from(&surface.arrays);
+        let mut mesh = array_mesh_from(&surface.arrays);
+        mesh.surface_set_material(0, &material);
         let mut server = RenderingServer::singleton();
         let rid = server.instance_create2(mesh.get_rid(), scenario);
         server.instance_set_transform(rid, Transform3D::IDENTITY);
-        server.instance_geometry_set_material_override(rid, material.get_rid());
         LodInstance {
             rid,
             mesh,

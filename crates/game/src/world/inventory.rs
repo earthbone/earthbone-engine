@@ -841,7 +841,21 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> i32 {
-        let bundle = self.remove_item_bundle(holder, item, count, target);
+        self.remove_item_notified_with_ownership(holder, item, count, target, true, alloc)
+    }
+
+    /// Remove or transfer items while applying RemoveAllItems ownership policy.
+    pub fn remove_item_notified_with_ownership(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: Option<GlobalFormId>,
+        keep_ownership: bool,
+        alloc: Alloc<'_>,
+    ) -> i32 {
+        let bundle =
+            self.remove_item_bundle_with_ownership(holder, item, count, target, keep_ownership);
         let moved = bundle.count();
         if moved == 0 {
             return 0;

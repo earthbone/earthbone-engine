@@ -195,7 +195,9 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   `SOE_MOD_CORPUS` is unset.
 - `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
   trace lines as one expectation. Differential reports list every missing
-  expected trace and allow extra runtime output.
+  expected trace and allow extra runtime output. The `tst_11` real-log check
+  reads `SOE_PAPYRUS_LOG` when set and verifies each parsed trace appears in
+  the differential report when absent from the VM log.
 - `wasm`: the Wasmtime component host. `wit/mod-api.wit` defines the versioned
   `soe:mod-api` interface with `subscribe-on-activate` and `set-stage` imports
   plus the initialization and activation exports.
@@ -690,6 +692,8 @@ remains a stub. These contracts follow the local
 `World::resolve_alias_ref` follows those local and external ID chains in
 dependency order. A cycle returns `AliasResolutionError::Cycle` with the cycle
 path, and resolution does not write partial alias values.
+Unfilled dependency aliases have no runtime override. An explicit empty
+override suppresses dependency resolution and survives save/load.
 `World::alias_ref` preserves its optional result and returns `None` when a
 dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and
@@ -1162,7 +1166,7 @@ an SKSE member.
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
-| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, DamageObject, GetCurrentDestructionStage, ClearDestruction, SetNoFavorAllowed, PlayAnimation, PlayAnimationAndWait, WaitForAnimationEvent, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, Reset | IsFurnitureInUse, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, KnockAreaEffect, PushActorAway and 6 more, plus the DLC furniture marker and translation functions: IsFurnitureMarkerInUse, TranslateTo, SplineTranslateTo, StopTranslation |
+| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, DamageObject, GetCurrentDestructionStage, ClearDestruction, SetNoFavorAllowed, PlayAnimation, PlayAnimationAndWait, WaitForAnimationEvent, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, IsInDialogueWithPlayer, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, Reset | IsFurnitureInUse, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, KnockAreaEffect, PushActorAway and 6 more, plus the DLC furniture marker and translation functions: IsFurnitureMarkerInUse, TranslateTo, SplineTranslateTo, StopTranslation |
 | Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, SetEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, RemoveAllSpells, HasSpell, EquipItem, UnequipItem, UnequipAll, IsEquipped, GetEquippedWeapon, GetEquippedShield, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, IsRunning, IsSprinting, IsHostileToActor, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, StartVampireFeed | EvaluatePackage, SetLookAt and 34 more, plus DLC methods without a system: IsFlying, GetWarmthRating, StartCannibal, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation, WillIntimidateSucceed |
 | ActorBase | GetSkin, SetSkin, GetRace, GetClass, GetGiftFilter, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
@@ -1847,14 +1851,27 @@ surface, not CK contracts. The quiet stub fixes belong to these existing native 
 
 ### Scene and scroll native contracts, SCR-69
 
-The registry inventory is `Scene.Start`, `Scene.ForceStart`, `Scene.Stop`,
-`Scene.IsPlaying`, `Scene.GetOwningQuest`, `Scene.IsActionComplete`, and
-`Scroll.Cast`. The local vanilla `Scene.psc` and `Scroll.psc` declare all seven
-method signatures and summarize their contracts. The matching CK named function
-pages are absent from the local corpus. CK's `GetOwningQuest - Alias` page
-confirms the return type and owning-quest meaning for aliases, while it does not
-document the Scene method. The available `GetCurrentScene - ObjectReference`
-CK page is for a different binding.
+The registry-derived inventory contains seven methods and no globals. The local
+vanilla `skse64/scripts/vanilla/Scene.psc` and `Scroll.psc` files declare the
+signatures and summaries below. The matching CK named function pages are absent
+from the local corpus. CK's `GetOwningQuest - Alias` page confirms that Alias
+returns its owning quest, but it does not document Scene. The CK
+`GetCurrentScene - ObjectReference` page documents a different binding.
+
+| Binding | PSC contract | Current implementation and finding |
+|---|---|---|
+| `Scene.Start` | Start this scene. | Starts a valid inactive SCEN and sends `OnBegin`. |
+| `Scene.ForceStart` | Start this scene and stop scenes running on any reference in it. | Resolves participant aliases, ends each active scene sharing a resolved reference, then starts this scene and sends `OnBegin`. |
+| `Scene.Stop` | Stop this scene. | Stops a running scene and sends `OnEnd`. |
+| `Scene.IsPlaying` | Return whether this scene is playing. | Reads the active scene run state. |
+| `Scene.GetOwningQuest` | Return the quest that owns this scene. | Resolves the SCEN record's parent quest. |
+| `Scene.IsActionComplete` | Return whether the specified action ID is complete. | Resolves the authored SCEN action ID to its action slot and checks that slot's completed state. Negative or unknown IDs and stopped scenes return false. |
+| `Scroll.Cast` | Cast this scroll from a source reference, with an optional target. | Executes the owning SPEL scroll through the shared cast executor and preserves source, caster, and target attribution. The script contract does not specify inventory consumption. The selected-instance consume path belongs to MAG-18. |
+
+`Scroll.Cast` accepts source and optional target references as declared. The
+separate inventory selection API consumes one selected scroll after successful
+effects and preserves it when a cast is rejected, as covered by MAG-18. The
+Papyrus method does not select an inventory stack itself.
 
 `Scene.Start` starts a valid, inactive scene and sends `OnBegin`. Its record
 must have phase bounds the current runtime accepts. `Scene.Stop` ends a running
@@ -1862,20 +1879,12 @@ scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
 quest field. These behaviors match the local PSC summaries.
 
-`Scene.IsActionComplete(actionID)` takes the SCEN action number from `INAM`,
-not the action's zero-based position in the list. It reports whether the
-matching action slot completed in this scene's current run. Negative and
-unknown action numbers return false, including numbers for actions removed
-from the record. Completion in another scene with the same action number does
-not affect the result. The local CK corpus has no named page for this method.
-The vanilla `Scene.psc` declares its integer action ID argument, while UESP's
-SCEN layout identifies `INAM` as the action number and notes that action
-numbers can be non-sequential and can overlap between scene records. The
-`scr_44_` tests exercise sparse and invalid action numbers through Papyrus
-dispatch. A `SKYRIM_DATA`-gated check uses the UESP-named vanilla scenes to
-verify overlapping action numbers stay scene-local through Papyrus dispatch.
-The completed slots remain the same state that gates phase advancement.
+`Scene.IsActionComplete(actionID)` takes the authored SCEN action ID from `INAM`. The runtime maps that ID to its action-list slot, then reads the completed slot state that gates phase advancement. This keeps sparse IDs separate from their internal positions. Negative, unknown and removed action IDs return false. Completion in another scene with the same action ID does not affect the result. The local CK corpus has no named page for this method. The vanilla `Scene.psc` declares an integer action ID, while UESP identifies `INAM` as the action number and notes that IDs can be non-sequential and overlap between scene records. The `scr_44_` tests exercise sparse and invalid IDs through Papyrus dispatch, and a `SKYRIM_DATA`-gated check verifies overlapping IDs stay scene-local.
 
+The comparison tests derive the methods and globals directly from the registry.
+Papyrus dispatch behavior is covered by the `scr_69_` tests and the focused
+Scene and Scroll tests in `tests/natives_2.rs` and `tests/magic.rs`. No installed
+game records are named by this contract check.
 `Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
 must also end scenes running on references in the forced scene. Actor action
 ownership is not yet dispatched, so DLG-18 and DLG-19 own the scene action
@@ -3445,8 +3454,9 @@ below.
 
 `IsFurnitureInUse` reads HST-09 reservations on any marker for the reference.
 `IsFurnitureMarkerInUse` checks one zero-based marker index. Their optional
-ignore-reservations arguments return false when the only known use is a
-reservation. HST-09 does not yet track transient animation occupancy.
+ignore-reservations arguments exclude the modeled reservations. HST-09 does
+not yet track transient animation occupancy, so the queries cannot report an
+occupant that has no saved seat reservation.
 `GetCurrentDestructionStage` reads CMB-37 reference state and returns `-1`
 before the first DEST threshold, then the zero-based DSTD stage. The SCR-38
 probes exercise all four methods through Papyrus `CallMethod`.
@@ -3555,7 +3565,11 @@ award no Smithing use. Outputs without a supported value field receive no
 award. This transaction path does not dispatch Story Manager events.
 
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
-queue these events too. Silent removal still notifies scripts. AddItem expands
+queue these events too. Silent removal still notifies scripts. RemoveAllItems
+currently ignores `abKeepOwnership` and `abRemoveQuestItems`, so it does not
+preserve ownership when transferring items or retain quest objects when that
+flag is false. Quest-object extra data is not yet classified by this native.
+AddItem expands
 a FormList into one count change and OnItemAdded event for every supported
 base form, matching the CK AddItem page. It flattens nested FormLists in
 depth-first member order, aggregates duplicate members into one base-form event,
@@ -5866,16 +5880,26 @@ The installed `MUSCombat` winner contains `GetCombatTargetHasKeyword`
 combat-state contract. The installed-data music test surveys for an eligible
 track with supported conditions and skips that known unsupported predicate.
 
-## Shader particle and Sound native audit (2026-09-29)
+## Shader particle and Sound native audit (2026-10-02)
 
-The registry audit in `natives.rs` has two `ShaderParticleGeometry` methods,
-one `Sound` method and two `Sound` globals. `Sound.psc` in the local SKSE
-vanilla script corpus declares `Play(ObjectReference)` returning an instance
-ID, `StopInstance(int)` and `SetInstanceVolume(int, float)` as globals. The
-registered Sound names and method/global placement match those declarations.
-`SetInstanceVolume` clamps its volume argument to 0 through 1, and
-`World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
-removes the selected instance from the world's sound-instance table.
+The registry-derived test filters `NativeRegistry::method_bindings` and
+`global_bindings` for `shaderparticlegeometry` and `sound`. Its exact expected
+sets are `Apply` and `Remove` methods on `ShaderParticleGeometry`, `Play` on
+`Sound`, and `StopInstance` and `SetInstanceVolume` globals on `Sound`. It
+also checks the absent `Sound.PlayAndWait` and `Sound.GetDescriptor` methods.
+
+The local CK crawl contains neither a `ShaderParticleGeometry` class page nor
+named pages for `Apply` or `Remove`. `ATTEMPTS.md` records the attempted CK
+routes and archived-page crawl. The local xEdit function data lists the
+related condition functions as `Form, Float`. CommonLib's native-function RTTI
+records a `float` argument and `void` result. Those sources support the
+registered method shape but do not supply a CK description of its argument.
+`Apply` and `Remove` take a fade duration in seconds in this runtime. Zero is
+the immediate transition. `SCR-46` owns SPGD validation and transient layer
+behavior. The host does not yet render those layers, which remains within the
+scope of `SCR-46`.
+
+The local vanilla `skse64/scripts/vanilla/Sound.psc` declares four functions:
 
 | Registry binding | Source comparison | Current implementation |
 |---|---|---|
@@ -5884,19 +5908,7 @@ removes the selected instance from the world's sound-instance table.
 | `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
 | `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
 | `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
-
-The same `Sound.psc` also declares latent `PlayAndWait(ObjectReference)` and
-`GetDescriptor()` returning `SoundDescriptor`. Neither is registered. No
-unfinished backlog row owns either native binding, so they remain an explicit
-backlog gap rather than being folded into this registry-derived inventory.
-The local CK crawl's `ATTEMPTS.md` records that CK pages were collected from
-archived pages when available. The missing ShaderParticleGeometry pages leave
-its parameter contract to the implementation row above.
-
-`scr_70_registry_matches_the_audited_sound_and_shader_bindings` checks the
-registry-derived inventory and the two unregistered Sound declarations.
-`scr_70_sound_instances_follow_the_declared_contract` checks instance IDs,
-volume bounds and stopping an instance. Neither test exercises physical audio.
+| `Sound.PlayAndWait` method | `ObjectReference` source argument, boolean result, latent playback. | Registered as a false-returning stub. Waiting for physical playback completion belongs with `HST-05`. |
 
 ## Authored locks and keys (2026-09-19)
 
@@ -7125,10 +7137,12 @@ Quest stage getters both return the highest completed stage, matching the CK
 page for `GetStage`. `SetStage` and `SetCurrentStageID` share stage execution.
 Alias getters resolve the owning quest, alias ID, name or assigned form from
 the quest record and runtime alias state. ReferenceAlias inventory filters
-use the same filter state as ObjectReference filters. `Clear` empties an
-optional alias. The QUST alias `FNAM` Optional flag is bit 1, as specified by
-xEdit and the UESP QUST layout. Calling `Clear` on a required alias logs an
-error and leaves the assigned reference unchanged, matching
+use the same filter state as ObjectReference filters. `GetActorReference` and
+`GetActorRef` return the held target only when it resolves to an Actor.
+`Clear` checks the QUST alias `FNAM` Optional bit, which is bit 1 in xEdit and
+the UESP QUST layout. It logs an error and leaves a required alias unchanged.
+For an optional alias it removes the target and reevaluates the held actor's
+package through the world package driver, matching
 `Clear_-_ReferenceAlias.wikitext`.
 
 Quest `IsStarting` and `IsStopping` appear in the CK class page and are

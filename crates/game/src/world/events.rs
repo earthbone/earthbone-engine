@@ -512,16 +512,7 @@ impl World {
         let Ok(scene) = Scene::from_record(record) else {
             return false;
         };
-        if scene.phases.is_empty()
-            || scene
-                .actions
-                .iter()
-                .any(|action| match (action.start_phase, action.end_phase) {
-                    (Some(start), Some(end)) => start > end || end as usize >= scene.phases.len(),
-                    _ => true,
-                })
-            || !self.scenes.insert(id)
-        {
+        if !scene_can_start(&scene) || !self.scenes.insert(id) {
             return false;
         }
         self.scene_runs.insert(id, super::SceneRunState::default());
@@ -532,6 +523,72 @@ impl World {
             args: Vec::new(),
         });
         true
+    }
+
+    /// `Scene.ForceStart`: end active scenes that use any participant in this
+    /// scene, then start this scene and send `OnBegin`.
+    ///
+    /// # Errors
+    /// Returns `false` when the scene record is missing, malformed or cannot
+    /// start.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn force_start_scene(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        if !scene_can_start(&scene) {
+            return false;
+        }
+
+        let participants = self.scene_participants(id, &scene);
+        let active_scenes: Vec<_> = self.scene_runs.keys().copied().collect();
+        let mut conflicts = Vec::new();
+        for active in active_scenes {
+            let overlaps = if active == id {
+                true
+            } else {
+                self.record(active)
+                    .cloned()
+                    .and_then(|record| Scene::from_record(&record).ok())
+                    .is_some_and(|active_scene| {
+                        self.scene_participants(active, &active_scene)
+                            .iter()
+                            .any(|actor| participants.contains(actor))
+                    })
+            };
+            if overlaps {
+                conflicts.push(active);
+            }
+        }
+        conflicts.sort_unstable();
+        for active in conflicts {
+            self.stop_scene(active, alloc);
+        }
+        self.start_scene(id, alloc)
+    }
+
+    fn scene_participants(&mut self, id: GlobalFormId, scene: &Scene) -> Vec<GlobalFormId> {
+        let Some(quest) = scene.quest.and_then(|raw| self.resolve_from(id, raw)) else {
+            return Vec::new();
+        };
+        let mut aliases: Vec<_> = scene
+            .actors
+            .iter()
+            .map(|actor| actor.alias_id)
+            .chain(scene.actions.iter().filter_map(|action| action.alias_id))
+            .filter_map(|alias| u32::try_from(alias).ok())
+            .collect();
+        aliases.sort_unstable();
+        aliases.dedup();
+        aliases
+            .into_iter()
+            .filter_map(|alias| self.alias_ref(quest, alias))
+            .collect()
     }
 
     /// `Scene.Stop`: not playing, and `OnEnd` to the scene's scripts.
@@ -846,6 +903,18 @@ impl World {
             .insert(self.next_sound, (sound, source, 1.0));
         self.next_sound
     }
+}
+
+fn scene_can_start(scene: &Scene) -> bool {
+    scene.quest.is_some()
+        && !scene.phases.is_empty()
+        && !scene
+            .actions
+            .iter()
+            .any(|action| match (action.start_phase, action.end_phase) {
+                (Some(start), Some(end)) => start > end || end as usize >= scene.phases.len(),
+                _ => true,
+            })
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
