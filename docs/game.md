@@ -6459,9 +6459,9 @@ month/year rollover, menu pause and zero timescale. The survey reads the
 external saves in place. No comparison with a running vanilla executable was
 performed for tick-level floating-point rounding or calendar advancement.
 
-## Saved ownership and locks, SAV-16, blocked
+## Saved ownership and locks, SAV-16 and SAV-69
 
-The partial reference-extra pass writes the shared owner, locked bit and
+The reference-extra pass writes the shared owner, locked bit and
 lock level. GetActorOwner, GetFactionOwner, IsLocked and GetLockLevel observe
 those values immediately. GetKey and default door/container activation prefer
 the saved key, including explicit null, over the authored XLOC link. The
@@ -6471,14 +6471,18 @@ checking native queries and keyed activation.
 
 Rank and global ownership metadata and unassigned lock fields persist in the
 SOEW version 20 extension and contribute to the world hash. Older saves
-retain authored-key behavior. The full corpus remains blocked on 72 Sequence
-and nine Stacked PackageData lists whose unknown boundaries may hide later
-ownership or lock extras. The importer rejects them without changing the world.
-See [save.md](save.md#reference-ownership-and-locks-sav-16-blocked) for sources,
-independent enumeration and the superseded filtered-survey evidence. No new
-host nodes or dependencies were added. SAV-07 supplies its form namespace and is
-complete. SAV-12 and SAV-21 must finish before SAV-16 can pass its full-corpus
-checks. This is a blocked implementation checkpoint.
+retain authored-key behavior. The decoder accepts the observed Sequence and
+Stacked PackageData frames, including extras after those frames. Unknown
+layouts still fail before the importer changes the world.
+See [save.md](save.md#reference-ownership-and-locks-sav-16-and-sav-69) for sources
+and the extra-list boundary. SAV-69 checks every top-level list in all 60
+external saves, saved lock bytes against authored XLOC levels, and restoration
+of 12,591 references with 2,228 ownership changes and 10,404 locks. The
+restoration survey compares decoded owner, rank, global, key, level, flags
+and retained words with live state, then verifies exact reference state,
+world hashes and bytes through engine save/load without queued events.
+No new saved fields, host nodes or dependencies were added. Leveled-lock
+scaling, ownership crime rules and lockpicking remain separate mechanics.
 
 ## Vanilla actor-value restoration boundary
 

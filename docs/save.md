@@ -670,8 +670,9 @@ Sources are UESP `Extra_data.wikitext`, REFR/ACHR change-form pages, xEdit
 and `ChangeFormNPC.java`. xEdit supplies signed rank width and inline NPC
 sections where the other readers disagree. Array counts are bounded before
 allocation. Unknown extra layouts stop decoding instead of searching for a
-plausible next item. The nonempty PackageData payload is still unsupported.
-Its absence from these public schemas remains a format gap.
+plausible next item. The PackageData reader accepts the observed empty,
+Sequence and Stacked variants. Public schemas do not define their nonempty
+bodies, and other layouts remain errors.
 
 The game-side application maps references in every decoded extra field and
 retains exact non-reference scalar data. CommonLib `ExtraDataList::GetCount`
@@ -1214,9 +1215,9 @@ flags and payload length. It reads saves in place through `SOE_TEST_SAVES` or
 the local engine-refs corpus path. Skyrim.esm record signatures are checked
 separately when `SKYRIM_DATA` is set.
 
-## Reference ownership and locks, SAV-16, blocked
+## Reference ownership and locks, SAV-16 and SAV-69
 
-The partial `World::restore_vanilla_reference_extras` pass inspects every
+The `World::restore_vanilla_reference_extras` pass inspects every
 REFR/ACHR top-level extra list, including general game-only and promoted lists.
 It requires resident placements and resolves links through saved plugin names.
 It validates the entire pass before mutation. Undecodable lists, invalid targets,
@@ -1251,13 +1252,40 @@ zero, locked, leveled or locked plus leveled. The filtered application restored
 662 leveled locks. Those records survived engine save/load exactly.
 These results do not establish the full SAV-16 contract.
 
-Independent enumeration found 34 additional ExtraOwnership entries under
+The earlier enumeration found 34 additional ExtraOwnership entries under
 ACHR general flags 0x88000422. It also found 81 undecodable top-level lists,
 72 carrying nonempty Sequence PackageData and nine carrying Stacked. Their
-unknown boundaries prevent ruling out ownership or lock extras later in each
-list. SAV-16 is blocked on SAV-12 and SAV-21. The importer now covers general
-flags and rejects such undecodable lists atomically. The full-corpus acceptance
-tests remain failing, without exclusions or a narrowed success claim.
+unknown boundaries prevented ruling out ownership or lock extras later in each
+list. The current decoder accepts those observed Sequence and Stacked frames,
+including the Sandbox child with an absent path request. The importer covers
+general flags and rejects unknown layouts atomically.
+
+`ExtraData::data_bytes` re-encodes a top-level list independently of inventory
+and actor suffixes, retaining count widths, reference IDs and scalar bits.
+Edited list and nested-array counts must still match their saved counts.
+SAV-69 compares all 745,653 top-level lists with their original bytes in the
+60 external saves, including all 72 Sequence and nine Stacked frames. Synthetic checks
+place both trees before ownership, signed rank, global and lock extras, then
+replace the following inventory and actor bytes. Truncated lists and unknown
+extra types fail without guessing a successor boundary.
+
+The full restoration survey now applies 12,591 references, 2,228 ownership
+changes and 10,404 locks, including 662 leveled locks, across all 60 saves.
+It compares decoded extra fields with live state and preserves reference
+state, hashes and bytes through engine save/load. The lock-byte survey finds
+8,902 level matches among 9,143 locks with authored XLOC data, above its
+90 percent threshold. The presence audit reports no undecodable change and
+still reports the 34 ownership entries under general ACHR flags.
+
+The source review reread local UESP `Extra_data.wikitext`, xEdit
+`wbChangedExtraData` and `ChangedFormExtraDecider`, FallrimTools
+`ChangeFormExtraDataData.java`, and CommonLib `ExtraLock.h`. They establish
+list framing, ownership and lock widths, reference-descendant dispatch and
+runtime lock bits. None defines the nonempty PackageData body, whose observed
+framing and unidentified byte fields remain as described in
+[saved package runtime state](save-package-data.md). These Pascal and Java
+readers are not Rust libraries, so the existing Rust decoder and encoder are
+reused. No dependency is added.
 
 The SOEW version 20 extension retains reference ownership and lock
 metadata. Versions 4 through 19 remain readable and use their authored keys.
@@ -1271,7 +1299,7 @@ legacy versions and late unsupported data.
 Leveled-lock scaling, ownership crime rules, rank/global ownership conditions
 and lockpicking remain separate mechanics. Leveled locks are reported.
 No dependency or host node was added. Full ESS loading and saved execution
-are outside this pass. This is a blocked implementation checkpoint.
+are outside this pass.
 
 The checkpoint is reconciled onto completed SAV-07 with SOEW version 20.
 The version 19 namespace boundary and difficulty/weapon-hand state remain intact.
