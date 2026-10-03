@@ -13,6 +13,72 @@ use crate::inventory_menu::{self, Category};
 use super::PlayerNode;
 
 impl PlayerNode {
+    pub(super) fn open_barter_menu(&mut self, merchant: GlobalFormId) -> bool {
+        let title = self
+            .game
+            .as_ref()
+            .and_then(|game| game.world().name_of(merchant))
+            .map_or_else(|| "Barter".to_owned(), |name| format!("Barter: {name}"));
+        if !self.open_menu(GString::from(&title)) {
+            return false;
+        }
+        let goods = self.game.as_mut().and_then(|game| {
+            let mut factions: Vec<_> = game
+                .world()
+                .actor_ref(merchant)
+                .map(|actor| actor.factions.keys().copied().collect())
+                .unwrap_or_default();
+            factions.sort();
+            factions.into_iter().find_map(|faction| {
+                game.resolve_vendor_service(faction, merchant)
+                    .ok()
+                    .flatten()
+                    .map(|service| {
+                        if !service.available {
+                            return Vec::new();
+                        }
+                        service
+                            .merchandise
+                            .iter()
+                            .map(|(item, count)| {
+                                let name = game
+                                    .world()
+                                    .name_of(*item)
+                                    .unwrap_or_else(|| format!("{item}"));
+                                format!("{name} x{count}")
+                            })
+                            .collect::<Vec<_>>()
+                    })
+            })
+        });
+        let Some(mut content) = self.menu_content() else {
+            self.close_menu();
+            return false;
+        };
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut rows = VBoxContainer::new_alloc();
+        content.add_child(&rows);
+        match goods.filter(|items| !items.is_empty()) {
+            Some(items) => {
+                for item in items {
+                    let mut label = Label::new_alloc();
+                    label.set_text(&item);
+                    rows.add_child(&label);
+                }
+            }
+            None => {
+                let mut empty = Label::new_alloc();
+                empty.set_text("No goods available.");
+                rows.add_child(&empty);
+            }
+        }
+        true
+    }
+
     pub(super) fn open_gift_menu(&mut self) -> bool {
         let Some(request) = self
             .game

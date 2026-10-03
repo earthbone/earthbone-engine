@@ -9,6 +9,7 @@ use soe_esm::{
     plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
     Tag,
 };
+use soe_game::world::MenuRequest;
 use soe_game::{npc, Game};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
@@ -176,6 +177,28 @@ fn scr_13_send_trespass_alarm_records_the_crime_and_rejects_invalid_actor() {
             .crime_gold_nonviolent,
         75
     );
+    let guard_object = object(&mut game, guard);
+    let criminal_object = object(&mut game, criminal);
+    call(
+        &mut game,
+        guard_object,
+        "SendTrespassAlarm",
+        &[criminal_object.clone(), criminal_object],
+    );
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("expects one Actor argument")));
+    assert_eq!(
+        game.world_mut()
+            .faction(GlobalFormId {
+                file: 0,
+                object: 0x701
+            })
+            .unwrap()
+            .crime_gold_nonviolent,
+        75
+    );
 }
 
 #[test]
@@ -192,6 +215,14 @@ fn scr_13_stop_combat_alarm_clears_target_combat_and_alert() {
     }
 
     let guard_object = object(&mut game, guard);
+    call(
+        &mut game,
+        guard_object.clone(),
+        "StopCombatAlarm",
+        &[Value::Bool(true)],
+    );
+    assert!(game.world_mut().actor(guard).unwrap().in_combat);
+    assert!(game.world_mut().actor(guard).unwrap().alerted);
     assert_eq!(
         call(&mut game, guard_object, "StopCombatAlarm", &[]),
         Value::None
@@ -201,32 +232,128 @@ fn scr_13_stop_combat_alarm_clears_target_combat_and_alert() {
     assert!(!actor.in_combat);
     assert_eq!(actor.combat_target, None);
     assert!(!actor.alerted);
-    assert!(game.traces().is_empty());
+    drop(world);
+    assert_eq!(game.traces().len(), 1);
+    assert!(game.traces()[0].contains("StopCombatAlarm expects no arguments"));
 }
 
 #[test]
-fn scr_13_unavailable_actor_systems_report_capabilities_instead_of_succeeding_quietly() {
+fn scr_13_show_barter_menu_queues_the_merchant_for_host_presentation() {
     let mut game = game();
     let guard = game.form("GuardRef").unwrap();
     let target = object(&mut game, guard);
-    for (name, reason) in [
-        (
-            "ShowBarterMenu",
-            "barter transactions and menu are not implemented",
-        ),
-        (
-            "OpenInventory",
-            "actor inventory presenter is not implemented",
-        ),
-        (
-            "ClearForcedMovement",
-            "forced movement state is not implemented",
-        ),
-    ] {
-        assert_eq!(call(&mut game, target.clone(), name, &[]), Value::None);
-        assert!(
-            game.traces().iter().any(|trace| trace.contains(reason)),
-            "{name}"
-        );
+    call(
+        &mut game,
+        target.clone(),
+        "ShowBarterMenu",
+        &[Value::Bool(true)],
+    );
+    assert!(game.world().menu_requests.is_empty());
+    assert_eq!(call(&mut game, target, "ShowBarterMenu", &[]), Value::None);
+    assert_eq!(game.world().menu_requests, vec![MenuRequest::Barter(guard)]);
+    assert_eq!(game.traces().len(), 1);
+    assert!(game.traces()[0].contains("ShowBarterMenu expects no arguments"));
+}
+
+#[test]
+fn scr_13_open_inventory_obeys_teammate_and_force_argument() {
+    let mut game = game();
+    let guard = game.form("GuardRef").unwrap();
+    let target = object(&mut game, guard);
+    assert_eq!(
+        call(&mut game, target.clone(), "OpenInventory", &[]),
+        Value::None
+    );
+    assert!(game.world().menu_requests.is_empty());
+
+    game.world_mut().actor(guard).unwrap().teammate = true;
+    call(&mut game, target.clone(), "OpenInventory", &[]);
+    assert_eq!(
+        game.world().menu_requests,
+        vec![MenuRequest::ActorInventory(guard)]
+    );
+
+    game.world_mut().menu_requests.clear();
+    game.world_mut().actor(guard).unwrap().teammate = false;
+    call(
+        &mut game,
+        target.clone(),
+        "OpenInventory",
+        &[Value::Bool(true)],
+    );
+    assert_eq!(
+        game.world().menu_requests,
+        vec![MenuRequest::ActorInventory(guard)]
+    );
+    game.world_mut().menu_requests.clear();
+    call(
+        &mut game,
+        target.clone(),
+        "OpenInventory",
+        &[Value::Bool(false)],
+    );
+    assert!(game.world().menu_requests.is_empty());
+
+    call(&mut game, target.clone(), "OpenInventory", &[Value::Int(1)]);
+    call(
+        &mut game,
+        target,
+        "OpenInventory",
+        &[Value::Bool(true), Value::Bool(true)],
+    );
+    assert_eq!(game.traces().len(), 2);
+    assert!(game.traces()[0].contains("abForceOpen must be Bool"));
+    assert!(game.traces()[1].contains("at most one argument"));
+}
+
+#[test]
+fn scr_13_clear_forced_movement_discards_current_route_and_retains_package() {
+    let mut game = game();
+    let guard = game.form("GuardRef").unwrap();
+    {
+        let mut world = game.world_mut();
+        let ai = &mut world.actor(guard).unwrap().ai;
+        ai.package = Some(GlobalFormId {
+            file: 0,
+            object: 0x777,
+        });
+        ai.destination = Some([100.0, 0.0, 0.0]);
+        ai.path = vec![[10.0, 0.0, 0.0], [20.0, 0.0, 0.0]];
+        ai.path_cells = vec![None, None];
+        ai.arrived = false;
+        ai.reevaluate = false;
     }
+    let target = object(&mut game, guard);
+    call(
+        &mut game,
+        target.clone(),
+        "ClearForcedMovement",
+        &[Value::Bool(true)],
+    );
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().ai.path.len(),
+        2,
+        "an invalid call leaves the forced route intact"
+    );
+    assert_eq!(
+        call(&mut game, target, "ClearForcedMovement", &[]),
+        Value::None
+    );
+    let mut world = game.world_mut();
+    let ai = &world.actor(guard).unwrap().ai;
+    assert_eq!(
+        ai.package,
+        Some(GlobalFormId {
+            file: 0,
+            object: 0x777
+        })
+    );
+    assert!(ai.destination.is_none());
+    assert!(ai.path.is_empty());
+    assert!(ai.path_cells.is_empty());
+    assert!(ai.arrived);
+    assert!(ai.reevaluate);
+    drop(world);
+    assert_eq!(game.traces().len(), 1);
+    assert!(game.traces()[0].contains("ClearForcedMovement expects no arguments"));
 }

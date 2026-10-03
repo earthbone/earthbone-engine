@@ -756,10 +756,17 @@ returns a condition error.
 actor as witness and the argument as the trespasser. Invalid or untracked
 actors leave bounty and witness state unchanged and add a native trace.
 `Actor.StopCombatAlarm` clears the actor's combat target, combat flag and alert
-flag through `World::stop_combat_alarm`. `ShowBarterMenu`, `OpenInventory` and
-`ClearForcedMovement` report their missing runtime capabilities in the native
-trace. Barter transactions and presentation, an actor inventory presenter,
-and forced movement state are not implemented.
+flag through `World::stop_combat_alarm`. `ShowBarterMenu` queues a transient
+host menu request for the actor. `OpenInventory` queues the actor inventory
+menu for teammates, or for any actor when `abForceOpen` is true. Invalid
+argument counts and types are reported in the Papyrus trace. `ClearForcedMovement`
+clears the actor's current package destination and navmesh route, then marks
+the package state for reevaluation. The package assignment remains intact.
+The local CK corpus has no named function page for `ClearForcedMovement`;
+SKSE's vanilla `Actor.psc` describes it as restoring the actor's standard
+state, so the runtime clears its currently represented package route.
+The host barter panel displays the resolved merchant stock. Price calculation,
+purchase controls and selling items remain outside the panel.
 
 **Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
 `ActorState::arrested` flag, the same state read by `Actor.IsArrested` and

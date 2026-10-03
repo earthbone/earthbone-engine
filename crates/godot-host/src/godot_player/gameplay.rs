@@ -291,6 +291,12 @@ impl PlayerNode {
                 }
                 // CONTEXT: Valid trainers use the pending request consumed above.
                 soe_game::world::MenuRequest::Training(_) => {}
+                soe_game::world::MenuRequest::Barter(actor) => {
+                    self.open_barter_menu(actor);
+                }
+                soe_game::world::MenuRequest::ActorInventory(actor) => {
+                    self.open_container_menu(actor);
+                }
             }
         }
         if let Some(game) = &mut self.game {
