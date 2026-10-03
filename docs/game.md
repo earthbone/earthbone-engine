@@ -3455,15 +3455,15 @@ or light-level context.
 
 `GetPathingCurrentSpeed` reads the actor package speed while waypoints remain
 and the actor has not arrived. `IsPathing` uses that same pending waypoint
-state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsInFurnitureState`,
-`GetPathingCurrentSpeedAngle`, `IsBeingRidden` and `IsOnFlyingMount` return an
-unavailable-state diagnostic. xEdit supplies their function and parameter
-definitions, but the engine has no furniture animation, integer graph variable,
-rider relation or flying mount state. The CK page for `IsBeingRidden` defines
-its result, but no shared rider relation currently backs it. CK semantic pages
-for the other four functions were absent from the local corpus, so their
-numeric results are not inferred from the function names. These conditions
-are not included in `supports_function`.
+state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsBeingRidden`
+reads the mount actor flag. `World::set_mount_rider` updates that flag together
+with the rider's `riding_mount` flag when gameplay reports a mount or dismount.
+`IsInFurnitureState`, `GetPathingCurrentSpeedAngle` and `IsOnFlyingMount` return
+an unavailable-state diagnostic. xEdit supplies their function and parameter
+definitions, but the engine has no furniture animation, axis-angle or flying
+mount state. CK semantic pages for those three functions were absent from the
+local corpus, so their numeric results are not inferred from the function names.
+These conditions are not included in `supports_function`.
 Float comparisons are exact and have not been compared against vanilla
 near-equality behavior. `ObjectReference.GetItemCount` totals an exact base
 form, each FormList member or every carried item whose base has the supplied
@@ -3684,8 +3684,9 @@ For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
 query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
-`AI-67` actor save section retains that flag. A host or gameplay path must set
-the flag when another actor mounts this actor. GetGraphVariableInt (675) reads
+`AI-67` actor save section retains that flag. Gameplay reports mount and
+dismount transitions through `World::set_mount_rider`, which updates the rider
+and mount flags together. GetGraphVariableInt (675) reads
 a named integer in the actor's live graph state, case-insensitively, and
 reports missing names and non-actor subjects. Its integer state is transient
 host input and is not saved.
@@ -3716,6 +3717,12 @@ local CK function corpus has usable state-query descriptions for sprinting and
 flying, but no usable behavior contract for the other five functions. Tests
 exercise graph float, sprint and flight comparisons, malformed parameters,
 missing graph variables, invalid actor subjects and explicit diagnostics.
+
+The AI driver's `Hover` procedure signals the actor's transient flying flag
+while it moves to and holds its authored elevated location. Ending Hover or
+stopping actor movement clears the flag. CTDA 594 reads this movement state.
+`allow_flying` remains a separate permission flag. Other actor flight modes
+and host-controlled flight are not represented by this path.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,
