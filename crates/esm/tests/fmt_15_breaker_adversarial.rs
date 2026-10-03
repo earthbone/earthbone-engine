@@ -11,6 +11,8 @@ fn mapping() -> HashMap<u32, u32> {
         (0x802, 0x902),
         (0x803, 0x903),
         (0x804, 0x904),
+        (0x805, 0x905),
+        (0x806, 0x906),
     ])
 }
 
@@ -21,10 +23,31 @@ fn fmt_15_cobj_typed_links_are_renumbered() {
         Record::new(b"COBJ", 0x800)
             .sub(b"CNAM", 0x801u32.to_le_bytes())
             .sub(b"BNAM", 0x802u32.to_le_bytes())
-            .sub(b"CNTO", [0x803u32.to_le_bytes(), 1i32.to_le_bytes()].concat())
+            .sub(
+                b"CNTO",
+                [0x803u32.to_le_bytes(), 1i32.to_le_bytes()].concat(),
+            )
+            .sub(
+                b"CNTO",
+                [0x805u32.to_le_bytes(), 2i32.to_le_bytes()].concat(),
+            )
             .sub(
                 b"COED",
-                [0x804u32.to_le_bytes(), 77u32.to_le_bytes(), 1.0f32.to_le_bytes()].concat(),
+                [
+                    0x804u32.to_le_bytes(),
+                    77u32.to_le_bytes(),
+                    1.0f32.to_le_bytes(),
+                ]
+                .concat(),
+            )
+            .sub(
+                b"COED",
+                [
+                    0x806u32.to_le_bytes(),
+                    88u32.to_le_bytes(),
+                    2.0f32.to_le_bytes(),
+                ]
+                .concat(),
             ),
     );
 
@@ -32,20 +55,34 @@ fn fmt_15_cobj_typed_links_are_renumbered() {
     let record = &plugin.records[0];
 
     assert_eq!(record.form_id, 0x900);
-    assert_eq!(record.find(Tag::new(b"CNAM")).unwrap(), &0x901u32.to_le_bytes());
-    assert_eq!(record.find(Tag::new(b"BNAM")).unwrap(), &0x902u32.to_le_bytes());
     assert_eq!(
-        &record.find(Tag::new(b"CNTO")).unwrap()[..4],
-        &0x903u32.to_le_bytes()
+        record.find(Tag::new(b"CNAM")).unwrap(),
+        &0x901u32.to_le_bytes()
     );
     assert_eq!(
-        &record.find(Tag::new(b"COED")).unwrap()[..4],
-        &0x904u32.to_le_bytes()
+        record.find(Tag::new(b"BNAM")).unwrap(),
+        &0x902u32.to_le_bytes()
     );
-    assert_eq!(
-        &record.find(Tag::new(b"COED")).unwrap()[4..8],
-        &77u32.to_le_bytes()
-    );
+    let ingredients = record
+        .subrecords
+        .iter()
+        .filter(|sub| sub.tag == Tag::new(b"CNTO"))
+        .collect::<Vec<_>>();
+    assert_eq!(ingredients.len(), 2);
+    assert_eq!(&ingredients[0].data[..4], &0x903u32.to_le_bytes());
+    assert_eq!(&ingredients[1].data[..4], &0x905u32.to_le_bytes());
+    assert_eq!(&ingredients[0].data[4..], &1i32.to_le_bytes());
+    assert_eq!(&ingredients[1].data[4..], &2i32.to_le_bytes());
+    let ownership = record
+        .subrecords
+        .iter()
+        .filter(|sub| sub.tag == Tag::new(b"COED"))
+        .collect::<Vec<_>>();
+    assert_eq!(ownership.len(), 2);
+    assert_eq!(&ownership[0].data[..4], &0x904u32.to_le_bytes());
+    assert_eq!(&ownership[1].data[..4], &0x906u32.to_le_bytes());
+    assert_eq!(&ownership[0].data[4..8], &77u32.to_le_bytes());
+    assert_eq!(&ownership[1].data[4..8], &88u32.to_le_bytes());
 }
 
 fn ctda_record() -> Record {

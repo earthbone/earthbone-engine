@@ -153,6 +153,12 @@ enchantments are remapped. WEAP enchantment, impact, material, scope,
 first-person model, sound, critical effect, and template links are remapped,
 including `WNAM` and `CRDT`. Keyword lists in `KWDA` and destruction stage
 links in `DSTD` are remapped for their applicable records.
+COBJ output and workbench links, ingredient object IDs, and COED owner links
+are remapped while ingredient counts, owner rank and condition are preserved.
+CTDA comparison values are remapped only when the global comparison flag is
+set, and the reference field is remapped for Run On Reference. These layouts
+follow xEdit's `wbRecord(COBJ)`, `wbCNTONoReach`, `wbCOED` and `wbConditions`
+definitions, also used by the typed recipe and condition readers.
 The critical effect link is at offset 12 in the 20-byte layout or offset 16 in
 the 24-byte layout. Destruction stage explosion and debris links are at offsets
 8 and 12 in the 20-byte `DSTD` layout. HAZD image-space and DATA links are
