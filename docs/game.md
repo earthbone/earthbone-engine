@@ -153,6 +153,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   associated-item field follow local xEdit `wbDefinitionsTES5.pas`. The CK
   magic-effect pages in the local corpus do not specify additional Light
   runtime semantics.
+- `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
+  typed spell art requests on `World`. `take_spell_art_requests` drains them in
+  Papyrus call order. `Unload` queues only when this world previously received
+  `Preload` for that spell. The Godot host does not consume these requests yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.

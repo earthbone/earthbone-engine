@@ -10,7 +10,7 @@ use soe_papyrus::{
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
 }
-fn call(g: &mut Game, name: &str) {
+fn call(g: &mut Game, name: &str, form: GlobalFormId) {
     let script = format!("Scr47Adv{name}");
     let bytes = ScriptBuilder::new(&script, "Spell")
         .function(
@@ -24,29 +24,86 @@ fn call(g: &mut Game, name: &str) {
         )
         .bytes();
     g.load_script(&bytes).unwrap();
-    let form = Value::Object(g.object_of_form(id(0x800)));
-    let t = g.vm.call_global(&script, "Run", &[form]).unwrap();
+    let spell = Value::Object(g.object_of_form(form));
+    let t = g.vm.call_global(&script, "Run", &[spell]).unwrap();
     assert!(g.run_until_idle(32));
     assert_eq!(g.vm.thread_result(t), Some(Value::None));
 }
 #[test]
-fn scr_47_art_methods_validate_spell_and_leave_magic_unchanged() {
+fn scr_47_art_methods_validate_spell_and_queue_each_action() {
     let mut p = Plugin::new(FileHeader::default());
     p.push_top(Record::new(Tag(*b"SPEL"), 0x800).sub(Tag(*b"SPIT"), vec![0; 36]));
     let mut order = LoadOrder::new();
     order.add("MissingSpell.esm", p).unwrap();
     let mut g = Game::new(order);
     let before = g.world().spell_casts.clone();
-    call(&mut g, "Preload");
-    call(&mut g, "Unload");
+    call(&mut g, "Preload", id(0x800));
+    call(&mut g, "Unload", id(0x800));
     assert_eq!(g.world().spell_casts, before);
     assert_eq!(g.world().active_effects().count(), 0);
-    assert!(g
-        .traces()
-        .iter()
-        .any(|x| x.contains("Spell.Preload: spell art resource loading is unsupported")));
-    assert!(g
-        .traces()
-        .iter()
-        .any(|x| x.contains("Spell.Unload: spell art resource loading is unsupported")));
+    assert_eq!(
+        g.world_mut().take_spell_art_requests(),
+        vec![
+            soe_game::world::SpellArtRequest {
+                spell: id(0x800),
+                action: soe_game::world::SpellArtAction::Preload,
+            },
+            soe_game::world::SpellArtRequest {
+                spell: id(0x800),
+                action: soe_game::world::SpellArtAction::Unload,
+            },
+        ]
+    );
+}
+
+#[test]
+fn scr_47_invalid_spell_art_requests_log_errors_without_queueing() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"SPEL"), 0x800).sub(Tag(*b"SPIT"), vec![0; 1]));
+    let mut order = LoadOrder::new();
+    order.add("MissingSpell.esm", p).unwrap();
+    let mut g = Game::new(order);
+    call(&mut g, "Preload", id(0x800));
+    call(&mut g, "Unload", id(0x800));
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
+    let traces = g.traces();
+    assert!(
+        traces
+            .iter()
+            .any(|line| line.contains("Spell.Preload: invalid magic record")),
+        "{traces:?}"
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|line| line.contains("Spell.Unload: invalid magic record")),
+        "{traces:?}"
+    );
+}
+
+#[test]
+fn scr_47_spell_art_methods_reject_non_spell_records() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"MGEF"), 0x800).sub(Tag(*b"SPIT"), vec![0; 36]));
+    let mut order = LoadOrder::new();
+    order.add("WrongType.esm", p).unwrap();
+    let mut g = Game::new(order);
+
+    assert!(g.world_mut().preload_spell_art(id(0x800)).is_err());
+    assert!(g.world_mut().unload_spell_art(id(0x800)).is_err());
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
+}
+
+#[test]
+fn scr_47_spell_art_methods_reject_missing_spell_forms() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(Record::new(Tag(*b"GMST"), 0x800));
+    let mut order = LoadOrder::new();
+    order.add("NoSpell.esm", p).unwrap();
+    let mut g = Game::new(order);
+
+    assert!(g.world_mut().preload_spell_art(id(0x801)).is_err());
+    assert!(g.world_mut().unload_spell_art(id(0x801)).is_err());
+
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
 }
