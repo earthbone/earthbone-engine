@@ -413,7 +413,7 @@ impl Probe {
                     "player must name Skyrim.esm object 0x14 (identity Skyrim.esm:000014)",
                 ));
             }
-            if name == "player" && form.kind != FormKind::Actor {
+            if name == "player" && !matches!(form.kind, FormKind::Actor | FormKind::Player) {
                 return Err(invalid("player alias must be an actor"));
             }
         }
