@@ -68,6 +68,13 @@ func _run() -> void:
 	await physics_frame
 	_check(table.drop_selected_reference_to_ground(space, "1:000800"), "selected reference drops onto host collision")
 	_check(table.last_error().is_empty(), "successful drop clears stale diagnostic")
+	var placed: Dictionary = table.reference_transform("1:000800")
+	var placed_position: Vector3 = placed.get("position", Vector3.INF)
+	var placed_rotation: Vector3 = placed.get("rotation", Vector3.INF)
+	_check(placed_position.is_finite(), "selected REFR record exposes its placed transform")
+	_check(absf(placed_position.z - 7.0) < 0.1, "selected REFR record stores the host collision height")
+	_check(absf(placed_position.x) < 0.001 and absf(placed_position.y) < 0.001, "ground drop preserves selected reference horizontal position")
+	_check(placed_rotation == Vector3(0.25, -0.5, 1.75), "ground drop preserves selected reference rotation")
 	_check(table.undo(), "successful collision edit is undoable")
 	_check(not table.undo(), "undo stack is empty after restoring the original placement")
 	PhysicsServer3D.free_rid(body)
@@ -76,7 +83,8 @@ func _run() -> void:
 	print("EDT-15 ADVERSARIAL ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)
 "#,
-    );
+    )
+    .unwrap();
     let output = Command::new(godot)
         .args(["--headless", "--path"])
         .arg(project)

@@ -88,12 +88,14 @@ func _initialize() -> void:
 	print("EDT-14 ADVERSARIAL ", "PASS" if failures == 0 else "FAIL")
 	quit(0 if failures == 0 else 1)
 "#,
-    );
+    )
+    .unwrap();
     let output = Command::new(godot)
         .args(["--headless", "--path"])
         .arg(project)
         .arg("--script")
         .arg(script)
+        .args(["--quit-after", "300"])
         .env("EDT14_BASE", base)
         .env("EDT14_PATCH", patch)
         .output()

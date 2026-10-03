@@ -82,6 +82,45 @@ impl SoeFormTable {
         result
     }
 
+    /// Read the winning REFR position and Euler rotation for an encoded FormID.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn reference_transform(&self, encoded_id: GString) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(document) = self.document.as_ref() else {
+            return result;
+        };
+        let Some(id) = parse_form_id(&encoded_id.to_string()) else {
+            return result;
+        };
+        let Some(record) = document.load_order().winner(id) else {
+            return result;
+        };
+        let Ok(reference) = Refr::from_record(record) else {
+            return result;
+        };
+        let Some(transform) = reference.transform else {
+            return result;
+        };
+        result.set(
+            "position",
+            Vector3::new(
+                transform.position[0],
+                transform.position[1],
+                transform.position[2],
+            ),
+        );
+        result.set(
+            "rotation",
+            Vector3::new(
+                transform.rotation[0],
+                transform.rotation[1],
+                transform.rotation[2],
+            ),
+        );
+        result
+    }
+
     /// Open the plugin paths in load-order sequence and select the active file.
     #[allow(clippy::needless_pass_by_value)]
     #[func]

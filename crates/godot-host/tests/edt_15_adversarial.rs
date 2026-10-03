@@ -32,8 +32,8 @@ fn fixture(data_fields: Vec<Vec<u8>>) -> (EditorDocument, tempfile::TempDir) {
         masters: vec!["Base.esm".to_string()],
         ..Default::default()
     });
-    let mut reference = Record::new(Tag(*b"REFR"), 0x0100_0800)
-        .sub(Tag(*b"NAME"), 0x800u32.to_le_bytes().to_vec());
+    let mut reference =
+        Record::new(Tag(*b"REFR"), 0x0100_0800).sub(Tag(*b"NAME"), 0x800u32.to_le_bytes().to_vec());
     for data in data_fields {
         reference.subrecords.push(soe_esm::plugin::Subrecord {
             tag: Tag(*b"DATA"),
@@ -61,10 +61,7 @@ fn edt_15_negative_surface_height_preserves_horizontal_position_and_radians() {
     let (mut document, _directory) = fixture(vec![original.to_bytes().to_vec()]);
 
     document
-        .set_reference_transform(
-            FORM,
-            original.drop_to_ground(-4096.25).unwrap().placed(),
-        )
+        .set_reference_transform(FORM, original.drop_to_ground(-4096.25).unwrap().placed())
         .unwrap();
 
     assert_eq!(current(&document), Some(transform(-4096.25)));
@@ -76,7 +73,10 @@ fn edt_15_negative_surface_height_preserves_horizontal_position_and_radians() {
 fn edt_15_malformed_or_repeated_transform_data_is_rejected_without_undo() {
     for fields in [
         vec![vec![0; 23]],
-        vec![transform(10.0).to_bytes().to_vec(), transform(20.0).to_bytes().to_vec()],
+        vec![
+            transform(10.0).to_bytes().to_vec(),
+            transform(20.0).to_bytes().to_vec(),
+        ],
     ] {
         let (mut document, _directory) = fixture(fields);
         let before = document.active_plugin().clone();
