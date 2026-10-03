@@ -1526,6 +1526,10 @@ mod tst_01_rng_streams;
 mod tst_06_adversarial;
 #[path = "tst_11_adversarial.rs"]
 mod tst_11_adversarial;
+#[path = "tst_11_breaker_adversarial.rs"]
+mod tst_11_breaker_adversarial;
+#[path = "tst_11_breaker_breaker_adversarial.rs"]
+mod tst_11_breaker_breaker_adversarial;
 #[path = "tst_11_papyrus_log.rs"]
 mod tst_11_papyrus_log;
 #[path = "tst_12_additional_adversarial.rs"]

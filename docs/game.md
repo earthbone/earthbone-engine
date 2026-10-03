@@ -194,7 +194,9 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   `SOE_MOD_CORPUS` is unset.
 - `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
   trace lines as one expectation. Differential reports list every missing
-  expected trace and allow extra runtime output.
+  expected trace and allow extra runtime output. The `tst_11` real-log check
+  reads `SOE_PAPYRUS_LOG` when set and verifies each parsed trace appears in
+  the differential report when absent from the VM log.
 - `wasm`: the Wasmtime component host. `wit/mod-api.wit` defines the versioned
   `soe:mod-api` interface with `subscribe-on-activate` and `set-stage` imports
   plus the initialization and activation exports.
