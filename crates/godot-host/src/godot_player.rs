@@ -1107,6 +1107,54 @@ impl PlayerNode {
         self.start_game_runtime()
     }
 
+    /// Build navigation caches before a PRF-11 timed gameplay sample.
+    #[func]
+    pub fn prepare_ai_planning_check(&mut self) -> bool {
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        soe_game::ai::nav_graph(&mut game.world_mut());
+        true
+    }
+
+    /// Last AI driver tick in microseconds, including door refresh and navigation slices.
+    #[func]
+    pub fn ai_planning_microseconds(&self) -> f64 {
+        self.game.as_ref().map_or(0.0, |game| {
+            game.world().ai.planning_time.as_secs_f64() * 1_000_000.0
+        })
+    }
+
+    /// Inclusive AI phase timings and instantiated actor count for planning diagnostics.
+    #[func]
+    pub fn ai_planning_details(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        if let Some(game) = &self.game {
+            let world = game.world();
+            result.set(
+                "door_refresh_us",
+                world.ai.door_refresh_time.as_secs_f64() * 1_000_000.0,
+            );
+            result.set(
+                "evaluation_us",
+                world.ai.evaluation_time.as_secs_f64() * 1_000_000.0,
+            );
+            for (phase, duration) in &world.ai.planning_phases {
+                result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
+            }
+            result.set("instantiated_actors", world.loaded_actors().len() as i64);
+        }
+        result
+    }
+
+    /// Package evaluations performed by the active gameplay world.
+    #[func]
+    pub fn ai_package_evaluations(&self) -> i64 {
+        self.game
+            .as_ref()
+            .map_or(0, |game| game.world().ai.evaluations as i64)
+    }
+
     /// Apply actor-value damage to the player through the active shared game.
     #[allow(clippy::needless_pass_by_value)]
     #[func]

@@ -87,7 +87,10 @@ fn prf_15_accepts_exactly_fifteen_percent_and_rejects_any_more() {
         String::from_utf8_lossy(&exact.stderr)
     );
     fs::write(&measured, output(116, None)).unwrap();
-    assert_eq!(run("check", &measured, &baseline, false).status.code(), Some(1));
+    assert_eq!(
+        run("check", &measured, &baseline, false).status.code(),
+        Some(1)
+    );
     cleanup(&[&measured, &baseline]);
 }
 
@@ -148,7 +151,10 @@ fn prf_15_installed_mesh_asset_can_be_read_repeatedly_and_parsed() {
     let first = archive.read(name).expect("first archive read succeeds");
     let second = archive.read(name).expect("repeated archive read succeeds");
     assert_eq!(first, second);
-    assert!(soe_nif::parse(&first).is_ok(), "installed mesh {name} parses");
+    assert!(
+        soe_nif::parse(&first).is_ok(),
+        "installed mesh {name} parses"
+    );
 }
 
 #[test]
@@ -157,12 +163,16 @@ fn prf_15_baseline_rejects_a_non_object_operations_record_cleanly() {
     let baseline = scratch("invalid-baseline");
     fs::write(&measured, output(100, None)).unwrap();
     assert!(run("refresh", &measured, &baseline, false).status.success());
-    let mut saved: serde_json::Value = serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
     saved["operations"] = serde_json::Value::Array(Vec::new());
     fs::write(&baseline, serde_json::to_vec(&saved).unwrap()).unwrap();
     let result = run("check", &measured, &baseline, false);
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(!stderr.contains("Traceback"), "unexpected traceback: {stderr}");
+    assert!(
+        !stderr.contains("Traceback"),
+        "unexpected traceback: {stderr}"
+    );
     cleanup(&[&measured, &baseline]);
 }

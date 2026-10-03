@@ -4323,3 +4323,32 @@ instance creation with the streamed count and verifies empty-window reset.
 It is a headless correctness check. The counter paths add no per-reference
 nodes and no saved state. The row uses the existing RenderingServer and
 PhysicsDirectSpaceState3D APIs described in the local Godot class docs.
+
+## AI planning measurement, PRF-11
+
+`PlayerNode.prepare_ai_planning_check` prepares the active world's NAVM graph
+and query caches. `ai_planning_microseconds` reports the last shared AI driver
+tick, including door refresh, package evaluation, navigation slices and movement.
+`ai_package_evaluations` reports the active world's evaluation count.
+`ai_planning_details` reports door refresh, evaluation scheduling, resumed
+navigation, actor processing, automatic evaluations, package selection and
+switching, conditions, combat flags and target checks, combat acquisition,
+procedure movement, fleeing, pursuit and path requests, plus instantiated actor
+count. Navigation details include request setup, search advancement, route
+result conversion and fallback containment, and flee search. Procedure details
+include tree entry, marker selection and Turn Undead checks. Marker details
+include cell lookup, base filtering, bed classification, reference initialization
+and resumed scans.
+Actor details also separate state checks, Calm checks and evaluation eligibility.
+Phase durations include their nested calls. For example, conditions are
+also included in package selection, and new path requests in movement.
+These measurement hooks add no actor scene nodes or saved fields.
+
+`godot/prf_11_ai_planning_check.gd` starts the installed Bannered Mare through
+the normal gameplay entry point and manually advances 3,600 frames at 60 Hz.
+It requires at least five contact actors and executed package evaluations,
+and rejects any AI driver tick above 8 ms. Graph preparation and gameplay
+startup occur before the 60 simulated seconds of measurement. The script
+frees its host nodes and quits with its check result. It skips when
+`SKYRIM_DATA` is unset.
+The result also prints the worst frame's index and inclusive phase timings.
