@@ -2198,13 +2198,15 @@ evaluator counts those functions as unsupported. xEdit's
 CK condition pages for these functions exist in the local CK corpus, so the
 engine does not infer their runtime values.
 AI-72 adds these queries to both condition evaluators: `GetOpenState` for
-placed `DOOR` references (0 for other references, 1 open and 3 closed),
+placed `DOOR` references (0 for other references, 1 open, 2 opening, 3 closed
+and 4 closing),
 `GetIsCurrentPackage` against the subject actor's selected package,
 `GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
 reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
-The CK state values 2 (opening) and 4 (closing) require animation progress,
-which the current reference state does not track, so those transitions remain
-unavailable.
+`World::begin_door_opening` and `World::begin_door_closing` record transitional
+states and their settled destination, while `World::finish_door_transition`
+clears the transition. The marker is transient, so loading a save restores the
+settled destination. Papyrus `GetOpenState` and CTDA 157 share this mapping.
 `GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
 `GetCannibal` remain unsupported with a function diagnostic because the local
 sources name them without defining query results.
@@ -3494,7 +3496,8 @@ was found for functions 255, 265, 266, 267 or 332. Those function IDs remain
 unsupported and return `conditions::Error::Function`, rather than inventing vendor
 or weather state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
 `uesp-modfileformat/Raw_Function_Data.wikitext`, CK
-`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
+`SetRestrained_-_Actor.wikitext`, `SetUnconscious_-_Actor.wikitext` and
+`Game_Script.wikitext`.
 
 `HasMagicEffect` matches an active MGEF on its subject. `IsSpellTarget` matches
 an active application from its magic item parameter. `HasShout` checks known
