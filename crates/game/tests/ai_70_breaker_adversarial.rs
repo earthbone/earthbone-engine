@@ -25,6 +25,10 @@ fn fixture() -> Game {
             Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
         );
     }
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x14).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"STAT"), 0x1300));
+    plugin
+        .push_top(Record::new(Tag(*b"REFR"), 0x1301).sub(Tag(*b"NAME"), 0x1300_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"KYWD"), 0x1200).zsub(Tag(*b"EDID"), "MagicDisease"));
     let mut effect_data = vec![0; 152];
     effect_data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
@@ -47,7 +51,11 @@ fn fixture() -> Game {
             .sub(Tag(*b"EFID"), 0x1201_u32.to_le_bytes())
             .sub(Tag(*b"EFIT"), spell_effect),
     );
-    plugin.push_top(Record::new(Tag(*b"GMST"), 0x1000).zsub(Tag(*b"EDID"), "fSneakBaseValue").sub(Tag(*b"DATA"), 0.0_f32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag(*b"GMST"), 0x1000)
+            .zsub(Tag(*b"EDID"), "fSneakBaseValue")
+            .sub(Tag(*b"DATA"), 0.0_f32.to_le_bytes()),
+    );
     let floats: [(&str, f32); 23] = [
         ("fSneakMaxDistance", 100.0),
         ("fSneakDistanceAttenuationExponent", 1.0),
@@ -92,7 +100,9 @@ fn fixture() -> Game {
     }
     let mut order = LoadOrder::new();
     order.add("AI70Breaker.esm", plugin).unwrap();
-    Game::new(order)
+    let game = Game::new(order);
+    game.world_mut().player();
+    game
 }
 
 fn condition(function: u16, parameter: u32, expected: f32) -> Condition {
@@ -150,10 +160,19 @@ fn ai_70_los_is_directional_and_empty_successful_batch_clears_old_pairs() {
     game.world_mut()
         .evaluate_detection(&[observation(0x901, 0x900, true)], 0.0)
         .unwrap();
-    assert_eq!(evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)), Ok(true));
-    assert_eq!(evaluate(&game, id(0x900), &condition(27, 0x901, 1.0)), Ok(false));
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(27, 0x901, 1.0)),
+        Ok(false)
+    );
     game.world_mut().evaluate_detection(&[], 0.0).unwrap();
-    assert_eq!(evaluate(&game, id(0x901), &condition(27, 0x900, 0.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 0.0)),
+        Ok(true)
+    );
 }
 
 #[test]
@@ -164,8 +183,48 @@ fn ai_70_invalid_los_batch_does_not_replace_last_successful_observation() {
         .unwrap();
     let mut invalid = observation(0x901, 0x900, false);
     invalid.distance = f32::NAN;
-    assert!(game.world_mut().evaluate_detection(&[invalid], 0.0).is_err());
-    assert_eq!(evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)), Ok(true));
+    assert!(game
+        .world_mut()
+        .evaluate_detection(&[invalid], 0.0)
+        .is_err());
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)),
+        Ok(true)
+    );
+}
+
+#[test]
+fn ai_70_player_los_supports_non_actor_references_and_uses_host_camera_result() {
+    let game = fixture();
+    let target = 0x1301;
+    game.world_mut()
+        .evaluate_detection(&[observation(0x14, target, true)], 0.0)
+        .unwrap();
+    assert_eq!(
+        evaluate(&game, id(0x14), &condition(27, target, 1.0)),
+        Ok(true)
+    );
+    assert!(game
+        .world_mut()
+        .evaluate_detection(&[observation(0x14, target, false)], 0.0)
+        .is_ok());
+    assert_eq!(
+        evaluate(&game, id(0x14), &condition(27, target, 0.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x14), &condition(27, target, 1.0)),
+        Ok(false)
+    );
+    assert!(matches!(
+        game.world_mut()
+            .evaluate_detection(&[observation(0x901, target, true)], 0.0),
+        Err(soe_game::detection::Error::Actor(found)) if found == id(target)
+    ));
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, target, 1.0)),
+        Err(conditions::Error::Form(id(target)))
+    );
 }
 
 #[test]
@@ -176,10 +235,19 @@ fn ai_70_menu_mode_comparison_and_random_percent_parameter_slots_are_checked() {
     above_zero.flags = 2 << 5;
     assert_eq!(evaluate(&game, id(0x900), &above_zero), Ok(true));
     for slot in [
-        Condition { parameters: [1, 0], ..condition(77, 0, 0.0) },
-        Condition { parameters: [0, 1], ..condition(77, 0, 0.0) },
+        Condition {
+            parameters: [1, 0],
+            ..condition(77, 0, 0.0)
+        },
+        Condition {
+            parameters: [0, 1],
+            ..condition(77, 0, 0.0)
+        },
     ] {
-        assert_eq!(evaluate(&game, id(0x900), &slot), Err(conditions::Error::Parameter(77, 1)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &slot),
+            Err(conditions::Error::Parameter(77, 1))
+        );
     }
     for _ in 0..128 {
         let mut below_one_hundred = condition(77, 0, 100.0);
@@ -208,7 +276,10 @@ fn ai_70_disease_query_reads_active_effect_after_engine_save_load() {
     let bytes = game.world_mut().save_state();
     let restored = fixture();
     restored.world_mut().load_state(&bytes).unwrap();
-    assert_eq!(evaluate(&restored, id(0x900), &condition(39, 0, 1.0)), Ok(true));
+    assert_eq!(
+        evaluate(&restored, id(0x900), &condition(39, 0, 1.0)),
+        Ok(true)
+    );
 }
 
 #[test]
@@ -223,6 +294,12 @@ fn ai_70_failed_visibility_batch_preserves_last_los_and_detection_state() {
         observation(0x901, 0x900, false),
     ];
     assert!(game.world_mut().evaluate_detection(&invalid, 0.0).is_err());
-    assert_eq!(game.world_mut().awareness(id(0x901), id(0x900)), previous_awareness);
-    assert_eq!(evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)), Ok(true));
+    assert_eq!(
+        game.world_mut().awareness(id(0x901), id(0x900)),
+        previous_awareness
+    );
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)),
+        Ok(true)
+    );
 }

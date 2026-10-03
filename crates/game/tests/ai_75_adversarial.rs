@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use soe_esm::{records::gameplay::{Comparison, Condition}, FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    records::gameplay::{Comparison, Condition},
+    FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+};
 use soe_game::{conditions, Game};
 
 fn id(object: u32) -> GlobalFormId {

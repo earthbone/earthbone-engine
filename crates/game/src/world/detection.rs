@@ -134,8 +134,15 @@ impl World {
             if o.observer == o.target {
                 return Err(Error::SelfObservation(o.observer));
             }
-            for id in [o.observer, o.target] {
-                self.check_detection_actor(id)?;
+            self.check_detection_actor(o.observer)?;
+            if self.tag_of(o.target) == Some(super::T(b"ACHR")) {
+                self.check_detection_actor(o.target)?;
+            } else if !self.is_player(o.observer)
+                || self
+                    .reference(o.target)
+                    .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Actor(o.target));
             }
             if !pairs.insert((o.observer, o.target)) {
                 return Err(Error::Duplicate {
@@ -147,6 +154,9 @@ impl World {
 
         let mut by_target: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32)>> = BTreeMap::new();
         for o in observations {
+            if self.tag_of(o.target) != Some(super::T(b"ACHR")) {
+                continue;
+            }
             let senses = self.senses(o)?;
             let value = crate::detection::detection_value(&settings, o, &senses)?;
             by_target

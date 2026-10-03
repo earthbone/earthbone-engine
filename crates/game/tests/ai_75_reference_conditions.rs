@@ -176,30 +176,20 @@ fn ai_75_first_person_condition_tracks_host_pov_and_rejects_parameters() {
 }
 
 #[test]
-fn ai_75_combat_group_conditions_count_connected_members_and_targets() {
+fn ai_75_combat_group_conditions_report_missing_source_semantics() {
     let game = fixture();
     game.world_mut().actor(id(0x900)).unwrap().combat_target = Some(id(0x901));
     game.world_mut().actor(id(0x901)).unwrap().combat_target = Some(id(0x902));
 
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(415, 0, 2.0)),
-        Ok(true)
-    );
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(415, 0, 3.0)),
-        Ok(false)
-    );
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(416, 0, 2.0)),
-        Ok(true)
-    );
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(416, 0, 1.0)),
-        Ok(false)
-    );
+    for (function, expected) in [(415, 2.0), (415, 3.0), (416, 2.0), (416, 1.0)] {
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(function, 0, expected)),
+            Err(conditions::Error::UnavailableContract(function))
+        );
+    }
     assert_eq!(
         evaluate(&game, id(0x902), &condition(415, 0, 0.0)),
-        Ok(true)
+        Err(conditions::Error::UnavailableContract(415))
     );
     assert_eq!(
         evaluate(&game, id(0x900), &condition(415, 1, 2.0)),
@@ -249,11 +239,17 @@ fn ai_75_grabbed_reference_condition_matches_current_host_reference() {
 }
 
 #[test]
-fn ai_75_combat_group_counts_exclude_unconnected_combators() {
+fn ai_75_combat_group_counts_do_not_infer_groups_from_target_links() {
     let game = fixture();
     game.world_mut().actor(id(0x900)).unwrap().combat_target = Some(id(0x901));
     game.world_mut().actor(id(0x902)).unwrap().combat_target = Some(id(0x903));
 
-    assert_eq!(evaluate(&game, id(0x900), &condition(415, 0, 1.0)), Ok(true));
-    assert_eq!(evaluate(&game, id(0x900), &condition(416, 0, 1.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(415, 0, 1.0)),
+        Err(conditions::Error::UnavailableContract(415))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(416, 0, 1.0)),
+        Err(conditions::Error::UnavailableContract(416))
+    );
 }

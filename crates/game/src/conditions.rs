@@ -867,6 +867,9 @@ fn function_value(
             {
                 return Err(Error::Form(target));
             }
+            if world.actor(target).is_none() && !world.is_player(subject) {
+                return Err(Error::Form(target));
+            }
             boolean(world.line_of_sight.contains(&(subject, target)))
         }
         36 => {
@@ -2479,9 +2482,13 @@ fn function_value(
         }
         571 => {
             no_parameter_second(c)?;
-            let spell = casting_spell(world, subject, c.function, raw)?;
-            let current = world.concentration_spell(subject);
-            match spell.filter(|spell| Some(*spell) == current) {
+            let selected = casting_spell(world, subject, c.function, raw)?;
+            let pending = (raw <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let concentration =
+                selected.filter(|spell| world.concentration_spell(subject) == Some(*spell));
+            match pending.or(concentration) {
                 Some(spell) => {
                     world
                         .spell(spell)
@@ -2500,13 +2507,25 @@ fn function_value(
         }
         595 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
-            let source = casting_spell(world, subject, c.function, c.parameters[1])?;
-            boolean(source == Some(spell) && world.concentration_spell(subject) == Some(spell))
+            let selected = casting_spell(world, subject, c.function, c.parameters[1])?;
+            let pending = (c.parameters[1] <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let current = pending.or_else(|| {
+                selected.filter(|selected| world.concentration_spell(subject) == Some(*selected))
+            });
+            boolean(current == Some(spell))
         }
         596 => {
-            let source = casting_spell(world, subject, c.function, raw)?;
+            let selected = casting_spell(world, subject, c.function, raw)?;
             let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
-            let has_keyword = if let Some(spell) = source {
+            let pending = (raw <= 1)
+                .then(|| world.pending_spell_cast(subject).map(|cast| cast.spell))
+                .flatten();
+            let current = pending.or_else(|| {
+                selected.filter(|selected| world.concentration_spell(subject) == Some(*selected))
+            });
+            let has_keyword = if let Some(spell) = current {
                 let definition = world.spell(spell).map_err(|_| Error::Form(spell))?;
                 definition.effects.iter().any(|effect| {
                     world
@@ -2547,7 +2566,10 @@ fn function_value(
         632 => {
             no_parameter(c)?;
             world.actor(subject).ok_or(Error::Form(subject))?;
-            boolean(world.is_concentration_casting(subject))
+            boolean(
+                world.is_concentration_casting(subject)
+                    || world.pending_spell_cast(subject).is_some(),
+            )
         }
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
@@ -2652,12 +2674,7 @@ fn function_value(
         415 | 416 => {
             no_parameter(c)?;
             world.actor(subject).ok_or(Error::Form(subject))?;
-            let (members, targets) = world.combat_group_counts(subject).unwrap_or_default();
-            if c.function == 415 {
-                members as f32
-            } else {
-                targets as f32
-            }
+            return Err(Error::UnavailableContract(c.function));
         }
         426 => {
             let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
