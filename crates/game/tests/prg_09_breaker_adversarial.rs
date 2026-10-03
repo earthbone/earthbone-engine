@@ -46,9 +46,15 @@ fn game() -> Game {
     plugin.push_top(Record::new(Tag(*b"RACE"), RACE).sub(Tag(*b"DATA"), race_data));
     plugin.push_top(Record::new(Tag(*b"CLAS"), CLASS).sub(Tag(*b"DATA"), class_data));
     plugin.push_top(
-        npc::build_record(NPC, "BoundarySkills", "Boundary Skills", config, npc::Stats::default())
-            .sub(Tag(*b"RNAM"), RACE.to_le_bytes())
-            .sub(Tag(*b"CNAM"), CLASS.to_le_bytes()),
+        npc::build_record(
+            NPC,
+            "BoundarySkills",
+            "Boundary Skills",
+            config,
+            npc::Stats::default(),
+        )
+        .sub(Tag(*b"RNAM"), RACE.to_le_bytes())
+        .sub(Tag(*b"CNAM"), CLASS.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
     order.add("Prg09Boundary.esm", plugin).unwrap();

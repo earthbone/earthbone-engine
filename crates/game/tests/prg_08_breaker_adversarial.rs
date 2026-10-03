@@ -41,7 +41,7 @@ fn npc_prkr_rank_byte_does_not_override_perk_chain_rank() {
     plugin.push_top(
         Record::new(Tag(*b"PERK"), PERK)
             .sub(Tag(*b"DATA"), [0, 0, 2, 1, 0])
-            .sub(Tag(*b"PRKE"), [2, 1, 0])
+            .sub(Tag(*b"PRKE"), [2, 0, 0])
             .sub(Tag(*b"DATA"), [ENTRY, 1, 0])
             .sub(Tag(*b"EPFT"), [1])
             .sub(Tag(*b"EPFD"), 3.0f32.to_le_bytes())

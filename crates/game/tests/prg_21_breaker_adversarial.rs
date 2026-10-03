@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! No additional breaker assertion is supported by the named format sources.
 //! Original-runtime LVSP precedence traces are still required for PRG-21.

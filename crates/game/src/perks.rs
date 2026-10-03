@@ -184,8 +184,8 @@ fn entry_point_invocations_with_conditions(
     context: &EntryPointContext,
 ) -> Result<Vec<EntryPointInvocation>, DispatchError> {
     let mut owned = world.perks_for_actor(actor);
-    let npc_ranks = actor_npc_perk_ranks(world, actor)?;
-    owned.extend(npc_ranks.keys().copied());
+    let npc_perks = actor_npc_perks(world, actor)?;
+    owned.extend(npc_perks);
     let entries = world
         .order()
         .winners_of(Tag(*b"PERK"))
@@ -194,10 +194,7 @@ fn entry_point_invocations_with_conditions(
         .collect::<Result<Vec<_>, _>>()?;
     let mut invocations = Vec::new();
     for (perk_id, sections) in entries {
-        let rank = npc_ranks
-            .get(&perk_id)
-            .copied()
-            .map_or_else(|| actor_perk_rank(world, &owned, perk_id), Ok)?;
+        let rank = actor_perk_rank(world, &owned, perk_id)?;
         let mut matching = Vec::new();
         for section in sections {
             if section.entry_point != entry_point {
@@ -224,6 +221,35 @@ fn entry_point_invocations_with_conditions(
         invocations.extend(matching);
     }
     Ok(invocations)
+}
+
+fn actor_npc_perks(
+    world: &mut World,
+    actor: GlobalFormId,
+) -> Result<BTreeSet<GlobalFormId>, DispatchError> {
+    let Some(base) = world.base_of(actor) else {
+        return Ok(BTreeSet::new());
+    };
+    let Some(record) = world.record(base) else {
+        return Ok(BTreeSet::new());
+    };
+    let mut perks = BTreeSet::new();
+    for subrecord in record
+        .subrecords
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"PRKR"))
+    {
+        let Ok(bytes) = <[u8; 8]>::try_from(subrecord.data.as_slice()) else {
+            return Err(DispatchError::Malformed(base));
+        };
+        let raw_perk = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        if let Some(perk) = world.resolve_from(base, raw_perk) {
+            if !perks.insert(perk) {
+                return Err(DispatchError::Malformed(base));
+            }
+        }
+    }
+    Ok(perks)
 }
 
 /// Apply numeric functions from ordered value-type invocations.
@@ -317,37 +343,6 @@ pub(crate) fn apply_value_modifiers(
         }
     }
     Ok(value)
-}
-
-fn actor_npc_perk_ranks(
-    world: &mut World,
-    actor: GlobalFormId,
-) -> Result<BTreeMap<GlobalFormId, u16>, DispatchError> {
-    let Some(base) = world.base_of(actor) else {
-        return Ok(BTreeMap::new());
-    };
-    let Some(record) = world.record(base) else {
-        return Ok(BTreeMap::new());
-    };
-    let mut ranks = BTreeMap::new();
-    for subrecord in record
-        .subrecords
-        .iter()
-        .filter(|subrecord| subrecord.tag == Tag(*b"PRKR"))
-    {
-        let Ok(bytes) = <[u8; 8]>::try_from(subrecord.data.as_slice()) else {
-            return Err(DispatchError::Malformed(base));
-        };
-        let raw_perk = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let Some(perk) = world.resolve_from(base, raw_perk) else {
-            continue;
-        };
-        let rank = u16::from(bytes[4]);
-        if ranks.insert(perk, rank).is_some() {
-            return Err(DispatchError::Malformed(base));
-        }
-    }
-    Ok(ranks)
 }
 
 fn actor_perk_rank(
