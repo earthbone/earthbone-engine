@@ -168,27 +168,47 @@ fn string(value: &swf::SwfStr, version: u8) -> String {
 /// # Errors
 /// Returns a typed parser, bitmap, geometry or invalid timeline error.
 pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
-    let length = bytes.get(4..8).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes);
+    let length = bytes
+        .get(4..8)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(u32::from_le_bytes);
     if bytes.len() > 128 * 1024 * 1024 || length.is_none_or(|n| n > 128 * 1024 * 1024) {
-        return Err(Error::Invalid("SWF exceeds the 128 MiB input limit or lacks a header".into()));
+        return Err(Error::Invalid(
+            "SWF exceeds the 128 MiB input limit or lacks a header".into(),
+        ));
     }
     let buffer = swf::decompress_swf(bytes).map_err(|e| Error::Swf(e.to_string()))?;
     let source = swf::parse_swf(&buffer).map_err(|e| Error::Swf(e.to_string()))?;
     let mut movie = Movie {
-        version: source.header.version(), stage: geometry::bounds(*source.header.stage_size()),
-        frame_rate: source.header.frame_rate().to_f64(), symbols: BTreeMap::new(), imports: BTreeMap::new(),
-        meshes: BTreeMap::new(), fonts: BTreeMap::new(), bitmaps: BTreeMap::new(), text_fields: BTreeMap::new(),
-        static_text: BTreeMap::new(), timelines: BTreeMap::new(), buttons: BTreeMap::new(), action_blocks: 0, unsupported_tags: vec![],
+        version: source.header.version(),
+        stage: geometry::bounds(*source.header.stage_size()),
+        frame_rate: source.header.frame_rate().to_f64(),
+        symbols: BTreeMap::new(),
+        imports: BTreeMap::new(),
+        meshes: BTreeMap::new(),
+        fonts: BTreeMap::new(),
+        bitmaps: BTreeMap::new(),
+        text_fields: BTreeMap::new(),
+        static_text: BTreeMap::new(),
+        timelines: BTreeMap::new(),
+        buttons: BTreeMap::new(),
+        action_blocks: 0,
+        unsupported_tags: vec![],
     };
     timeline(&source.tags, 0, source.header.num_frames(), &mut movie, 0)?;
-    movie.unsupported_tags.sort_unstable(); movie.unsupported_tags.dedup();
+    movie.unsupported_tags.sort_unstable();
+    movie.unsupported_tags.dedup();
     Ok(movie)
 }
 
 fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
     const SIZE: u32 = 64;
     const WIDTH: u32 = 1024;
-    let units = if source.version == 3 { 20.0 * 1024.0 } else { 1024.0 };
+    let units = if source.version == 3 {
+        20.0 * 1024.0
+    } else {
+        1024.0
+    };
     let scale = SIZE as f32 / units;
     let mut glyphs = vec![];
     let mut rasters = vec![];
@@ -198,88 +218,271 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
         let (offset, width, height) = raster.as_ref().map_or(([0.0, 0.0], 0, 0), |p| {
             let bounds = p.bounds();
             let origin = [bounds.left().floor(), bounds.top().floor()];
-            (origin, (bounds.right().ceil() - origin[0]).max(0.0) as u32, (bounds.bottom().ceil() - origin[1]).max(0.0) as u32)
+            (
+                origin,
+                (bounds.right().ceil() - origin[0]).max(0.0) as u32,
+                (bounds.bottom().ceil() - origin[1]).max(0.0) as u32,
+            )
         });
-        if width + 2 > WIDTH || height > 1024 { return Err(Error::Invalid("font glyph exceeds atlas limits".into())); }
-        if x + width + 1 > WIDTH { x = 1; y += row_height + 2; row_height = 0; }
+        if width + 2 > WIDTH || height > 1024 {
+            return Err(Error::Invalid("font glyph exceeds atlas limits".into()));
+        }
+        if x + width + 1 > WIDTH {
+            x = 1;
+            y += row_height + 2;
+            row_height = 0;
+        }
         let atlas_rect = [x, y, width, height];
-        glyphs.push(Glyph { code: glyph.code, advance: glyph.advance as f64 * scale as f64, atlas_rect, offset, surfaces });
+        glyphs.push(Glyph {
+            code: glyph.code,
+            advance: glyph.advance as f64 * scale as f64,
+            atlas_rect,
+            offset,
+            surfaces,
+        });
         rasters.push(raster);
-        row_height = row_height.max(height); x += width + 2;
+        row_height = row_height.max(height);
+        x += width + 2;
     }
     let height = (y + row_height + 1).max(1);
-    if height > 8192 { return Err(Error::Invalid("font atlas exceeds 8192 rows".into())); }
-    let mut atlas = tiny_skia::Pixmap::new(WIDTH, height).ok_or_else(|| Error::Invalid("cannot allocate font atlas".into()))?;
-    let mut paint = tiny_skia::Paint::default(); paint.set_color_rgba8(255, 255, 255, 255);
+    if height > 8192 {
+        return Err(Error::Invalid("font atlas exceeds 8192 rows".into()));
+    }
+    let mut atlas = tiny_skia::Pixmap::new(WIDTH, height)
+        .ok_or_else(|| Error::Invalid("cannot allocate font atlas".into()))?;
+    let mut paint = tiny_skia::Paint::default();
+    paint.set_color_rgba8(255, 255, 255, 255);
     for (glyph, path) in glyphs.iter().zip(rasters) {
         if let Some(path) = path {
-            atlas.fill_path(&path, &paint, tiny_skia::FillRule::EvenOdd,
-                tiny_skia::Transform::from_translate(glyph.atlas_rect[0] as f32 - glyph.offset[0], glyph.atlas_rect[1] as f32 - glyph.offset[1]), None);
+            atlas.fill_path(
+                &path,
+                &paint,
+                tiny_skia::FillRule::EvenOdd,
+                tiny_skia::Transform::from_translate(
+                    glyph.atlas_rect[0] as f32 - glyph.offset[0],
+                    glyph.atlas_rect[1] as f32 - glyph.offset[1],
+                ),
+                None,
+            );
         }
     }
     let mut pixels = atlas.take();
-    for pixel in pixels.chunks_exact_mut(4) { pixel[0] = 255; pixel[1] = 255; pixel[2] = 255; }
-    let metrics = source.layout.as_ref().map_or([SIZE as f64 * 0.8, SIZE as f64 * 0.2, 0.0], |l| [l.ascent as f64 * scale as f64, l.descent as f64 * scale as f64, l.leading as f64 * scale as f64]);
-    let kerning = source.layout.as_ref().map_or_else(Vec::new, |l| l.kerning.iter().map(|k| (k.left_code, k.right_code, k.adjustment.get() as f64 * scale as f64)).collect());
-    Ok(Font { id: source.id, name: string(source.name, version), version: source.version,
-        bold: source.flags.contains(swf::FontFlag::IS_BOLD), italic: source.flags.contains(swf::FontFlag::IS_ITALIC),
-        size: SIZE, metrics, glyphs, kerning, atlas: Bitmap { id: source.id, width: WIDTH, height, rgba: pixels } })
+    let (pixel_chunks, _) = pixels.as_chunks_mut::<4>();
+    for pixel in pixel_chunks {
+        pixel[0] = 255;
+        pixel[1] = 255;
+        pixel[2] = 255;
+    }
+    let metrics = source
+        .layout
+        .as_ref()
+        .map_or([SIZE as f64 * 0.8, SIZE as f64 * 0.2, 0.0], |l| {
+            [
+                l.ascent as f64 * scale as f64,
+                l.descent as f64 * scale as f64,
+                l.leading as f64 * scale as f64,
+            ]
+        });
+    let kerning = source.layout.as_ref().map_or_else(Vec::new, |l| {
+        l.kerning
+            .iter()
+            .map(|k| {
+                (
+                    k.left_code,
+                    k.right_code,
+                    k.adjustment.get() as f64 * scale as f64,
+                )
+            })
+            .collect()
+    });
+    Ok(Font {
+        id: source.id,
+        name: string(source.name, version),
+        version: source.version,
+        bold: source.flags.contains(swf::FontFlag::IS_BOLD),
+        italic: source.flags.contains(swf::FontFlag::IS_ITALIC),
+        size: SIZE,
+        metrics,
+        glyphs,
+        kerning,
+        atlas: Bitmap {
+            id: source.id,
+            width: WIDTH,
+            height,
+            rgba: pixels,
+        },
+    })
 }
 
-fn timeline(tags: &[Tag<'_>], id: u16, declared_frames: u16, movie: &mut Movie, nesting: usize) -> Result<(), Error> {
-    if nesting > 64 { return Err(Error::Invalid("sprite nesting exceeds 64".into())); }
+fn timeline(
+    tags: &[Tag<'_>],
+    id: u16,
+    declared_frames: u16,
+    movie: &mut Movie,
+    nesting: usize,
+) -> Result<(), Error> {
+    if nesting > 64 {
+        return Err(Error::Invalid("sprite nesting exceeds 64".into()));
+    }
     let mut display: BTreeMap<u16, Instance> = BTreeMap::new();
     let mut frames = vec![];
     let mut labels = vec![];
-    let jpeg_tables = tags.iter().find_map(|tag| match tag { Tag::JpegTables(bytes) => Some(*bytes), _ => None });
+    let jpeg_tables = tags.iter().find_map(|tag| match tag {
+        Tag::JpegTables(bytes) => Some(*bytes),
+        _ => None,
+    });
     let version = movie.version;
     for tag in tags {
         match tag {
-            Tag::DefineShape(source) => { movie.meshes.insert(source.id, geometry::shape(source)?); }
-            Tag::DefineFont2(source) => { movie.fonts.insert(source.id, font(source, version)?); }
-            Tag::DefineBits { id, jpeg_data } => { movie.bitmaps.insert(*id, bitmap::jpeg(*id, jpeg_data, jpeg_tables, None)?); }
-            Tag::DefineBitsJpeg2 { id, jpeg_data } => { movie.bitmaps.insert(*id, bitmap::jpeg(*id, jpeg_data, None, None)?); }
-            Tag::DefineBitsJpeg3(source) => { movie.bitmaps.insert(source.id, bitmap::jpeg(source.id, source.data, None, Some(source.alpha_data))?); }
-            Tag::DefineBitsLossless(source) => { movie.bitmaps.insert(source.id, bitmap::lossless(source)?); }
+            Tag::DefineShape(source) => {
+                movie.meshes.insert(source.id, geometry::shape(source)?);
+            }
+            Tag::DefineFont2(source) => {
+                movie.fonts.insert(source.id, font(source, version)?);
+            }
+            Tag::DefineBits { id, jpeg_data } => {
+                movie
+                    .bitmaps
+                    .insert(*id, bitmap::jpeg(*id, jpeg_data, jpeg_tables, None)?);
+            }
+            Tag::DefineBitsJpeg2 { id, jpeg_data } => {
+                movie
+                    .bitmaps
+                    .insert(*id, bitmap::jpeg(*id, jpeg_data, None, None)?);
+            }
+            Tag::DefineBitsJpeg3(source) => {
+                movie.bitmaps.insert(
+                    source.id,
+                    bitmap::jpeg(source.id, source.data, None, Some(source.alpha_data))?,
+                );
+            }
+            Tag::DefineBitsLossless(source) => {
+                movie.bitmaps.insert(source.id, bitmap::lossless(source)?);
+            }
             Tag::DefineEditText(source) => {
-                movie.text_fields.insert(source.id(), TextField {
-                    id: source.id(), bounds: geometry::bounds(*source.bounds()), font_id: source.font_id(), font_class: source.font_class().map(|s| string(s, version)),
-                    height: source.height().map(swf::Twips::to_pixels), color: source.color().map(geometry::rgba), max_length: source.max_length(), variable: string(source.variable_name(), version),
-                    text: source.initial_text().map(|s| string(s, version)), flags: source.flags().bits(),
-                    layout: source.layout().map(|l| [l.align as u8 as f64, l.left_margin.to_pixels(), l.right_margin.to_pixels(), l.indent.to_pixels(), l.leading.to_pixels()]),
-                });
+                movie.text_fields.insert(
+                    source.id(),
+                    TextField {
+                        id: source.id(),
+                        bounds: geometry::bounds(*source.bounds()),
+                        font_id: source.font_id(),
+                        font_class: source.font_class().map(|s| string(s, version)),
+                        height: source.height().map(swf::Twips::to_pixels),
+                        color: source.color().map(geometry::rgba),
+                        max_length: source.max_length(),
+                        variable: string(source.variable_name(), version),
+                        text: source.initial_text().map(|s| string(s, version)),
+                        flags: source.flags().bits(),
+                        layout: source.layout().map(|l| {
+                            [
+                                l.align as u8 as f64,
+                                l.left_margin.to_pixels(),
+                                l.right_margin.to_pixels(),
+                                l.indent.to_pixels(),
+                                l.leading.to_pixels(),
+                            ]
+                        }),
+                    },
+                );
             }
             Tag::DefineText(source) | Tag::DefineText2(source) => {
                 movie.static_text.insert(source.id, serde_json::json!({"bounds":geometry::bounds(source.bounds), "transform": geometry::matrix(source.matrix),
                     "records":source.records.iter().map(|r| serde_json::json!({"font_id":r.font_id,"color":r.color.map(geometry::rgba),"x":r.x_offset.map(swf::Twips::to_pixels),"y":r.y_offset.map(swf::Twips::to_pixels),"height":r.height.map(swf::Twips::to_pixels),"glyphs":r.glyphs.iter().map(|g| (g.index,g.advance)).collect::<Vec<_>>()})).collect::<Vec<_>>() }));
             }
-            Tag::DefineSprite(sprite) => timeline(&sprite.tags, sprite.id, sprite.num_frames, movie, nesting + 1)?,
-            Tag::ExportAssets(exports) => { for asset in exports { movie.symbols.insert(string(asset.name, version), asset.id); } }
-            Tag::ImportAssets { url, imports } => {
-                let entries: BTreeMap<_, _> = imports.iter().map(|a| (string(a.name, version), a.id)).collect();
-                movie.symbols.extend(entries.clone()); movie.imports.insert(string(url, version), entries);
+            Tag::DefineSprite(sprite) => timeline(
+                &sprite.tags,
+                sprite.id,
+                sprite.num_frames,
+                movie,
+                nesting + 1,
+            )?,
+            Tag::ExportAssets(exports) => {
+                for asset in exports {
+                    movie.symbols.insert(string(asset.name, version), asset.id);
+                }
             }
-            Tag::SymbolClass(symbols) => { for symbol in symbols { movie.symbols.insert(string(symbol.class_name, version), symbol.id); } }
+            Tag::ImportAssets { url, imports } => {
+                let entries: BTreeMap<_, _> = imports
+                    .iter()
+                    .map(|a| (string(a.name, version), a.id))
+                    .collect();
+                movie.symbols.extend(entries.clone());
+                movie.imports.insert(string(url, version), entries);
+            }
+            Tag::SymbolClass(symbols) => {
+                for symbol in symbols {
+                    movie
+                        .symbols
+                        .insert(string(symbol.class_name, version), symbol.id);
+                }
+            }
             Tag::PlaceObject(place) => {
-                if let Some(actions) = &place.clip_actions { movie.action_blocks += actions.len(); }
+                if let Some(actions) = &place.clip_actions {
+                    movie.action_blocks += actions.records.len();
+                }
                 let mut instance = match place.action {
-                    PlaceObjectAction::Place(character) => Instance { character, depth: place.depth, name: None, transform: [1.0,0.0,0.0,1.0,0.0,0.0], color_transform: [1.0,1.0,1.0,1.0,0.0,0.0,0.0,0.0], clip_depth: None, ratio: None, blend_mode: 0, visible: true, filters: vec![] },
-                    PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => display.get(&place.depth).cloned().ok_or_else(|| Error::Invalid(format!("timeline {id} modifies empty depth {}", place.depth)))?,
+                    PlaceObjectAction::Place(character) => Instance {
+                        character,
+                        depth: place.depth,
+                        name: None,
+                        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                        color_transform: [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                        clip_depth: None,
+                        ratio: None,
+                        blend_mode: 0,
+                        visible: true,
+                        filters: vec![],
+                    },
+                    PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => {
+                        display.get(&place.depth).cloned().ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "timeline {id} modifies empty depth {}",
+                                place.depth
+                            ))
+                        })?
+                    }
                 };
-                if let PlaceObjectAction::Replace(character) = place.action { instance.character = character; }
-                if let Some(name) = place.name { instance.name = Some(string(name, version)); }
-                if let Some(transform) = place.matrix { instance.transform = geometry::matrix(transform); instance.transform[4] /= 20.0; instance.transform[5] /= 20.0; }
-                if let Some(color) = place.color_transform { instance.color_transform[..4].copy_from_slice(&color.mult_rgba_normalized()); instance.color_transform[4..].copy_from_slice(&color.add_rgba_normalized()); }
-                if let Some(depth) = place.clip_depth { instance.clip_depth = Some(depth); }
-                if let Some(ratio) = place.ratio { instance.ratio = Some(ratio); }
-                if let Some(blend) = place.blend_mode { instance.blend_mode = blend as u8; }
-                if let Some(visible) = place.is_visible { instance.visible = visible; }
-                if let Some(filters) = &place.filters { instance.filters = filters.iter().map(|f| format!("{f:?}")).collect(); }
+                if let PlaceObjectAction::Replace(character) = place.action {
+                    instance.character = character;
+                }
+                if let Some(name) = place.name {
+                    instance.name = Some(string(name, version));
+                }
+                if let Some(transform) = place.matrix {
+                    instance.transform = geometry::matrix(transform);
+                    instance.transform[4] /= 20.0;
+                    instance.transform[5] /= 20.0;
+                }
+                if let Some(color) = place.color_transform {
+                    instance.color_transform[..4].copy_from_slice(&color.mult_rgba_normalized());
+                    instance.color_transform[4..].copy_from_slice(&color.add_rgba_normalized());
+                }
+                if let Some(depth) = place.clip_depth {
+                    instance.clip_depth = Some(depth);
+                }
+                if let Some(ratio) = place.ratio {
+                    instance.ratio = Some(ratio);
+                }
+                if let Some(blend) = place.blend_mode {
+                    instance.blend_mode = blend as u8;
+                }
+                if let Some(visible) = place.is_visible {
+                    instance.visible = visible;
+                }
+                if let Some(filters) = &place.filters {
+                    instance.filters = filters.iter().map(|f| format!("{f:?}")).collect();
+                }
                 display.insert(place.depth, instance);
             }
-            Tag::RemoveObject(remove) => { display.remove(&remove.depth); }
+            Tag::RemoveObject(remove) => {
+                display.remove(&remove.depth);
+            }
             Tag::FrameLabel(label) => labels.push(string(label.label, version)),
-            Tag::ShowFrame => frames.push(Frame { index: frames.len(), labels: std::mem::take(&mut labels), display_list: display.values().cloned().collect() }),
+            Tag::ShowFrame => frames.push(Frame {
+                index: frames.len(),
+                labels: std::mem::take(&mut labels),
+                display_list: display.values().cloned().collect(),
+            }),
             Tag::DoAction(_) | Tag::DoInitAction { .. } => movie.action_blocks += 1,
             Tag::DefineButton(button) | Tag::DefineButton2(button) => {
                 movie.action_blocks += button.actions.len();
@@ -293,8 +496,18 @@ fn timeline(tags: &[Tag<'_>], id: u16, declared_frames: u16, movie: &mut Movie, 
         }
     }
     if frames.len() != declared_frames as usize {
-        return Err(Error::Invalid(format!("timeline {id} declares {declared_frames} frames but contains {}", frames.len())));
+        return Err(Error::Invalid(format!(
+            "timeline {id} declares {declared_frames} frames but contains {}",
+            frames.len()
+        )));
     }
-    movie.timelines.insert(id, Timeline { id, declared_frames, frames });
+    movie.timelines.insert(
+        id,
+        Timeline {
+            id,
+            declared_frames,
+            frames,
+        },
+    );
     Ok(())
 }
