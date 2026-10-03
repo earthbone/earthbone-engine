@@ -901,7 +901,8 @@ impl World {
 }
 
 fn scene_can_start(scene: &Scene) -> bool {
-    !scene.phases.is_empty()
+    scene.quest.is_some()
+        && !scene.phases.is_empty()
         && !scene
             .actions
             .iter()

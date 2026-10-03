@@ -5725,15 +5725,17 @@ the immediate transition. `SCR-46` owns SPGD validation and transient layer
 behavior. The host does not yet render those layers, which remains within the
 scope of `SCR-46`.
 
-The local vanilla `skse64/scripts/vanilla/Sound.psc` declares five functions:
+The local vanilla `skse64/scripts/vanilla/Sound.psc` declares four functions:
 
 | Registry binding | `Sound.psc` contract | Current implementation and assigned work |
 |---|---|---|
 | `Sound.Play` method | `ObjectReference` source argument, integer playback instance result. | Records the source and sound, returns a fresh nonzero instance ID. Host audio playback for this native is not connected; physical output verification belongs to `HST-05`. |
 | `Sound.StopInstance` global | Integer playback instance argument, no result. | Removes only the selected instance from the world's sound-instance table. |
 | `Sound.SetInstanceVolume` global | Integer instance and float volume arguments, no result. Volume is clamped to 0 through 1. | Updates the selected instance and clamps the volume to 0 through 1. |
-| `Sound.PlayAndWait` method | `ObjectReference` source argument, boolean result, latent playback. | Not registered. No existing backlog row owns this missing binding. |
-| `Sound.GetDescriptor` method | No arguments, returns `SoundDescriptor`. | Not registered. No existing backlog row owns this missing binding. |
+| `Sound.PlayAndWait` method | `ObjectReference` source argument, boolean result, latent playback. | Registered as a false-returning stub. Waiting for physical playback completion belongs with `HST-05`. |
+
+`GetDescriptor` is an SKSE `SoundDescriptor` extension, not a declaration in
+the local vanilla `Sound.psc`, so it is outside this inventory.
 
 The Sound table is based on the shipped PSC declaration because the local CK
 crawl has no named Sound function pages. The `Sound.Play` runtime inventory

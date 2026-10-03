@@ -469,6 +469,15 @@ impl World {
     }
 
     pub fn alias_ref(&mut self, quest: GlobalFormId, alias: u32) -> Option<GlobalFormId> {
+        if self
+            .quest_state(quest)
+            .is_some_and(|state| state.aliases.contains_key(&alias))
+        {
+            return self
+                .quest_state(quest)
+                .and_then(|state| state.aliases.get(&alias).copied())
+                .flatten();
+        }
         self.resolve_alias_ref(quest, alias).ok().flatten()
     }
 
@@ -495,17 +504,15 @@ impl World {
             return Err(AliasResolutionError::Cycle(cycle));
         }
         let Some((fill, current_target)) = self.quest_state(quest).and_then(|state| {
-            state.def.alias(alias).map(|definition| {
-                (
-                    definition.fill,
-                    state.aliases.get(&alias).copied().flatten(),
-                )
-            })
+            state
+                .def
+                .alias(alias)
+                .map(|definition| (definition.fill, state.aliases.get(&alias).copied()))
         }) else {
             return Ok(None);
         };
         if let Some(target) = current_target {
-            return Ok(Some(target));
+            return Ok(target);
         }
         path.push(node);
         let result = match fill {
@@ -521,7 +528,7 @@ impl World {
                 let target_quest = self.order.resolve(rref.file, raw_quest);
                 self.resolve_alias_ref_inner(target_quest, target, path)?
             }
-            None => current_target,
+            None => None,
         };
         path.pop();
         Ok(result)

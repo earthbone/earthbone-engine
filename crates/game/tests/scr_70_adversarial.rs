@@ -77,6 +77,7 @@ fn scr_70_sound_and_shader_bindings_keep_method_and_global_contracts() {
             ("shaderparticlegeometry".to_string(), "apply".to_string()),
             ("shaderparticlegeometry".to_string(), "remove".to_string()),
             ("sound".to_string(), "play".to_string()),
+            ("sound".to_string(), "playandwait".to_string()),
         ]
     );
 
@@ -94,7 +95,7 @@ fn scr_70_sound_and_shader_bindings_keep_method_and_global_contracts() {
             ("sound".to_string(), "stopinstance".to_string()),
         ]
     );
-    assert!(!game.vm.natives.has_method("Sound", "PlayAndWait"));
+    assert!(game.vm.natives.has_method("Sound", "PlayAndWait"));
     assert!(!game.vm.natives.has_method("Sound", "GetDescriptor"));
 }
 

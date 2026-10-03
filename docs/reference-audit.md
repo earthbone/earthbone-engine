@@ -214,7 +214,7 @@ list, as described in `game.md`.
 | MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
 | Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
 | GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
-| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems currently ignores ownership retention and quest-item retention flags. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems honors `abKeepOwnership`; quest-item retention remains unsupported because stacks do not classify quest objects. |
 | GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
 | PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation queues an event and returns a boolean. PlayAnimationAndWait and WaitForAnimationEvent defer until an event. PlayGamebryoAnimation only accepts a non-empty name; authored legacy animation playback remains unsupported under SCR-39. |
 | GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
@@ -245,12 +245,11 @@ case and the false case. The named `IsInDialogueWithPlayer` page was also
 missing from the earlier hand-kept inventory; the registry-derived check now
 includes it and the docs record its argument and result contract.
 
-`RemoveAllItems` currently ignores `abKeepOwnership` and
-`abRemoveQuestItems`. The CommonLib `InventoryEntryData::IsQuestObject` source
-identifies quest-object extra data on inventory stacks, but the game's current
-stack model does not classify those extras for this call. No existing open
-backlog row owns this Papyrus removal policy. A dedicated inventory prerequisite
-row is needed; this audit does not edit `BACKLOG.csv` under the task boundary.
+`RemoveAllItems` honors `abKeepOwnership` when transferring stacks. The
+`abRemoveQuestItems` policy remains unsupported because the game's stack model
+does not classify quest objects for this call. No existing open backlog row
+owns that Papyrus removal policy. A dedicated inventory prerequisite row is
+needed; this audit does not edit `BACKLOG.csv` under the task boundary.
 This remains an explicit implementation gap.
 
 ## Native contract audit, SCR-73
@@ -384,7 +383,7 @@ come from `engine-refs/ck-wiki` and the shipped
 | `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`. `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
 | `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
 | `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
-| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
+| `Alias.Clear`, `ReferenceAlias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on both classes because alias method inheritance is not resolved for ReferenceAlias dispatch. Validates Optional, clears the runtime alias override and reevaluates the former target package. |
 
 The Cell method comparison has eight bindings. The exact-name `Clear` comparison
 has one method binding and no global binding. The setter type discrepancy is

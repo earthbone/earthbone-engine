@@ -25,7 +25,7 @@ fn missing_parent_quest_scene() -> Game {
 
 #[test]
 fn scr_69_forcestart_rejects_scene_without_required_parent_quest() {
-    let mut game = missing_parent_quest_scene();
+    let game = missing_parent_quest_scene();
     let mut allocate = |_: &str, _: &str| ObjectId(1);
 
     assert!(

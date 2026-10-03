@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::cloned_ref_to_slice_refs
+)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
@@ -38,7 +43,13 @@ fn game(malformed_spgd: bool) -> Game {
     Game::new(order)
 }
 
-fn call_method(game: &mut Game, class: &str, method: &str, target: GlobalFormId, args: &[Value]) -> Value {
+fn call_method(
+    game: &mut Game,
+    class: &str,
+    method: &str,
+    target: GlobalFormId,
+    args: &[Value],
+) -> Value {
     let name = format!("Scr70{class}{method}");
     let mut fun = FunctionBuilder::new("Run", "Var")
         .global()
@@ -59,7 +70,11 @@ fn call_method(game: &mut Game, class: &str, method: &str, target: GlobalFormId,
         values.push(arg.clone());
     }
     let script = ScriptBuilder::new(&name, "Form")
-        .function(fun.ins(CallMethod, operands).ins(Return, vec![ident("result")]).build())
+        .function(
+            fun.ins(CallMethod, operands)
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
         .bytes();
     game.load_script(&script).unwrap();
     let thread = game.vm.call_global(&name, "Run", &values).unwrap();
@@ -69,7 +84,9 @@ fn call_method(game: &mut Game, class: &str, method: &str, target: GlobalFormId,
 
 fn call_global(game: &mut Game, class: &str, method: &str, args: &[Value]) -> Value {
     let name = format!("Scr70{class}{method}");
-    let mut fun = FunctionBuilder::new("Run", "Var").global().local("result", "Var");
+    let mut fun = FunctionBuilder::new("Run", "Var")
+        .global()
+        .local("result", "Var");
     let mut operands = vec![s(class), s(method), ident("result")];
     for (index, arg) in args.iter().enumerate() {
         let param = format!("arg{index}");
@@ -82,7 +99,11 @@ fn call_global(game: &mut Game, class: &str, method: &str, args: &[Value]) -> Va
         operands.push(ident(&param));
     }
     let script = ScriptBuilder::new(&name, "Form")
-        .function(fun.ins(CallStatic, operands).ins(Return, vec![ident("result")]).build())
+        .function(
+            fun.ins(CallStatic, operands)
+                .ins(Return, vec![ident("result")])
+                .build(),
+        )
         .bytes();
     game.load_script(&script).unwrap();
     let thread = game.vm.call_global(&name, "Run", args).unwrap();
@@ -93,18 +114,42 @@ fn call_global(game: &mut Game, class: &str, method: &str, args: &[Value]) -> Va
 #[test]
 fn scr_70_malformed_spgd_apply_does_not_create_a_layer() {
     let mut game = game(true);
-    call_method(&mut game, "ShaderParticleGeometry", "Apply", SPGD, &[Value::Float(0.0)]);
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Apply",
+        SPGD,
+        &[Value::Float(0.0)],
+    );
     assert!(game.world().shader_particle_layers().is_empty());
 }
 
 #[test]
 fn scr_70_invalid_shader_fades_leave_existing_layer_unchanged() {
     let mut game = game(false);
-    call_method(&mut game, "ShaderParticleGeometry", "Apply", SPGD, &[Value::Float(0.0)]);
-    call_method(&mut game, "ShaderParticleGeometry", "Remove", SPGD, &[Value::Float(f32::NAN)]);
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Apply",
+        SPGD,
+        &[Value::Float(0.0)],
+    );
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Remove",
+        SPGD,
+        &[Value::Float(f32::NAN)],
+    );
     assert_eq!(game.world().shader_particle_layers().len(), 1);
     assert_eq!(game.world().shader_particle_layers()[0].strength, 1.0);
-    call_method(&mut game, "ShaderParticleGeometry", "Apply", SPGD, &[Value::Float(-1.0)]);
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Apply",
+        SPGD,
+        &[Value::Float(-1.0)],
+    );
     assert_eq!(game.world().shader_particle_layers().len(), 1);
     assert_eq!(game.world().shader_particle_layers()[0].strength, 1.0);
 }
@@ -112,10 +157,22 @@ fn scr_70_invalid_shader_fades_leave_existing_layer_unchanged() {
 #[test]
 fn scr_70_reapplying_shader_restarts_its_fade_in() {
     let mut game = game(false);
-    call_method(&mut game, "ShaderParticleGeometry", "Apply", SPGD, &[Value::Float(2.0)]);
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Apply",
+        SPGD,
+        &[Value::Float(2.0)],
+    );
     game.tick(1.0);
     assert_eq!(game.world().shader_particle_layers()[0].strength, 0.5);
-    call_method(&mut game, "ShaderParticleGeometry", "Apply", SPGD, &[Value::Float(4.0)]);
+    call_method(
+        &mut game,
+        "ShaderParticleGeometry",
+        "Apply",
+        SPGD,
+        &[Value::Float(4.0)],
+    );
     assert_eq!(game.world().shader_particle_layers()[0].strength, 0.0);
     game.tick(2.0);
     assert_eq!(game.world().shader_particle_layers()[0].strength, 0.5);
@@ -133,9 +190,15 @@ fn scr_70_sound_play_rejects_a_missing_source_without_allocating_an_instance() {
 fn scr_70_sound_instance_ids_remain_fresh_after_stop() {
     let mut game = game(false);
     let source = Value::Object(game.object_of_form(SOURCE));
-    assert_eq!(call_method(&mut game, "Sound", "Play", SOUND, &[source.clone()]), Value::Int(1));
+    assert_eq!(
+        call_method(&mut game, "Sound", "Play", SOUND, &[source.clone()]),
+        Value::Int(1)
+    );
     call_global(&mut game, "Sound", "StopInstance", &[Value::Int(1)]);
-    assert_eq!(call_method(&mut game, "Sound", "Play", SOUND, &[source]), Value::Int(2));
+    assert_eq!(
+        call_method(&mut game, "Sound", "Play", SOUND, &[source]),
+        Value::Int(2)
+    );
     assert_eq!(game.world().sound_instances.len(), 1);
     assert!(game.world().sound_instances.contains_key(&2));
 }
@@ -145,7 +208,12 @@ fn scr_70_sound_volume_stays_within_contract_for_nan() {
     let mut game = game(false);
     let source = Value::Object(game.object_of_form(SOURCE));
     call_method(&mut game, "Sound", "Play", SOUND, &[source]);
-    call_global(&mut game, "Sound", "SetInstanceVolume", &[Value::Int(1), Value::Float(f32::NAN)]);
+    call_global(
+        &mut game,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(1), Value::Float(f32::NAN)],
+    );
     let volume = game.world().sound_instances[&1].2;
     assert!(volume.is_finite() && (0.0..=1.0).contains(&volume));
 }

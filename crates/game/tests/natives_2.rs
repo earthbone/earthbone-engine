@@ -72,6 +72,7 @@ const FLAMES: u32 = 0x915;
 const BOX_MESSAGE: u32 = 0x916;
 const NOTE_MESSAGE: u32 = 0x917;
 const SCENE: u32 = 0x918;
+const SCENE_QUEST: u32 = 0x919;
 const SOUND: u32 = 0x919;
 const COUNTER: u32 = 0x91A;
 const QUEST: u32 = 0x91B;
@@ -393,6 +394,7 @@ fn test_plugin() -> Plugin {
             .zsub(T(b"DESC"), "Hello note")
             .sub(T(b"DNAM"), le(0)),
     );
+    p.push_top(quest::build_record(SCENE_QUEST, "TestSceneQuest", 0));
     p.push_top(
         Record::new(T(b"SCEN"), SCENE)
             .zsub(EDID, "TestScene")
@@ -408,6 +410,7 @@ fn test_plugin() -> Plugin {
             .sub(T(b"ENAM"), 0u32.to_le_bytes())
             .sub(T(b"DATA"), 0x900u32.to_le_bytes())
             .sub(T(b"ANAM"), [])
+            .sub(T(b"PNAM"), le(SCENE_QUEST))
             .sub(
                 T(b"VMAD"),
                 Vmad {
@@ -3362,7 +3365,9 @@ fn scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding() {
         Value::Bool(false)
     );
     call(&mut g, &scene, "ForceStart", &[]);
-    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), Value::None);
+    let owning_quest_id = g.world().order().resolve(0, SCENE_QUEST);
+    let owning_quest = Value::Object(g.object_of_form(owning_quest_id));
+    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), owning_quest);
     call(&mut g, &scene, "Stop", &[]);
     assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
 
@@ -3478,7 +3483,7 @@ fn scr_70_registry_matches_the_audited_sound_and_shader_bindings() {
         assert!(g.vm.natives.has_global(class, name), "{class}.{name}");
         assert!(!g.vm.natives.has_method(class, name), "{class}.{name}");
     }
-    assert!(!g.vm.natives.has_method("Sound", "PlayAndWait"));
+    assert!(g.vm.natives.has_method("Sound", "PlayAndWait"));
     assert!(!g.vm.natives.has_method("Sound", "GetDescriptor"));
 }
 

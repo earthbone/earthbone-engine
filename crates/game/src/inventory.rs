@@ -263,6 +263,12 @@ impl Bundle {
             stack.extras.retain(|extra| !matches!(extra.kind, 22 | 23));
         }
     }
+
+    pub(crate) fn clear_ownership(&mut self) {
+        for stack in &mut self.stacks {
+            stack.clear_extra(0x21);
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

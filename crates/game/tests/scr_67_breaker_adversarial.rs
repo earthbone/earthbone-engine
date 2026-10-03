@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::panic)]
+#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -101,42 +101,113 @@ fn remove_all(game: &mut Game, source: GlobalFormId, target: GlobalFormId, keep_
         .call_global(
             &name,
             "Run",
-            &[
-                source,
-                target,
-                Value::Bool(keep_owner),
-                Value::Bool(false),
-            ],
+            &[source, target, Value::Bool(keep_owner), Value::Bool(false)],
         )
         .unwrap();
     game.run_until_idle(64);
-    assert_eq!(game.vm.thread_result(thread).unwrap_or(Value::None), Value::None);
+    assert_eq!(
+        game.vm.thread_result(thread).unwrap_or(Value::None),
+        Value::None
+    );
 }
 
 #[test]
 fn scr_67_breaker_registry_sets_have_no_unlisted_class_bindings() {
     let game = Game::new(LoadOrder::new());
     let expected_reference = [
-        "Enable", "EnableNoWait", "Disable", "DisableNoWait", "IsEnabled", "IsDisabled",
-        "Delete", "IsDeleted", "GetBaseObject", "GetParentCell", "GetWorldSpace",
-        "IsInInterior", "GetPositionX", "GetPositionY", "GetPositionZ", "GetAngleX",
-        "GetAngleY", "GetAngleZ", "SetPosition", "SetAngle", "MoveTo", "GetDistance",
-        "Activate", "BlockActivation", "IsActivationBlocked", "GetLinkedRef", "GetItemCount",
-        "AddItem", "RemoveItem", "RemoveAllItems", "GetScale", "SetScale", "GetDisplayName",
-        "SetDisplayName", "PlayAnimation", "GetOpenState", "SetOpen", "Lock", "GetKey",
-        "IsLocked", "GetLockLevel", "SetLockLevel", "PlaceAtMe", "AddToMap", "EnableFastTravel",
-        "SetDestroyed", "IgnoreFriendlyHits", "IsIgnoringFriendlyHits", "GetCurrentLocation",
-        "GetEditorLocation", "IsInLocation", "MoveToMyEditorLocation", "GetActorOwner",
-        "GetFactionOwner", "SetActorOwner", "SetFactionOwner", "AddInventoryEventFilter",
-        "RemoveInventoryEventFilter", "RemoveAllInventoryEventFilters", "SetAnimationVariableFloat",
-        "SetAnimationVariableInt", "SetAnimationVariableBool", "GetAnimationVariableFloat",
-        "GetAnimationVariableInt", "GetAnimationVariableBool", "GetNthLinkedRef", "PlaceActorAtMe",
-        "Is3DLoaded", "IsFurnitureInUse", "IsFurnitureMarkerInUse", "GetTriggerObjectCount",
-        "GetCurrentDestructionStage", "GetCurrentScene", "IsInDialogueWithPlayer", "PlayAnimationAndWait",
-        "PlayGamebryoAnimation", "SetMotionType", "ApplyHavokImpulse", "SetNoFavorAllowed",
-        "ClearDestruction", "DamageObject", "KnockAreaEffect", "PushActorAway", "WaitForAnimationEvent",
-        "InterruptCast", "ForceAddRagdollToWorld", "ForceRemoveRagdollFromWorld", "TetherToHorse",
-        "CreateDetectionEvent", "TranslateTo", "SplineTranslateTo", "StopTranslation", "Reset",
+        "Enable",
+        "EnableNoWait",
+        "Disable",
+        "DisableNoWait",
+        "IsEnabled",
+        "IsDisabled",
+        "Delete",
+        "IsDeleted",
+        "GetBaseObject",
+        "GetParentCell",
+        "GetWorldSpace",
+        "IsInInterior",
+        "GetPositionX",
+        "GetPositionY",
+        "GetPositionZ",
+        "GetAngleX",
+        "GetAngleY",
+        "GetAngleZ",
+        "SetPosition",
+        "SetAngle",
+        "MoveTo",
+        "GetDistance",
+        "Activate",
+        "BlockActivation",
+        "IsActivationBlocked",
+        "GetLinkedRef",
+        "GetItemCount",
+        "AddItem",
+        "RemoveItem",
+        "RemoveAllItems",
+        "GetScale",
+        "SetScale",
+        "GetDisplayName",
+        "SetDisplayName",
+        "PlayAnimation",
+        "GetOpenState",
+        "SetOpen",
+        "Lock",
+        "GetKey",
+        "IsLocked",
+        "GetLockLevel",
+        "SetLockLevel",
+        "PlaceAtMe",
+        "AddToMap",
+        "EnableFastTravel",
+        "SetDestroyed",
+        "IgnoreFriendlyHits",
+        "IsIgnoringFriendlyHits",
+        "GetCurrentLocation",
+        "GetEditorLocation",
+        "IsInLocation",
+        "MoveToMyEditorLocation",
+        "GetActorOwner",
+        "GetFactionOwner",
+        "SetActorOwner",
+        "SetFactionOwner",
+        "AddInventoryEventFilter",
+        "RemoveInventoryEventFilter",
+        "RemoveAllInventoryEventFilters",
+        "SetAnimationVariableFloat",
+        "SetAnimationVariableInt",
+        "SetAnimationVariableBool",
+        "GetAnimationVariableFloat",
+        "GetAnimationVariableInt",
+        "GetAnimationVariableBool",
+        "GetNthLinkedRef",
+        "PlaceActorAtMe",
+        "Is3DLoaded",
+        "IsFurnitureInUse",
+        "IsFurnitureMarkerInUse",
+        "GetTriggerObjectCount",
+        "GetCurrentDestructionStage",
+        "GetCurrentScene",
+        "IsInDialogueWithPlayer",
+        "PlayAnimationAndWait",
+        "PlayGamebryoAnimation",
+        "SetMotionType",
+        "ApplyHavokImpulse",
+        "SetNoFavorAllowed",
+        "ClearDestruction",
+        "DamageObject",
+        "KnockAreaEffect",
+        "PushActorAway",
+        "WaitForAnimationEvent",
+        "InterruptCast",
+        "ForceAddRagdollToWorld",
+        "ForceRemoveRagdollFromWorld",
+        "TetherToHorse",
+        "CreateDetectionEvent",
+        "TranslateTo",
+        "SplineTranslateTo",
+        "StopTranslation",
+        "Reset",
     ];
     let mut expected: Vec<_> = expected_reference
         .iter()
@@ -197,16 +268,14 @@ fn scr_67_breaker_remove_all_items_drops_owner_when_keep_ownership_is_false() {
         .restore(
             id(ITEM),
             1,
-            vec![
-                Stack::new(
-                    1,
-                    vec![Extra {
-                        kind: 0x21,
-                        fields: vec![Field::Form(Some(owner))],
-                    }],
-                )
-                .unwrap(),
-            ],
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 0x21,
+                    fields: vec![Field::Form(Some(owner))],
+                }],
+            )
+            .unwrap()],
         )
         .unwrap();
 
@@ -215,5 +284,7 @@ fn scr_67_breaker_remove_all_items_drops_owner_when_keep_ownership_is_false() {
     let mut world = game.world_mut();
     let recipient = world.reference(target).unwrap();
     assert_eq!(recipient.inventory.count(id(ITEM)), 1);
-    assert!(recipient.inventory.stacks(id(ITEM))[0].extra(0x21).is_none());
+    assert!(recipient.inventory.stacks(id(ITEM))[0]
+        .extra(0x21)
+        .is_none());
 }

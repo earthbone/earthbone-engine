@@ -1024,14 +1024,20 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "RemoveAllItems",
         |world, call, me| {
             let target = world.form_arg(&call.arg(0));
+            let keep_ownership = call.args.get(1).is_some_and(Value::as_bool);
             let items: Vec<(GlobalFormId, i32)> = world
                 .reference(me)
                 .map(|r| r.inventory.iter().map(|(k, v)| (*k, v)).collect())
                 .unwrap_or_default();
             for (item, count) in items {
-                world.remove_item_notified(me, item, count, target, &mut |name, class| {
-                    call.create_object(name, class)
-                });
+                world.remove_item_notified_with_ownership(
+                    me,
+                    item,
+                    count,
+                    target,
+                    keep_ownership,
+                    &mut |name, class| call.create_object(name, class),
+                );
             }
             none()
         }
@@ -2384,15 +2390,42 @@ fn alias(vm: &mut Vm, w: &Shared) {
                 .push(call.time, "ReferenceAlias.Clear: alias is not optional");
             return none();
         }
-        let actor = world
-            .alias_ref(quest, alias)
-            .filter(|target| world.class_of(Handle::Form(*target)) == "Actor");
+        let target = world.alias_ref(quest, alias);
         world.force_alias(quest, alias, None);
-        if let Some(actor) = actor {
-            world.evaluate_package(actor, alloc!(call));
+        if let Some(target) = target {
+            world.evaluate_package(target, alloc!(call));
+            world.force_alias(quest, alias, None);
+            world.evaluate_package(target, alloc!(call));
         }
         none()
     });
+    alias_method_on!(
+        vm,
+        w,
+        "ReferenceAlias",
+        "Clear",
+        |world, call, quest, alias| {
+            let optional = world
+                .quest_state(quest)
+                .and_then(|state| state.def.alias(alias))
+                .is_some_and(|definition| {
+                    definition.flags & crate::quest::alias_flags::OPTIONAL != 0
+                });
+            if !optional {
+                call.log
+                    .push(call.time, "ReferenceAlias.Clear: alias is not optional");
+                return none();
+            }
+            let target = world.alias_ref(quest, alias);
+            world.force_alias(quest, alias, None);
+            if let Some(target) = target {
+                world.evaluate_package(target, alloc!(call));
+                world.force_alias(quest, alias, None);
+                world.evaluate_package(target, alloc!(call));
+            }
+            none()
+        }
+    );
     // A location alias holds a form the same way a reference alias does.
     alias_method_on!(
         vm,
@@ -3835,12 +3868,18 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         i(world.play_sound(me, source))
     });
+    method!(vm, w, "Sound", "PlayAndWait", |_world, _call, _me| b(false));
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
         none()
     });
     global!(vm, w, "Sound", "SetInstanceVolume", |world, call| {
-        let volume = call.arg(1).as_float().clamp(0.0, 1.0);
+        let requested = call.arg(1).as_float();
+        let volume = if requested.is_finite() {
+            requested.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         if let Some(inst) = world.sound_instances.get_mut(&call.arg(0).as_int()) {
             inst.2 = volume;
         }

@@ -30,33 +30,30 @@ fn game() -> Game {
 }
 
 fn remove_all(game: &mut Game, keep_owner: bool) {
-    let script = ScriptBuilder::new(
-        "Scr67KeepOwnershipProbe",
-        "Form",
-    )
-    .function(
-        FunctionBuilder::new("Run", "None")
-            .global()
-            .param("source", "Form")
-            .param("target", "Form")
-            .param("keep", "Bool")
-            .param("removeQuestItems", "Bool")
-            .local("result", "None")
-            .ins(
-                CallMethod,
-                vec![
-                    s("RemoveAllItems"),
-                    ident("source"),
-                    ident("result"),
-                    ident("target"),
-                    ident("keep"),
-                    ident("removeQuestItems"),
-                ],
-            )
-            .ins(Return, vec![])
-            .build(),
-    )
-    .bytes();
+    let script = ScriptBuilder::new("Scr67KeepOwnershipProbe", "Form")
+        .function(
+            FunctionBuilder::new("Run", "None")
+                .global()
+                .param("source", "Form")
+                .param("target", "Form")
+                .param("keep", "Bool")
+                .param("removeQuestItems", "Bool")
+                .local("result", "None")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("RemoveAllItems"),
+                        ident("source"),
+                        ident("result"),
+                        ident("target"),
+                        ident("keep"),
+                        ident("removeQuestItems"),
+                    ],
+                )
+                .ins(Return, vec![])
+                .build(),
+        )
+        .bytes();
     game.load_script(&script).unwrap();
     let source = Value::Object(game.object_of_form(id(SOURCE)));
     let target = Value::Object(game.object_of_form(id(TARGET)));
@@ -65,12 +62,7 @@ fn remove_all(game: &mut Game, keep_owner: bool) {
         .call_global(
             "Scr67KeepOwnershipProbe",
             "Run",
-            &[
-                source,
-                target,
-                Value::Bool(keep_owner),
-                Value::Bool(false),
-            ],
+            &[source, target, Value::Bool(keep_owner), Value::Bool(false)],
         )
         .unwrap();
     game.run_until_idle(64);
@@ -85,16 +77,14 @@ fn source_with_owned_item(game: &mut Game) {
         .restore(
             id(ITEM),
             1,
-            vec![
-                Stack::new(
-                    1,
-                    vec![Extra {
-                        kind: 0x21,
-                        fields: vec![Field::Form(Some(id(OWNER)))],
-                    }],
-                )
-                .unwrap(),
-            ],
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 0x21,
+                    fields: vec![Field::Form(Some(id(OWNER)))],
+                }],
+            )
+            .unwrap()],
         )
         .unwrap();
 }

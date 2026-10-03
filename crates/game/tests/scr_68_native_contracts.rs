@@ -66,6 +66,7 @@ const ALIAS_METHODS: &[&str] = &[
 
 const REFERENCE_ALIAS_METHODS: &[&str] = &[
     "addinventoryeventfilter",
+    "clear",
     "forcerefifempty",
     "removeallinventoryeventfilters",
     "removeinventoryeventfilter",
@@ -123,7 +124,7 @@ fn call_alias(game: &mut Game, alias: ObjectId, name: &str) -> Value {
     let script = format!("Scr68Probe{id}");
     let function = FunctionBuilder::new("Run", "Var")
         .global()
-        .param("target", "Form")
+        .param("target", "ReferenceAlias")
         .local("result", "Var")
         .ins(CallMethod, vec![s(name), ident("target"), ident("result")])
         .ins(Return, vec![ident("result")])
