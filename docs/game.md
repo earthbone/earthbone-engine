@@ -567,7 +567,7 @@ to the player, strength defaults to 0.5 and clamps to 0 through 1, and duration
 zero uses `fCameraShakeDuration` or a 0.25-second fallback. Invalid source
 types, non-finite values and negative durations do not queue an effect. These
 camera requests are transient and are not saved. The shipped `Game.psc` and CK
-page define the native signature and description; shipped script defaults
+page define the native signature and description. Shipped script defaults
 provide shake defaults and clamping.
 
 ### Debug natives, SCR-20
