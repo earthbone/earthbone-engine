@@ -216,6 +216,21 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+### Shader particle geometry, SCR-46
+
+`PlayerNode` sends `World::shader_particle_layers` to `CellStreamerNode` each
+gameplay frame, centered on the player's placed reference. The streamer uses
+one `MultiMesh` RenderingServer instance for each active SPGD form, with a
+quad per particle and the record's texture when it resolves through the data
+source. Density determines the quad count at 64 per density unit, bounded to
+256, and zero density draws none. Deterministic positions fill the authored
+box and wrap downward using gravity velocity. Fade strength sets material
+opacity. Removed layers and streamer teardown free their instance RIDs.
+
+This host path is an approximate visual presentation. It does not reproduce
+engine particle randomness, rotation velocity, initial rotation, or subtexture
+animation.
+
 ### Cart and horse host tether
 
 `ObjectReference.TetherToHorse` queues a cart and horse FormID after applying
@@ -484,13 +499,25 @@ local reference corpus, which was unavailable from this worktree during conflict
 ### Game native presentation signals, SCR-29
 
 `PlayerNode` drains transient `GameUiRequest` values from the shared `World`
-after each gameplay tick. It emits `race_menu_requested`,
-`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
-mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
-native. A change to `World::hud_cart_mode` emits
-`hud_cart_mode_changed(enabled)`. These signals are the host presentation
-boundary. A connected UI or media presenter supplies the corresponding race
-editor, overlay and video playback.
+after each gameplay tick. It opens the native race editor for `ShowRaceMenu`,
+shows a red screen overlay for `TriggerScreenBlood`, and emits the matching
+`race_menu_requested` and `screen_blood_requested(value)` signals. Blood
+intensity is the absolute native value clamped to 100 percent, and the overlay
+lasts 450 milliseconds. The HUD shows a `CART` badge while the shared
+`World::hud_cart_mode` flag is set and emits `hud_cart_mode_changed(enabled)`
+when that value changes.
+
+`PlayBink` preserves its file name and four playback options in the host
+`bink_requested` signal. The Godot `VideoStreamPlayer` documented in local
+`engine-refs/godot-docs/classes/class_videostreamplayer.rst` supports Ogg
+Theora or a video GDExtension decoder. This host has no Bink decoder or video
+presenter, so `.bik` playback remains unsupported. The local CK
+`engine-refs/ck-wiki/Game_Script.wikitext` supplies the five Game native
+signatures and describes `PlayBink` as Bink playback.
+
+`godot/scr_29_game_ui_test.gd` checks the visible race menu and HUD presenter
+controls against installed Skyrim data. Rust host tests check cart-mode state
+and the screen blood overlay's intensity and lifetime.
 
 ## EffectShader playback, MAG-14
 
@@ -2577,7 +2604,12 @@ in LIP target order. Stopping or finishing the voice clears the track and
 returns its weights to zero. Lines without a decodable LIP block keep the mouth
 weights empty or neutral. `tests/dlg_20_lip_playback.rs` exercises decoded
 frames through the same slot lifecycle used by SoundBank, including playback
-updates and interruption.
+updates and interruption. `tests/dlg_20_godot_lip.rs` packages a generated WAV
+and LIP block into a voice archive, then launches Godot with the extension and
+opens it through a live SoundBank. It checks that the exposed mouth weights
+match the frame selected by the player's playback position and return to zero
+when `stop_voice` interrupts playback. A nonzero player start offset makes the
+time sample deterministic in headless or windowed runs.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
@@ -3741,7 +3773,29 @@ match the cell streamer's own `load_radius` so the two never disagree about
 which cells are near. One streamer covers one LOD level, a caller that wants
 more than one level resident at once runs one streamer per level with
 disjoint radius bands, finer levels nearer the focus. Picking a level by
-distance automatically is left to that caller, unstarted here.
+distance can use `lod_rebuild::select_far_level`, which chooses the coarsest
+level whose measured projected silhouette edge error is below its pixel
+limit. The host does not yet feed rendered reference measurements into this
+selector.
+
+### Background LOD products, RND-16
+
+`lod_rebuild::LoadOrderHash` keys generated output by ordered profile plugin
+names, enabled state and slot assignment. Callers mix in
+`soe_esm::LoadOrder::fingerprint()` so edits to plugin contents also
+invalidate the cache. `LodBuildCache::request` returns a cached product when
+the key matches, shares a pending worker for the same key, or starts a worker
+for a cache miss. `GeneratedLod` carries
+object and terrain output together, and `finish` publishes only after the
+complete worker result is available. A failed worker leaves the cache
+unchanged.
+
+`silhouette_error_pixels` measures the maximum displacement of the four
+projected bounds edges in pixels. `select_far_level` chooses the coarsest
+candidate below the configured error limit and ignores non-finite
+measurements. The cache and selector are host APIs. The cell streamer does
+not yet schedule rebuilds when a profile is reloaded or apply selected levels
+to rendered references.
 
 The residency budget is recorded, not estimated ahead of the read.
 `Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
