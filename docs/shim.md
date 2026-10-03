@@ -264,10 +264,13 @@ implementation.
 
 The event batch declares `TESContainerChangedEvent`, `TESDeathEvent`,
 `TESEnterBleedoutEvent`, `TESFormDeleteEvent` and `TESFurnitureEvent` payloads. `EventState`
-defines queries for current inventory count, death, bleedout, deletion and furniture occupancy
-for an engine binding to implement against live world state. Missing objects return
-`std::nullopt`. Vtable and call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK`
-description because those addresses have no meaning in this runtime.
+defines queries for current inventory count, death, bleedout, deletion and furniture occupancy.
+The game implements these queries on `World`: inventory reads an instantiated reference's item
+count, actor reads use current actor state, deletion reads reference flags and winning-record
+deletion flags, and furniture occupancy reads the actor's reserved seat. Unknown or uninstantiated
+objects return `std::nullopt`. The adapter reports an occupied seat as an Enter event. Vtable and
+call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK` description because those addresses
+have no meaning in this runtime.
 
 The event API includes payloads for `TESGrabReleaseEvent`,
 `TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
@@ -356,7 +359,9 @@ actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live ga
 SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
 `World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
 player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
-payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
+payload contracts and checks sink dispatch against synthetic state fixtures. SHM-21 implements the
+five event-state queries on `World` and checks live inventory, actor, deletion and furniture state
+plus unsupported-hook errors. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
 rejection marker. A game integration test checks that live quest start and failed-stop transitions

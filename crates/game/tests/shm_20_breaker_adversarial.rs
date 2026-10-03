@@ -76,12 +76,20 @@ fn shm_20_fully_loaded_cell_notifies_once_until_it_leaves_residency() {
         .cell_fully_loaded()
         .add_sink(Box::new(Capture(seen.clone())));
 
-    game.world_mut().attach_streaming_cells(&[id(0x900)]).unwrap();
-    game.world_mut().attach_streaming_cells(&[id(0x900)]).unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(0x900)])
+        .unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(0x900)])
+        .unwrap();
     let repeated_attach_count = seen.borrow().len();
 
-    game.world_mut().detach_streaming_cells(&[id(0x900)]).unwrap();
-    game.world_mut().attach_streaming_cells(&[id(0x900)]).unwrap();
+    game.world_mut()
+        .detach_streaming_cells(&[id(0x900)])
+        .unwrap();
+    game.world_mut()
+        .attach_streaming_cells(&[id(0x900)])
+        .unwrap();
     assert_eq!(
         (repeated_attach_count, seen.borrow().len()),
         (1, 2),
@@ -122,6 +130,8 @@ fn shm_20_skill_increase_requires_a_player_rank_gain() {
         .advance_skill(player, "onehanded", 0.01)
         .unwrap();
     assert!(game.world().skill_experience(player, "onehanded").unwrap() > 0.0);
-    assert!(seen.borrow().is_empty(), "partial experience is not a rank gain");
-
+    assert!(
+        seen.borrow().is_empty(),
+        "partial experience is not a rank gain"
+    );
 }

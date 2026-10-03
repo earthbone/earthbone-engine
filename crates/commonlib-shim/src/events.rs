@@ -365,7 +365,7 @@ pub enum ScriptEvent {
 pub trait EventState {
     fn inventory_count(&self, container: FormId, item: FormId) -> Option<i32>;
     fn is_dead(&self, actor: ActorHandle) -> Option<bool>;
-    fn is_in_bleedout(&self, actor: ActorHandle) -> Option<bool>;
+    fn is_in_bleedout(&mut self, actor: ActorHandle) -> Option<bool>;
     fn is_form_deleted(&self, form: FormId) -> Option<bool>;
     fn furniture_event(&self, actor: ActorHandle) -> Option<FurnitureEvent>;
 }

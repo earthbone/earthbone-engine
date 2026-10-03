@@ -37,6 +37,12 @@ HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
 `None` when it is absent. The values are host frame state and are not saved.
+The MIT `EventState` implementation reads an instantiated reference's inventory,
+current actor death and unconscious flags, reference and winning-record deletion,
+and each actor's reserved furniture seat. Handles resolve through the current
+load order. Unknown or uninstantiated references return no result. A current
+seat is represented as a furniture Enter event; binary hook requests return
+the shim's named unsupported-hook error.
 
 ## What is in it
 

@@ -7,8 +7,8 @@ use super::*;
 use std::{cell::RefCell, rc::Rc};
 
 use soe_commonlib_shim::events::{
-    DisarmedEvent, DragonSoulsGained, EventSink, FormIdentity, LevelIncrease,
-    LocationDiscovery, NotifyControl,
+    DisarmedEvent, DragonSoulsGained, EventSink, FormIdentity, LevelIncrease, LocationDiscovery,
+    NotifyControl,
 };
 
 struct Capture<T>(Rc<RefCell<Vec<T>>>);
@@ -160,7 +160,13 @@ fn shm_19_map_discovery_of_missing_reference_is_silent() {
         .location_discovery()
         .add_sink(Box::new(Capture(seen.clone())));
 
-    world.add_to_map(GlobalFormId { file: 7, object: 0xdead }, true);
+    world.add_to_map(
+        GlobalFormId {
+            file: 7,
+            object: 0xdead,
+        },
+        true,
+    );
 
     assert!(seen.borrow().is_empty());
 }
