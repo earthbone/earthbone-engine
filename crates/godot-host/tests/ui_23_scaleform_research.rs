@@ -91,7 +91,7 @@ fn ui_23_scaleform_research_documents_tags_and_extensions() {
     ] {
         assert!(doc.contains(term), "research doc is missing {term}");
     }
-    assert!(doc.contains("152 `.as` files"));
+    assert!(doc.contains("153 `.as` files"));
     assert!(doc.contains("337 `call` sites"));
     assert!(doc.contains("133 `addCallBack` sites"));
 }

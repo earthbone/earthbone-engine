@@ -125,6 +125,75 @@ for the UI backlog, not claims of implementation.
 - Local `engine-refs/SexLabpp/lib/ImGui/SKSEMenuFramework.h`, for callback
   names. The enclosing SexLabpp repository has an Apache-2.0 license; it does
 ... (+98 lines) [see remaining: rtk proxy git show ':2:docs/ui-frameworks.md' | tail -n +127]
+## HTML menu framework research, UI-22
+
+This note compares ways to host mod HTML menus and the public PrismaUI
+contract. It is research for future rows. It does not add a browser renderer.
+
+### Godot embedding choices
+
+Godot core has no HTML or browser renderer for native game UI. Its web export
+builds a Godot game to run in a browser, which is a different use case. Three
+embedding choices are relevant:
+
+| Choice | Rendering and deployment | License and size |
+|---|---|---|
+| CEF through [gdCEF](https://github.com/Lecrapouille/gdcef) | CEF off-screen rendering can update a Godot texture for a `TextureRect` or a 3D material. The browser and render subprocess ship with the game. | gdCEF is MIT. CEF has LGPL third-party libraries and must ship their notices and required materials. The checked CEF distribution is about 600 MB to download and about 1 GB of built artifacts. These are upstream artifact measurements, not a fixed minimum. |
+| System webview through [Godot WRY](https://github.com/doceazedo/godot_wry) | Uses WebView2 on Windows, WebKit on macOS and WebKitGTK on Linux. It draws as a native view that always renders above Godot, so it cannot become a Godot texture for a 3D surface. | The addon is MIT and WRY is MIT or Apache-2.0. It uses the platform webview. No official runtime bundle size is published. |
+| [Ultralight SDK](https://ultralig.ht/) | Embeds a GPU accelerated HTML renderer and can produce pixels for a Godot texture, including 3D surfaces. It ships its own runtime. | Ultralight's Free License Agreement defines its free-use terms. The SDK download is about 600 MB in the checked distribution and the agreement does not publish a fixed bundle size for a Godot integration. |
+
+CEF's browser runtime adds a large download and deployment footprint, but gives
+stable Chromium behavior and texture output. The system webview has a smaller
+application bundle, but browser behavior varies by operating system and its
+native overlay cannot be composed into the world. Ultralight also supports
+texture output, though its agreement and bundled runtime need separate review.
+
+### PrismaUI plugin API
+
+PrismaUI exposes a versioned SKSE plugin interface. A plugin calls
+`RequestPluginAPI(InterfaceVersion::V1)`, then creates one or more views from
+HTML under `Data/PrismaUI/views/`. `CreateView` returns a view handle and a DOM ready callback. The plugin can show, hide, focus and destroy that view. It can
+run JavaScript with `Invoke`, register JavaScript listeners for events flowing
+back to native code, and unregister those listeners during teardown. The
+compatibility surface is this view and event contract, including focus, visibility, ordering and destruction. A Godot-side compatible adapter does not load an SKSE DLL.
+
+The API reference documents version negotiation, view construction and
+`Invoke`. PrismaUI's samples also show native callbacks and JavaScript
+listeners. A project-owned adapter still needs to define its supported event
+payloads and lifecycle rules.
+
+### Recommendation and proposed rows
+
+Keep native Godot controls as the default. For a browser-backed mod menu,
+prototype and use gdCEF's off-screen texture path behind an optional feature.
+Measure memory, frame cost, input focus, transparency and texture upload with
+representative PrismaUI views before making it a supported renderer. Do not adopt WRY for menus that need a Godot texture or world-space rendering.
+Revisit Ultralight only if CEF's deployment size or performance is unacceptable
+and its current license terms fit distribution.
+
+| Proposed row | Deliverable |
+|---|---|
+| Specify the PrismaUI-compatible view and event contract | Define version negotiation, view lifecycle, callback order, focus, visibility, JavaScript calls and event payloads. |
+| Add an optional CEF renderer adapter | Build gdCEF as an optional host integration and render browser output into a Godot texture. |
+| Validate the adapter against named PrismaUI mods | Run representative plugins through their view and event flows and record compatibility gaps. |
+| Survey HTML asset loading and script permissions | Define local asset resolution, network policy, script capabilities and error reporting. |
+
+### Sources
+
+- [Godot WRY](https://github.com/doceazedo/godot_wry), for platform webviews,
+  overlay behavior and license.
+- [gdCEF](https://github.com/Lecrapouille/gdcef), for CEF texture output,
+  artifacts and the project's license statement.
+- [PrismaUI API negotiation](https://prisma-user-interface-framework.github.io/Prisma2.0/docs/api/RequestPluginAPI/),
+  [CreateView](https://prisma-user-interface-framework.github.io/Prisma2.0/docs/api/CreateView/),
+  [Invoke](https://prisma-user-interface-framework.github.io/Prisma2.0/docs/api/Invoke/)
+  and its JavaScript listener documentation, for the mod-facing API.
+- [Ultralight license terms](https://ultralig.ht/terms/), for the Free License
+  Agreement. Check the agreement for the exact release before distribution.
+- Godot's stable [web export documentation](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html),
+  which describes exporting a Godot project to run in a browser rather than
+  embedding a browser in a native project.
+
 ## Running mod SWF menus through Ruffle, UI-23
 
 The UI-19 path converts the winning interface SWF art into Godot resources. It
@@ -134,7 +203,7 @@ the repository or run by the engine.
 
 ### Scaleform surface found in the source
 
-The supplied SkyUI Community ActionScript tree contains 152 `.as` files. A
+The supplied SkyUI Community ActionScript tree contains 153 `.as` files. A
 literal scan finds 470 `gfx.io.GameDelegate` operations, 337 `call` sites and
 133 `addCallBack` sites. The scripts refer to five `gfx` namespace roots:
 `io` (470 references), `ui` (140), `managers` (69), `events` (26), and
@@ -185,12 +254,18 @@ Scaleform-only APIs.
 ### GameDelegate calls by vanilla source class
 
 The table lists literal call and callback names in the supplied Vanilla and
-PauseMenu ActionScript directories. A class with several methods may
-contribute to one menu. Shared classes are included so the bridge inventory
-does not silently omit their calls. These names are case-sensitive.
+PauseMenu ActionScript directories. Shared classes are included so the bridge
+inventory covers all source classes. Names are case-sensitive.
 
 | Source class | GameDelegate calls and callbacks |
 |---|---|
+| `PauseMenu/JournalBottomBar` | `PlaySound`, `RememberCurrentTabIndex`, `RequestPlayerInfo` |
+| `PauseMenu/JournalSaveLoadList` | `PlaySound` |
+| `PauseMenu/Quest_Journal` | `CloseMenu`, `HideMenu`, `PlaySound`, `RestoreSavedSettings`, `ShouldShowMod`, `ShowMenu`, `StartCloseMenu`, `onRightStickInput` |
+| `PauseMenu/QuestsPage` | `PlaySound`, `RequestObjectivesData`, `RequestQuestsData`, `ShowTargetOnMap`, `ToggleQuestActiveStatus`, `ToggleShowMiscObjectives` |
+| `PauseMenu/SettingsOptionItem` | `OptionChange`, `PlaySound` |
+| `PauseMenu/StatsPage` | `PlaySound`, `updateStats` |
+| `PauseMenu/SystemPage` | `BackOutFromLoadGame`, `CharacterSelected`, `FinishRemapMode`, `LOAD`, `LoadGame`, `ModManager`, `ORBISDeleteSave`, `OnSaveDataEventLoadCANCEL`, `OnSaveDataEventSaveCANCEL`, `OnSaveDataEventSaveSUCCESS`, `OpenKinectTuner`, `OptionChange`, `PlaySound`, `PopulateCharacterList`, `PopulateCreationClubTopics`, `PopulateHelpTopics`, `QuickSave`, `QuitToDesktop`, `QuitToMainMenu`, `RefreshSystemButtons`, `RequestAudioOptions`, `RequestCreationClubText`, `RequestDisplayOptions`, `RequestGameplayOptions`, `RequestHelpText`, `RequestInputMappings`, `RequestIsOnPC`, `ResetControlsToDefaults`, `SAVE`, `SaveControls`, `SaveGame`, `SaveSettings`, `SetRemoteDevice`, `SetSaveDisabled`, `SetVersionText`, `SettingsSaved`, `ShouldShowKinectTunerOption`, `StartRemapMode`, `UpdatePermissions`, `UseCurrentCharacterFilter` |
 | `Vanilla/BookBottomBar` | `ShowTakeButton` |
 | `Vanilla/ButtonMapping` | `SetButtonMapping` |
 | `Vanilla/ButtonTextArtHolder` | `GetButtonFromUserEvent` |
@@ -216,7 +291,44 @@ does not silently omit their calls. These names are case-sensitive.
 | `Vanilla/TrainingMenu` | `Exit`, `Train` |
 | `Vanilla/TutorialMenu` | `CloseMenu` |
 | `Vanilla/UniformTimeMeter` | `PlaySound` |
-| `PauseMenu/JournalBottomBar` | `PlaySound`, `RememberCurrentTabIndex`, `RequestPlayerInfo` |
-| `PauseMenu/JournalSaveLoadList` | `PlaySound` |
-| `PauseMenu/Quest_Journal` | `CloseMenu`, `HideMenu`, `PlaySound`, `RestoreSavedSettings`, `ShouldShowMod`, `ShowMenu`, `StartCloseMenu`, `onRightStickInput` |
-... (+37 lines) [see remaining: rtk proxy git show ':3:docs/ui-frameworks.md' | tail -n +97]
+
+### Implementation estimates and proposed rows
+
+These estimates cover one contributor familiar with the host and SWF formats.
+They include a working prototype and its focused checks, but not a complete
+vanilla menu port or a compatibility guarantee for third-party mods.
+
+| Work item | Estimate |
+|---|---|
+| Pin Ruffle, build an embedded runtime, and render one static vanilla SWF | 1 to 2 weeks |
+| Implement the used GFx extension subset | 3 to 5 weeks |
+| Bridge vanilla GameDelegate operations | 6 to 10 weeks |
+| Run vanilla and mod compatibility surveys | 3 to 5 weeks |
+| Load-order runtime selection and diagnostics | 1 to 2 weeks |
+
+**UI-27: Pin Ruffle and render one vanilla SWF.** Record the pinned revision,
+build path, Godot texture output and resource cost.
+
+**UI-28: Implement the used Scaleform extensions.** Add the GFx APIs found
+in the source survey with tests for their menu-visible behavior.
+
+**UI-29: Bridge vanilla GameDelegate operations.** Implement typed handlers
+for the calls listed by source class, preserving callback and argument order.
+
+**UI-30: Survey compatibility and runtime selection.** Exercise vanilla and
+named mod menus, report unsupported operations, and define load-order selection
+and diagnostics.
+
+### Sources and verification limits
+
+- The local `SkyUI-Community/source/actionscript` tree, for the file, call,
+  callback and namespace inventory.
+- [Ruffle](https://github.com/ruffle-rs/ruffle), for its project description
+  and ActionScript 1 and 2 support statement.
+- [Ruffle pull request 9090](https://github.com/ruffle-rs/ruffle/pull/9090),
+  for the `GFX` and `CFX` header signature change.
+- The research lead at `research/engine-map/leads/ui-scaleform.md` and the
+  local Ruffle clone were unavailable in this checkout. Method-level API gaps
+  therefore remain unverified against a pinned Ruffle revision.
+- Scaleform extension behavior is described as a compatibility target from
+  source usage. Verify each method against primary references during UI-28.

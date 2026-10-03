@@ -42,7 +42,7 @@ fn placing_a_character_survives_to_the_next_frame_until_removeobject2() {
     let frames = &result.timelines[&0].frames;
     assert_eq!(frames[0].display_list.len(), 1);
     assert_eq!(frames[0].display_list[0].character, 7);
-    assert!(frames[1].display_list.is_empty());
+    assert_eq!(frames[1].display_list.as_slice(), &[]);
 }
 
 #[test]
