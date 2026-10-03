@@ -3158,6 +3158,11 @@ Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
 
+UI-21 documents the public API and license boundary for SKSE Menu Framework
+and dMenu style ImGui pages, and compares host rendering options. Those
+frameworks are not implemented by the native menu framework described here.
+See [ui-frameworks.md](ui-frameworks.md) for the research and proposed rows.
+
 ### MCM text and toggle rows, UI-11
 
 `mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.

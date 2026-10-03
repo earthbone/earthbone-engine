@@ -89,6 +89,12 @@ payloads to the generated C++ event sources, whose sinks check the fields and
 the unsupported hook result. This test transport does not add a C++ to Rust
 ABI.
 
+The UI-21 research in [ui-frameworks.md](ui-frameworks.md) scopes a possible
+MIT menu API for source-adapted plugins. It identifies registration, callback
+handles, menu state, input and pause requests as declarations the shim could
+own. No ImGui renderer or SKSE Menu Framework implementation is part of the
+shim today.
+
 SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
 read-only snapshot of the states the runtime currently tracks. The
 `ActorEquipManager` surface equips and unequips through the live world. The
