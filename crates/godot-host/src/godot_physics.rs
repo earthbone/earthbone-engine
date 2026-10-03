@@ -232,6 +232,9 @@ impl CellBodies {
                         applied += 1;
                     }
                 }
+                request @ ReferencePhysicsRequest::TetherToHorse { .. } => {
+                    world.request_reference_physics(request);
+                }
             }
         }
         applied
