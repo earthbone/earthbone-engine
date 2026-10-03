@@ -7679,3 +7679,11 @@ the source stands in front and the target staggers backwards, 0.5 means it
 stands behind. activeragdoll's `main.cpp` documents the same convention.
 `combat_stagger_adversarial.rs` checks the front, right, back and left
 quarters.
+
+A player melee hit with a One-Handed, Two-Handed or Archery weapon now
+advances that skill by the weapon's base damage, the use UESP's
+Skyrim:Leveling page gives for those skills, and `advance_skill` applies the
+AVIF multiplier and offset. Bashes, unarmed contacts and NPC attackers gain
+nothing. A load order without the skill's AVIF form keeps the hit and skips
+the experience. Arrow impacts deal no damage yet, so Archery only trains
+once that path exists. Tests in `cmb_weapon_skill_use.rs`.

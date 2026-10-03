@@ -370,6 +370,7 @@ impl World {
         let mut poison_stack: PoisonStack = None;
         let mut weapon_enchantment = None;
         let mut enchantment_charge = None;
+        let mut skill_use = None;
         let (
             weapon_damage,
             stagger_fraction,
@@ -488,6 +489,7 @@ impl World {
                 8 => "marksman",
                 _ => "",
             };
+            skill_use = (!skill.is_empty()).then_some((skill, f32::from(weapon.damage)));
             let scale = if skill.is_empty() {
                 1.0
             } else {
@@ -762,6 +764,14 @@ impl World {
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
         if !killed && self.player == Some(hit.attacker) {
             self.record_player_assault(hit.attacker, hit.target);
+        }
+        if let Some((skill, base_damage)) = skill_use.filter(|_| self.player == Some(hit.attacker))
+        {
+            // UESP Skyrim:Leveling counts one weapon skill use per point of
+            // base weapon damage, before the hit's multipliers. A load order
+            // without the skill's AVIF form has no use multiplier to apply,
+            // so the hit stands without the experience.
+            let _ = self.advance_skill(hit.attacker, skill, base_damage);
         }
         self.break_invisibility(hit.attacker, alloc);
         Ok(HitResult {
