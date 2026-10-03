@@ -64,6 +64,12 @@ func _check(value: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 func _initialize() -> void:
+	# CONTEXT: A fresh checkout has no cached extension list.
+	var status := GDExtensionManager.load_extension("res://soe.gdextension")
+	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
+		printerr("FAIL: extension did not load: ", status)
+		quit(1)
+		return
 	var paths := PackedStringArray([OS.get_environment("EDT14_BASE"), OS.get_environment("EDT14_PATCH")])
 	var editor = ClassDB.instantiate("SoeReferenceTransformEditor")
 	if editor == null:
