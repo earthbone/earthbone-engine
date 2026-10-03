@@ -421,6 +421,7 @@ pub struct Bindings {
     keyboard: BTreeMap<Action, Binding>,
     mouse: BTreeMap<Action, Binding>,
     gamepad: BTreeMap<Action, Binding>,
+    vanilla_controls: Vec<(u32, String)>,
     movement: Binding,
     look: Binding,
 }
@@ -456,6 +457,10 @@ impl Bindings {
             .collect();
         keyboard.insert(Action::LeftAttackBlock, Binding::unmapped());
         keyboard.insert(Action::RightAttackBlock, Binding::unmapped());
+        let vanilla_controls = pairs
+            .iter()
+            .map(|(action, code)| (*code, action.event_name().to_string()))
+            .collect();
         Bindings {
             keyboard,
             // The fallback follows Skyrim's primary and secondary hand buttons.
@@ -466,6 +471,7 @@ impl Bindings {
                 (Action::RightAttackBlock, Binding::key(0)),
             ]),
             gamepad: BTreeMap::new(),
+            vanilla_controls,
             movement: Binding::unmapped(),
             look: Binding::unmapped(),
         }
@@ -474,6 +480,21 @@ impl Bindings {
     /// Override any action the control map binds on the keyboard. An event
     /// the file leaves at `0xff` keeps the default, so partial overlays need only name the actions they change.
     pub fn apply_control_map(&mut self, map: &ControlMap) {
+        for context in &map.contexts {
+            for mapping in &context.mappings {
+                self.vanilla_controls
+                    .retain(|(_, control)| control != &mapping.event);
+                for binding in [&mapping.keyboard, &mapping.mouse, &mapping.gamepad] {
+                    for chord in &binding.0 {
+                        for code in &chord.0 {
+                            if !self.vanilla_controls.iter().any(|(known, _)| known == code) {
+                                self.vanilla_controls.push((*code, mapping.event.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for action in Action::all() {
             if let Some(m) = map.gameplay().and_then(|c| c.find(action.event_name())) {
                 if !m.keyboard.is_unmapped() {
@@ -506,6 +527,12 @@ impl Bindings {
     #[must_use]
     pub fn gamepad(&self, action: Action) -> Option<&Binding> {
         self.gamepad.get(&action)
+    }
+
+    /// Control names and codes in the active parsed control map, across devices.
+    #[must_use]
+    pub fn vanilla_controls(&self) -> &[(u32, String)] {
+        &self.vanilla_controls
     }
 
     /// InputMap can represent bindings made only of single input codes.

@@ -1069,6 +1069,10 @@ mod sav_18_wait_deadlines;
 mod sav_20_adversarial;
 #[path = "sav_24_adversarial.rs"]
 mod sav_24_adversarial;
+#[path = "sav_26_adversarial.rs"]
+mod sav_26_adversarial;
+#[path = "sav_26_breaker_adversarial.rs"]
+mod sav_26_breaker_adversarial;
 #[path = "sav_28_adversarial.rs"]
 mod sav_28_adversarial;
 #[path = "sav_28_spatial_restore.rs"]
@@ -1267,6 +1271,8 @@ mod scr_40_adversarial;
 mod scr_40_object_reference;
 #[path = "scr_41_adversarial.rs"]
 mod scr_41_adversarial;
+#[path = "scr_41_breaker_adversarial.rs"]
+mod scr_41_breaker_adversarial;
 #[path = "scr_42_adversarial.rs"]
 mod scr_42_adversarial;
 #[path = "scr_42_object_reference.rs"]
@@ -1373,8 +1379,16 @@ mod shm_06_world;
 mod shm_07_bindings;
 #[path = "shm_08_live_extra_data.rs"]
 mod shm_08_live_extra_data;
+#[path = "shm_09_adversarial.rs"]
+mod shm_09_adversarial;
+#[path = "shm_09_breaker_adversarial.rs"]
+mod shm_09_breaker_adversarial;
 #[path = "shm_09_live_extras.rs"]
 mod shm_09_live_extras;
+#[path = "shm_10_adversarial.rs"]
+mod shm_10_adversarial;
+#[path = "shm_10_breaker_adversarial.rs"]
+mod shm_10_breaker_adversarial;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 

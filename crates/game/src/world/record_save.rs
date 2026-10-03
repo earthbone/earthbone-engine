@@ -183,6 +183,8 @@ impl World {
                                 | b"PFLA"
                                 | b"PHZD"
                                 | b"PBAR"
+                                | b"PCON"
+                                | b"PARW"
                                 | b"PACK"
                                 | b"NAVM"
                                 | b"ACTI"
@@ -250,6 +252,8 @@ impl World {
                                 | b"PFLA"
                                 | b"PHZD"
                                 | b"PBAR"
+                                | b"PCON"
+                                | b"PARW"
                                 | b"PACK"
                                 | b"NAVM"
                         ) && !rec.is_deleted()
@@ -483,6 +487,8 @@ impl World {
                     | b"PFLA"
                     | b"PHZD"
                     | b"PBAR"
+                    | b"PCON"
+                    | b"PARW"
                     | b"CLAS"
                     | b"FACT"
                     | b"RELA"
@@ -629,7 +635,10 @@ impl World {
                     soe_esm::records::gameplay::MagicEffect::from_record(&record, localized)
                         .map_err(|e| VmError::State(e.to_string()))?;
                 }
-            } else if matches!(&record.tag.0, b"PFLA" | b"PHZD" | b"PBAR") {
+            } else if matches!(
+                &record.tag.0,
+                b"PFLA" | b"PHZD" | b"PBAR" | b"PCON" | b"PARW"
+            ) {
                 if temporary_for.is_some()
                     || text_origin != id
                     || plain_full
@@ -1443,8 +1452,10 @@ pub(super) fn read_projectile_section(
             .record_overrides
             .get_mut(&id)
             .ok_or_else(|| bad("projectile section names a missing override"))?;
-        if !matches!(&value.record.tag.0, b"PFLA" | b"PHZD" | b"PBAR")
-            || value.projectile.replace(extra).is_some()
+        if !matches!(
+            &value.record.tag.0,
+            b"PFLA" | b"PHZD" | b"PBAR" | b"PCON" | b"PARW"
+        ) || value.projectile.replace(extra).is_some()
         {
             return Err(bad("projectile section has mismatched record metadata"));
         }

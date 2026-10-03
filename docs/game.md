@@ -83,10 +83,14 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
-- `world/shim_extras`: CommonLib extra-data views over reference teleport
-  destinations and inventory outfit/poison extras. Missing reference IDs and
-  north rotation have no authoritative runtime field and are reported as
-  unsupported by the shim adapter.
+- `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
+  map-marker records, authored XLKR links and loaded linked-reference state,
+  teleport destinations, inventory outfit/poison extras and resolved XAPR
+  activation parents. XAPR targets must be REFR or ACHR records. Missing
+  linked-reference targets are reported when their forms are absent from the
+  form table. Interior cells expose the zero north-rotation default. Exterior
+  worldspace north rotation is not represented by runtime records and returns
+  no value. Executable vtable hooks return an explicit unsupported result.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
@@ -231,18 +235,21 @@ and returns the current page labels. `mcm_open`, `mcm_select_page` and
 functions. Those functions deliver the initial empty-page reset, selected-page
 reset, open and close callbacks. The registry and active menu selection are
 session UI state, while page labels remain script properties. This bridge
-does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
-order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
-`SKI_ConfigManager.psc` sources.
-The focused fixture assembles equivalent lifecycle methods in Papyrus
-bytecode. `ui_05_original_skyui_source_defines_lifecycle_order` checks the
-original source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc`
-path. `ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and
-runs the unmodified `SKI_ConfigBase.pex` when
-`SOE_SKYUI_CONFIG_BASE_PEX` names that file. The PEX execution check skips when
-the compiled SkyUI script is unavailable. It was not available in the local
-reference checkout or installed game data during this change, so the
-unmodified script execution remains unverified here.
+also exposes `mcm_custom_control` and `mcm_custom_controls`, which call
+registered configs' `GetCustomControl(keyCode)` methods and return string
+results in registration order. The methods use ordinary Papyrus dispatch so
+config overrides are honored. It does not execute SkyUI's Scaleform panel or
+its option APIs. The lifecycle order and limit come from the local SkyUI
+`SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources. The focused fixture
+assembles equivalent lifecycle methods in Papyrus bytecode.
+`ui_05_original_skyui_source_defines_lifecycle_order` checks the original
+source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc` path.
+`ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and runs
+the unmodified `SKI_ConfigBase.pex` when `SOE_SKYUI_CONFIG_BASE_PEX` names that
+file. The PEX execution check skips when the compiled SkyUI script is
+unavailable. It was not available in the local reference checkout or installed
+game data during this change, so unmodified-script execution remains
+unverified here.
 
 ### Furniture activation, HST-09
 
@@ -820,15 +827,17 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse at
-the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
-horse into the cart's cell. It queues a transient host request for the cart and
-horse references using the CK page's chassis and horse connection pivots. The
-host resolves those forms to resident rigid body RIDs and connects them with a
-pin joint. The CK page names `HorseSpine2` as the horse connection and gives
-pivots in Havok units. This runtime connects the reference body as a whole and
-does not resolve that bone or build the cart's wheel and pole constraints.
-Replacing a tether or unloading its collision cell frees the old joint.
+**ObjectReference.TetherToHorse.** The native moves the supplied horse by the
+CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
+cart yaw, copies the cart rotation and cell, then queues the pair for host
+physics. The host waits until both references have resident collision bodies
+before creating their pin joint, using the CK chassis pivot `[0, 3.5, -0.2]`
+and horse pivot `[0, 0, -0.5]` in Havok units. A missing, invalid or
+self-reference argument leaves the world unchanged. The CK
+`TetherToHorse_-_ObjectReference.wikitext` page names `HorseSpine2` as the
+horse connection. The runtime connects whole reference bodies and does not
+sample that bone or build the cart wheels, pole and suspension rig from NIF
+data. Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure
@@ -7760,14 +7769,17 @@ version 37 persists the record flags and saved markers.
 
 ## Saved projectile changes, SAV-24
 
-`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD and PBAR change
-forms to winning records and installs all changes atomically. The runtime
-query `World::restored_projectile_extra` returns the shared change flag word
-and exact payload bytes for each restored form. The `SAV-24` world section
-persists the result within SOEW version 37. TES5Edit
-`Core/wbDefinitionsTES5Saves.pas` defines the shared flags but leaves these
-subtype payload structures empty, so the importer does not map the raw payload
-onto plugin subrecords or claim subtype fields are implemented.
+`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD, PBAR, PCON and
+PARW change forms to winning records and installs all changes atomically. The
+runtime query `World::restored_projectile_extra` returns the change flag word
+and exact stored payload bytes for each restored form. The `SAV-24` world
+section persists the result within SOEW version 37. TES5Edit
+`Core/wbDefinitionsTES5Saves.pas` leaves these subtype payload structures
+empty, so the importer does not map payload bytes onto plugin subrecords or
+claim subtype fields are implemented. PCON placement is also decoded by the
+reference reconstruction path. PARW placement stays opaque because xEdit
+omits type 47 from its initial-data dispatch and FallrimTools uses its raw
+fallback.
 
 ## Scripted knockback and ragdoll requests, CMB-38
 
