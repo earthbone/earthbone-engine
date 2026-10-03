@@ -15,6 +15,24 @@ pub struct Entry {
     pub sessions_remaining: u32,
 }
 
+/// Text displayed above the trainer's purchase action.
+#[must_use]
+pub fn heading(entry: &Entry) -> String {
+    format!(
+        "{}: {:.0} / {:.0} ({} sessions left)",
+        entry.skill, entry.current, entry.cap, entry.sessions_remaining
+    )
+}
+
+/// Button text for the trainer's current offer.
+#[must_use]
+pub fn purchase_label(entry: &Entry) -> String {
+    format!("Train for {} gold", entry.cost)
+}
+
+/// Message shown when the actor has no available training offer.
+pub const UNAVAILABLE_LABEL: &str = "Training is unavailable.";
+
 /// Build the single skill row supplied by a trainer's winning class record.
 pub fn entry(game: &mut Game, trainer: GlobalFormId) -> Option<Entry> {
     let offer = game.world_mut().training_offer(trainer).ok()?;

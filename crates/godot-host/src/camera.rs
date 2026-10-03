@@ -73,6 +73,12 @@ impl CameraHostState {
         self.first_person_geometry_visible
     }
 
+    /// Whether the player rig's first-person instances should reach the renderer.
+    #[must_use]
+    pub fn rendered_first_person_geometry_visible(&self, mode: CameraMode) -> bool {
+        mode != CameraMode::First || self.first_person_geometry_visible
+    }
+
     #[must_use]
     pub fn sitting_rotation_degrees(&self) -> f32 {
         self.sitting_rotation_degrees

@@ -572,8 +572,8 @@ impl PlayerNode {
                 );
                 if is_player {
                     visual.bind_mut().set_first_person_geometry_visible(
-                        self.rig.mode != CameraMode::First
-                            || self.camera_state.first_person_geometry_visible(),
+                        self.camera_state
+                            .rendered_first_person_geometry_visible(self.rig.mode),
                     );
                     self.player_appearance = Some(visual);
                 }
