@@ -3716,7 +3716,7 @@ missing graph variables, invalid actor subjects and explicit diagnostics.
 
 The AI driver's `Hover` procedure signals the actor's transient flying flag
 while it moves to and holds its authored elevated location. Ending Hover or
-stopping actor movement clears the flag. CTDA 594 reads this movement state;
+stopping actor movement clears the flag. CTDA 594 reads this movement state.
 `allow_flying` remains a separate permission flag. Other actor flight modes
 and host-controlled flight are not represented by this path.
 
