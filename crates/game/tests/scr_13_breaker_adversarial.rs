@@ -53,7 +53,10 @@ fn scr_13_trespass_alarm_repeats_and_witness_state_survives_save_load() {
     );
     assert_eq!(
         game.world_mut()
-            .faction(GlobalFormId { file: 0, object: 0x701 })
+            .faction(GlobalFormId {
+                file: 0,
+                object: 0x701
+            })
             .unwrap()
             .crime_gold_nonviolent,
         150,
@@ -72,7 +75,10 @@ fn scr_13_trespass_alarm_repeats_and_witness_state_survives_save_load() {
     assert_eq!(
         restored
             .world_mut()
-            .faction(GlobalFormId { file: 0, object: 0x701 })
+            .faction(GlobalFormId {
+                file: 0,
+                object: 0x701
+            })
             .unwrap()
             .crime_gold_nonviolent,
         150
@@ -88,12 +94,7 @@ fn scr_13_trespass_alarm_without_crime_faction_reports_error_without_witness_sta
 
     let witness = object(&mut game, guard);
     let perpetrator = object(&mut game, criminal);
-    call(
-        &mut game,
-        witness,
-        "SendTrespassAlarm",
-        &[perpetrator],
-    );
+    call(&mut game, witness, "SendTrespassAlarm", &[perpetrator]);
 
     assert!(game
         .traces()

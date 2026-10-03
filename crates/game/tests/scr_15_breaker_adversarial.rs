@@ -18,7 +18,7 @@ fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn game() -> Game {
+fn test_game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(npc::build_record(
         0x800,
@@ -53,7 +53,9 @@ fn papyrus_type(value: &Value) -> &'static str {
 fn call(game: &mut Game, method: &str, args: &[Value], result_type: &str) -> Value {
     let probe = PROBES.fetch_add(1, Ordering::SeqCst);
     let class = format!("Scr15BreakerProbe{probe}");
-    let mut function = FunctionBuilder::new("Run", result_type).param("target", "Form");
+    let mut function = FunctionBuilder::new("Run", result_type)
+        .global()
+        .param("target", "Form");
     let mut operands = vec![s(method), ident("target"), ident("result")];
     for (index, value) in args.iter().enumerate() {
         let name = format!("arg{index}");
@@ -70,18 +72,17 @@ fn call(game: &mut Game, method: &str, args: &[Value], result_type: &str) -> Val
         )
         .bytes();
     game.load_script(&bytes).unwrap();
-    let object = game.object_of_form(id(0x900));
-    game.vm.attach(object, &class).unwrap();
-    let mut values = vec![Value::Object(object)];
+    let actor = Value::Object(game.object_of_form(id(0x900)));
+    let mut values = vec![actor];
     values.extend_from_slice(args);
-    let thread = game.vm.call(object, "Run", &values).unwrap();
+    let thread = game.vm.call_global(&class, "Run", &values).unwrap();
     assert!(game.run_until_idle(32));
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }
 
 #[test]
 fn scr_15_get_equipped_spell_reads_other_and_instant_sources() {
-    let mut game = game();
+    let mut game = test_game();
     let actor = Value::Object(game.object_of_form(id(0x900)));
     let spell = Value::Object(game.object_of_form(id(0x902)));
     for source in [2, 3] {
@@ -92,16 +93,36 @@ fn scr_15_get_equipped_spell_reads_other_and_instant_sources() {
             "Var",
         );
         assert_eq!(
+            game.world_mut()
+                .actor(id(0x900))
+                .and_then(|state| match source {
+                    2 => state.other_spell,
+                    3 => state.instant_spell,
+                    _ => None,
+                }),
+            Some(id(0x902)),
+            "EquipSpell must retain source {source}"
+        );
+        assert_eq!(
             call(&mut game, "GetEquippedSpell", &[Value::Int(source)], "Form",),
             spell,
             "CK defines source {source} as a readable spell slot for {actor:?}"
         );
     }
+    let saved = game.world_mut().save_state();
+    let reloaded = test_game();
+    reloaded.world_mut().load_state(&saved).unwrap();
+    {
+        let mut world = reloaded.world_mut();
+        let state = world.actor(id(0x900)).unwrap();
+        assert_eq!(state.other_spell, Some(id(0x902)));
+        assert_eq!(state.instant_spell, Some(id(0x902)));
+    }
 }
 
 #[test]
 fn scr_15_voice_recovery_counts_down_and_rejects_invalid_replacement() {
-    let mut game = game();
+    let mut game = test_game();
     assert!(game.world_mut().set_voice_recovery_time(id(0x900), 7.5));
     game.tick(2.5);
     assert_eq!(
@@ -119,7 +140,7 @@ fn scr_15_voice_recovery_counts_down_and_rejects_invalid_replacement() {
 
 #[test]
 fn scr_15_trespass_native_state_survives_engine_save_load() {
-    let mut game = game();
+    let mut game = test_game();
     assert_eq!(call(&mut game, "Trespass", &[], "Var"), Value::None);
     let saved = game.save_state().unwrap();
     game.world_mut().actor(id(0x900)).unwrap().trespassing = false;

@@ -37,7 +37,10 @@ fn breaker_adversarial_case_required_offset_coordinates_are_not_silently_default
 
     batch::call(&mut game, guard_object, "KeepOffsetFromActor", &[target]);
 
-    assert_eq!(game.world_mut().actor(guard).unwrap().keep_offset, Some(original));
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().keep_offset,
+        Some(original)
+    );
 }
 
 #[test]
@@ -93,10 +96,21 @@ fn breaker_adversarial_case_invalid_offset_target_does_not_replace_the_previous_
     };
     assert!(game.world_mut().keep_actor_offset(guard, original));
 
-    batch::call(&mut game, guard_object, "KeepOffsetFromActor", &[Value::Int(77)]);
+    batch::call(
+        &mut game,
+        guard_object,
+        "KeepOffsetFromActor",
+        &[Value::Int(77)],
+    );
 
-    assert_eq!(game.world_mut().actor(guard).unwrap().keep_offset, Some(original));
-    assert!(game.traces().iter().any(|trace| trace.contains("invalid target")));
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().keep_offset,
+        Some(original)
+    );
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("invalid target")));
 }
 
 #[test]
@@ -118,11 +132,19 @@ fn breaker_adversarial_case_clear_offset_is_idempotent_and_does_not_clear_anothe
     assert!(game.world_mut().keep_actor_offset(guard, request));
     assert!(game.world_mut().keep_actor_offset(criminal, request));
 
-    batch::call(&mut game, guard_object.clone(), "ClearKeepOffsetFromActor", &[]);
+    batch::call(
+        &mut game,
+        guard_object.clone(),
+        "ClearKeepOffsetFromActor",
+        &[],
+    );
     batch::call(&mut game, guard_object, "ClearKeepOffsetFromActor", &[]);
 
     assert_eq!(game.world_mut().actor(guard).unwrap().keep_offset, None);
-    assert_eq!(game.world_mut().actor(criminal).unwrap().keep_offset, Some(request));
+    assert_eq!(
+        game.world_mut().actor(criminal).unwrap().keep_offset,
+        Some(request)
+    );
     drop(criminal_object);
 }
 
@@ -141,7 +163,10 @@ fn breaker_adversarial_case_forced_landing_marker_none_clears_and_invalid_marker
         "SetForcedLandingMarker",
         &[criminal_object],
     );
-    assert_eq!(game.world_mut().actor(guard).unwrap().forced_landing_marker, Some(criminal));
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().forced_landing_marker,
+        Some(criminal)
+    );
 
     batch::call(
         &mut game,
@@ -149,11 +174,22 @@ fn breaker_adversarial_case_forced_landing_marker_none_clears_and_invalid_marker
         "SetForcedLandingMarker",
         &[Value::Int(77)],
     );
-    assert_eq!(game.world_mut().actor(guard).unwrap().forced_landing_marker, Some(criminal));
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().forced_landing_marker,
+        Some(criminal)
+    );
 
-    batch::call(&mut game, guard_object, "SetForcedLandingMarker", &[Value::None]);
+    batch::call(
+        &mut game,
+        guard_object,
+        "SetForcedLandingMarker",
+        &[Value::None],
+    );
 
-    assert_eq!(game.world_mut().actor(guard).unwrap().forced_landing_marker, None);
+    assert_eq!(
+        game.world_mut().actor(guard).unwrap().forced_landing_marker,
+        None
+    );
 }
 
 #[test]

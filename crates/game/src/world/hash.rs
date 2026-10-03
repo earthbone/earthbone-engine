@@ -453,6 +453,8 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for e in &a.equipped {
         form(h, *e);
     }
+    opt_form(h, a.other_spell);
+    opt_form(h, a.instant_spell);
     ai_state(h, &a.ai);
     h.bool(a.keep_offset.is_some());
     if let Some(offset) = a.keep_offset {

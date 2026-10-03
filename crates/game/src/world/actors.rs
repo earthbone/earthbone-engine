@@ -536,12 +536,21 @@ impl World {
     ///
     /// Returns false when `id` is not an actor reference.
     pub fn stop_combat_alarm(&mut self, id: GlobalFormId) -> bool {
-        let Some(actor) = self.actor(id) else {
+        if self.actor(id).is_none() {
             return false;
-        };
-        actor.in_combat = false;
-        actor.combat_target = None;
-        actor.alerted = false;
+        }
+        for actor in self.actors.values_mut() {
+            if actor.combat_target == Some(id) {
+                actor.in_combat = false;
+                actor.combat_target = None;
+                actor.alerted = false;
+            }
+        }
+        if let Some(actor) = self.actor(id) {
+            actor.in_combat = false;
+            actor.combat_target = None;
+            actor.alerted = false;
+        }
         true
     }
 

@@ -73,6 +73,21 @@ fn read_scr_14_actor(
     Ok(())
 }
 
+fn write_scr_15_actor(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    super::save::write_opt_form_id(writer, actor.other_spell);
+    super::save::write_opt_form_id(writer, actor.instant_spell);
+}
+
+fn read_scr_15_actor(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    actor.other_spell = super::save::read_opt_form_id(reader)?;
+    actor.instant_spell = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
+
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
@@ -309,6 +324,7 @@ fn read_woop_mgef_section(
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "SCR-14", write: write_scr_14_actor, read: read_scr_14_actor },
+    Section { name: "SCR-15", write: write_scr_15_actor, read: read_scr_15_actor },
     Section { name: "CMB-38", write: write_ragdoll_override, read: read_ragdoll_override },
     Section { name: "MAG-57", write: write_werewolf_transform, read: read_werewolf_transform },
     Section { name: "MAG-54", write: write_stagger_metadata, read: read_stagger_metadata },

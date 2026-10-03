@@ -1184,6 +1184,8 @@ mod scr_13_actor_native_batch;
 mod scr_13_adversarial;
 #[path = "scr_13_breaker2_adversarial.rs"]
 mod scr_13_breaker2_adversarial;
+#[path = "scr_13_breaker_adversarial.rs"]
+mod scr_13_breaker_adversarial;
 #[path = "scr_14_adversarial.rs"]
 mod scr_14_adversarial;
 #[path = "scr_14_breaker2_adversarial.rs"]

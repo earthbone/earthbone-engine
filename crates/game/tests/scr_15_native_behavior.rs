@@ -47,7 +47,9 @@ fn papyrus_type(value: &Value) -> &'static str {
 fn call(game: &mut Game, method: &str, args: &[Value], result_type: &str) -> Value {
     let probe = PROBES.fetch_add(1, Ordering::SeqCst);
     let class = format!("Scr15Probe{probe}");
-    let mut function = FunctionBuilder::new("Run", result_type).param("target", "Form");
+    let mut function = FunctionBuilder::new("Run", result_type)
+        .global()
+        .param("target", "Form");
     let mut operands = vec![s(method), ident("target"), ident("result")];
     for (index, value) in args.iter().enumerate() {
         let name = format!("arg{index}");
@@ -64,11 +66,10 @@ fn call(game: &mut Game, method: &str, args: &[Value], result_type: &str) -> Val
         )
         .bytes();
     game.load_script(&bytes).unwrap();
-    let object = game.object_of_form(id(0x900));
-    game.vm.attach(object, &class).unwrap();
-    let mut values = vec![Value::Object(object)];
+    let actor = Value::Object(game.object_of_form(id(0x900)));
+    let mut values = vec![actor];
     values.extend_from_slice(args);
-    let thread = game.vm.call(object, "Run", &values).unwrap();
+    let thread = game.vm.call_global(&class, "Run", &values).unwrap();
     assert!(game.run_until_idle(32));
     game.vm.thread_result(thread).unwrap_or(Value::None)
 }

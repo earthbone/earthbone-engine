@@ -756,7 +756,8 @@ returns a condition error.
 actor as witness and the argument as the trespasser. Invalid or untracked
 actors leave bounty and witness state unchanged and add a native trace.
 `Actor.StopCombatAlarm` clears the actor's combat target, combat flag and alert
-flag through `World::stop_combat_alarm`. `ShowBarterMenu` queues a transient
+flag, and clears combatants targeting that actor, through
+`World::stop_combat_alarm`. `ShowBarterMenu` queues a transient
 host menu request for the actor. `OpenInventory` queues the actor inventory
 menu for teammates, or for any actor when `abForceOpen` is true. Invalid
 argument counts and types are reported in the Papyrus trace. `ClearForcedMovement`
@@ -1021,10 +1022,11 @@ and behavior remain owned by SCR-16. They also have no `Trespass` declaration,
 whose behavior remains owned by SCR-15. Both absent contracts are recorded in
 the manifest.
 
-`Actor.KeepOffsetFromActor` stores the target, body-space XYZ offset, XYZ
-angles and catch-up/follow radii on the calling actor. Omitted arguments use
-the CK defaults. Targets must be actors, all numeric values must be finite,
-and the catch-up radius must be at least the nonnegative follow radius.
+`Actor.KeepOffsetFromActor` stores the target, required body-space XYZ offset,
+optional XYZ angles and catch-up/follow radii on the calling actor. Omitted
+optional arguments use the CK defaults. Targets must be actors, all numeric
+values must be finite, and the catch-up radius must be at least the
+nonnegative follow radius.
 `ClearKeepOffsetFromActor` removes that request. `SetForcedLandingMarker`
 stores a resolved reference on the actor, and accepts `None` to clear it.
 These values persist in the actor section named `SCR-14`. The package/host
@@ -2377,7 +2379,10 @@ entries, and the existing xEdit PACK and shared spell APIs.
 real-seconds deadline. `Actor.PlayIdleWithTarget` queues the idle's editor ID
 for the calling actor and returns false for a missing idle or invalid target
 reference. A target is validated but is not yet routed to paired animation
-playback. `Actor.Dismount` returns true only when it clears a set mounted flag.
+playback. `Actor.GetEquippedSpell` reads sources 0 and 1 from the casting
+hands, source 2 from the actor's other-spell slot, and source 3 from its
+instant-spell slot. The latter slots persist in the actor section named
+`SCR-15`. `Actor.Dismount` returns true only when it clears a set mounted flag.
 `Actor.Trespass` sets the shared actor flag read by `IsTrespassing`. The local
 CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
 `GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and

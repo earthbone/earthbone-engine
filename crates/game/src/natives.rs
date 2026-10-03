@@ -2142,6 +2142,13 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 .push(call.time, "Actor.KeepOffsetFromActor: invalid target");
             return none();
         };
+        if call.args.len() < 4 {
+            call.log.push(
+                call.time,
+                "Actor.KeepOffsetFromActor expects target and three offset arguments",
+            );
+            return none();
+        }
         let number = |index: usize, default: f32| {
             if matches!(call.arg(index), Value::None) {
                 default
@@ -2205,15 +2212,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
     );
     // "Gets the spell the actor currently has equipped in the specified
     // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
-    // Sources 2 (other) and 3 (instant) have no per-hand state here, the
-    // same gap EquipSpell/UnequipSpell leave for those two sources below.
+    // Sources 2 (other) and 3 (instant) have their own actor state slots.
     method!(vm, w, "Actor", "GetEquippedSpell", |world, call, me| {
-        let hand = match call.arg(0).as_int() {
-            0 => Hand::Left,
-            1 => Hand::Right,
-            _ => return form_value(world, call, None),
+        let spell = match call.arg(0).as_int() {
+            0 => world.hand_spell(me, Hand::Left),
+            1 => world.hand_spell(me, Hand::Right),
+            2 => world.actor_ref(me).and_then(|actor| actor.other_spell),
+            3 => world.actor_ref(me).and_then(|actor| actor.instant_spell),
+            _ => None,
         };
-        let spell = world.hand_spell(me, hand);
         form_value(world, call, spell)
     });
     method!(vm, w, "Actor", "IsInFaction", |world, call, me| {
@@ -4537,7 +4544,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // Actor), routed through the same `World::equip_hand_spell` the native
     // magic menu uses (`crates/godot-host/src/magic_menu.rs`), so a script
     // equip and a menu equip are one state. Sources 2 (other) and 3
-    // (instant) have no per-hand slot here.
+    // (instant) use their own actor spell slots.
     //
     // `Actor.equipped` still gets the generic insert or remove on every
     // source, matching the pre-hand-routing contract other natives
@@ -4560,6 +4567,11 @@ fn dlc(vm: &mut Vm, w: &Shared) {
             }
             if let Some(a) = world.actor(me) {
                 a.equipped.insert(spell);
+                match call.arg(1).as_int() {
+                    2 => a.other_spell = Some(spell),
+                    3 => a.instant_spell = Some(spell),
+                    _ => {}
+                }
             }
         }
         none()
@@ -4577,6 +4589,11 @@ fn dlc(vm: &mut Vm, w: &Shared) {
             }
             if let Some(a) = world.actor(me) {
                 a.equipped.remove(&spell);
+                match call.arg(1).as_int() {
+                    2 if a.other_spell == Some(spell) => a.other_spell = None,
+                    3 if a.instant_spell == Some(spell) => a.instant_spell = None,
+                    _ => {}
+                }
             }
         }
         none()

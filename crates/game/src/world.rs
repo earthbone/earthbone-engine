@@ -360,6 +360,9 @@ pub struct ActorState {
     /// slot may hold a value for the same hand at once.
     pub left_spell: Option<GlobalFormId>,
     pub right_spell: Option<GlobalFormId>,
+    /// Explicit spell source slots for voice and instant casting.
+    pub other_spell: Option<GlobalFormId>,
+    pub instant_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
     /// Papyrus KeepOffsetFromActor movement request.
