@@ -75,6 +75,65 @@ impl World {
         Ok(())
     }
 
+    /// Set a Papyrus `KeepOffsetFromActor` request on an actor.
+    pub fn keep_actor_offset(
+        &mut self,
+        actor: GlobalFormId,
+        offset: super::ActorKeepOffset,
+    ) -> bool {
+        let valid_actor = self
+            .refs
+            .get(&actor)
+            .is_some_and(|reference| reference.is_actor)
+            && self
+                .refs
+                .get(&offset.target)
+                .is_some_and(|reference| reference.is_actor);
+        let valid_numbers = offset
+            .offset
+            .iter()
+            .chain(offset.angles.iter())
+            .all(|value| value.is_finite())
+            && offset.catch_up_radius.is_finite()
+            && offset.follow_radius.is_finite()
+            && offset.catch_up_radius >= offset.follow_radius
+            && offset.follow_radius >= 0.0;
+        if !valid_actor || !valid_numbers || self.actor(actor).is_none() {
+            return false;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            state.keep_offset = Some(offset);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear a Papyrus `KeepOffsetFromActor` request.
+    pub fn clear_actor_offset(&mut self, actor: GlobalFormId) -> bool {
+        self.actor(actor).is_some_and(|state| {
+            state.keep_offset = None;
+            true
+        })
+    }
+
+    /// Set or clear the reference used as an actor's forced landing marker.
+    pub fn set_forced_landing_marker(
+        &mut self,
+        actor: GlobalFormId,
+        marker: Option<GlobalFormId>,
+    ) -> bool {
+        if self.actor(actor).is_none() || marker.is_some_and(|id| self.reference(id).is_none()) {
+            return false;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            state.forced_landing_marker = marker;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Set the actor's head-tracking flag.
     ///
     /// # Errors

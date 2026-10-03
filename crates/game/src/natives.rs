@@ -2080,6 +2080,73 @@ fn actor(vm: &mut Vm, w: &Shared) {
             }
         }
     });
+    method!(vm, w, "Actor", "KeepOffsetFromActor", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log
+                .push(call.time, "Actor.KeepOffsetFromActor: invalid target");
+            return none();
+        };
+        let number = |index: usize, default: f32| {
+            if matches!(call.arg(index), Value::None) {
+                default
+            } else {
+                call.arg(index).as_float()
+            }
+        };
+        let offset = crate::world::ActorKeepOffset {
+            target,
+            offset: [number(1, 0.0), number(2, 0.0), number(3, 0.0)],
+            angles: [number(4, 0.0), number(5, 0.0), number(6, 0.0)],
+            catch_up_radius: number(7, 20.0),
+            follow_radius: number(8, 5.0),
+        };
+        if !world.keep_actor_offset(me, offset) {
+            call.log.push(
+                call.time,
+                "Actor.KeepOffsetFromActor: invalid actor or offset",
+            );
+        }
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "ClearKeepOffsetFromActor",
+        |world, call, me| {
+            if !world.clear_actor_offset(me) {
+                call.log
+                    .push(call.time, "Actor.ClearKeepOffsetFromActor: invalid actor");
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SetForcedLandingMarker",
+        |world, call, me| {
+            let marker = match call.arg(0) {
+                Value::None => None,
+                value => match world.form_arg(&value) {
+                    Some(marker) => Some(marker),
+                    None => {
+                        call.log
+                            .push(call.time, "Actor.SetForcedLandingMarker: invalid marker");
+                        return none();
+                    }
+                },
+            };
+            if !world.set_forced_landing_marker(me, marker) {
+                call.log.push(
+                    call.time,
+                    "Actor.SetForcedLandingMarker: invalid actor or marker",
+                );
+            }
+            none()
+        }
+    );
     // "Gets the spell the actor currently has equipped in the specified
     // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
     // Sources 2 (other) and 3 (instant) have no per-hand state here, the
@@ -4997,9 +5064,6 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("Actor", "ClearKeepOffsetFromActor"),
-        ("Actor", "KeepOffsetFromActor"),
-        ("Actor", "SetForcedLandingMarker"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Actor", "PlayIdleWithTarget"),

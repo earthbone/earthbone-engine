@@ -2228,6 +2228,114 @@ fn scr_14_equipped_shield_reports_malformed_equipment() {
     );
 }
 
+/// Offset calls retain CK body-space arguments and clearing removes the request.
+#[test]
+fn scr_14_actor_offset_natives_store_and_clear_requests() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    call(
+        &mut g,
+        &guard,
+        "KeepOffsetFromActor",
+        &[
+            guard.clone(),
+            Value::Float(1.0),
+            Value::Float(2.0),
+            Value::Float(3.0),
+            Value::Float(4.0),
+            Value::Float(5.0),
+            Value::Float(6.0),
+            Value::Float(30.0),
+            Value::Float(7.0),
+        ],
+    );
+    assert_eq!(
+        g.world_mut().actor(actor).unwrap().keep_offset,
+        Some(soe_game::world::ActorKeepOffset {
+            target: actor,
+            offset: [1.0, 2.0, 3.0],
+            angles: [4.0, 5.0, 6.0],
+            catch_up_radius: 30.0,
+            follow_radius: 7.0,
+        })
+    );
+    call(&mut g, &guard, "ClearKeepOffsetFromActor", &[]);
+    assert_eq!(g.world_mut().actor(actor).unwrap().keep_offset, None);
+    call(&mut g, &guard, "KeepOffsetFromActor", &[guard.clone()]);
+    let defaults = g.world_mut().actor(actor).unwrap().keep_offset.unwrap();
+    assert_eq!(defaults.offset, [0.0; 3]);
+    assert_eq!(defaults.angles, [0.0; 3]);
+    assert_eq!(defaults.catch_up_radius, 20.0);
+    assert_eq!(defaults.follow_radius, 5.0);
+}
+
+/// Offset validation rejects non-finite or inverted radii without replacing state.
+#[test]
+fn scr_14_actor_offset_rejects_invalid_arguments_atomically() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    let original = soe_game::world::ActorKeepOffset {
+        target: actor,
+        offset: [0.0; 3],
+        angles: [0.0; 3],
+        catch_up_radius: 20.0,
+        follow_radius: 5.0,
+    };
+    assert!(g.world_mut().keep_actor_offset(actor, original));
+    call(
+        &mut g,
+        &guard,
+        "KeepOffsetFromActor",
+        &[
+            guard.clone(),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(4.0),
+            Value::Float(5.0),
+        ],
+    );
+    assert_eq!(
+        g.world_mut().actor(actor).unwrap().keep_offset,
+        Some(original)
+    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("Actor.KeepOffsetFromActor: invalid actor or offset")));
+}
+
+/// Forced landing markers are set, saved and restored with the owning actor.
+#[test]
+fn scr_14_forced_landing_marker_survives_actor_save_load() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let actor = g.form("GuardRef").unwrap();
+    call(&mut g, &guard, "SetForcedLandingMarker", &[guard.clone()]);
+    assert_eq!(
+        g.world_mut().actor(actor).unwrap().forced_landing_marker,
+        Some(actor)
+    );
+    call(&mut g, &guard, "SetForcedLandingMarker", &[Value::Int(4)]);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("Actor.SetForcedLandingMarker: invalid marker")));
+    let state = g.world_mut().save_state();
+    g.world_mut().actor(actor).unwrap().forced_landing_marker = None;
+    g.world_mut().load_state(&state).unwrap();
+    assert_eq!(
+        g.world_mut().actor(actor).unwrap().forced_landing_marker,
+        Some(actor)
+    );
+    assert!(errors(&g).is_empty());
+}
+
 /// GetCrimeFaction reads CRIF, SetCrimeFaction "if the actor does not
 /// currently belong to the crime faction, it will be added to that
 /// faction", SetOutfit changes the default or the sleep outfit.

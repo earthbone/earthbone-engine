@@ -991,6 +991,8 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Quietly returns 0 because search state is not represented. | SCR-10, with AI engagement state prerequisite CMB-17. |
 | Actor.GetEquippedWeapon | Returns the left or right hand weapon selected by its Boolean argument. | Reads the actor's selected hand, with the right hand as default. | SCR-14. |
 | Actor.GetEquippedShield | Returns the currently equipped shield. | Returns equipped inventory armor whose resolved BOD2 mask includes shield slot 9. | SCR-14. |
+| Actor.KeepOffsetFromActor and ClearKeepOffsetFromActor | Store or clear a target actor and body-space offset request. | Store finite offsets and angles with validated catch-up and follow radii in shared actor state. | SCR-14. |
+| Actor.SetForcedLandingMarker | Store the reference an actor should use when it lands. | Retain the selected reference in shared actor state. | SCR-14. |
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11. Flight state also depends on AI-66. |
@@ -1018,6 +1020,22 @@ vanilla PSC sources have no `RemoveAllSpells` declaration. Its registry entry
 and behavior remain owned by SCR-16. They also have no `Trespass` declaration,
 whose behavior remains owned by SCR-15. Both absent contracts are recorded in
 the manifest.
+
+`Actor.KeepOffsetFromActor` stores the target, body-space XYZ offset, XYZ
+angles and catch-up/follow radii on the calling actor. Omitted arguments use
+the CK defaults. Targets must be actors, all numeric values must be finite,
+and the catch-up radius must be at least the nonnegative follow radius.
+`ClearKeepOffsetFromActor` removes that request. `SetForcedLandingMarker`
+stores a resolved reference on the actor, and accepts `None` to clear it.
+These values persist in the actor section named `SCR-14`. The package/host
+movement path does not yet consume Papyrus offset requests, and the flight
+system does not yet consume forced landing markers.
+The local CK pages `KeepOffsetFromActor - Actor`,
+`ClearKeepOffsetFromActor - Actor` and `GetEquippedWeapon - Actor` define
+the offset and weapon argument contracts. `Actor_Script.wikitext` names the
+shield and forced-marker signatures, while the local corpus has no dedicated
+pages for those two functions. `ClearForcedLandingMarker - Actor` says that
+clearing is equivalent to assigning `None`.
 
 `natives::register` has 385 stateful registrations and 166 quiet stubs,
 including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and

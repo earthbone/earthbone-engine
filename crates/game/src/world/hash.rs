@@ -454,6 +454,16 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         form(h, *e);
     }
     ai_state(h, &a.ai);
+    h.bool(a.keep_offset.is_some());
+    if let Some(offset) = a.keep_offset {
+        form(h, offset.target);
+        for value in offset.offset.into_iter().chain(offset.angles) {
+            h.f32(value);
+        }
+        h.f32(offset.catch_up_radius);
+        h.f32(offset.follow_radius);
+    }
+    opt_form(h, a.forced_landing_marker);
     form_set(h, &a.perks);
     for flag in [
         a.alerted,
