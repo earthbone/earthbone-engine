@@ -32,7 +32,8 @@ struct Fixture final : RE::ReferenceExtraQuery {
         if (kind == RE::ReferenceExtraKind::MissingRefIDs)
             value.missingRefIDs.push_back({RE::FormId{0x01000001}, 0.25F});
         if (kind == RE::ReferenceExtraKind::NorthRotation) value.northRotation = 1.25F;
-        if (kind == RE::ReferenceExtraKind::OutfitItem) value.outfitItem = RE::FormId{0x01000002};
+        if (kind == RE::ReferenceExtraKind::OutfitItem)
+            value.outfitItem = RE::FormId{0x01000002};
         if (kind == RE::ReferenceExtraKind::Poison) { value.poison = RE::FormId{0x01000003}; value.poisonCount = UINT32_MAX; }
         if (kind == RE::ReferenceExtraKind::Teleport)
             value.teleport = RE::DoorTeleportData{RE::ObjectRefHandle{4}, {1, 2, 3}, {4, 5, 6}, 0};
@@ -47,7 +48,19 @@ int main() {
                       RE::ReferenceExtraKind::OutfitItem, RE::ReferenceExtraKind::Poison,
                       RE::ReferenceExtraKind::Teleport}) {
         if (!fixture.supports_extra(kind) || !fixture.extra(reference, kind)) return 1;
+        const auto value = fixture.extra(reference, kind);
+        if (kind == RE::ReferenceExtraKind::MissingRefIDs &&
+            (value->missingRefIDs.size() != 1 || value->missingRefIDs[0].refID.value != 0x01000001 ||
+             value->missingRefIDs[0].activateDelay != 0.25F)) return 5;
+        if (kind == RE::ReferenceExtraKind::NorthRotation && value->northRotation != 1.25F) return 6;
+        if (kind == RE::ReferenceExtraKind::OutfitItem &&
+            (!value->outfitItem || value->outfitItem->value != 0x01000002)) return 7;
         if (kind == RE::ReferenceExtraKind::Poison && fixture.extra(reference, kind)->poisonCount != UINT32_MAX) return 4;
+        if (kind == RE::ReferenceExtraKind::Poison &&
+            (!value->poison || value->poison->value != 0x01000003)) return 8;
+        if (kind == RE::ReferenceExtraKind::Teleport &&
+            (!value->teleport || value->teleport->linkedDoor.value != 4 ||
+             value->teleport->position.x != 1 || value->teleport->rotation.z != 6)) return 9;
     }
     std::string error;
     if (RE::HookRegistry::reject("write_call", error)) return 2;
