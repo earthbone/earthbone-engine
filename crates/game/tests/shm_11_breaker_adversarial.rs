@@ -30,7 +30,10 @@ fn placed_hazard_reads_the_phzd_record_form() {
     let mut world = World::new(order);
 
     let hazard = world.commonlib_hazard(loaded_id(0x300));
-    assert!(hazard.is_some(), "PHZD is the source-defined placed hazard form");
+    assert!(
+        hazard.is_some(),
+        "PHZD is the source-defined placed hazard form"
+    );
     let hazard = hazard.unwrap();
     assert_eq!(
         hazard.reference,
@@ -50,9 +53,7 @@ fn placed_hazard_reads_the_phzd_record_form() {
 fn extra_worn_reports_both_markers_across_distinct_stacks() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x100));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x101).sub(Tag(*b"NAME"), 0x100_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x101).sub(Tag(*b"NAME"), 0x100_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Inventory.esm", plugin).unwrap();
     let mut world = World::new(order);

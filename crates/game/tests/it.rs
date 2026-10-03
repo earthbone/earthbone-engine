@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "shm_13_adversarial.rs"]
+mod shm_13_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
@@ -1359,10 +1362,10 @@ mod shm_11_adversarial;
 
 #[path = "shm_11_breaker_adversarial.rs"]
 mod shm_11_breaker_adversarial;
-#[path = "shm_12_cpp_bridge.rs"]
-mod shm_12_cpp_bridge;
 #[path = "shm_12_adversarial.rs"]
 mod shm_12_adversarial;
+#[path = "shm_12_cpp_bridge.rs"]
+mod shm_12_cpp_bridge;
 #[path = "shm_12_live_world.rs"]
 mod shm_12_live_world;
 #[path = "shm_14_world_contracts.rs"]

@@ -7882,3 +7882,14 @@ API](https://docs.wasmtime.dev/api/wasmtime/component/index.html) and the
 [Rust component build
 guide](https://component-model.bytecodealliance.org/language-support/creating-runnable-components/rust.html).
 The project decision and acceptance check are in `ENGINE-PLAN.md`, round 4.
+
+## CommonLib magic provider, SHM-13
+
+`CommonLibMagic` adapts favorites, casting checks, active magic effects,
+reference marker flags and default equipment requests through the MIT
+`MagicWorldState` provider. Favorite forms are stored on their actor and
+persisted by the `SHM-13` actor save section. Marker visibility and fast travel
+use the existing reference flags. `ShowAllHidden`, unsupported cast checks
+and non-default equip parameters return explicit unsupported-state errors.
+Supported equipment requests use `World::equip_item`, and dispel requests use
+the shared active-effect removal path.

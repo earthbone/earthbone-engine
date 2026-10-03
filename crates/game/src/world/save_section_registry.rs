@@ -283,7 +283,36 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
+    Section { name: "SHM-13", write: write_favorites, read: read_favorites },
 ];
+
+fn write_favorites(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(actor.favorites.len());
+    for form in &actor.favorites {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_favorites(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "SHM-13 favorite count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut favorites = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !favorites.insert(super::save::read_form_id(reader)?) {
+            return Err(VmError::State("SHM-13 duplicate favorite form".into()));
+        }
+    }
+    actor.favorites = favorites;
+    Ok(())
+}
 
 fn write_stagger_metadata(
     state: &ActorState,
