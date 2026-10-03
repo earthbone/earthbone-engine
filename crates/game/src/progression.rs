@@ -183,7 +183,9 @@ impl World {
         if self.is_player_reference(actor_id) {
             self.player_level = level;
             if level > previous_level {
-                let _ = self.commonlib_level_increase();
+                for reached_level in previous_level + 1..=level {
+                    let _ = self.commonlib_level_increase_at(reached_level);
+                }
             }
         }
         Ok(())

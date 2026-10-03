@@ -287,6 +287,9 @@ impl World {
         }
         let mut loaded = 0;
         for cell in unique {
+            if self.attached_cells.contains(&cell) {
+                continue;
+            }
             let cold = !self.cell_is_resident(cell);
             loaded += self.prefetch_cell(cell);
             self.mark_cell_3d_loaded(cell);

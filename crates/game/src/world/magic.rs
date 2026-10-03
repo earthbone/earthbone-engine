@@ -2125,6 +2125,13 @@ impl World {
 
     /// Add a known spell and activate it when it is a constant-effect ability.
     pub fn add_actor_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        if !self
+            .order
+            .winner(spell)
+            .is_some_and(|record| record.tag == T(b"SPEL") && !record.is_deleted())
+        {
+            return false;
+        }
         let Some(state) = self.actor(actor) else {
             return false;
         };

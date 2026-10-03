@@ -83,7 +83,12 @@ impl World {
 
     /// Emit the current player identity and level from live world state.
     pub fn commonlib_level_increase(&mut self) -> Result<usize, EventError> {
-        let level = u16::try_from(self.player_level).map_err(|_| EventError::LevelOutOfRange)?;
+        self.commonlib_level_increase_at(self.player_level)
+    }
+
+    /// Emit a player level increase for the supplied newly reached level.
+    pub fn commonlib_level_increase_at(&mut self, new_level: u32) -> Result<usize, EventError> {
+        let level = u16::try_from(new_level).map_err(|_| EventError::LevelOutOfRange)?;
         let player = self.player();
         Ok(self.commonlib_events.level_increase().send(&LevelIncrease {
             player: identity(player),
