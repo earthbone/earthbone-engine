@@ -96,10 +96,7 @@ fn hst_03_unlocked_reference_does_not_enter_lockpick_activation() {
     let mut game = game(25, None);
     let player = game.player();
     game.world_mut().add_item(player, id(PICK), 1);
-    game.world_mut()
-        .reference(id(DOOR))
-        .unwrap()
-        .locked = false;
+    game.world_mut().reference(id(DOOR)).unwrap().locked = false;
 
     assert!(game.activate_no_settle(id(DOOR), player));
     assert!(game.world_mut().reference(id(DOOR)).unwrap().opened);
