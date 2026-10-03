@@ -100,6 +100,15 @@ fn game(tree: Record) -> Game {
 
 #[test]
 fn ai_15_multiple_higher_priority_children_run_once_then_resume_saved_route() {
+    assert_saved_stacked_package_resumes();
+}
+
+#[test]
+fn sav_13_saved_actor_resumes_at_its_saved_package_procedure() {
+    assert_saved_stacked_package_resumes();
+}
+
+fn assert_saved_stacked_package_resumes() {
     let stacked = branch(
         package::finish(package::close_header(
             package::build_template(TEMPLATE, "StackedPriority"),
@@ -160,6 +169,11 @@ fn ai_15_multiple_higher_priority_children_run_once_then_resume_saved_route() {
         load_order
     });
     loaded.load_state(&saved).unwrap();
+    let original_ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    let loaded_ai = loaded.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert_eq!(loaded_ai.package, original_ai.package);
+    assert_eq!(loaded_ai.procedure, original_ai.procedure);
+    assert_eq!(loaded_ai.tree, original_ai.tree);
     for _ in 0..60 {
         game.tick(0.5);
         loaded.tick(0.5);
