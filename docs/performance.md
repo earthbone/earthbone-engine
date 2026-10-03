@@ -219,7 +219,7 @@ After reviewing a measured change, run `tools/perf.sh refresh` to replace the
 medians for the current CPU. A refresh writes the current host and CPU
 identity into the baseline. Divan 0.1.21 is licensed MIT or Apache-2.0.
 `cargo tree -p soe-bench -i divan` shows its dependency
-tree; `cargo tree -p divan` includes cfg-if, clap, condtype, divan-macros,
+tree. `cargo tree -p divan` includes cfg-if, clap, condtype, divan-macros,
 libc and regex-lite. Clap also brings terminal_size and rustix. The benchmark
 API and its median table follow the
 [Divan 0.1.21 documentation](https://docs.rs/divan/0.1.21/divan/).
