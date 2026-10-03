@@ -1153,6 +1153,34 @@ and `scene_bounds` reports the merged bounds so a camera can frame the scene wit
 children. `bench.gd` and `capture.gd` use it. The unbatched mode (one instance per surface)
 stays as the benchmark's baseline, on the `batch_surfaces` export.
 
+PRF-08 attaches each bulk material to its mesh surface before creating the
+RenderingServer instance. Batched, unbatched, MultiMesh and distant LOD meshes
+use this path. A placement rebake carries the old surface material to the new
+mesh. This exposes the mesh/material combination to Godot's pipeline
+precompilation without an instance material override. `surface_material_count`
+reports how many full-resolution instances have a surface material.
+
+`godot/render_warmup.gd` renders the configured scene under a ColorRect during
+benchmark and walkthrough loading. It synchronizes submitted GPU work there
+and waits for at least three drawn frames and 500 ms without changes to any
+pipeline compilation counter. It fails after 30 seconds without settling.
+Camera, lights and materials stay active. No per-reference nodes are added.
+Loading durations, worst loading frame and pipeline counts are reported
+separately. This is a quiet-counter predicate, not an API for pending compiler
+jobs. It does not warm views or effects introduced later.
+
+Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
+`classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
+Godot documents deferred compilation for instance overrides, covered rendering
+during loading, the pipeline counters and disk shader caching. The implementation
+uses these stock Godot 4.4 APIs and retains the default enabled shader cache.
+The headless `prf_08_whiterun_mesh_materials_are_bound_before_first_frame` check
+loads nine installed Whiterun cells in batched and unbatched modes and checks
+attached materials before drawing.
+It requires `SKYRIM_DATA` and a Godot executable. The deterministic GDScript
+contracts run through `prf_08_loading_reporting_and_repetition_contracts_in_stock_godot`.
+See [performance.md](performance.md#prf-08-first-use-rendering) for windowed acceptance.
+
 The `StandardMaterial3D` cache moved from a per-call local to the node. It now includes
 alpha and culling state in its key, with a separate path-keyed texture upload cache,
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
