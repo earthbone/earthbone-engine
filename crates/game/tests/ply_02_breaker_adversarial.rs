@@ -34,7 +34,10 @@ fn ply_02_breaker_failure_reports_step_world_state_and_trace() {
     assert!(formatted.contains("FAIL step 1 line 2"), "{formatted}");
     assert!(formatted.contains("world state:"), "{formatted}");
     assert!(formatted.contains("trace:"), "{formatted}");
-    assert!(formatted.contains("Activate(\"MissingReference\")"), "{formatted}");
+    assert!(
+        formatted.contains("Activate(\"MissingReference\")"),
+        "{formatted}"
+    );
     assert!(formatted.contains("player"), "{formatted}");
 }
 

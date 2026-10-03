@@ -984,10 +984,14 @@ mod perk_dispatch;
 mod perks;
 #[path = "ply_01_adversarial.rs"]
 mod ply_01_adversarial;
+#[path = "ply_01_breaker_adversarial.rs"]
+mod ply_01_breaker_adversarial;
 #[path = "ply_01_player_input.rs"]
 mod ply_01_player_input;
-#[path = "ply_01_player_input.rs"]
-mod ply_01_player_input;
+#[path = "ply_02_adversarial.rs"]
+mod ply_02_adversarial;
+#[path = "ply_02_breaker_adversarial.rs"]
+mod ply_02_breaker_adversarial;
 #[path = "ply_02_routes.rs"]
 mod ply_02_routes;
 #[path = "prf_09_adversarial.rs"]

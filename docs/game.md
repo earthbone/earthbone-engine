@@ -262,7 +262,10 @@ Commands place the player at a reference plus an offset, set XYZ rotation
 in radians, activate, execute an authored melee contact, press or release an
 equipped casting hand, choose a dialogue topic, confirm a menu operation,
 or wait for one step. MoveTo is explicit placement, with optional rotation
-matching and normal cell and trigger events. Menu operations advance a
+matching and normal cell and trigger events. As the local CK
+`MoveTo_-_ObjectReference.wikitext` documents, rotation remains unchanged when
+the destination cell is unloaded, even when rotation matching is requested.
+Menu operations advance a
 dialogue response, close a latent gift menu, or commit a COBJ transaction.
 Scripted steps advance the simulation independently of host menu presentation.
 Attack uses the existing equipment and damage checks with a supplied contact

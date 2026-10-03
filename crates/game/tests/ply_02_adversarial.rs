@@ -3,7 +3,7 @@
 
 //! Boundary checks for authored route assertions and navigation endpoints.
 
-use super::{game, game_with, id, run};
+use crate::ply_02_routes::{game, game_with, id, run};
 use soe_esm::{Record, Tag};
 
 #[test]
@@ -33,10 +33,7 @@ fn ply_02_adversarial_navigation_projects_at_128_units_and_rejects_beyond_it() {
 #[test]
 fn ply_02_adversarial_position_tolerance_is_euclidean_and_cell_specific() {
     let mut within = game(false);
-    let report = run(
-        &mut within,
-        "expect-position Skyrim.esm:800 0.3 0.4 0 0.5",
-    );
+    let report = run(&mut within, "expect-position Skyrim.esm:800 0.3 0.4 0 0.5");
     assert!(report.passed(), "{}", report.format());
 
     let mut outside = game(false);

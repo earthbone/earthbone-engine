@@ -8,7 +8,7 @@ use soe_esm::{Entry, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, 
 use soe_game::play::{self, Route};
 use soe_game::Game;
 
-fn id(object: u32) -> GlobalFormId {
+pub(super) fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
@@ -64,11 +64,11 @@ fn insert_nav(groups: &mut [Group], cell: u32, index: usize) {
     }
 }
 
-fn game(disconnected: bool) -> Game {
+pub(super) fn game(disconnected: bool) -> Game {
     game_with(disconnected, |_| {})
 }
 
-fn game_with(disconnected: bool, edit: impl FnOnce(&mut Plugin)) -> Game {
+pub(super) fn game_with(disconnected: bool, edit: impl FnOnce(&mut Plugin)) -> Game {
     let mut plugin = super::ply_01_player_input::plugin();
     for record in &mut plugin.records {
         if record.form_id == 0x840 {
@@ -99,7 +99,7 @@ fn game_with(disconnected: bool, edit: impl FnOnce(&mut Plugin)) -> Game {
     game
 }
 
-fn run(game: &mut Game, text: &str) -> play::Report {
+pub(super) fn run(game: &mut Game, text: &str) -> play::Report {
     play::run(game, &Route::parse(text).unwrap())
 }
 

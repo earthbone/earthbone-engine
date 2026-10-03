@@ -787,6 +787,7 @@ impl World {
         else {
             return false;
         };
+        let match_rotation = match_rotation && cell.is_some_and(|cell| self.cell_is_resident(cell));
         match self.reference(id) {
             Some(r) => {
                 r.position = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];

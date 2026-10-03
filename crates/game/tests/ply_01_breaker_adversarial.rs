@@ -51,7 +51,10 @@ fn ply_01_breaker_rejected_input_still_consumes_one_fixed_step() {
         .push(Command::Activate { target: id(0x8fff) })
         .unwrap();
     let event = driver.step(&mut game).unwrap();
-    assert!(event.result.is_err(), "missing activation must reject: {event:?}");
+    assert!(
+        event.result.is_err(),
+        "missing activation must reject: {event:?}"
+    );
     assert_eq!(event.step, 0);
     assert!((game.world().clock.real_seconds - start - STEP_SECONDS).abs() < 1e-12);
     assert_eq!(driver.pending(), 0);
