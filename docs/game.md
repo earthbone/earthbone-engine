@@ -950,7 +950,7 @@ in `engine-refs`.
 | ActiveMagicEffect.GetTargetActor | Returns the actor this spell effect targets. | Returns the recorded target actor. |
 | ActiveMagicEffect.GetCasterActor | Returns the actor that cast the spell, or None. | Returns the recorded optional caster. |
 | ActiveMagicEffect.Dispel | Removes this active effect. | Queues removal for the effect represented by this script object. |
-| ActiveMagicEffect.AddInventoryEventFilter | Accepts a Form filter for item added and removed events. | Adds the filter under this script object's identity. |
+| ActiveMagicEffect.AddInventoryEventFilter | Accepts a Form filter for item added and removed events. Skyrim does not support None. | Adds the filter under this script object's identity. None logs a Papyrus native error and leaves the filter set unchanged. |
 | ActiveMagicEffect.RemoveInventoryEventFilter | Removes the matching Form filter. | Removes matching entries for this script object. |
 | ActiveMagicEffect.RemoveAllInventoryEventFilters | Removes all filters for this effect. | Clears this script object's filter set. |
 | ActiveMagicEffect.RegisterForSingleUpdate | Takes an interval in seconds and schedules one update. | Uses the real-time update scheduler with repeat disabled. |
