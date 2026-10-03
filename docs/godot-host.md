@@ -383,6 +383,16 @@ light flag. The light follows the runtime reference position and is freed
 when the effect reference expires, becomes hidden or the streamer is cleared.
 It adds no scene node. Other LIGH references are not uploaded by this path.
 
+Since 2026-10-03 the DATA effect flag also drives light energy each frame.
+Flicker is 0x8, Flicker Slow 0x40, Pulse 0x80 and Pulse Slow 0x100, with at
+most one set per record (UESP `LIGH`). The float at offset 28 is a frequency
+in cycles per second, since CommonLib names it `flickerPeriodRecip`, and the
+float at 32 is the intensity amplitude. Neither source specifies the waveform.
+Pulse is one sine and flicker sums three sines at unrelated rates. The slow
+variants run at half rate, as OpenMW's `lightcontroller.cpp` does. The
+reference id offsets each light's phase. Movement amplitude, the FNAM fade
+value and placed LIGH references are still not applied.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the

@@ -231,6 +231,21 @@ struct LightRenderData {
     radius: f32,
     color: [f32; 3],
     negative: bool,
+    effect: LightEffect,
+    /// DATA Flicker Effect period, stored as its reciprocal in cycles per
+    /// second (CommonLib `TESObjectLIGH` names it `flickerPeriodRecip`).
+    frequency: f32,
+    intensity_amplitude: f32,
+}
+
+/// The DATA effect flag. UESP's LIGH page allows at most one per record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LightEffect {
+    Steady,
+    Flicker,
+    FlickerSlow,
+    Pulse,
+    PulseSlow,
 }
 
 fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
@@ -245,11 +260,52 @@ fn light_render_data(record: &soe_esm::Record) -> Option<LightRenderData> {
     if !radius.is_finite() || radius <= 0.0 {
         return None;
     }
+    let flags = u32::from_le_bytes(data[12..16].try_into().ok()?);
+    let float = |at: usize| {
+        let value = f32::from_le_bytes(data[at..at + 4].try_into().ok()?);
+        value.is_finite().then_some(value)
+    };
+    // xEdit `wbLIGHDataFlags` bits 3, 6, 7 and 8.
+    let effect = match flags {
+        f if f & (1 << 3) != 0 => LightEffect::Flicker,
+        f if f & (1 << 6) != 0 => LightEffect::FlickerSlow,
+        f if f & (1 << 7) != 0 => LightEffect::Pulse,
+        f if f & (1 << 8) != 0 => LightEffect::PulseSlow,
+        _ => LightEffect::Steady,
+    };
     Some(LightRenderData {
         radius: radius * crate::units::METRES_PER_UNIT,
         color: [data[8], data[9], data[10]].map(|channel| f32::from(channel) / 255.0),
-        negative: u32::from_le_bytes(data[12..16].try_into().ok()?) & (1 << 2) != 0,
+        negative: flags & (1 << 2) != 0,
+        effect,
+        frequency: float(28).unwrap_or(0.0).max(0.0),
+        intensity_amplitude: float(32).unwrap_or(0.0).max(0.0),
     })
+}
+
+/// Energy multiplier for a light's DATA effect `seconds` into the clock.
+/// The waveforms are this engine's own, the record only gives rate and
+/// depth: a pulse is one sine, a flicker sums three sines at unrelated
+/// rates so the pattern does not visibly repeat, and the slow variants run
+/// at half rate as OpenMW's `lightcontroller.cpp` does for the same Morrowind
+/// flags. `phase` keeps neighbouring lights out of step.
+fn light_energy(render: &LightRenderData, seconds: f64, phase: f32) -> f32 {
+    let rate = match render.effect {
+        LightEffect::Steady => return 1.0,
+        LightEffect::Flicker | LightEffect::Pulse => 1.0,
+        LightEffect::FlickerSlow | LightEffect::PulseSlow => 0.5,
+    };
+    let turns = seconds * f64::from(render.frequency * rate);
+    let wave = |multiple: f64, offset: f32| {
+        ((turns * multiple).fract() as f32 * std::f32::consts::TAU + offset).sin()
+    };
+    let shape = match render.effect {
+        LightEffect::Flicker | LightEffect::FlickerSlow => {
+            0.5 * wave(1.0, phase) + 0.3 * wave(2.3, phase * 1.7) + 0.2 * wave(4.7, phase * 2.9)
+        }
+        _ => wave(1.0, phase),
+    };
+    (1.0 + render.intensity_amplitude * shape).max(0.0)
 }
 
 impl Drop for CellStreamerNode {
@@ -830,8 +886,17 @@ impl CellStreamerNode {
                 Basis::IDENTITY,
                 Vector3::new(position.x, position.y, position.z),
             );
+            // The reference's object id spreads phases so neighbouring
+            // lights do not flicker in step.
+            let phase = (reference.object % 1024) as f32 * 0.618_034;
+            let energy = light_energy(&render, world.clock.real_seconds, phase);
             if let Some(light) = self.runtime_lights.get(&reference) {
                 server.instance_set_transform(light.instance, transform);
+                server.light_set_param(
+                    light.light,
+                    godot::classes::rendering_server::LightParam::ENERGY,
+                    energy,
+                );
                 continue;
             }
             let light = server.omni_light_create();
@@ -843,6 +908,11 @@ impl CellStreamerNode {
                 light,
                 godot::classes::rendering_server::LightParam::RANGE,
                 render.radius,
+            );
+            server.light_set_param(
+                light,
+                godot::classes::rendering_server::LightParam::ENERGY,
+                energy,
             );
             server.light_set_negative(light, render.negative);
             let instance = server.instance_create2(light, scenario);
@@ -2717,7 +2787,57 @@ fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
 
 #[cfg(test)]
 mod mag_35_runtime_light_tests {
-    use super::light_render_data;
+    use super::{light_energy, light_render_data, LightEffect};
+
+    fn effect_record(flags: u32, frequency: f32, amplitude: f32) -> Record {
+        let mut data = vec![0; 48];
+        data[4..8].copy_from_slice(&512u32.to_le_bytes());
+        data[12..16].copy_from_slice(&flags.to_le_bytes());
+        data[28..32].copy_from_slice(&frequency.to_le_bytes());
+        data[32..36].copy_from_slice(&amplitude.to_le_bytes());
+        Record::new(Tag::new(b"LIGH"), 1).sub(Tag::new(b"DATA"), data)
+    }
+
+    #[test]
+    fn effect_flags_select_one_waveform() {
+        for (flags, effect) in [
+            (0, LightEffect::Steady),
+            (1 << 3, LightEffect::Flicker),
+            (1 << 6, LightEffect::FlickerSlow),
+            (1 << 7, LightEffect::Pulse),
+            (1 << 8, LightEffect::PulseSlow),
+        ] {
+            let render = light_render_data(&effect_record(flags, 0.5, 0.4)).unwrap();
+            assert_eq!(render.effect, effect, "flags {flags:#x}");
+        }
+    }
+
+    #[test]
+    fn pulse_follows_one_sine_at_the_authored_frequency() {
+        let render = light_render_data(&effect_record(1 << 7, 0.5, 0.4)).unwrap();
+        // 0.5 cycles per second: a quarter turn at 0.5 s, three quarters at 1.5 s.
+        assert!((light_energy(&render, 0.0, 0.0) - 1.0).abs() < 1e-5);
+        assert!((light_energy(&render, 0.5, 0.0) - 1.4).abs() < 1e-5);
+        assert!((light_energy(&render, 1.5, 0.0) - 0.6).abs() < 1e-5);
+        let slow = light_render_data(&effect_record(1 << 8, 0.5, 0.4)).unwrap();
+        assert!((light_energy(&slow, 1.0, 0.0) - 1.4).abs() < 1e-5);
+    }
+
+    #[test]
+    fn flicker_varies_within_its_amplitude_and_steady_stays_put() {
+        let render = light_render_data(&effect_record(1 << 3, 0.33, 0.4)).unwrap();
+        let samples: Vec<f32> = (0..600)
+            .map(|frame| light_energy(&render, f64::from(frame) / 60.0, 1.0))
+            .collect();
+        assert!(samples
+            .iter()
+            .all(|e| (0.6 - 1e-5..=1.4 + 1e-5).contains(e)));
+        let spread = samples.iter().copied().fold(f32::MIN, f32::max)
+            - samples.iter().copied().fold(f32::MAX, f32::min);
+        assert!(spread > 0.2, "flicker must visibly vary, spread {spread}");
+        let steady = light_render_data(&effect_record(0, 0.33, 0.4)).unwrap();
+        assert_eq!(light_energy(&steady, 12.5, 1.0), 1.0);
+    }
     use soe_esm::{Record, Tag};
 
     fn light_record(radius: u32, color: [u8; 3], flags: u32) -> Record {
