@@ -49,9 +49,18 @@ fn sav_13_sequence_and_stacked_frames_roundtrip_before_live_restore() {
                     Some(Field::String(name)) if name.bytes() == b"Stacked" => stacked += 1,
                     _ => continue,
                 }
-                assert_eq!(contents.data_bytes().unwrap(), change.data[contents.start..contents.end]);
-                let repeated = change.reference_contents(save.form_version).unwrap().unwrap();
-                assert_eq!(repeated.data_bytes().unwrap(), contents.data_bytes().unwrap());
+                assert_eq!(
+                    contents.data_bytes().unwrap(),
+                    change.data[contents.start..contents.end]
+                );
+                let repeated = change
+                    .reference_contents(save.form_version)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    repeated.data_bytes().unwrap(),
+                    contents.data_bytes().unwrap()
+                );
             }
         }
     }

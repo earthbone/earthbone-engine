@@ -3,7 +3,7 @@
 
 //! SAV-13 requires saved package procedure state to reach live actor restore.
 
-use soe_save::Save;
+use soe_save::{reference::Field, Save};
 use std::path::{Path, PathBuf};
 
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
@@ -29,29 +29,41 @@ fn sav_13_named_saved_package_states_decode_for_actor_restoration() {
 
     let mut sequence = 0;
     let mut stacked = 0;
-    let mut rejected = vec![];
+    let mut decoded = 0;
     for path in paths {
         let save = Save::open(&path).unwrap();
         for form in &save.change_forms {
-            if let Err(error) = form.reference_contents(save.form_version) {
-                let message = error.to_string();
-                if message.contains("PackageData kind 18 procedure") {
-                    if message.contains("Sequence") {
+            let Ok(Some(contents)) = form.reference_contents(save.form_version) else {
+                continue;
+            };
+            let Some(extra) = contents.extra.as_ref() else {
+                continue;
+            };
+            for entry in &extra.entries {
+                if entry.kind != 108 || !matches!(entry.fields.first(), Some(Field::Byte(18))) {
+                    continue;
+                }
+                match entry.fields.get(2) {
+                    Some(Field::String(name)) if name.bytes() == b"Sequence" => {
+                        assert!(matches!(entry.fields.get(3), Some(Field::Group(_))));
                         sequence += 1;
-                    } else if message.contains("Stacked") {
-                        stacked += 1;
+                        decoded += 1;
                     }
-                    rejected.push(format!("{} {:?}: {message}", path.display(), form.form));
+                    Some(Field::String(name)) if name.bytes() == b"Stacked" => {
+                        assert!(matches!(entry.fields.get(3), Some(Field::Group(_))));
+                        stacked += 1;
+                        decoded += 1;
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
-    assert_eq!(sequence + stacked, 81, "observed named package state count changed");
-    assert_eq!(sequence, 72, "observed Sequence package state count changed");
-    assert_eq!(stacked, 9, "observed Stacked package state count changed");
-    assert!(
-        rejected.is_empty(),
-        "named package procedure state must decode before it can resume on a live actor: {rejected:?}"
+    assert_eq!(decoded, 81, "observed named package state count changed");
+    assert_eq!(
+        sequence, 72,
+        "observed Sequence package state count changed"
     );
+    assert_eq!(stacked, 9, "observed Stacked package state count changed");
 }
