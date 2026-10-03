@@ -141,7 +141,7 @@ pub(crate) fn fade_overlay_presentation(
 ) -> FadeOverlayPresentation {
     let door_opacity = door.opacity();
     let game_opacity = game.opacity();
-    let (opacity, black) = if game_opacity > door_opacity {
+    let (opacity, black) = if game_opacity >= door_opacity {
         (game_opacity, game.is_black())
     } else {
         (door_opacity, true)

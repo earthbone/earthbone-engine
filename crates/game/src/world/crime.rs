@@ -4,8 +4,8 @@
 //! `FACT.CRVA` pricing table and this module's `Error`.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::VmError;
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::VmError;
 
 use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
 

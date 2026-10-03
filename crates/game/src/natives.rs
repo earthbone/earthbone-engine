@@ -22,8 +22,8 @@ use crate::conditions;
 use crate::crime::CrimeType;
 use crate::world::magic::MagicExecution;
 use crate::world::{
-    AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
-    LosListener, MenuRequest, ReferencePhysicsRequest, World, reaction,
+    reaction, AnimationListener, BinkOptions, DebugHostRequest, Handle, HostRequest, LeveledEntry,
+    LosListener, MenuRequest, ReferencePhysicsRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;

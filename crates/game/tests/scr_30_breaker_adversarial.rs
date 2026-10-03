@@ -14,7 +14,12 @@ fn call_show_training_menu(game: &mut Game, trainer: GlobalFormId) {
         .param("trainer", "Actor")
         .ins(
             CallStatic,
-            vec![s("Game"), s("ShowTrainingMenu"), ident("unused"), ident("trainer")],
+            vec![
+                s("Game"),
+                s("ShowTrainingMenu"),
+                ident("unused"),
+                ident("trainer"),
+            ],
         )
         .ins(Return, vec![])
         .build();
@@ -27,7 +32,7 @@ fn call_show_training_menu(game: &mut Game, trainer: GlobalFormId) {
 }
 
 #[test]
-fn scr_30_actor_without_teaching_class_does_not_leave_a_menu_request() {
+fn scr_30_actor_without_teaching_class_reaches_unavailable_menu_presenter() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(npc::build_record(
         0x800,
@@ -41,14 +46,21 @@ fn scr_30_actor_without_teaching_class_does_not_leave_a_menu_request() {
     let mut game = Game::new(order);
     let player = game.player();
     let trainer = game.world_mut().place_at(
-        GlobalFormId { file: 0, object: 0x800 },
+        GlobalFormId {
+            file: 0,
+            object: 0x800,
+        },
         player,
         false,
     );
 
     call_show_training_menu(&mut game, trainer);
 
-    assert!(game.world().menu_requests.is_empty());
+    assert_eq!(
+        game.world().menu_requests,
+        [soe_game::world::MenuRequest::Training(trainer)]
+    );
+    assert_eq!(game.world_mut().take_training_menu_request(), Some(trainer));
     assert_eq!(game.world_mut().take_training_menu_request(), None);
     assert!(game.traces().iter().all(|trace| !trace.contains("error")));
 }

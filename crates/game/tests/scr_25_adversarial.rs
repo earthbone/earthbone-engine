@@ -3,7 +3,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, none, s};
+use soe_papyrus::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
 fn id(object: u32) -> GlobalFormId {
@@ -65,14 +65,12 @@ fn scr_25_mod_reaction_is_directional_additive_and_persistent() {
             .get(&id(2)),
         Some(&1)
     );
-    assert!(
-        !game
-            .world_mut()
-            .faction(id(2))
-            .unwrap()
-            .reactions
-            .contains_key(&id(1))
-    );
+    assert!(!game
+        .world_mut()
+        .faction(id(2))
+        .unwrap()
+        .reactions
+        .contains_key(&id(1)));
     let saved = game.save_state().unwrap();
     let mut restored = fixture();
     restored.load_state(&saved).unwrap();

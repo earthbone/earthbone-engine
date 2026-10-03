@@ -3,14 +3,16 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{save_generations::GenerationStore, world::HostRequest, Game};
+pub use soe_godot_host::units;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
-pub use soe_godot_host::units;
 use std::time::Duration;
 
 #[path = "../src/camera.rs"]
+#[allow(dead_code)]
 mod camera_impl;
 #[path = "../src/door_fade.rs"]
+#[allow(dead_code)]
 mod fade_impl;
 
 fn invoke(game: &mut Game, function: &str, args: &[Value]) {
@@ -71,8 +73,7 @@ fn scr_28_new_fade_replaces_in_progress_fade_and_resets_elapsed_time() {
 
 #[test]
 fn scr_28_camera_requests_set_the_requested_rig_mode_repeatedly() {
-    let mut rig = camera_impl::CameraRig::default()
-        .with_mode(camera_impl::CameraMode::Third);
+    let mut rig = camera_impl::CameraRig::default().with_mode(camera_impl::CameraMode::Third);
     camera_impl::apply_game_camera_request(&mut rig, true);
     assert_eq!(rig.mode, camera_impl::CameraMode::First);
     camera_impl::apply_game_camera_request(&mut rig, false);

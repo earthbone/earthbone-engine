@@ -25,13 +25,12 @@ fn scr_25_assault_alarm_alerts_the_nearest_faction_member() {
         game.world_mut().actor_is_alarmed(witness),
         "the nearby NPC must behave as if the player assaulted them"
     );
-    assert!(
-        game.world_mut()
-            .actor(witness)
-            .unwrap()
-            .witnessed_crimes
-            .contains(&player)
-    );
+    assert!(game
+        .world_mut()
+        .actor(witness)
+        .unwrap()
+        .witnessed_crimes
+        .contains(&player));
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
 

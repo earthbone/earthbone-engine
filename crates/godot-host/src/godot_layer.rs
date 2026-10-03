@@ -30,7 +30,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
 use crate::batch::{
-    BatchMember, InstanceGroup, batch_surfaces, cell_occluder_mesh, instancing_candidates,
+    batch_surfaces, cell_occluder_mesh, instancing_candidates, BatchMember, InstanceGroup,
 };
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
@@ -40,8 +40,8 @@ use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
 use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
 use crate::units::{
-    GodotPos, GodotTransform, SkyrimPos, direction_to_godot, direction_to_skyrim,
-    placement_to_godot,
+    direction_to_godot, direction_to_skyrim, placement_to_godot, GodotPos, GodotTransform,
+    SkyrimPos,
 };
 use soe_physics::{Iso, Vec3};
 
@@ -1904,7 +1904,11 @@ impl CellStreamerNode {
                 _ => {}
             }
         }
-        if found { largest } else { -1.0 }
+        if found {
+            largest
+        } else {
+            -1.0
+        }
     }
 
     /// Starts distant-terrain LOD for the worldspace named

@@ -23,7 +23,10 @@ fn scr_30_visibility_setting_survives_camera_mode_changes() {
 
 #[test]
 fn scr_30_missing_camera_target_pose_falls_back_to_player() {
-    let target = GlobalFormId { file: 1, object: 0x123 };
+    let target = GlobalFormId {
+        file: 1,
+        object: 0x123,
+    };
     let player_feet = Vec3::new(10.0, 20.0, 30.0);
     let mut state = CameraHostState::default();
     state.apply(soe_game::world::CameraControls {
