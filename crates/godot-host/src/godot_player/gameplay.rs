@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
-    PhysicsWorld, PlayerNode, Vec3,
+    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
+    PlayerNode, Vec3,
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
@@ -404,8 +404,8 @@ impl PlayerNode {
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
                 visual.bind_mut().set_first_person_geometry_visible(
-                    self.rig.mode != super::CameraMode::First
-                        || self.camera_state.first_person_geometry_visible(),
+                    self.camera_state
+                        .rendered_first_person_geometry_visible(self.rig.mode),
                 );
             } else {
                 self.player_appearance = None;
@@ -463,12 +463,25 @@ impl PlayerNode {
                     );
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
-                    self.rig.mode = CameraMode::First;
+                    crate::camera::apply_game_camera_request(&mut self.rig, true);
                     self.update_camera();
                 }
                 soe_game::HostRequest::CameraThirdPerson => {
-                    self.rig.mode = CameraMode::Third;
+                    crate::camera::apply_game_camera_request(&mut self.rig, false);
                     self.update_camera();
+                }
+                soe_game::HostRequest::ControllerShake {
+                    left_strength,
+                    right_strength,
+                    duration,
+                } => {
+                    let mut input = godot::classes::Input::singleton();
+                    for device in input.get_connected_joypads().iter_shared() {
+                        input
+                            .start_joy_vibration_ex(device as i32, left_strength, right_strength)
+                            .duration(duration)
+                            .done();
+                    }
                 }
                 soe_game::HostRequest::FadeOutGame {
                     fading_out,

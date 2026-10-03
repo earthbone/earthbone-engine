@@ -159,6 +159,7 @@ pub struct CellStreamerNode {
     collision_cell: Option<GlobalFormId>,
     /// Host joints between linked references, released with either endpoint.
     tethers: crate::godot_tether::TetherConstraints,
+    pending_tethers: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -501,6 +502,7 @@ impl INode3D for CellStreamerNode {
             collision_space: None,
             collision_cell: None,
             tethers: crate::godot_tether::TetherConstraints::default(),
+            pending_tethers: std::collections::BTreeSet::new(),
             ref_cache: std::collections::HashMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
@@ -516,6 +518,13 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.free_destruction_models();
         self.free_occluders();
+        #[cfg(feature = "scr-24-test")]
+        {
+            let effect_count = i64::try_from(self.effect_shaders.len()).unwrap_or(-1);
+            self.signals()
+                .scr_24_effect_shaders_released()
+                .emit(effect_count);
+        }
         self.free_effect_shaders();
         self.free_shader_particles();
         self.free_runtime_lights();
@@ -983,12 +992,47 @@ impl CellStreamerNode {
         for id in stale_tethers {
             self.tethers.release_reference(id);
         }
+        self.pending_tethers.retain(|(cart, horse)| {
+            world
+                .ref_placement(*cart)
+                .is_some_and(|placement| placement.visible)
+                && world
+                    .ref_placement(*horse)
+                    .is_some_and(|placement| placement.visible)
+        });
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
             self.collision
                 .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
+        }
+        for request in world.take_reference_physics_requests() {
+            if let soe_game::world::ReferencePhysicsRequest::TetherToHorse { cart, horse } = request
+            {
+                self.pending_tethers.insert((cart, horse));
+            } else {
+                world.request_reference_physics(request);
+            }
+        }
+        let ready_tethers: Vec<_> = self
+            .pending_tethers
+            .iter()
+            .filter_map(|(cart, horse)| {
+                Some((
+                    *cart,
+                    *horse,
+                    self.collision.body_for_reference(*cart)?,
+                    self.collision.body_for_reference(*horse)?,
+                ))
+            })
+            .collect();
+        for (cart, horse, cart_body, horse_body) in ready_tethers {
+            let cart_pivot = Vector3::new(0.0, -0.2, -3.5);
+            let horse_pivot = Vector3::new(0.0, -0.5, 0.0);
+            self.tethers
+                .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot);
+            self.pending_tethers.remove(&(cart, horse));
         }
         let mut changed = std::collections::HashSet::new();
         let mut resident_refs = std::collections::BTreeMap::new();
@@ -1225,6 +1269,61 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    #[cfg(feature = "scr-24-test")]
+    #[func]
+    pub fn scr_24_effect_shader_sync(&mut self, action: i32, duration: f32, delta: f32) -> i64 {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        plugin.push_top(soe_esm::Record::new(soe_esm::Tag::new(b"EFSH"), 1));
+        plugin.push_top(soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 2));
+        plugin.push_top(
+            soe_esm::Record::new(soe_esm::Tag::new(b"REFR"), 10)
+                .sub(soe_esm::Tag::new(b"NAME"), 2_u32.to_le_bytes())
+                .sub(soe_esm::Tag::new(b"DATA"), vec![0; 24]),
+        );
+        let mut order = soe_esm::LoadOrder::new();
+        if order.add("Scr24Renderer.esm", plugin).is_err() {
+            return -1;
+        }
+        let game = soe_game::Game::new(order);
+        let shader = soe_esm::GlobalFormId { file: 0, object: 1 };
+        let target = soe_esm::GlobalFormId {
+            file: 0,
+            object: 10,
+        };
+        if game.world_mut().reference(target).is_none() {
+            return -1;
+        }
+        let result = match action {
+            1 => game
+                .world_mut()
+                .play_effect_shader(shader, target, duration),
+            2 => game.world_mut().stop_effect_shader(shader, target),
+            _ => Ok(()),
+        };
+        if result.is_err() {
+            return -1;
+        }
+        let requests = game.world_mut().take_effect_shader_requests();
+        let world = game.world();
+        self.sync_effect_shaders(&world, requests, &[], delta);
+        i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
+    }
+
+    #[cfg(feature = "scr-24-test")]
+    #[func]
+    pub fn scr_24_effect_shader_count(&self) -> i64 {
+        i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
+    }
+
+    #[cfg(feature = "scr-24-test")]
+    #[signal]
+    fn scr_24_effect_shaders_released(count: i64);
+
+    fn defer_tethers_for_collision_reset(&mut self) {
+        self.pending_tethers.extend(self.tethers.pairs());
+        self.tethers.free();
+    }
+
     #[signal]
     fn cell_load_requested(cell_x: i32, cell_y: i32);
 
@@ -1756,7 +1855,7 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
-            self.tethers.free();
+            self.defer_tethers_for_collision_reset();
             self.collision.free();
             self.collision_cell = None;
             self.collision_space = None;
@@ -1834,7 +1933,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
-        self.tethers.free();
+        self.defer_tethers_for_collision_reset();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
@@ -2311,6 +2410,7 @@ impl CellStreamerNode {
     pub fn clear(&mut self) {
         self.collision.free();
         self.tethers.free();
+        self.pending_tethers.clear();
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
