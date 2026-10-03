@@ -1510,6 +1510,8 @@ mod scr_73_adversarial;
 mod scr_73_native_contract_audit;
 #[path = "scr_74.rs"]
 mod scr_74;
+#[path = "scr_74_adversarial.rs"]
+mod scr_74_adversarial;
 #[path = "shm_03_live_world.rs"]
 mod shm_03_live_world;
 #[path = "shm_04_actor_world_binding.rs"]
