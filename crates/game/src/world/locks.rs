@@ -74,6 +74,7 @@ impl World {
         state.locked = locked;
         if locked {
             state.opened = false;
+            state.open_transition = None;
         }
         self.lock_event(reference, alloc);
     }

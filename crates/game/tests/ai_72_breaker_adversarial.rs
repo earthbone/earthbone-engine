@@ -148,12 +148,10 @@ fn ck_open_state_covers_none_open_opening_closed_and_closing() {
 fn open_state_rejects_deleted_missing_and_parameterized_contexts() {
     let game = fixture();
     let door = id(DOOR);
-    for invalid in [id(0xffff)] {
-        assert!(matches!(
-            evaluate(&game, invalid, &condition(157, 0, 0.0)),
-            Err(conditions::Error::Form(_))
-        ));
-    }
+    assert!(matches!(
+        evaluate(&game, id(0xffff), &condition(157, 0, 0.0)),
+        Err(conditions::Error::Form(_))
+    ));
     game.world_mut().reference(door).unwrap().deleted = true;
     assert_eq!(
         evaluate(&game, door, &condition(157, 0, 0.0)),
