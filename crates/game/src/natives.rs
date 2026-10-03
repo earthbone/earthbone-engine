@@ -246,9 +246,8 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     effect_shader(vm, world);
     weapon(vm, world);
     weather(vm, world);
-    let stubs = stubs(vm);
-    let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
-    Registered { natives, stubs }
+    let natives = NATIVE_COUNT - (vm.natives.duplicates.len() - before);
+    Registered { natives, stubs: 0 }
 }
 
 /// Hand-kept count of the non-stub natives registered below. The test in
@@ -5413,62 +5412,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
-}
-
-/// Natives whose systems the engine does not have yet. They return the
-/// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm) -> usize {
-    let mut n = 0;
-    let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
-    for (class, name, value) in ints {
-        let global = *class == "Game";
-        let v = *value;
-        let f: soe_papyrus::NativeFn = Box::new(move |_| i(v));
-        if global {
-            vm.natives.register_global(class, name, f);
-        } else {
-            vm.natives.register_method(class, name, f);
-        }
-        n += 1;
-    }
-    let methods_none: &[(&str, &str)] = &[
-        // Music and particle systems are not implemented yet.
-    ];
-    for (class, name) in methods_none {
-        vm.natives
-            .register_method(class, name, Box::new(|_| none()));
-        n += 1;
-    }
-    for name in ["ShowBarterMenu", "OpenInventory", "ClearForcedMovement"] {
-        vm.natives.register_method(
-            "Actor",
-            name,
-            Box::new(move |call| {
-                let detail = match name {
-                    "ShowBarterMenu" => "barter transactions and menu are not implemented",
-                    "OpenInventory" => "actor inventory presenter is not implemented",
-                    _ => "forced movement state is not implemented",
-                };
-                call.log.push(call.time, format!("Actor.{name}: {detail}"));
-                none()
-            }),
-        );
-        n += 1;
-    }
-    // The survival plugin is not loaded, so there is no warmth state.
-    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
-    for (class, name, value) in floats {
-        let global = *class == "Game";
-        let v = *value;
-        let native: soe_papyrus::NativeFn = Box::new(move |_| f(v));
-        if global {
-            vm.natives.register_global(class, name, native);
-        } else {
-            vm.natives.register_method(class, name, native);
-        }
-        n += 1;
-    }
-    n
 }
 
 #[cfg(test)]
