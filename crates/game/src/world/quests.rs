@@ -34,6 +34,7 @@ impl World {
         let aliases = def
             .aliases
             .iter()
+            .filter(|a| a.fill.is_none() || a.forced_ref.is_some())
             .map(|a| {
                 let target = if a.location { None } else { a.forced_ref };
                 (a.id, target.map(|raw| self.order.resolve(rref.file, raw)))

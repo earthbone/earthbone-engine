@@ -626,6 +626,8 @@ remains a stub. These contracts follow the local
 `World::resolve_alias_ref` follows those local and external ID chains in
 dependency order. A cycle returns `AliasResolutionError::Cycle` with the cycle
 path, and resolution does not write partial alias values.
+Unfilled dependency aliases have no runtime override. An explicit empty
+override suppresses dependency resolution and survives save/load.
 `World::alias_ref` preserves its optional result and returns `None` when a
 dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and

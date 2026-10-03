@@ -27,8 +27,10 @@ fn game() -> Game {
         .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x800u32.to_le_bytes())
-        .sub(Tag(*b"ANAM"), []);
+        .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes());
     p.push_top(scene);
+    p.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
     let mut o = LoadOrder::new();
     o.add("Scene.esm", p).unwrap();
     Game::new(o)
