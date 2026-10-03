@@ -982,6 +982,10 @@ mod packages;
 mod perk_dispatch;
 #[path = "perks.rs"]
 mod perks;
+#[path = "ply_01_adversarial.rs"]
+mod ply_01_adversarial;
+#[path = "ply_01_player_input.rs"]
+mod ply_01_player_input;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]

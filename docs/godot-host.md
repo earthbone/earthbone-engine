@@ -1,5 +1,36 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Scripted player input, PLY-01
+
+`PlayerNode.queue_player_input(dictionary)` transports commands to the shared
+`soe_game::player_input::Driver`. `step_player_input` executes one queued
+command at 1/60 second, synchronizes the controller and camera from World,
+replaces host resources after a cell change, and presents current dialogue
+choices or responses through the existing menu. `advance` also services a
+queued command before device input. Door presentation reuses the existing
+swing-door nodes.
+`player_input_log` returns the same ordered event representation as headless
+Game. `clear_player_input` clears the transient queue and log.
+
+Every dictionary has an `action` string. Reference commands use integer
+`file` and `object` fields. MoveTo uses `move_to`, a Vector3 `offset` and
+`match_rotation`. Turn uses `turn` and a Vector3 `rotation` in radians.
+Activation uses `activate`. Authored melee contacts use `attack`,
+`weapon_file`, `weapon_object` and `power`. Casting uses `cast`, `hand`
+(`left` or `right`), `held` and `has_target`, plus a reference when targeted.
+Topic choice uses `choose_topic`. `confirm_menu` names `dialogue`, `gift`
+or `craft` in `menu`. Craft names its bench as the reference and its recipe
+in `recipe_file` and `recipe_object`. `wait` advances one step. Invalid
+dictionaries do not enter the queue. Scripted steps use the Game simulation
+clock even while a dialogue menu is visible.
+
+`godot/ply_01_player_input_test.gd` loads the synthetic fixture exported by
+the game test with `SOE_PLY_01_FIXTURE`, drives the same eleven commands
+windowed, compares complete event logs including Papyrus traces, checks the
+controller pose and load-door cell replacement, and verifies a visible
+dialogue response. It captures the viewport as `window.png` in that fixture
+directory and quits with a failing status if any assertion fails.
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples each ordered pair of resident, living actors in the same

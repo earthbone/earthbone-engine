@@ -251,6 +251,39 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 
 ## Design
 
+### Scripted player input, PLY-01
+
+`player_input::Driver` queues typed commands and executes one per step at
+1/60 second. An empty queue does not tick. Each event retains its step,
+command, gameplay result or error, player cell and pose, and new Papyrus
+traces. Queue and log are transient. World owns all gameplay mutations.
+
+Commands place the player at a reference plus an offset, set XYZ rotation
+in radians, activate, execute an authored melee contact, press or release an
+equipped casting hand, choose a dialogue topic, confirm a menu operation,
+or wait for one step. MoveTo is explicit placement, with optional rotation
+matching and normal cell and trigger events. Menu operations advance a
+dialogue response, close a latent gift menu, or commit a COBJ transaction.
+Scripted steps advance the simulation independently of host menu presentation.
+Attack uses the existing equipment and damage checks with a supplied contact
+target. It does not generate an animation or a spatial contact query.
+
+Default activation now moves loose inventory references through
+`add_item_notified`, preserving item instance data and delivering inventory
+and container-change events. The input layer rejects disabled or deleted
+references, preserves OnActivate on blocked activation, and begins dialogue
+after a successful actor activation. Invalid transforms are rejected before
+enqueueing. Gameplay rejections are recorded and consume one fixed step.
+
+The local CK `Activate_-_ObjectReference.wikitext`,
+`MoveTo_-_ObjectReference.wikitext`, `SetAngle_-_ObjectReference.wikitext`
+and `OnContainerChanged_-_ObjectReference.wikitext` supply activation,
+placement, compass yaw and pickup event semantics. This is a scripted input
+schedule over existing Game operations, rather than a new format reader.
+`ply_01_` tests exercise timing, interactions, combat and casting, rejection,
+and an installed vanilla load door. Optional `SOE_PLY_01_FIXTURE` exports the
+synthetic plugin, scripts and headless log for the windowed host comparison.
+
 ### MCM script lifecycle, UI-05
 
 `Game::start` initializes enabled quests without registering MCM scripts.
