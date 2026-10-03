@@ -3,9 +3,11 @@
 
 //! Adversarial PCON and PARW live-record restoration checks.
 
-use super::*;
-use soe_game::world::ProjectileRecordExtra;
-use soe_save::{reference::flags as change_flags, ChangeForm};
+use std::sync::Arc;
+
+use crate::vanilla_save::{id, reference, references};
+use soe_game::{world::ProjectileRecordExtra, World};
+use soe_save::{reference::flags as change_flags, ChangeForm, Save};
 
 fn typed_change(raw: u32, type_index: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {

@@ -3,8 +3,8 @@
 
 //! Adversarial checks for SAV-26 PCON and PARW restoration.
 
-use super::*;
-use soe_game::world::ProjectileRecordExtra;
+use crate::vanilla_save::{id, reference, references};
+use soe_game::{world::ProjectileRecordExtra, World};
 use soe_save::{reference::flags as change_flags, ChangeForm};
 
 fn typed_change(raw: u32, type_index: u8, flags: u32, data: Vec<u8>) -> ChangeForm {

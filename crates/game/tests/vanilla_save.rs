@@ -89,7 +89,7 @@ pub(crate) fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
 }
 
-fn reference(raw: u32) -> RefId {
+pub(crate) fn reference(raw: u32) -> RefId {
     RefId::from_bytes([(raw >> 16) as u8, (raw >> 8) as u8, raw as u8])
 }
 
