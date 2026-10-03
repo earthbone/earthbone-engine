@@ -1159,19 +1159,19 @@ prerequisite for implementing this behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
-`ShowRefPosition` records a resolved reference for development display.
-`PlayerMoveToAndWait` resolves a destination reference by editor id, moves the
-player to its position, rotation and cell, and returns `1.0` on success or
-`0.0` when the destination is missing. This float result is the runtime's
-success indication. The CK page defines a float return but does not describe
-its value. `MoveToCell` resolves a cell by editor id and moves the player to
-its origin. Failed destination lookups leave the player in place and write a
-Papyrus log entry. The existing Godot player pose sync reflects changed
-placement and cell state. The Godot host has no foot IK rig or reference
-tripod renderer yet, so the two display requests currently record their
-state without changing visuals. `PlayerMoveToAndWait` also moves synchronously
-and does not suspend the Papyrus stack while the host attaches the destination
-cell.
+The actor renderer has no foot IK solver, so changing this setting does not
+change rendered poses. `ShowRefPosition` records a resolved placed reference
+for development display. The Godot host displays each requested position as
+an emissive sphere using `RenderingServer` instances. `PlayerMoveToAndWait`
+resolves a destination reference by editor id, queues a host move, and
+suspends the Papyrus thread until the host installs the destination placement
+and cell. The host resolves the wait with `0.0` after installation or `-1.0`
+if the move cannot be applied. A missing destination logs an error and
+returns `0.0`. The CK page defines a float return but does not describe its
+value. `MoveToCell` resolves a cell by editor id and moves the player to its
+origin. Failed destination lookups leave the player in place and write a
+Papyrus log entry. The local source is
+`ck-wiki/Debug_Script.wikitext`.
 
 ## ForceRefTo and Form contract audit
 
