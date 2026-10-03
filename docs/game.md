@@ -1701,12 +1701,19 @@ scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
 quest field. These behaviors match the local PSC summaries.
 
-`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
-action list, following the existing scene action state and the vanilla scenes
-that reuse authored action numbers. It reports whether that slot completed in
-the current run. Negative and unknown slots return false. The previous
-constant-false stub is now backed by the same completed slot set that gates
-phase advancement.
+`Scene.IsActionComplete(actionID)` takes the SCEN action number from `INAM`,
+not the action's zero-based position in the list. It reports whether the
+matching action slot completed in this scene's current run. Negative and
+unknown action numbers return false, including numbers for actions removed
+from the record. Completion in another scene with the same action number does
+not affect the result. The local CK corpus has no named page for this method.
+The vanilla `Scene.psc` declares its integer action ID argument, while UESP's
+SCEN layout identifies `INAM` as the action number and notes that action
+numbers can be non-sequential and can overlap between scene records. The
+`scr_44_` tests exercise sparse and invalid action numbers through Papyrus
+dispatch. A `SKYRIM_DATA`-gated check uses the UESP-named vanilla scenes to
+verify overlapping action numbers stay scene-local through Papyrus dispatch.
+The completed slots remain the same state that gates phase advancement.
 
 `Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
 must also end scenes running on references in the forced scene. Actor action

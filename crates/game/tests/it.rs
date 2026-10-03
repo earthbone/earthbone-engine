@@ -1260,6 +1260,8 @@ mod scr_43_adversarial;
 mod scr_43_quest_transition_natives;
 #[path = "scr_44_adversarial.rs"]
 mod scr_44_adversarial;
+#[path = "scr_44_breaker_adversarial.rs"]
+mod scr_44_breaker_adversarial;
 #[path = "scr_44_scene_action_complete.rs"]
 mod scr_44_scene_action_complete;
 #[path = "scr_45_adversarial.rs"]
