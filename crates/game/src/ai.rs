@@ -15,7 +15,8 @@
 //! another package replaces it. `Follow` tracks a resolved target, stopping
 //! within its authored follow radius and running beyond its catch-up radius.
 //! `Orbit` circles a resolved package location at its authored height and
-//! stays between its inner and outer radii on the navmesh.
+//! stays between its inner and outer radii on the navmesh, checking both its
+//! arc and each direct movement segment at intervals no longer than 0.05 units.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
 //! `DialogueActivate` starts a conversation with its resolved actor target
@@ -1415,9 +1416,20 @@ fn find_reference(
 ) -> Option<GlobalFormId> {
     use crate::package::Target;
 
-    let (base, object_type) = match target {
-        Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
-        Target::ObjectType(kind @ 1..=15) => (None, Some(kind)),
+    let actor_ai = world.actor(actor)?.ai.clone();
+    let (reference_target, base, object_type) = match target {
+        Target::Reference(_) | Target::LinkedReference(_) | Target::Alias(_) | Target::Itself => (
+            Some(resolve_follow_target(
+                world,
+                actor,
+                &actor_ai,
+                (owner, target),
+            )?),
+            None,
+            None,
+        ),
+        Target::ObjectId(raw) => (None, Some(world.resolve_from(owner, raw)?), None),
+        Target::ObjectType(kind @ 1..=15) => (None, None, Some(kind)),
         _ => return None,
     };
     let actor_cell = world.reference(actor)?.cell;
@@ -1442,7 +1454,8 @@ fn find_reference(
                 return None;
             }
             let candidate_base = world.base_of(reference)?;
-            let matches = base.is_some_and(|base| base == candidate_base)
+            let matches = reference_target.is_some_and(|target| target == reference)
+                || base.is_some_and(|base| base == candidate_base)
                 || object_type
                     .is_some_and(|kind| matches_package_object_type(world, candidate_base, kind));
             if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
@@ -1458,11 +1471,11 @@ fn find_reference(
         .map(|(_, reference)| reference)
 }
 
-fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
+pub(super) fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
     let tag = world.tag_of(base);
     let expected = match kind {
         1 => T(b"ACTI"),
-        2 => T(b"ARMO"),
+        2 | 16 | 17 => T(b"ARMO"),
         3 => T(b"BOOK"),
         4 => T(b"CONT"),
         5 => T(b"DOOR"),
@@ -1470,11 +1483,14 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
         7 => T(b"LIGH"),
         8 => T(b"MISC"),
         9 => T(b"FLOR"),
-        10 => T(b"FURN"),
-        11 => T(b"WEAP"),
+        10 | 26 | 27 => T(b"FURN"),
+        11 | 18..=20 => T(b"WEAP"),
         12 => T(b"AMMO"),
         13 => T(b"KEYM"),
         14 | 15 => T(b"ALCH"),
+        21..=24 => T(b"SPEL"),
+        25 => T(b"NPC_"),
+        28 => T(b"SHOU"),
         _ => return false,
     };
     if tag != Some(expected) {
@@ -1488,6 +1504,65 @@ fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> 
             .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
             .is_some_and(|bytes| u32::from_le_bytes(bytes) & 2 != 0);
         return food == (kind == 15);
+    }
+    if kind == 16 {
+        let armor_type = world
+            .record(base)
+            .and_then(|record| {
+                record
+                    .find(T(b"BOD2"))
+                    .and_then(|data| data.get(4..8))
+                    .or_else(|| record.find(T(b"BODT")).and_then(|data| data.get(8..12)))
+            })
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return armor_type.is_some_and(|armor_type| armor_type == 0 || armor_type == 1);
+    }
+    if (18..=20).contains(&kind) {
+        let weapon_type = world
+            .record(base)
+            .and_then(|record| record.find(T(b"DNAM")))
+            .and_then(|data| data.first().copied());
+        return weapon_type.is_some_and(|weapon_type| match kind {
+            18 => weapon_type == 0,
+            19 => (1..=6).contains(&weapon_type),
+            20 => weapon_type == 7 || weapon_type == 9,
+            _ => false,
+        });
+    }
+    if (21..=24).contains(&kind) {
+        let delivery = world
+            .record(base)
+            .and_then(|record| record.find(T(b"SPIT")))
+            .and_then(|data| data.get(20..24))
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes);
+        return delivery.is_some_and(|delivery| match kind {
+            21 => true,
+            22 => delivery == 2,
+            23 => delivery == 1,
+            24 => delivery == 0,
+            _ => false,
+        });
+    }
+    if kind == 25 {
+        return true;
+    }
+    if kind == 26 || kind == 27 {
+        let animation = world
+            .record(base)
+            .into_iter()
+            .flat_map(|record| record.all(T(b"FNPR")))
+            .filter_map(|data| data.get(..2))
+            .filter_map(|bytes| <[u8; 2]>::try_from(bytes).ok())
+            .map(u16::from_le_bytes);
+        return animation.into_iter().any(|animation| {
+            if kind == 26 {
+                animation == 2
+            } else {
+                animation == 1
+            }
+        });
     }
     true
 }
@@ -1748,6 +1823,29 @@ fn idle_markers(
         }
     }
     eligible
+}
+
+/// The first valid authored idle animation event on an IDLM base, in IDLA order.
+fn idle_marker_animation(world: &mut World, marker: GlobalFormId) -> Option<String> {
+    let base = world.base_of(marker)?;
+    let record = world
+        .record(base)
+        .filter(|record| record.tag == T(b"IDLM"))?;
+    record.subrecords.iter().find_map(|subrecord| {
+        if subrecord.tag != T(b"IDLA") {
+            return None;
+        }
+        let raw = form_id(&subrecord.data)?;
+        let idle = world.resolve_from(base, raw)?;
+        if world.tag_of(idle) != Some(T(b"IDLE")) || world.record(idle)?.is_deleted() {
+            return None;
+        }
+        let event = world
+            .record(idle)?
+            .find(T(b"ENAM"))
+            .map(crate::quest::zstring)?;
+        (!event.is_empty()).then_some(event)
+    })
 }
 
 /// Every placed reference and actor in a cell, from an index built once
@@ -2800,6 +2898,16 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
                 r.cell = new_cell;
             }
         }
+        if ai.arrived {
+            if let Procedure::UseIdleMarker {
+                marker: Some(marker),
+            } = &ai.procedure
+            {
+                if let Some(animation) = idle_marker_animation(world, *marker) {
+                    world.request_animation(actor, &animation);
+                }
+            }
+        }
     }
     if ai.procedure == Procedure::Patrol {
         patrol::tick(world, actor, &mut ai, alloc);
@@ -2970,6 +3078,7 @@ fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f3
             return;
         };
         if graph.find_path_between(position, destination).is_none()
+            || !orbit_segment_on_navmesh(graph, position, destination)
             || !orbit_arc_valid(graph, center, radius, angle, next_angle, inner, outer)
         {
             continue;
@@ -3000,8 +3109,10 @@ fn orbit_arc_valid(
     inner: f32,
     outer: f32,
 ) -> bool {
-    (0..=8).all(|step| {
-        let t = step as f32 / 8.0;
+    let arc_length = radius * (end_angle - start_angle).abs();
+    let steps = orbit_sample_count(arc_length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
         let angle = start_angle + (end_angle - start_angle) * t;
         let point = [
             center[0] + radius * angle.cos(),
@@ -3011,6 +3122,23 @@ fn orbit_arc_valid(
         let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
         (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
     })
+}
+
+fn orbit_segment_on_navmesh(graph: &NavGraph, from: [f32; 3], to: [f32; 3]) -> bool {
+    let length = distance(from, to);
+    if !length.is_finite() {
+        return false;
+    }
+    let steps = orbit_sample_count(length);
+    (0..=steps).all(|step| {
+        let t = step as f32 / steps as f32;
+        let point = std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * t);
+        graph.locate(point).is_some()
+    })
+}
+
+fn orbit_sample_count(length: f32) -> usize {
+    (length / 0.05).ceil().max(1.0) as usize
 }
 
 // ----- save and load -----
@@ -3477,6 +3605,61 @@ fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<Tr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_25_orbit_step_rejects_nav_gap_with_reachable_detour() {
+        let mut graph = NavGraph::new();
+        let mut vertices = Vec::new();
+        for y in 0..=3 {
+            for x in 0..=3 {
+                vertices.push([x as f32 * 100.0, y as f32 * 100.0, 0.0]);
+            }
+        }
+        let mut triangles = Vec::new();
+        for y in 0..3 {
+            for x in 0..3 {
+                if x == 1 && y == 1 {
+                    continue;
+                }
+                let bottom_left = y * 4 + x;
+                let bottom_right = bottom_left + 1;
+                let top_left = bottom_left + 4;
+                let top_right = top_left + 1;
+                triangles.push([bottom_left, bottom_right, top_right]);
+                triangles.push([bottom_left, top_right, top_left]);
+            }
+        }
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [50.0, 50.0, 0.0];
+        let to = [250.0, 250.0, 0.0];
+        assert!(graph.find_path_between(from, to).is_some());
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
+
+    #[test]
+    fn ai_25_orbit_segment_rejects_a_gap_narrower_than_old_sample_spacing() {
+        let mut graph = NavGraph::new();
+        let vertices = vec![
+            [0.0, 0.0, 0.0],
+            [0.45, 0.0, 0.0],
+            [0.45, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.55, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.55, 1.0, 0.0],
+        ];
+        let triangles = [[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]];
+        graph.add_mesh_with_adjacency(vertices, &triangles);
+
+        let from = [0.2, 0.5, 0.0];
+        let to = [0.8, 0.5, 0.0];
+        for point in [from, [0.4, 0.5, 0.0], [0.6, 0.5, 0.0], to] {
+            assert!(graph.locate(point).is_some());
+        }
+        assert!(!orbit_segment_on_navmesh(&graph, from, to));
+    }
 
     #[test]
     fn planned_cells_follow_portal_ownership_including_gap_departures() {

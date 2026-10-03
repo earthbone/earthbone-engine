@@ -89,18 +89,25 @@ fn cmb_37_damage_crossing_multiple_stages_emits_each_stage_in_order() {
     let reference = game.world_mut().place_at(id(BASE), player, false);
     damage(&mut game, reference, 100.0);
     assert_eq!(game.world_mut().destruction_stage(reference), 2);
-    let stages: Vec<_> = game
+    let transitions: Vec<_> = game
         .world()
         .pending
         .iter()
         .filter_map(|pending| match pending {
             Pending::Event { name, args, .. } if name == "OnDestructionStageChanged" => {
-                args.first().cloned()
+                Some(args.clone())
             }
             _ => None,
         })
         .collect();
-    assert_eq!(stages, [0, 1, 2].map(soe_papyrus::Value::Int));
+    assert_eq!(
+        transitions,
+        [
+            vec![soe_papyrus::Value::Int(-1), soe_papyrus::Value::Int(0)],
+            vec![soe_papyrus::Value::Int(0), soe_papyrus::Value::Int(1)],
+            vec![soe_papyrus::Value::Int(1), soe_papyrus::Value::Int(2)],
+        ]
+    );
 }
 
 #[test]

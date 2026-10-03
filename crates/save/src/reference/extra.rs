@@ -133,8 +133,7 @@ impl Extra {
                 let flag = r.u8()?;
                 let mut values = vec![Field::Byte(flag)];
                 if flag == 18 {
-                    // CONTEXT: The corpus establishes this empty-state boundary.
-                    // Nonempty data and procedure trees still need their layouts.
+                    // CONTEXT: Named frames follow the observed one-child layouts.
                     let prefix = r.u8()?;
                     if prefix != 0 {
                         return Err(invalid(format!(
@@ -142,12 +141,19 @@ impl Extra {
                         )));
                     }
                     let procedure = r.wstring()?;
-                    if !procedure.bytes().is_empty() {
+                    if !matches!(procedure.bytes(), b"" | b"Sequence" | b"Stacked") {
                         return Err(invalid(format!(
                             "unsupported PackageData kind {flag} procedure {procedure:?} at {at}"
                         )));
                     }
+                    let sequence = procedure.bytes() == b"Sequence";
+                    let stacked = procedure.bytes() == b"Stacked";
                     values.extend([Field::Byte(prefix), Field::String(procedure)]);
+                    if sequence {
+                        values.push(Field::Group(super::package::sequence(r, 0)?));
+                    } else if stacked {
+                        values.push(Field::Group(super::package::stacked(r, 0)?));
+                    }
                 } else if flag != 0xFF {
                     return Err(invalid(format!(
                         "unsupported PackageData kind {flag} at {at}"

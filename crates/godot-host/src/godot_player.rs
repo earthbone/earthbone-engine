@@ -481,6 +481,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -573,6 +574,89 @@ impl PlayerNode {
                 false
             }
         }
+    }
+
+    /// Queue the same source-to-actor impulse used by ObjectReference.PushActorAway.
+    ///
+    /// Returns false if the game, either form ID, or the world request is invalid.
+    #[func]
+    pub fn push_actor_away(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        target_file: i32,
+        target_object: i64,
+        force: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object), Ok(target_file), Ok(target_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+            u16::try_from(target_file),
+            u32::try_from(target_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .push_actor_away(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                soe_esm::GlobalFormId {
+                    file: target_file,
+                    object: target_object,
+                },
+                force,
+            )
+            .is_ok()
+    }
+
+    /// Queue the same area impulse used by ObjectReference.KnockAreaEffect.
+    ///
+    /// Returns false if the game, source form ID, or world request is invalid.
+    #[func]
+    pub fn knock_area_effect(
+        &mut self,
+        source_file: i32,
+        source_object: i64,
+        magnitude: f32,
+        radius: f32,
+    ) -> bool {
+        let (Some(game), Ok(source_file), Ok(source_object)) = (
+            self.game.as_mut(),
+            u16::try_from(source_file),
+            u32::try_from(source_object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .knock_area_effect(
+                soe_esm::GlobalFormId {
+                    file: source_file,
+                    object: source_object,
+                },
+                magnitude,
+                radius,
+            )
+            .is_ok()
+    }
+
+    /// Set an actor's explicit CMB-38 ragdoll mode in the shared world.
+    ///
+    /// Returns false if the game, form ID, or actor is invalid.
+    #[func]
+    pub fn force_actor_ragdoll(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Some(game), Ok(file), Ok(object)) = (
+            self.game.as_mut(),
+            u16::try_from(file),
+            u32::try_from(object),
+        ) else {
+            return false;
+        };
+        game.world_mut()
+            .force_ragdoll(soe_esm::GlobalFormId { file, object }, enabled)
+            .is_ok()
     }
 
     /// Forward one authored behavior event from the bound actor rig.
@@ -1141,6 +1225,22 @@ impl PlayerNode {
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
     }
 
+    /// Animation graph events that reached the active Game, for host diagnostics.
+    #[func]
+    pub fn gameplay_animation_events(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        if let Some(game) = &self.game {
+            for (source, name) in &game.world().animation_events {
+                let mut row = VarDictionary::new();
+                row.set("source_file", i64::from(source.file));
+                row.set("source_object", i64::from(source.object));
+                row.set("name", &GString::from(name));
+                result.push(&row);
+            }
+        }
+        result
+    }
+
     /// Resident exterior cells and their physics handles for integration diagnostics.
     #[func]
     pub fn exterior_resources(&self) -> VarDictionary {
@@ -1192,6 +1292,34 @@ impl PlayerNode {
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Creation benches in the current logical cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_creation_benches(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut references = game.world_mut().cell_references(cell);
+        references.sort_unstable();
+        let mut result = Array::new();
+        for id in references {
+            if !crate::crafting_menu::is_creation_bench(game, id) {
+                continue;
+            }
+            let active = game
+                .world_mut()
+                .reference(id)
+                .is_some_and(|reference| reference.enabled && !reference.deleted);
+            if !active {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
             result.push(&row);
         }
         result

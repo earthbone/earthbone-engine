@@ -545,6 +545,7 @@ impl World {
         }
         if let Some(new) = to {
             out.loaded = self.load_cell(new);
+            self.mark_cell_3d_loaded(new);
             self.attached_cells.insert(new);
             let arriving = self.scripted_in_cell(new);
             // `OnCellAttach` before `OnCellLoad` is the one ordering the wiki

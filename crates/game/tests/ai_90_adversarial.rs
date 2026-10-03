@@ -127,28 +127,25 @@ fn state(game: &Game) -> AiState {
 }
 
 #[test]
-fn false_static_pathing_completes_and_true_remains_unsupported() {
+fn ai_90_static_pathing_true_and_false_follow_authored_marker_route() {
     let mut walking = game(Settings::default());
-    for expected in [110.0, 110.0, 220.0, 220.0, 330.0, 330.0] {
-        walking.tick(1.0);
-        assert_eq!(position(&mut walking), expected);
-    }
-    assert!(state(&walking).completed.contains_key(&id(PACK)));
-
     let mut static_path = game(Settings {
         static_path: true,
         ..Settings::default()
     });
-    static_path.tick(1.0);
-    assert_eq!(position(&mut static_path), 0.0);
-    assert!(matches!(
-        state(&static_path).procedure,
-        Procedure::Unsupported(_)
-    ));
+    for expected in [110.0, 110.0, 220.0, 220.0, 330.0, 330.0] {
+        walking.tick(1.0);
+        static_path.tick(1.0);
+        assert_eq!(position(&mut walking), expected);
+        assert_eq!(position(&mut static_path), expected);
+        assert_eq!(state(&static_path), state(&walking));
+    }
+    assert!(state(&walking).completed.contains_key(&id(PACK)));
+    assert!(state(&static_path).completed.contains_key(&id(PACK)));
 }
 
 #[test]
-fn every_missing_optional_suffix_matches_explicit_false_inputs() {
+fn ai_90_each_missing_optional_suffix_matches_explicit_false_inputs() {
     let mut explicit = game(Settings::default());
     explicit.tick(2.0);
     for input_count in 2..=5 {
@@ -163,7 +160,7 @@ fn every_missing_optional_suffix_matches_explicit_false_inputs() {
 }
 
 #[test]
-fn missing_required_path_start_or_radius_stays_unsupported() {
+fn ai_90_missing_required_path_start_or_radius_stays_unsupported() {
     for required_index in [0, 1] {
         let mut game = game(Settings {
             omitted: 1 << required_index,
@@ -177,7 +174,7 @@ fn missing_required_path_start_or_radius_stays_unsupported() {
 }
 
 #[test]
-fn optional_input_with_wrong_authored_type_is_unsupported() {
+fn ai_90_optional_input_with_wrong_authored_type_is_unsupported() {
     let mut game = game(Settings {
         static_is_float: true,
         ..Settings::default()
@@ -188,7 +185,7 @@ fn optional_input_with_wrong_authored_type_is_unsupported() {
 }
 
 #[test]
-fn omitted_optional_inputs_resume_after_engine_save_load() {
+fn ai_90_omitted_optional_inputs_resume_after_engine_save_load() {
     let settings = Settings {
         input_count: 3,
         ..Settings::default()
@@ -207,7 +204,7 @@ fn omitted_optional_inputs_resume_after_engine_save_load() {
 }
 
 #[test]
-fn installed_patrol_inputs_keep_authored_order_and_omit_only_optional_fields() {
+fn ai_90_installed_patrol_inputs_keep_order_types_defaults_and_static_values() {
     let Ok(data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping AI-90 installed-data survey");
         return;
@@ -219,6 +216,8 @@ fn installed_patrol_inputs_keep_authored_order_and_omit_only_optional_fields() {
         .unwrap();
     let mut branches = 0;
     let mut optional_omissions = 0;
+    let mut static_pathing_true = 0;
+    let mut static_pathing_false = 0;
     for (id, _) in order.winners_of(T(b"PACK")) {
         let record = order.record(order.winner_ref(id).unwrap());
         let package = package::Package::from_record(record).unwrap();
@@ -235,16 +234,27 @@ fn installed_patrol_inputs_keep_authored_order_and_omit_only_optional_fields() {
                     continue;
                 }
                 let value = package.input(index as i8).map(|input| input.value);
+                let Some(value) = value else {
+                    panic!("PACK {id:?} input {position} is missing");
+                };
                 let typed = match position {
-                    0 => matches!(value, Some(package::DataValue::Target(_))),
-                    1 => matches!(value, Some(package::DataValue::Float(_))),
-                    _ => matches!(value, Some(package::DataValue::Bool(_))),
+                    0 => matches!(&value, package::DataValue::Target(_)),
+                    1 => matches!(&value, package::DataValue::Float(_)),
+                    _ => matches!(&value, package::DataValue::Bool(_)),
                 };
                 assert!(typed, "PACK {id:?} input {position}: {value:?}");
+                if position == 5 {
+                    match &value {
+                        package::DataValue::Bool(true) => static_pathing_true += 1,
+                        package::DataValue::Bool(false) => static_pathing_false += 1,
+                        _ => unreachable!(),
+                    }
+                }
             }
             branches += 1;
         }
     }
     assert_eq!(branches, 45);
     assert!(optional_omissions > 0);
+    assert!(static_pathing_true + static_pathing_false > 0);
 }

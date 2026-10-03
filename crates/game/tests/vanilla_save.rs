@@ -11,7 +11,7 @@ mod reference_extras;
 mod npcs;
 
 #[path = "vanilla_save/references.rs"]
-mod references;
+pub(crate) mod references;
 
 #[path = "vanilla_save/projectiles.rs"]
 mod projectiles;
@@ -79,7 +79,7 @@ use soe_save::{
     Compression, GlobalData, GlobalVariable, GlobalVariables, Header, RefId, Save, WString,
 };
 
-fn id(file: u16, object: u32) -> GlobalFormId {
+pub(crate) fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
 }
 

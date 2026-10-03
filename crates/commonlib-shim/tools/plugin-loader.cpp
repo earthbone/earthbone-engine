@@ -1,10 +1,26 @@
 // SPDX-License-Identifier: MIT
 
 #include <SKSE/Plugin.h>
+#include <SKSE/Interfaces.h>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
 #include <string_view>
+
+namespace {
+class PapyrusInterface final : public SKSE::PapyrusInterface {
+public:
+    bool register_natives(std::function<bool(RE::NativeRegistry&)>) override { return false; }
+};
+
+PapyrusInterface papyrusInterface;
+
+void* query_interface(std::uint32_t id)
+{
+    constexpr std::uint32_t papyrus_interface_id = 2;
+    return id == papyrus_interface_id ? &papyrusInterface : nullptr;
+}
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -44,7 +60,7 @@ int main(int argc, char** argv)
         0x01000000U,
         0,
         0,
-        [](std::uint32_t) -> void* { return nullptr; },
+        query_interface,
     };
     SKSE::PluginInfo info{};
     if (!query(&queryInterface, &info)) {

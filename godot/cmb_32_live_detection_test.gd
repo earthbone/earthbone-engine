@@ -113,6 +113,29 @@ func _run() -> void:
 	var eye_b: Vector3 = pair_b.position + Vector3.UP * 1.4
 	var observer_id := [pair_a.file, pair_a.object]
 	var target_id := [pair_b.file, pair_b.object]
+	var lights: Array = player.call("detection_light_references")
+	lights.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return a.position.distance_squared_to(pair_b.position) < b.position.distance_squared_to(pair_b.position))
+	var changed_by_light := false
+	for light: Dictionary in lights:
+		var light_file: int = light.file
+		var light_object: int = light.object
+		if not player.call("set_reference_enabled", light_file, light_object, false):
+			continue
+		player.call("sample_detection", 0.0)
+		var light_off_value: float = player.call("detection_value",
+			observer_id[0], observer_id[1], target_id[0], target_id[1])
+		player.call("set_reference_enabled", light_file, light_object, true)
+		player.call("sample_detection", 0.0)
+		var light_on_value: float = player.call("detection_value",
+			observer_id[0], observer_id[1], target_id[0], target_id[1])
+		if absf(light_on_value - light_off_value) > 0.001:
+			changed_by_light = true
+			print("CMB32 live light: ref=%x/%x off=%.3f on=%.3f" % [
+				light_file, light_object, light_off_value, light_on_value])
+			break
+	_check(changed_by_light,
+		"no active placed light changed shared detection for the live actor pair")
 	var blocker := _make_wall(player.get_world_3d().space,
 		eye_a.lerp(eye_b, 0.5), eye_b - eye_a)
 	await _frames(2)

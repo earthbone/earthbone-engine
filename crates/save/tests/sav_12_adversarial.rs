@@ -18,7 +18,7 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn observed_sequence_payloads_round_trip_with_the_following_boundary() {
+fn sav_12_observed_sequence_payloads_round_trip_with_the_following_boundary() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping SAV-12 corpus check");
         return;
@@ -54,7 +54,7 @@ fn observed_sequence_payloads_round_trip_with_the_following_boundary() {
                         sequence_count += 1;
                     }
                 }
-                Err(error) if error.to_string().contains("procedure \"Sequence\"") => {
+                Err(error) if !error.to_string().contains("procedure \"Stacked\"") => {
                     sequence_count += 1;
                     failures.push(format!("{} {:?}: {error}", path.display(), form.form));
                 }

@@ -600,7 +600,7 @@ impl SoundBank {
 
         let player = &mut self.players[slot];
         player.set_stream(&stream);
-        player.set_position(position);
+        player.set_global_position(position);
         player.set_pitch_scale(plan.map_or(1.0, |p| p.pitch));
         player.set_volume_db(plan.map_or(0.0, |p| {
             if p.gain > 0.0 {

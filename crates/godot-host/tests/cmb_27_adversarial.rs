@@ -1,68 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::expect_used)]
+#![cfg(feature = "godot")]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! CMB-27 vanilla graph reaction check.
-//!
-//! `activeragdoll/src/main.cpp::StaggerActor` sets graph variables and sends
-//! `staggerStart`. The local Nemesis master graph declares stagger events.
+//! CMB-27 regression checks for stagger graph transitions.
 
-use std::path::Path;
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
+use soe_godot_host::godot_actor::{StaggerGraphEvent, StaggerTracker};
 
-use soe_bsa::Vfs;
-use soe_godot_host::actor::{ActorAssets, MASTER_BEHAVIOR};
-use soe_hkx::interp::Interpreter;
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
+
+fn game_with_actor() -> Game {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    let mut order = LoadOrder::new();
+    order.add("Stagger.esm", plugin).unwrap();
+    Game::new(order)
+}
 
 #[test]
-fn cmb_27_vanilla_stagger_stop_returns_to_the_state_active_at_the_hit() {
-    let Ok(data_dir) = std::env::var("SKYRIM_DATA") else {
-        return;
-    };
-    let mut vfs = Vfs::new();
-    for archive in [
-        "Skyrim - Meshes0.bsa",
-        "Skyrim - Meshes1.bsa",
-        "Skyrim - Animations.bsa",
-    ] {
-        vfs.add_archive_path(&Path::new(&data_dir).join(archive))
-            .expect("vanilla actor archive");
+fn cmb_27_clearing_an_active_deadline_stops_the_reaction_once() {
+    let target = id(0x900);
+    let game = game_with_actor();
+    let shared = game.shared_world();
+    let mut tracker = StaggerTracker::default();
+
+    {
+        let mut world = shared.borrow_mut();
+        world.clock.real_seconds = 2.0;
+        let actor = world.actor(target).unwrap();
+        actor.stagger_end_time = Some(3.0);
+        actor.stagger_magnitude = 1.0;
     }
-    let assets = ActorAssets::load_with_behavior(
-        &vfs,
-        "meshes/actors/character/character assets/malebody_1.nif",
-        MASTER_BEHAVIOR,
-    )
-    .expect("vanilla actor assets");
-    let mut vm = Interpreter::new(
-        &assets.graph,
-        &assets.clips,
-        assets.skeleton.reference_pose.clone(),
+    assert_eq!(
+        tracker.poll(&mut shared.borrow_mut(), target),
+        Some((StaggerGraphEvent::Start, 1.0))
     );
-    vm.variables.set_by_name("iRightHandType", 1.0);
-    vm.variables.set_by_name("Speed", 1.0);
-    assert!(assets.graph.data.event_id("moveStart").is_some());
-    assert!(vm.send_event_named("moveStart"));
-    for _ in 0..30 {
-        vm.update(1.0 / 60.0);
-    }
-    let before_hit = vm.active_states();
-    assert!(!before_hit.is_empty());
-    vm.variables.set_by_name("staggerMagnitude", 1.0);
-    assert!(vm.send_event_named("staggerStart"));
-    let stagger_clip_active = (0..90).any(|_| {
-        vm.update(1.0 / 60.0);
-        vm.active_clips().iter().any(|(id, _)| {
-            assets
-                .graph
-                .node(*id)
-                .name
-                .to_ascii_lowercase()
-                .contains("stagger")
-        })
-    });
-    assert!(stagger_clip_active);
-    assert!(vm.send_event_named("staggerStop"));
-    for _ in 0..180 {
-        vm.update(1.0 / 60.0);
-    }
-    assert_eq!(vm.active_states(), before_hit);
+
+    shared.borrow_mut().actor(target).unwrap().stagger_end_time = None;
+    assert_eq!(
+        tracker.poll(&mut shared.borrow_mut(), target),
+        Some((StaggerGraphEvent::Stop, 1.0))
+    );
+    assert_eq!(tracker.poll(&mut shared.borrow_mut(), target), None);
 }

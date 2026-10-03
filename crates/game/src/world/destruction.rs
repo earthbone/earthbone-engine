@@ -125,15 +125,16 @@ impl World {
             if new_health > threshold {
                 break;
             }
+            let previous_stage = stage_index;
             stage_index += 1;
-            crossed.push((stage_index, stage.flags));
+            crossed.push((previous_stage, stage_index, stage.flags));
         }
         if next.flags & 0b0001 != 0 && !crossed.is_empty() {
             new_health = maximum * f32::from(next.health_percent) / 100.0;
         }
         state.destruction_health = Some(new_health);
         state.destruction_stage = stage_index;
-        for (_, flags) in &crossed {
+        for (_, _, flags) in &crossed {
             if flags & 0b0010 != 0 {
                 state.enabled = false;
             }
@@ -145,11 +146,11 @@ impl World {
             return;
         }
         let object = self.object_of(Handle::Form(reference), alloc);
-        for (stage, _) in crossed {
+        for (previous_stage, stage, _) in crossed {
             self.pending.push(Pending::Event {
                 object,
                 name: "OnDestructionStageChanged".into(),
-                args: vec![Value::Int(stage)],
+                args: vec![Value::Int(previous_stage), Value::Int(stage)],
             });
         }
     }
