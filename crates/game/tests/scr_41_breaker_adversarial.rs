@@ -199,12 +199,7 @@ fn scr_41_tether_missing_reference_is_atomic_and_valid_tether_copies_cell() {
     let horse_before = game.world_mut().reference(id(HORSE)).unwrap().clone();
     let spell_object = Value::Object(game.object_of_form(id(SPELL)));
     assert_eq!(
-        call(
-            &mut game,
-            id(CART),
-            "TetherToHorse",
-            &[spell_object],
-        ),
+        call(&mut game, id(CART), "TetherToHorse", &[spell_object],),
         Value::None
     );
     assert_eq!(

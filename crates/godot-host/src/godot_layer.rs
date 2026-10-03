@@ -1657,7 +1657,6 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
-            self.tethers.free();
             self.defer_tethers_for_collision_reset();
             self.collision.free();
             self.collision_cell = None;
@@ -1736,7 +1735,6 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
-        self.tethers.free();
         self.defer_tethers_for_collision_reset();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
