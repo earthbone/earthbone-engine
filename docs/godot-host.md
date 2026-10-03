@@ -1804,6 +1804,33 @@ Godot's mixer received both voice buffers at the requested speaker positions.
 They do not prove that a physical speaker or headset produced audible output.
 That still needs a windowed run with installed data and a `SoundBank` in the
 tree.
+
+### Physical output check, HST-05
+
+`godot/hst_05_audio_output.gd` lists every output returned by
+`AudioServer.get_output_device_list`, selects the requested device, and plays
+the requested SoundBank effect three times. Its defaults are the system
+`Default` output and the 0.477 second vanilla footstep
+`sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav`, read from the installed
+`Skyrim - Sounds.bsa`. Each successful start prints an `AUDIO_CHECK` line with
+the selected device, sound path and play number. A load or playback failure
+prints its reason and exits with status 1.
+
+Run the script without `--headless` while listening through the selected
+physical output. Pass a device name and sound path after `--`, or omit either
+argument to use its default:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script hst_05_audio_output.gd -- "Default" "sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav"
+```
+
+Record the date, selected device, sound, what the person heard and process
+exit status in [hst-05-audio-observation.md](hst-05-audio-observation.md).
+The record stays blank until the windowed run is observed. The
+`hst_05_audio_output` integration test runs the same script with Godot's dummy
+audio driver and installed game data. It checks device listing, selected
+device reporting and all three SoundBank starts. The dummy driver does not
+establish that a physical output made the sound audible.
 Footsteps are driven by the character controller. Dialogue response audio is
 now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
