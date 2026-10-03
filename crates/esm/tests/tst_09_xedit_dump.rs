@@ -22,6 +22,8 @@ use soe_esm::{Plugin, Tag};
 type RecordKey = (String, u32);
 type FieldKey = (RecordKey, String, usize);
 
+const XEDIT_RECORD_SIGNATURES: [&str; 6] = ["QUST", "NPC_", "PACK", "CELL", "REFR", "LVLI"];
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Dump {
     records: BTreeSet<RecordKey>,
@@ -112,6 +114,9 @@ pub(crate) fn from_plugin(plugin: &Plugin) -> Dump {
     let mut dump = Dump::default();
     for record in &plugin.records {
         let signature = record.tag.to_string();
+        if !XEDIT_RECORD_SIGNATURES.contains(&signature.as_str()) {
+            continue;
+        }
         let record_key = (signature, record.form_id);
         dump.records.insert(record_key.clone());
         let mut ordinals = BTreeMap::<String, usize>::new();
@@ -206,6 +211,26 @@ fn tst_09_matches_record_counts_and_field_bytes() {
     let source = "RECORD\tCELL\t00000001\nFIELD\tCELL\t00000001\tDATA\t0\t0100\n";
     let expected = parse_dump(source).unwrap();
     let plugin = Plugin::parse(&fixture_plugin()).unwrap();
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_compares_only_record_types_selected_for_the_xedit_dump() {
+    let expected = parse_dump("RECORD\tCELL\t00000001\n").unwrap();
+    let cell = soe_esm::Record::new(soe_esm::Tag::new(b"CELL"), 1);
+    let unrelated = soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 2);
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    let cell_index = plugin.push_record(cell);
+    let unrelated_index = plugin.push_record(unrelated);
+    let mut cell_group = soe_esm::Group::new(soe_esm::GroupKind::Top(soe_esm::Tag::new(b"CELL")));
+    cell_group.entries.push(soe_esm::Entry::Record(cell_index));
+    let mut unrelated_group =
+        soe_esm::Group::new(soe_esm::GroupKind::Top(soe_esm::Tag::new(b"STAT")));
+    unrelated_group
+        .entries
+        .push(soe_esm::Entry::Record(unrelated_index));
+    plugin.groups.extend([cell_group, unrelated_group]);
+
     assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
 }
 

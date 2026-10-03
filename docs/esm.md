@@ -293,12 +293,14 @@ truncated entries, and all five installed masters.
   `Skyrim.esm` when both `SKYRIM_DATA` and `SOE_XEDIT_DUMP` are set. The manifest is
   tab-separated: `RECORD`, signature, and hexadecimal FormID start each record.
   Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
-  repeated-field ordinal, and hexadecimal bytes. Counts, record identities, and every
-  subrecord payload are compared. Differences are printed by category and cause the
-  gated test to fail. Malformed rows also fail with their line number. xEdit's
-  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) emits a nested display tree,
-  so the dump must be normalized into this manifest before setting the environment
-  variable. The test does not parse the display tree directly.
+  repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
+  CELL, REFR and LVLI signatures selected by the test plan, including their record
+  identities and subrecord payloads. Differences are printed by category and cause
+  the gated test to fail. Malformed rows also fail with their line number. xEdit's
+  `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
+  `DumpRecords` and emits a nested display tree, so the dump must be normalized into
+  this manifest before setting the environment variable. The test does not parse the
+  display tree directly.
 
 ## Scripted patch passes
 
