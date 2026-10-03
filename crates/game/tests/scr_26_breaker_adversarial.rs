@@ -111,12 +111,10 @@ fn scr_26_breaker_sungazing_accepts_scaled_direct_look_vectors() {
 #[test]
 fn scr_26_breaker_sun_getters_return_the_declared_float_type() {
     let mut game = fixture();
-    for name in [
-        "GetSunPositionX",
-        "GetSunPositionY",
-        "GetSunPositionZ",
-    ]
-    {
-        assert!(matches!(global(&mut game, name, &[]), Value::Float(_)), "{name}");
+    for name in ["GetSunPositionX", "GetSunPositionY", "GetSunPositionZ"] {
+        assert!(
+            matches!(global(&mut game, name, &[]), Value::Float(_)),
+            "{name}"
+        );
     }
 }

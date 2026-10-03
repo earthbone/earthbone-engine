@@ -253,7 +253,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 385;
+pub const NATIVE_COUNT: usize = 388;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2526,6 +2526,79 @@ fn game(vm: &mut Vm, w: &Shared) {
         if let Some(actor) = world.actor(player) {
             actor.arrested = false;
         }
+        none()
+    });
+    global!(
+        vm,
+        w,
+        "Game",
+        "SendWereWolfTransformation",
+        |world, _call| {
+            let player = world.player();
+            let mut witnesses = world.loaded_actors();
+            witnesses.sort();
+            for witness in witnesses {
+                if witness == player
+                    || world.commonlib_high_process(witness).is_none()
+                    || !world.is_actor_detected_by(player, witness).unwrap_or(false)
+                {
+                    continue;
+                }
+                if let Err(error) =
+                    world.record_witnessed_crime(player, witness, crate::crime::CrimeType::Werewolf)
+                {
+                    world.report_native_error("Game.SendWereWolfTransformation", error.to_string());
+                }
+                return none();
+            }
+            none()
+        }
+    );
+    global!(
+        vm,
+        w,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        |world, call| {
+            let modifier = match call.args.first() {
+                Some(Value::None) | None => None,
+                Some(value) => match world.form_arg(value) {
+                    Some(id) => Some(id),
+                    None => {
+                        world.report_native_error(
+                            "Game.SetSunGazeImageSpaceModifier",
+                            "expected an ImageSpaceModifier form".into(),
+                        );
+                        return none();
+                    }
+                },
+            };
+            if let Err(error) = world.set_sun_gaze_image_space_modifier(modifier) {
+                world.report_native_error("Game.SetSunGazeImageSpaceModifier", error.to_string());
+            }
+            none()
+        }
+    );
+    global!(vm, w, "Game", "ShakeController", |world, call| {
+        let left_strength = call.arg(0).as_float();
+        let right_strength = call.arg(1).as_float();
+        let duration = call.arg(2).as_float();
+        if !left_strength.is_finite()
+            || !right_strength.is_finite()
+            || !duration.is_finite()
+            || duration < 0.0
+        {
+            world.report_native_error(
+                "Game.ShakeController",
+                "strengths and duration must be finite, and duration must be non-negative".into(),
+            );
+            return none();
+        }
+        world.host_requests.push(HostRequest::ControllerShake {
+            left_strength: left_strength.clamp(0.0, 1.0),
+            right_strength: right_strength.clamp(0.0, 1.0),
+            duration,
+        });
         none()
     });
     global!(vm, w, "Game", "FadeOutGame", |world, call| {
@@ -4947,17 +5020,6 @@ fn stubs(vm: &mut Vm) -> usize {
         }
         n += 1;
     }
-    let globals_none: &[(&str, &str)] = &[
-        // Werewolf crime, jail time and sun-gaze image space are not implemented.
-        ("Game", "SendWereWolfTransformation"),
-        ("Game", "SetSunGazeImageSpaceModifier"),
-        ("Game", "ShakeController"),
-    ];
-    for (class, name) in globals_none {
-        vm.natives
-            .register_global(class, name, Box::new(|_| none()));
-        n += 1;
-    }
     n
 }
 
@@ -5203,6 +5265,11 @@ mod tests {
             "GetPlayersLastRiddenHorse",
             "AddPerkPoints",
             "GetDialogueTarget",
+            "SendWereWolfTransformation",
+            "ServeTime",
+            "ClearPrison",
+            "SetSunGazeImageSpaceModifier",
+            "ShakeController",
         ];
         for name in implemented {
             assert!(vm.natives.has_global("Game", name), "Game.{name}");
@@ -5214,11 +5281,6 @@ mod tests {
             "GetSunPositionY",
             "GetSunPositionZ",
             "ShakeCamera",
-            "SendWereWolfTransformation",
-            "ServeTime",
-            "ClearPrison",
-            "SetSunGazeImageSpaceModifier",
-            "ShakeController",
             "FadeOutGame",
             "RequestSave",
             "RequestAutoSave",

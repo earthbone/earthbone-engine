@@ -332,6 +332,10 @@ streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
 
+`Game.ShakeController` queues a transient controller-shake request. The
+player adapter sends its left and right strengths and duration to every
+connected joypad through Godot's `Input.start_joy_vibration`.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.

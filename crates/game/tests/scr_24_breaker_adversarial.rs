@@ -78,10 +78,8 @@ fn scr_24_wrong_shader_receiver_logs_error_without_mutating_playback() {
     call(&mut game, 20, "Stop", &[target]);
 
     assert_eq!(game.world().effect_shader_playbacks(), before);
-    assert!(game
-        .vm
-        .log
-        .contains("has no function Stop()"),
+    assert!(
+        game.vm.log.contains("has no function Stop()"),
         "unexpected Papyrus log: {:?}",
         game.vm.log.messages()
     );

@@ -83,9 +83,22 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
     super::magic::GRANTED_PERK_SECTION,
     super::image_space::SECTION,
+    Section { name: "SCR-27", write: write_sun_gaze_modifier, read: read_sun_gaze_modifier },
     super::magic::TAPER_SECTION,
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
+
+fn write_sun_gaze_modifier(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    world.write_sun_gaze_modifier(writer);
+}
+
+fn read_sun_gaze_modifier(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.read_sun_gaze_modifier(reader)
+}
 
 fn read_pending_script_calls(
     world: &mut World,
