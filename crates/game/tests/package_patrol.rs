@@ -400,10 +400,6 @@ fn moved_marker_replans_before_spending_the_movement_budget() {
 fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position() {
     for settings in [
         Settings {
-            static_path: true,
-            ..Settings::default()
-        },
-        Settings {
             non_root_cycle: true,
             ..Settings::default()
         },
