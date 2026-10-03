@@ -1,5 +1,16 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## SWF menu execution research, UI-23
+
+`docs/ui-frameworks.md` records the source-level Scaleform and `GameDelegate`
+inventory, Ruffle's signature change, compatibility gaps, estimates, and
+proposed runtime rows. `ui_23_scaleform_research.rs` checks the documented tag
+and API inventory, compares per-class vanilla calls with the supplied SkyUI
+ActionScript source when it is available, and checks the proposed estimates
+and work split. This host still presents its native Godot menus. UI-19 converts
+SWF art and retains ActionScript decompilation for reference, but does not
+execute the scripts.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
