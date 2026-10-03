@@ -131,3 +131,13 @@ fn scr_27_zero_bounty_servetime_is_repeatable_without_clock_or_jail_mutation() {
     assert_eq!(game.world().clock, before);
     assert_eq!(game.world_mut().actor(player).unwrap().days_in_jail, 4);
 }
+
+#[test]
+fn scr_27_negative_controller_shake_duration_is_rejected_without_request() {
+    let mut game = Game::new(LoadOrder::new());
+
+    shake(&mut game, 0.25, 0.75, -0.01);
+
+    assert!(game.world().host_requests.is_empty());
+    assert_eq!(game.world().native_errors.len(), 1);
+}

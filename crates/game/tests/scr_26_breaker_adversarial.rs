@@ -118,3 +118,11 @@ fn scr_26_breaker_sun_getters_return_the_declared_float_type() {
         );
     }
 }
+
+#[test]
+fn scr_26_zero_length_look_vector_is_not_sungazing() {
+    let mut game = fixture();
+    game.world_mut().camera_look = [0.0, 0.0, 0.0];
+
+    assert_eq!(global(&mut game, "IsPlayerSungazing", &[]), Value::Bool(false));
+}

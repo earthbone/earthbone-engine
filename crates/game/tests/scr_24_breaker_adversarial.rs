@@ -15,6 +15,7 @@ fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"EFSH"), 1));
     plugin.push_top(Record::new(Tag::new(b"REFR"), 10));
+    plugin.push_top(Record::new(Tag::new(b"REFR"), 11));
     plugin.push_top(Record::new(Tag::new(b"IMAD"), 20));
     let mut order = LoadOrder::new();
     order.add("Scr24Breaker.esm", plugin).unwrap();
@@ -84,4 +85,21 @@ fn scr_24_wrong_shader_receiver_logs_error_without_mutating_playback() {
         game.vm.log.messages()
     );
     assert!(game.world_mut().take_effect_shader_requests().is_empty());
+}
+
+#[test]
+fn scr_24_stop_removes_only_the_requested_shader_target_pair() {
+    let mut game = game();
+    let first_target = Value::Object(game.object_of_form(id(10)));
+    let other_target = Value::Object(game.object_of_form(id(11)));
+    call(&mut game, 1, "Play", &[first_target.clone(), Value::Float(9.0)]);
+    call(&mut game, 1, "Play", &[other_target.clone(), Value::Float(9.0)]);
+
+    call(&mut game, 1, "Stop", &[first_target]);
+
+    let active = game.world().effect_shader_playbacks();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].target, id(11));
+    let requests = game.world_mut().take_effect_shader_requests();
+    assert!(requests.iter().any(|request| !request.playing && request.target == id(10)));
 }

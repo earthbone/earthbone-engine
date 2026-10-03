@@ -61,3 +61,19 @@ fn scr_25_jail_inventory_option_removes_player_items() {
         "requested inventory removal must take effect"
     );
 }
+
+#[test]
+fn scr_25_jail_default_arguments_remove_inventory_and_request_real_jail() {
+    let mut game = game();
+    let guards = obj(&mut game, "GuardsFaction");
+    let gold = game.form("Gold001").expect("fixture gold");
+    let faction = game.form("GuardsFaction").expect("fixture faction");
+    let player = game.world_mut().player();
+    game.world_mut().add_item(player, gold, 3);
+    game.world_mut().faction(faction).unwrap().crime_gold_nonviolent = 1;
+
+    call(&mut game, &guards, "SendPlayerToJail", &[]);
+
+    assert_eq!(game.world_mut().item_count(player, gold), 0);
+    assert!(errors(&game).is_empty(), "{:?}", errors(&game));
+}
