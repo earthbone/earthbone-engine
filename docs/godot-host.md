@@ -223,12 +223,12 @@ record identity and winner metadata. The wrapper remains a view and does not edi
 Typed record editing is provided by the editor document API. The inspector addition does not
 provide a custom field editor for record editing.
 
-`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
-synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`
+`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the headless editor with a
+synthetic load order. It checks that the dock tree shows the case-insensitive `STAT`
 matches from the winning records, that searching created zero `SoeFormResource` values, and
 that selecting one row creates one resource. Run it after building the release extension
-with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner uses a 640 by 360 editor window
-and the plugin exits the editor when the check finishes.
+with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
+rendering pixels, and the plugin exits the editor when the check finishes.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
@@ -381,9 +381,20 @@ seam a VulkanSceneGraph or other host would reuse: everything above the layer is
 world and converts each Skyrim position to Godot metres and axes. The request
 retains the winning MGEF Hit Shader FormID and active effect identity so a host
 effect renderer can identify the authored shader and remove it when the effect
-ends. This adapter returns requests only. It does not decode EFSH records or
-draw them in Godot. It creates no per-actor scene nodes. Its contract is checked by
-`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`.
+ends. `PlayerNode` reconciles those targets each gameplay step with the existing
+RenderingServer EffectShader path. A newly detected actor starts its MGEF Hit
+Shader on that actor, and a target leaving the set stops the matching shader.
+The host requests a visual only when the resolved form is a winning `EFSH`
+record, so a missing or differently typed shader cannot become a default
+white sphere.
+The renderer reads EFSH `ICON`, color and blend settings, applies its membrane
+fade timing, and uses an authored fill texture when it resolves. It draws a
+server-side sphere instance and creates no per-actor scene nodes. It does not
+render the EFSH particle or gradient groups. The EFSH fields follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `EFSH.wikitext`. The CK dump has no Detect Life
+archetype page defining additional execution semantics. The focused check
+`mag_40_host_presents_selected_actor_with_authored_shader_in_godot_coordinates`
+also checks the start and stop requests and authored membrane settings.
 
 `facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
 `FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and

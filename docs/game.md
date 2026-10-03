@@ -5126,6 +5126,10 @@ execution semantics.
 `mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_shader`
 checks selection and shader identity. The host adapter converts those results
 to Godot coordinates and retains the authored shader FormID for presentation.
+The host reconciles active targets into EFSH start and stop requests. The
+RenderingServer path displays the authored membrane settings while each target
+remains selected. See [godot-host](godot-host.md#detect-life-presentation-mag-40)
+for the rendered fields and limits.
 
 `mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry`
 exercises the row's spawn, ownership and expiry check with synthetic records.
