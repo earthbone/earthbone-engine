@@ -1529,6 +1529,9 @@ fn actor(vm: &mut Vm, w: &Shared) {
         world.set_actor_essential(me, call.arg(0).as_bool());
         none()
     });
+    method!(vm, w, "Actor", "GetSitState", |world, _call, me| {
+        i(world.sit_state(me).unwrap_or(0))
+    });
     method!(vm, w, "Actor", "SetHeadTracking", |world, call, me| {
         let enabled = call.args.first().is_none_or(Value::as_bool);
         if let Err(error) = world.set_head_tracking(me, enabled) {
@@ -4435,12 +4438,52 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         .is_some_and(|a| a.allow_flying)));
     // The Hover package owns the only flight state implemented by the driver.
     method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
-        i32::from(
-            world
-                .actor(me)
-                .is_some_and(|actor| actor.ai.procedure == crate::ai::Procedure::Hover)
-        ) * 3
+        world.actor(me).map_or(0, |actor| {
+            i32::from(actor.flying_state.unwrap_or_else(|| {
+                if actor.ai.procedure == crate::ai::Procedure::Hover {
+                    3
+                } else {
+                    0
+                }
+            }))
+        })
     ));
+    method!(vm, w, "Actor", "SetVehicle", |world, call, me| {
+        let vehicle = match call.arg(0) {
+            Value::None => None,
+            value => world.form_arg(&value),
+        };
+        let valid_arg = matches!(call.arg(0), Value::None) || vehicle.is_some();
+        if !valid_arg {
+            call.log
+                .push(call.time, "Actor.SetVehicle expects an ObjectReference");
+        } else if let Err(error) = world.set_actor_vehicle(me, vehicle) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "SetLookAt", |world, call, me| {
+        let target_arg = call.arg(0);
+        let target = match &target_arg {
+            Value::None => None,
+            value => world.form_arg(value),
+        };
+        let valid_arg = matches!(&target_arg, Value::None) || target.is_some();
+        let pathing = call.args.get(1).is_some_and(Value::as_bool);
+        if !valid_arg {
+            call.log
+                .push(call.time, "Actor.SetLookAt expects an ObjectReference");
+        } else if let Err(error) = world.set_actor_look_at(me, target, pathing) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ClearLookAt", |world, call, me| {
+        if let Err(error) = world.set_actor_look_at(me, None, false) {
+            call.log.push(call.time, error);
+        }
+        none()
+    });
     method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
         .actor(me)
         .is_some_and(
@@ -4868,7 +4911,7 @@ fn stubs(vm: &mut Vm) -> usize {
         }
         n += 1;
     }
-    let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
+    let ints: &[(&str, &str, i32)] = &[];
     for (class, name, value) in ints {
         let global = *class == "Game";
         let v = *value;
@@ -4881,9 +4924,6 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("Actor", "SetVehicle"),
-        ("Actor", "SetLookAt"),
-        ("Actor", "ClearLookAt"),
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),

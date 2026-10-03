@@ -577,6 +577,14 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         Some(false) => h.u32(1),
         Some(true) => h.u32(2),
     }
+    opt_form(h, a.vehicle);
+    if let Some((target, pathing)) = a.forced_look_at {
+        h.bool(true);
+        form(h, target);
+        h.bool(pathing);
+    } else {
+        h.bool(false);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

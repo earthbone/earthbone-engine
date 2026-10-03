@@ -94,6 +94,108 @@ impl World {
             .map(|actor| actor.head_tracking.unwrap_or(true))
     }
 
+    /// Return the Papyrus sit state supported by the active furniture procedure.
+    #[must_use]
+    pub fn sit_state(&mut self, id: GlobalFormId) -> Option<i32> {
+        let actor = self.actor(id)?;
+        Some(if actor.ai.procedure == crate::ai::Procedure::Sit {
+            if actor.ai.arrived {
+                3
+            } else {
+                2
+            }
+        } else {
+            0
+        })
+    }
+
+    /// Attach an actor to a placed reference, or detach it when the target is absent or self.
+    pub fn set_actor_vehicle(
+        &mut self,
+        actor: GlobalFormId,
+        vehicle: Option<GlobalFormId>,
+    ) -> Result<(), String> {
+        if self.actor(actor).is_none() {
+            return Err(format!("{actor} is not an actor"));
+        }
+        let vehicle = vehicle.filter(|target| *target != actor);
+        if let Some(target) = vehicle {
+            if self.reference(target).is_none() {
+                return Err(format!("{target} is not a placed reference"));
+            }
+        }
+        if let Some(state) = self.actor(actor) {
+            state.vehicle = vehicle;
+        }
+        Ok(())
+    }
+
+    /// Return the reference selected by `Actor.SetVehicle`.
+    #[must_use]
+    pub fn actor_vehicle(&mut self, actor: GlobalFormId) -> Option<GlobalFormId> {
+        self.actor(actor).and_then(|state| state.vehicle)
+    }
+
+    /// Set or clear the script-forced look-at target.
+    pub fn set_actor_look_at(
+        &mut self,
+        actor: GlobalFormId,
+        target: Option<GlobalFormId>,
+        pathing: bool,
+    ) -> Result<(), String> {
+        if self.actor(actor).is_none() {
+            return Err(format!("{actor} is not an actor"));
+        }
+        if let Some(target) = target {
+            if self.reference(target).is_none() {
+                return Err(format!("{target} is not a placed reference"));
+            }
+            if let Some(state) = self.actor(actor) {
+                state.forced_look_at = Some((target, pathing));
+            }
+        } else if let Some(state) = self.actor(actor) {
+            state.forced_look_at = None;
+        }
+        Ok(())
+    }
+
+    /// Return the script-forced look-at target and pathing option.
+    #[must_use]
+    pub fn actor_look_at(&mut self, actor: GlobalFormId) -> Option<(GlobalFormId, bool)> {
+        self.actor(actor).and_then(|state| state.forced_look_at)
+    }
+
+    pub(super) fn write_scr_11(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+        use super::save::write_form_id;
+        writer.bool(actor.vehicle.is_some());
+        if let Some(vehicle) = actor.vehicle {
+            write_form_id(writer, vehicle);
+        }
+        writer.bool(actor.forced_look_at.is_some());
+        if let Some((target, pathing)) = actor.forced_look_at {
+            write_form_id(writer, target);
+            writer.bool(pathing);
+        }
+    }
+
+    pub(super) fn read_scr_11(
+        actor: &mut ActorState,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), soe_papyrus::VmError> {
+        use super::save::read_form_id;
+        actor.vehicle = if reader.bool()? {
+            Some(read_form_id(reader)?)
+        } else {
+            None
+        };
+        actor.forced_look_at = if reader.bool()? {
+            Some((read_form_id(reader)?, reader.bool()?))
+        } else {
+            None
+        };
+        Ok(())
+    }
+
     pub(super) fn write_scr_12(actor: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
         match actor.head_tracking {
             None => writer.u8(0),
