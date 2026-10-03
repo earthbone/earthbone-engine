@@ -36,6 +36,10 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
                 remap_destruction_stage(record.tag, &mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"INFO") && subrecord.tag == Tag::new(b"TRDT") {
                 remap_info_response(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"COBJ") {
+                remap_cobj_field(subrecord.tag, &mut subrecord.data, mapping)?;
+            } else if subrecord.tag == Tag::new(b"CTDA") {
+                remap_ctda(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"REFR") {
                 remap_refr_field(subrecord.tag, &mut subrecord.data, mapping)?;
             } else if form_id_field(record.tag, subrecord.tag) {
@@ -73,6 +77,90 @@ fn remap_info_response(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<(
     let old = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
     if let Some(new) = mapping.get(&old) {
         data[16..20].copy_from_slice(&new.to_le_bytes());
+    }
+    Ok(())
+}
+
+fn remap_cobj_field(tag: Tag, data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    let offset = match tag.as_bytes() {
+        b"CNAM" | b"BNAM" => {
+            if data.len() != 4 {
+                return Err(Error::SubrecordSize {
+                    record: Tag::new(b"COBJ"),
+                    tag,
+                    len: data.len(),
+                    expected: "4".into(),
+                });
+            }
+            0
+        }
+        b"CNTO" => {
+            if data.len() != 8 {
+                return Err(Error::SubrecordSize {
+                    record: Tag::new(b"COBJ"),
+                    tag,
+                    len: data.len(),
+                    expected: "8".into(),
+                });
+            }
+            0
+        }
+        b"COED" => {
+            if data.len() != 12 {
+                return Err(Error::SubrecordSize {
+                    record: Tag::new(b"COBJ"),
+                    tag,
+                    len: data.len(),
+                    expected: "12".into(),
+                });
+            }
+            0
+        }
+        _ => return Ok(()),
+    };
+    let old = u32::from_le_bytes(
+        data[offset..offset + 4]
+            .try_into()
+            .map_err(|_| Error::Invalid("COBJ FormID offset exceeds subrecord".into()))?,
+    );
+    if let Some(new) = mapping.get(&old) {
+        data[offset..offset + 4].copy_from_slice(&new.to_le_bytes());
+    }
+    Ok(())
+}
+
+fn remap_ctda(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    if data.len() != 32 {
+        return Err(Error::SubrecordSize {
+            record: Tag::new(b"CTDA"),
+            tag: Tag::new(b"CTDA"),
+            len: data.len(),
+            expected: "32".into(),
+        });
+    }
+    // wbConditions uses the comparison union as a GLOB only when flag 0x04 is set.
+    let mut offsets = Vec::new();
+    if data[0] & 4 != 0 {
+        offsets.push(4);
+    }
+    // Run On value 2 stores a reference FormID in the following field.
+    if u32::from_le_bytes(
+        data[20..24]
+            .try_into()
+            .map_err(|_| Error::Invalid("CTDA Run On offset exceeds subrecord".into()))?,
+    ) == 2
+    {
+        offsets.push(24);
+    }
+    for offset in offsets {
+        let old = u32::from_le_bytes(
+            data[offset..offset + 4]
+                .try_into()
+                .map_err(|_| Error::Invalid("CTDA FormID offset exceeds subrecord".into()))?,
+        );
+        if let Some(new) = mapping.get(&old) {
+            data[offset..offset + 4].copy_from_slice(&new.to_le_bytes());
+        }
     }
     Ok(())
 }
@@ -317,6 +405,8 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"MGEF", b"ESCE"),
         (b"HAZD", b"MNAM"),
         (b"INFO", b"TCLT"),
+        (b"COBJ", b"CNAM"),
+        (b"COBJ", b"BNAM"),
     ];
     scalar
         .iter()
