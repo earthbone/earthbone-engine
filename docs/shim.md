@@ -214,16 +214,19 @@ The declarations follow `CommonLibSSE-NG-alandtse/include/RE/E/ExtraDataList.h`,
 equality includes its runtime removal flag and hotkey's unbound value is -1.
 The reference-extra API names `ExtraLeveledItemBase`, `ExtraLightData`,
 `ExtraLinkedRefChildren`, `ExtraMapMarker` and `ExtraMissingLinkedRefIDs` with
-read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
-implements for those values. Missing optional values mean the reference has no
-such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
-supported by this engine.
+read-only value views. `ReferenceExtraData` is the MIT boundary implemented by
+the game adapter. Missing optional values mean the reference has no such
+extra. The game test dispatches through this trait object after constructing a
+view from live `World` records and state. The C++ fixture checks the matching
+source-level declarations and unsupported-hook metadata. `EXTRA_DATA_HOOKS`
+reports that executable vtable hooks are not supported by this engine.
 `World::shim_reference_extras` supplies the game adapter for those five views.
 It borrows the world, reads XLIB, XLIG and map-marker fields through current
 records, and includes live marker names and visibility flags. Incoming links
-are derived from loaded reference state. Missing links are targets absent
-from the form table, rather than merely unloaded references. Derived link
-arrays are sorted and retained only for the lifetime of the world borrow.
+are derived from winning XLKR records and loaded reference state, including
+authored children before their state is materialized. Missing links are targets
+absent from the form table, rather than merely unloaded references. Derived
+link arrays are sorted and retained only for the lifetime of the world borrow.
 This does not import additional ESS reference extras or expose mutation hooks.
 Field identities follow the local CommonLibSSE-NG-alandtse headers
 `include/RE/E/ExtraLeveledItemBase.h`, `ExtraLightData.h`,
@@ -238,10 +241,14 @@ headers `include/RE/E/ExtraMissingRefIDs.h`,
 `include/RE/E/ExtraPoison.h` and `include/RE/E/ExtraTeleport.h`.
 The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
 absent value. The game adapter reads outfit item, poison and door teleport
-values from shared reference and inventory state. Missing reference IDs and
-north rotation have no runtime backing field and report unsupported. Binary
-hook requests return a diagnostic through `HookRegistry::reject`. Poison
-counts retain CommonLib's unsigned 32-bit range through the Rust and C++ views.
+values from shared reference and inventory state. Missing reference IDs are
+read from the reference's resolved XAPR activation-parent records, and invalid
+XAPR targets that are not REFR or ACHR records are rejected. North
+rotation reads the interior CELL default of zero, matching CommonLib when no
+extra is present. Exterior worldspace north rotation is not represented by the
+current runtime records and returns no value. Binary hook requests return a
+diagnostic through `HookRegistry::reject`. Poison counts retain CommonLib's
+unsigned 32-bit range through the Rust and C++ views.
 The first event batch adds typed `DisarmedEvent`, `DragonSoulsGained`,
 `LevelIncrease` and `LocationDiscovery` payloads, with one source for each on
 `ScriptEventSourceHolder`. Payload form identities are the load-order file
