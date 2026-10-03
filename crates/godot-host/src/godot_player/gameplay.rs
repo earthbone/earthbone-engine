@@ -358,6 +358,21 @@ impl PlayerNode {
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
         }
+        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
+            let world = game.world();
+            let layers = world.shader_particle_layers();
+            let player = soe_esm::GlobalFormId {
+                file: 0,
+                object: soe_game::world::PLAYER_OBJECT,
+            };
+            let origin = world
+                .ref_placement(player)
+                .filter(|placement| placement.visible)
+                .map_or([0.0; 3], |placement| placement.position);
+            streamer
+                .bind_mut()
+                .sync_shader_particles(&layers, origin, delta.max(0.0) as f32);
+        }
         self.apply_host_requests();
         if self.main_menu.is_active() {
             return;

@@ -36,6 +36,7 @@ fn game() -> Game {
     let mut deleted = spgd(3, data());
     deleted.flags |= 0x20;
     plugin.push_top(deleted);
+    plugin.push_top(spgd(4, data()));
     let mut order = LoadOrder::new();
     order.add("Particles.esm", plugin).unwrap();
     Game::new(order)
@@ -98,28 +99,32 @@ fn scr_46_apply_reads_spgd_arguments_and_fades_into_host_snapshot() {
 #[test]
 fn scr_46_remove_fades_or_removes_the_matching_geometry() {
     let mut game = game();
-    call(&mut game, 1, "Apply", &[]);
-    call(&mut game, 2, "Apply", &[]);
+    call(&mut game, 1, "Apply", &[Value::Float(0.0)]);
+    call(&mut game, 4, "Apply", &[Value::Float(0.0)]);
+    assert_eq!(layers(&game), vec![(1, 1.0), (4, 1.0)]);
     call(&mut game, 1, "Remove", &[Value::Float(2.0)]);
-    call(&mut game, 2, "Remove", &[]);
+    call(&mut game, 4, "Remove", &[Value::Float(0.0)]);
     assert_eq!(layers(&game), vec![(1, 1.0)]);
     game.tick(1.0);
     assert_eq!(layers(&game), vec![(1, 0.5)]);
     game.tick(1.0);
     assert!(game.world().shader_particle_layers().is_empty());
-    call(&mut game, 1, "Remove", &[]);
+    call(&mut game, 1, "Remove", &[Value::Float(0.0)]);
     assert!(game.world().shader_particle_layers().is_empty());
 }
 
 #[test]
 fn scr_46_invalid_data_and_fade_arguments_log_errors_without_partial_effects() {
     let mut game = game();
-    call(&mut game, 1, "Apply", &[]);
+    call(&mut game, 1, "Apply", &[Value::Float(0.0)]);
     let before = layers(&game);
-    call(&mut game, 2, "Apply", &[]);
-    call(&mut game, 3, "Apply", &[]);
+    assert_eq!(before, vec![(1, 1.0)]);
+    call(&mut game, 2, "Apply", &[Value::Float(0.0)]);
+    call(&mut game, 3, "Apply", &[Value::Float(0.0)]);
     call(&mut game, 1, "Apply", &[Value::Float(f32::NAN)]);
+    call(&mut game, 1, "Apply", &[Value::Float(-0.25)]);
     call(&mut game, 1, "Remove", &[Value::Float(-1.0)]);
+    call(&mut game, 1, "Remove", &[Value::Float(f32::INFINITY)]);
     assert_eq!(layers(&game), before);
     assert!(game.vm.log.contains("SPGD"));
     assert!(game.vm.log.contains("fade-in"));

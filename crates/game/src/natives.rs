@@ -3122,7 +3122,11 @@ fn utility(vm: &mut Vm, w: &Shared) {
             );
             return none();
         }
-        i(ENGINE_BUDGETS.len() as i32)
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetCount: memory tracking is unavailable",
+        );
+        none()
     });
     global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
         if call.args.len() != 1 {
@@ -3133,19 +3137,23 @@ fn utility(vm: &mut Vm, w: &Shared) {
                     call.args.len()
                 ),
             );
-            return none();
+            return s("");
         }
         let Some(Value::Int(index)) = call.args.first() else {
             call.log.push(
                 call.time,
                 "error: Utility.GetBudgetName expects an integer budget index",
             );
-            return none();
+            return s("");
         };
-        let Ok(index) = usize::try_from(*index) else {
-            return none();
-        };
-        ENGINE_BUDGETS.get(index).map_or_else(none, |name| s(name))
+        if usize::try_from(*index).is_err() {
+            return s("");
+        }
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetName: memory tracking is unavailable",
+        );
+        s("")
     });
     global!(vm, w, "Utility", "GetCurrentBudget", |world, call| {
         let index = call.arg(0).as_int();
@@ -3233,11 +3241,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
             .map_or("", String::as_str))
     });
 }
-
-const ENGINE_BUDGETS: [&str; 2] = [
-    "Papyrus instructions per slice",
-    "Exterior cell loads per update",
-];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "GlobalVariable", "GetValue", |world, call, me| f(
@@ -3979,12 +3982,13 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     });
     for name in ["Preload", "Unload"] {
         method!(vm, w, "Spell", name, |world, call, me| {
-            match world.spell(me) {
-                Ok(_) => call.log.push(
-                    call.time,
-                    format!("Spell.{name}: spell art resource loading is unsupported"),
-                ),
-                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            let result = if name == "Preload" {
+                world.preload_spell_art(me)
+            } else {
+                world.unload_spell_art(me)
+            };
+            if let Err(error) = result {
+                call.log.push(call.time, format!("Spell.{name}: {error}"));
             }
             none()
         });
@@ -4069,7 +4073,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Apply",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Apply: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }
@@ -4082,7 +4093,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Remove",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Remove: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }

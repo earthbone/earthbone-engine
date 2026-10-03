@@ -755,6 +755,24 @@ pub enum HostRequest {
     },
 }
 
+/// Operation requested by Papyrus to load or release a spell's art resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellArtAction {
+    /// Load art referenced by the spell for later use.
+    Preload,
+    /// Release art previously requested by `Preload`.
+    Unload,
+}
+
+/// One spell art operation awaiting the host resource provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellArtRequest {
+    /// Spell whose art resources are requested.
+    pub spell: GlobalFormId,
+    /// Requested resource operation.
+    pub action: SpellArtAction,
+}
+
 pub struct World {
     /// Runtime plugin listeners. These are host state, not game save data.
     pub(crate) actor_kill_events: EventSource<ActorKill>,
@@ -848,6 +866,8 @@ pub struct World {
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
+    pub(crate) spell_art_requests: Vec<SpellArtRequest>,
+    pub(crate) preloaded_spell_art: BTreeSet<GlobalFormId>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     /// Script events submitted by Papyrus and waiting for Story Manager routing.
@@ -1197,6 +1217,8 @@ impl World {
             frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
+            spell_art_requests: Vec::new(),
+            preloaded_spell_art: BTreeSet::new(),
             story_manager_events: Vec::new(),
             pending_story_events: Vec::new(),
             timers: Vec::new(),
@@ -1329,6 +1351,15 @@ impl World {
     /// This method does not panic.
     pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
         std::mem::take(&mut self.host_requests)
+    }
+
+    /// Take pending spell art operations in Papyrus call order.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn take_spell_art_requests(&mut self) -> Vec<SpellArtRequest> {
+        std::mem::take(&mut self.spell_art_requests)
     }
 }
 

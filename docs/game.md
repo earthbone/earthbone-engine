@@ -153,6 +153,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   associated-item field follow local xEdit `wbDefinitionsTES5.pas`. The CK
   magic-effect pages in the local corpus do not specify additional Light
   runtime semantics.
+- `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
+  typed spell art requests on `World`. `take_spell_art_requests` drains them in
+  Papyrus call order. `Unload` queues only when this world previously received
+  `Preload` for that spell. The Godot host does not consume these requests yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -1134,13 +1138,13 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.StartFrameRateCapture` | CK marks this as beta-only and starts sampling. Quiet stub, owned by SCR-49. |
 | `Utility.EndFrameRateCapture` | CK marks this as beta-only and ends sampling. Quiet stub, owned by SCR-49. |
 | `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
-| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
-| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Returns the two engine budget categories documented below. |
-| `Utility.GetBudgetName` | CK reports a budget name by index. Returns the engine category name, or `None` for an invalid index. |
-| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Returns the measured Papyrus instructions or exterior cell loads for the latest update. |
-| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Compares the measured count with its configured cap. |
+| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the active capture minimum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the active capture maximum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetCount` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetName` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so valid indices log an explicit error and return an empty string. |
+| `Utility.GetCurrentBudget` | Returns measured Papyrus instructions or exterior cell loads for the latest update. |
+| `Utility.OverBudget` | Compares the measured count with its configured cap. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 | `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 
@@ -1263,15 +1267,14 @@ derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine categories: `Papyrus instructions per
-  slice` and `Exterior cell loads per update`. `GetCurrentBudget` returns the
-  measured instruction count from the most recent VM slice or exterior cell
+- `GetCurrentBudget` returns the measured instruction count from the most
+  recent VM slice or exterior cell
   load count from the most recent host streaming update. `OverBudget` compares
   that measurement with `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
-  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid indices return `None`, zero and
-  false for name, integer and boolean queries. The CK Utility page documents
-  these global signatures, and SKSE's vanilla `Utility.psc` declares them as
-  global natives.
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid scheduler indices return zero and
+  false for integer and boolean queries. These are runtime scheduler limits,
+  not the CK memory budget metadata returned by `GetBudgetCount` and
+  `GetBudgetName`.
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
 `Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
@@ -1293,32 +1296,36 @@ Their CK contracts are described by
   `SPGD` record and starts or restarts its transient layer. `Remove(fadeSeconds)`
   removes it immediately or fades it out. `World::shader_particle_layers`
   exposes decoded geometry fields and the current fade strength in form order.
+  `soe-godot-host` consumes that snapshot and renders one server-side MultiMesh
+  per active form, centered on the player. Particle positions are stable for a
+  form and index, wrap through the authored box as gravity advances, and use
+  the SPGD texture when it can be loaded. The host bounds density to 256 quads.
   Both methods reject malformed record data and non-finite or negative fade
   values before changing the active set. Game ticks advance the fades. These
   effects are transient and are not saved. The CK corpus has no named pages for
   these two methods. The DATA and ICON layout follows xEdit's
   `wbRecord(SPGD)`, UESP's `SPGD.wikitext`, Mutagen's Skyrim SPGD schema, and
-  CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
-  identifies both functions and their float arguments. The host does not yet
-  consume the layer snapshot or render particle geometry.
+  CommonLib's `BGSShaderParticleGeometryData`. UESP's
+  `Raw_Function_Data.wikitext` identifies the Play and Stop functions and
+  their float arguments.
 
 ### Utility runtime queries, SCR-50
 
-`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
-Without available capture data, they return `None` and log that beta capture is
-unavailable. `GetCurrentMemory` requires a memory-tracking provider, which the
-game and host do not have, so it returns `None` and logs an error. The capture
-lifecycle and average query remain available.
-`GetBudgetCount` returns two engine categories, `Papyrus instructions per slice`
-and `Exterior cell loads per update`. `GetBudgetName` returns those names by
-index. `GetCurrentBudget` reads the instruction count returned by the most
-recent VM scheduler slice or the number of exterior cells committed by the
-most recent host streaming update. Before a measurement, each value is zero.
-`OverBudget` compares the measured value with that category's configured cap.
-Invalid indices return zero, false or `None` for integer, boolean and name
-queries. `GetCurrentMemory` remains unavailable and is not needed to read these
-engine-owned counters. The CK Utility page documents the signatures, and
-SKSE's vanilla `Utility.psc` declares them as global natives.
+`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
+by `Game::tick`. Without captured frames, they return `None` and log that beta
+capture data is unavailable. `GetCurrentMemory`, `GetBudgetCount`, and
+`GetBudgetName` are available only when memory tracking is enabled. This
+runtime has no game-owned memory tracker, so `GetCurrentMemory` and
+`GetBudgetCount` return `None` and log an explicit error. `GetBudgetName`
+requires exactly one integer index. It returns an empty string for an invalid
+index, or logs an explicit error and returns an empty string when tracking is
+unavailable. The scheduler budget methods `GetCurrentBudget` and `OverBudget`
+read separate runtime counters. `GetCurrentBudget` reads the instruction count
+returned by the most recent VM scheduler slice or the number of exterior cells committed by
+the most recent host streaming update. Before a measurement, each value is
+zero. `OverBudget` compares that measured value with its configured cap. The
+CK Utility page documents these signatures, and SKSE's vanilla `Utility.psc`
+declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
@@ -1329,8 +1336,9 @@ Creation Engine frame capture or memory budgets.
   and returns true when any referenced MGEF has its hostile flag. Missing or
   malformed spell/effect records are logged and return false. `Spell.Cast` and
   `RemoteCast` use the direct-cast path described below. `Spell.Preload` and
-  `Spell.Unload` validate the spell record and report that art resource
-  loading is unsupported. `Topic.Add` validates and records known topics.
+  `Spell.Unload` validate the spell record and queue typed art requests. The
+  Godot host does not consume them yet. `Topic.Add` validates and records known
+  topics.
 - The shipped `Topic.psc` declares `Topic.Add()` only. There is no
   `Topic.Remove` native or Spell/Topic global native in the local vanilla
   Papyrus sources.
@@ -1390,11 +1398,10 @@ Creation Engine frame capture or memory budgets.
   `FunctionsDump.txt` entry for `MusicType`.
 
 - `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
-  SPEL reader, then report that spell art resource loading is unsupported. They
-  do not change cast or active-effect state. The shipped `Spell.psc` describes
-  these as art-resource operations and warns against misuse. The game crate has
-  no art resource loader, so implementing their load and unload effects requires
-  a separate resource-system prerequisite.
+  SPEL reader and queue typed art requests. The Godot host does not consume
+  these requests yet, so art is not loaded or released. The shipped `Spell.psc`
+  describes these as art-resource operations and warns against misuse. A host
+  art resource provider remains a prerequisite for the observable effects.
 - `VisualEffect.Play` adds a transient effect instance for the RFCT form and
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing
@@ -1731,12 +1738,19 @@ scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
 quest field. These behaviors match the local PSC summaries.
 
-`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
-action list, following the existing scene action state and the vanilla scenes
-that reuse authored action numbers. It reports whether that slot completed in
-the current run. Negative and unknown slots return false. The previous
-constant-false stub is now backed by the same completed slot set that gates
-phase advancement.
+`Scene.IsActionComplete(actionID)` takes the SCEN action number from `INAM`,
+not the action's zero-based position in the list. It reports whether the
+matching action slot completed in this scene's current run. Negative and
+unknown action numbers return false, including numbers for actions removed
+from the record. Completion in another scene with the same action number does
+not affect the result. The local CK corpus has no named page for this method.
+The vanilla `Scene.psc` declares its integer action ID argument, while UESP's
+SCEN layout identifies `INAM` as the action number and notes that action
+numbers can be non-sequential and can overlap between scene records. The
+`scr_44_` tests exercise sparse and invalid action numbers through Papyrus
+dispatch. A `SKYRIM_DATA`-gated check uses the UESP-named vanilla scenes to
+verify overlapping action numbers stay scene-local through Papyrus dispatch.
+The completed slots remain the same state that gates phase advancement.
 
 `Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
 must also end scenes running on references in the forced scene. Actor action
@@ -5736,10 +5750,10 @@ registered Sound names and method/global placement match those declarations.
 `World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
 removes the selected instance from the world's sound-instance table.
 
-| Registry binding | CK contract comparison | Current implementation and assigned work |
+| Registry binding | Source comparison | Current implementation |
 |---|---|---|
-| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
-| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `ShaderParticleGeometry.Apply` method | The CK function page and class declaration were not present in the crawl. UESP lists Play as a form plus float function. | Validates the winning SPGD record and nonnegative finite fade, then applies the transient layer. |
+| `ShaderParticleGeometry.Remove` method | The CK function page and class declaration were not present in the crawl. UESP lists Stop as a form plus float function. | Validates the fade and removes the layer immediately or fades it out. |
 | `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
 | `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
 | `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
