@@ -191,6 +191,21 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+### Shader particle geometry, SCR-46
+
+`PlayerNode` sends `World::shader_particle_layers` to `CellStreamerNode` each
+gameplay frame, centered on the player's placed reference. The streamer uses
+one `MultiMesh` RenderingServer instance for each active SPGD form, with a
+quad per particle and the record's texture when it resolves through the data
+source. Density determines the quad count at 64 per density unit, bounded to
+256, and zero density draws none. Deterministic positions fill the authored
+box and wrap downward using gravity velocity. Fade strength sets material
+opacity. Removed layers and streamer teardown free their instance RIDs.
+
+This host path is an approximate visual presentation. It does not reproduce
+engine particle randomness, rotation velocity, initial rotation, or subtexture
+animation.
+
 ### Cart and horse host tether
 
 `CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and

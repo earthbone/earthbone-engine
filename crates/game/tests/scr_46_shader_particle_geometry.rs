@@ -119,7 +119,9 @@ fn scr_46_invalid_data_and_fade_arguments_log_errors_without_partial_effects() {
     call(&mut game, 2, "Apply", &[]);
     call(&mut game, 3, "Apply", &[]);
     call(&mut game, 1, "Apply", &[Value::Float(f32::NAN)]);
+    call(&mut game, 1, "Apply", &[Value::Float(-0.25)]);
     call(&mut game, 1, "Remove", &[Value::Float(-1.0)]);
+    call(&mut game, 1, "Remove", &[Value::Float(f32::INFINITY)]);
     assert_eq!(layers(&game), before);
     assert!(game.vm.log.contains("SPGD"));
     assert!(game.vm.log.contains("fade-in"));
