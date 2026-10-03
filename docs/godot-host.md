@@ -4228,6 +4228,7 @@ result conversion and fallback containment, and flee search. Procedure details
 include tree entry, marker selection and Turn Undead checks. Marker details
 include cell lookup, base filtering, bed classification, reference initialization
 and resumed scans.
+Actor details also separate state checks, Calm checks and evaluation eligibility.
 Phase durations include their nested calls. For example, conditions are
 also included in package selection, and new path requests in movement.
 These measurement hooks add no actor scene nodes or saved fields.
@@ -4239,3 +4240,4 @@ and rejects any AI driver tick above 8 ms. Graph preparation and gameplay
 startup occur before the 60 simulated seconds of measurement. The script
 frees its host nodes and quits with its check result. It skips when
 `SKYRIM_DATA` is unset.
+The result also prints the worst frame's index and inclusive phase timings.

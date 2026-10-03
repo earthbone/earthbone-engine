@@ -62,11 +62,13 @@ struct Flee {
 enum Work {
     Route(Option<PathSearch>),
     Flee(Flee),
+    Finished,
 }
 
 struct Request {
     from: [f32; 3],
     goal: Goal,
+    revision: u64,
     work: Work,
     result: Poll<ResultPath>,
     frame: u64,
@@ -125,6 +127,8 @@ impl Planner {
         self.remaining = FRAME_NODE_BUDGET;
         self.last_work = 0;
         self.phases.clear();
+        self.requests
+            .retain(|_, request| request.revision == graph.query_revision());
         let keys: Vec<_> = self.requests.keys().copied().collect();
         let start = self
             .next_actor
@@ -161,11 +165,9 @@ impl Planner {
         from: [f32; 3],
         goal: Goal,
     ) -> Poll<ResultPath> {
-        if self
-            .requests
-            .get(&actor)
-            .is_some_and(|r| r.from != from || r.goal != goal)
-        {
+        if self.requests.get(&actor).is_some_and(|r| {
+            r.from != from || r.goal != goal || r.revision != graph.query_revision()
+        }) {
             self.requests.remove(&actor);
         }
         let setup_started = std::time::Instant::now();
@@ -187,6 +189,7 @@ impl Planner {
             Request {
                 from,
                 goal,
+                revision: graph.query_revision(),
                 work,
                 result: Poll::Pending,
                 frame: self.frame.wrapping_sub(1),
@@ -204,7 +207,12 @@ impl Planner {
             self.last_work += used;
             request.frame = self.frame;
         }
-        if request.result.is_ready() {
+        if matches!(&request.result, Poll::Ready(None))
+            || matches!(&request.result, Poll::Ready(Some((_, (path, _)))) if path.is_empty())
+        {
+            request.work = Work::Finished;
+            request.result.clone()
+        } else if request.result.is_ready() {
             self.requests
                 .remove(&actor)
                 .map_or(Poll::Ready(None), |r| r.result)
@@ -246,6 +254,7 @@ impl Request {
             return 0;
         }
         match &mut self.work {
+            Work::Finished => 0,
             Work::Route(search) => {
                 let Goal::Point { to, cell, fallback } = self.goal else {
                     return 0;
@@ -451,6 +460,55 @@ mod tests {
     }
 
     #[test]
+    fn prf_11_cell_loading_prepares_navigation_before_the_first_tick() {
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"CELL"), 0x800));
+        let mut order = LoadOrder::new();
+        order.add("Prf11CellLoad.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        assert!(world.ai.nav_graph().is_none());
+        world.load_cell(actor(0x800));
+        assert!(world.ai.nav_graph().is_some());
+    }
+
+    #[test]
+    fn prf_11_actor_driver_timings_cover_live_and_dead_actors() {
+        use crate::ai::tick;
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+        plugin
+            .push_top(Record::new(Tag(*b"ACHR"), 0x801).sub(Tag(*b"NAME"), 0x800u32.to_le_bytes()));
+        let mut order = LoadOrder::new();
+        order.add("Prf11Driver.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        let id = actor(0x801);
+        world.actor(id).unwrap();
+        let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+        tick(&mut world, 0.1, &mut alloc);
+        for phase in [
+            "actor_state",
+            "calm_check",
+            "evaluation_due",
+            "combat_target",
+            "combat_acquisition",
+            "movement",
+        ] {
+            assert!(
+                world.ai.planning_phases[phase] <= world.ai.planning_phases["actor_driver"],
+                "{phase} exceeded actor processing"
+            );
+        }
+        world.actor(id).unwrap().dead = true;
+        tick(&mut world, 0.1, &mut alloc);
+        assert!(world.ai.planning_phases.contains_key("actor_state"));
+        assert!(!world.ai.planning_phases.contains_key("movement"));
+    }
+
+    #[test]
     fn prf_11_pending_actor_retains_package_step_and_resumes_movement() {
         use crate::ai::{step, AiState, Procedure};
         use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
@@ -618,6 +676,87 @@ mod tests {
         assert_eq!(
             path.0,
             graph.find_path_between(from, destination).unwrap().points[1..]
+        );
+    }
+
+    #[test]
+    fn prf_11_failed_routes_are_reused_until_graph_or_request_changes() {
+        let mut graph = strip();
+        let island = graph.add_mesh_with_adjacency(
+            vec![[0.0, 200.0, 0.0], [100.0, 200.0, 0.0], [0.0, 300.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let from = [10.0, 25.0, 0.0];
+        let to = [10.0, 210.0, 0.0];
+        for fallback in [false, true] {
+            let mut planner = Planner::default();
+            let goal = Goal::Point {
+                to,
+                cell: None,
+                fallback,
+            };
+            let expected = if fallback {
+                Poll::Ready(Some((to, (Vec::new(), Vec::new()))))
+            } else {
+                Poll::Ready(None)
+            };
+            assert_eq!(
+                planner.request(&graph, &[None; 2], actor(1), from, goal),
+                expected
+            );
+            assert_eq!(planner.last_work, 1);
+            for _ in 0..3600 {
+                planner.begin_frame(&graph, &[None; 2]);
+                assert_eq!(
+                    planner.request(&graph, &[None; 2], actor(1), from, goal),
+                    expected
+                );
+                assert_eq!(
+                    planner.last_work, 0,
+                    "unchanged failed route was searched again"
+                );
+            }
+            planner.cancel(actor(1));
+            assert_eq!(
+                planner.request(&graph, &[None; 2], actor(1), from, goal),
+                expected
+            );
+            assert_eq!(planner.last_work, 1, "explicit cancellation must retry");
+            planner.begin_frame(&graph, &[None; 2]);
+            assert!(planner.moved(actor(1), [20.0, 25.0, 0.0]));
+            assert_eq!(
+                planner.request(&graph, &[None; 2], actor(1), [20.0, 25.0, 0.0], goal),
+                expected
+            );
+            assert_eq!(planner.last_work, 1, "changed start must retry");
+            planner.clear();
+            planner.begin_frame(&graph, &[None; 2]);
+            assert_eq!(
+                planner.request(&graph, &[None; 2], actor(1), from, goal),
+                expected
+            );
+            assert_eq!(planner.last_work, 1, "navigation invalidation must retry");
+            planner.retain_actors(&[]);
+            assert!(
+                planner.requests.is_empty(),
+                "unloaded actor kept a failed route"
+            );
+        }
+        let mut planner = Planner::default();
+        let goal = Goal::Point {
+            to,
+            cell: None,
+            fallback: false,
+        };
+        assert_eq!(
+            planner.request(&graph, &[None; 2], actor(1), from, goal),
+            Poll::Ready(None)
+        );
+        graph.link(graph.locate(from).unwrap(), 0, NodeId::new(island, 0));
+        let expected = graph.find_path_between(from, to).unwrap();
+        assert_eq!(
+            planner.request(&graph, &[None; 2], actor(1), from, goal),
+            Poll::Ready(Some((to, planned(expected, &[None; 2], None))))
         );
     }
 

@@ -32,11 +32,16 @@ func _run() -> void:
 		return
 	var actors: int = player.call("sync_contact_actors")
 	var worst := 0.0
+	var worst_frame := 0
+	var worst_details := {}
 	var failures := 0
 	for frame in 3600:
 		player.call("advance", 1.0 / 60.0)
 		var planning: float = player.call("ai_planning_microseconds")
-		worst = maxf(worst, planning)
+		if planning > worst:
+			worst = planning
+			worst_frame = frame
+			worst_details = player.call("ai_planning_details")
 		if planning > 8000.0:
 			failures += 1
 			if failures <= 3:
@@ -52,6 +57,7 @@ func _run() -> void:
 		printerr("FAIL PRF-11: NPC planning was not exercised")
 	print("PRF-11 actors=%d frames=3600 seconds=60 evaluations=%d worst_ai_us=%.3f failures=%d" % [
 		actors, evaluations, worst, failures])
+	print("PRF-11 worst phases frame=%d " % worst_frame, worst_details)
 	player.free()
 	streamer.free()
 	quit(0 if failures == 0 else 1)

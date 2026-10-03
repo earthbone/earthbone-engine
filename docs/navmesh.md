@@ -412,3 +412,9 @@ triangle tree. A regression with overlapping mesh bounds limits the lookup to
 two tested triangles in an 80,002-triangle graph. Containment lookup stops at
 the first containing triangle. It still ignores surface height and includes
 blocked triangles. A 1,024-floor regression requires one triangle test.
+
+`query_revision` exposes the graph's existing mutation revision for transient
+query-result caches. Geometry, links, flags, blocking, door bindings and obstacle
+changes advance it. Compare this value only on the same graph, as with the
+revision retained by `PathSearch`. The game uses it to retry cached failures
+when navigation changes.

@@ -188,6 +188,7 @@ pub struct AiState {
 #[derive(Default)]
 pub struct AiWorld {
     nav: Option<NavGraph>,
+    nav_doors: BTreeMap<u64, Option<NavDoor>>,
     planner: navigation::Planner,
     markers: markers::Planner,
     /// Time spent in automatic package evaluation during the most recent tick.
@@ -205,6 +206,12 @@ pub struct AiWorld {
     pub unsupported_functions: BTreeMap<u16, usize>,
     /// Package evaluations run, for the performance harness.
     pub evaluations: usize,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct NavDoor {
+    position: [f32; 3],
+    opened: bool,
 }
 
 impl AiWorld {
@@ -1999,15 +2006,18 @@ fn ensure_nav_graph(world: &mut World) {
         let mut graph = graph;
         let mut door_keys: Vec<_> = graph.door_keys().collect();
         door_keys.sort_unstable();
+        let mut doors = BTreeMap::new();
         for key in door_keys {
             let door = GlobalFormId {
                 file: (key >> 32) as u16,
                 object: key as u32,
             };
-            let Some((position, opened)) = world
-                .reference(door)
-                .map(|reference| (reference.position, reference.opened))
-            else {
+            let state = world.reference(door).map(|reference| NavDoor {
+                position: reference.position,
+                opened: reference.opened,
+            });
+            doors.insert(key, state);
+            let Some(NavDoor { position, opened }) = state else {
                 continue;
             };
             if graph.bind_door_footprint(key, position) {
@@ -2016,6 +2026,7 @@ fn ensure_nav_graph(world: &mut World) {
         }
         graph.prepare_queries();
         world.ai.nav = Some(graph);
+        world.ai.nav_doors = doors;
         world.ai.nav_cells = cells;
     }
 }
@@ -2024,25 +2035,25 @@ fn ensure_nav_graph(world: &mut World) {
 /// change invalidates cached actor routes so the next movement step replans.
 fn refresh_nav_doors(world: &mut World) {
     ensure_nav_graph(world);
-    let Some(graph) = world.ai.nav.as_ref() else {
-        return;
-    };
-    let mut door_keys: Vec<_> = graph.door_keys().collect();
-    door_keys.sort_unstable();
+    let mut doors = std::mem::take(&mut world.ai.nav_doors);
     let mut door_changes = Vec::new();
-    for key in door_keys {
+    for (&key, previous) in &mut doors {
         let door = GlobalFormId {
             file: (key >> 32) as u16,
             object: key as u32,
         };
-        let Some((position, opened)) = world
-            .reference(door)
-            .map(|reference| (reference.position, reference.opened))
-        else {
-            continue;
-        };
-        door_changes.push((key, position, opened));
+        let state = world.reference(door).map(|reference| NavDoor {
+            position: reference.position,
+            opened: reference.opened,
+        });
+        if state != *previous {
+            *previous = state;
+            if let Some(NavDoor { position, opened }) = state {
+                door_changes.push((key, position, opened));
+            }
+        }
     }
+    world.ai.nav_doors = doors;
     let Some(graph) = world.ai.nav.as_mut() else {
         return;
     };
@@ -2132,16 +2143,17 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             if world.is_player(actor) {
                 return;
             }
-            if world.actor_is_paralyzed(actor) {
-                return;
-            }
-            let Some((dead, unconscious)) = world.actor(actor).map(|a| (a.dead, a.unconscious))
-            else {
+            let Some((dead, unconscious)) = measure_phase(world, "actor_state", |world| {
+                if world.actor_is_paralyzed(actor) {
+                    return None;
+                }
+                let state = world.actor(actor)?;
+                state.flying =
+                    !state.dead && !state.unconscious && state.ai.procedure == Procedure::Hover;
+                Some((state.dead, state.unconscious))
+            }) else {
                 return;
             };
-            if let Some(state) = world.actor(actor) {
-                state.flying = !dead && !unconscious && state.ai.procedure == Procedure::Hover;
-            }
             if dead || unconscious {
                 world.ai.planner.cancel(actor);
                 world.ai.markers.cancel(actor);
@@ -2170,7 +2182,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             if ignore_combat {
                 clear_combat_engagement(world, actor);
             }
-            if world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0 {
+            if measure_phase(world, "calm_check", |world| {
+                world.is_calmed(actor) && world.actor_value(actor, "aggression") < 1.0
+            }) {
                 clear_combat_engagement(world, actor);
             }
             let turn_undead_threat = measure_phase(world, "turn_undead_check", |world| {
@@ -2202,20 +2216,24 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 .actor(actor)
                 .is_some_and(|state| state.ai.procedure == Procedure::Flee);
             if active_target.is_none() && !fleeing {
-                let due = world.actor(actor).is_some_and(|state| {
-                    state.ai.package.is_none()
-                        || state.ai.reevaluate
-                        || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
+                let due = measure_phase(world, "evaluation_due", |world| {
+                    world.actor(actor).is_some_and(|state| {
+                        state.ai.package.is_none()
+                            || state.ai.reevaluate
+                            || now - state.ai.last_evaluation >= EVALUATION_INTERVAL
+                    })
                 });
                 if due {
                     evaluate_on_frame(world, actor, alloc, &mut evaluations);
                 }
             }
             if active_target.is_some() && !ignores_combat(world, actor) && !fleeing {
-                let due = world.actor(actor).is_some_and(|a| {
-                    a.ai.package.is_none()
-                        || a.ai.reevaluate
-                        || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                let due = measure_phase(world, "evaluation_due", |world| {
+                    world.actor(actor).is_some_and(|a| {
+                        a.ai.package.is_none()
+                            || a.ai.reevaluate
+                            || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                    })
                 });
                 if due {
                     evaluate_on_frame(world, actor, alloc, &mut evaluations);
@@ -2237,10 +2255,12 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 pursue_combat_target(world, actor, dt as f32);
                 return;
             }
-            let due = world.actor(actor).is_some_and(|a| {
-                a.ai.package.is_none()
-                    || a.ai.reevaluate
-                    || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+            let due = measure_phase(world, "evaluation_due", |world| {
+                world.actor(actor).is_some_and(|a| {
+                    a.ai.package.is_none()
+                        || a.ai.reevaluate
+                        || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
+                })
             });
             if due {
                 evaluate_on_frame(world, actor, &mut *alloc, &mut evaluations);

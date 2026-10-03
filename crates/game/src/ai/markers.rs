@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::task::Poll;
 
-use super::{references_in_cell, sandbox_marker, GlobalFormId, World};
+use super::{sandbox_marker, GlobalFormId, World};
 
 const REQUEST_BUDGET: usize = 64;
 const FRAME_BUDGET: usize = 256;
@@ -21,7 +21,8 @@ pub(super) struct Goal {
 
 struct Request {
     goal: Goal,
-    references: Vec<GlobalFormId>,
+    offsets: [usize; 3],
+    total: usize,
     cursor: usize,
     matches: Vec<GlobalFormId>,
     frame: u64,
@@ -44,7 +45,7 @@ impl Planner {
     pub(super) fn waiting(&self, actor: GlobalFormId) -> bool {
         self.requests
             .get(&actor)
-            .is_some_and(|request| request.cursor < request.references.len())
+            .is_some_and(|request| request.cursor < request.total)
     }
 
     pub(super) fn begin_frame(&mut self, world: &mut World, actors: &[GlobalFormId]) {
@@ -90,7 +91,11 @@ impl Planner {
         }
         let request = self.requests.entry(actor).or_insert_with(|| Request {
             goal,
-            references: references_in_cell(world, goal.cell),
+            offsets: [0; 3],
+            total: super::measure_phase(world, "cell_references", |world| {
+                let index = world.order().build_cell_index();
+                index.references(goal.cell).len() + index.deleted_references(goal.cell).len()
+            }),
             cursor: 0,
             matches: Vec::new(),
             frame: self.frame.wrapping_sub(1),
@@ -101,7 +106,7 @@ impl Planner {
             self.last_work += used;
             request.frame = self.frame;
         }
-        if request.cursor == request.references.len() {
+        if request.cursor == request.total {
             Poll::Ready(
                 self.requests
                     .remove(&actor)
@@ -115,14 +120,39 @@ impl Planner {
 
 impl Request {
     fn advance(&mut self, world: &mut World, budget: usize) -> usize {
-        let end = (self.cursor + budget).min(self.references.len());
-        let used = end - self.cursor;
-        for reference in &self.references[self.cursor..end] {
-            if sandbox_marker(world, *reference, self.goal.center, self.goal.radius) {
-                self.matches.push(*reference);
+        let references = super::measure_phase(world, "cell_references", |world| {
+            let index = world.order().build_cell_index();
+            let slices = [
+                index.persistent_references(self.goal.cell),
+                index.temporary_references(self.goal.cell),
+                index.deleted_references(self.goal.cell),
+            ];
+            let mut references = Vec::with_capacity(budget.min(self.total - self.cursor));
+            for _ in 0..budget {
+                let Some((part, reference)) = slices
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(part, slice)| slice.get(self.offsets[part]).map(|id| (part, *id)))
+                    .min_by_key(|(_, id)| *id)
+                else {
+                    break;
+                };
+                self.offsets[part] += 1;
+                self.cursor += 1;
+                references.push(reference);
+            }
+            references
+        });
+        let used = references.len();
+        for reference in references {
+            if world
+                .tag_of(reference)
+                .is_some_and(|tag| tag == soe_esm::tag::REFR || tag == soe_esm::tag::ACHR)
+                && sandbox_marker(world, reference, self.goal.center, self.goal.radius)
+            {
+                self.matches.push(reference);
             }
         }
-        self.cursor = end;
         used
     }
 }
@@ -182,6 +212,58 @@ mod tests {
             center: [0.0; 3],
             radius: 10.0,
         }
+    }
+
+    #[test]
+    fn prf_11_marker_setup_and_sorted_index_merge_have_bounded_work() {
+        use soe_esm::GroupKind;
+
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"CELL"), 0x800));
+        plugin.push_top(Record::new(Tag(*b"IDLM"), 0x801));
+        for object in 0x1000..0x2000 {
+            let tag = if object % 7 == 0 {
+                Tag(*b"PHZD")
+            } else {
+                Tag(*b"REFR")
+            };
+            let mut record = Record::new(tag, object).sub(Tag(*b"NAME"), 0x801u32.to_le_bytes());
+            record.placement.cell = Some(0x800);
+            match object % 3 {
+                0 => record.placement.group = Some(GroupKind::CellPersistent(0x800)),
+                1 => record.placement.group = Some(GroupKind::CellTemporary(0x800)),
+                _ => record.flags |= 0x20,
+            }
+            plugin.push_top(record);
+        }
+        let mut order = LoadOrder::new();
+        order.add("Prf11MarkerMerge.esm", plugin).unwrap();
+        let order = std::sync::Arc::new(order);
+        order.build_cell_index();
+        let mut oracle = World::from_shared_order(order.clone());
+        let expected = super::super::sandbox_markers(&mut oracle, id(0x800), [0.0; 3], 10.0);
+        let mut world = World::from_shared_order(order);
+        let mut planner = Planner::default();
+        let actor = id(0x810);
+        planner.begin_frame(&mut world, &[actor]);
+        assert!(planner.request(&mut world, actor, goal()).is_pending());
+        assert_eq!(planner.last_work, REQUEST_BUDGET);
+        assert_eq!(planner.requests[&actor].cursor, REQUEST_BUDGET);
+        assert_eq!(planner.requests[&actor].total, 4096);
+        assert!(
+            world.reference_ref(id(0x1fff)).is_none(),
+            "setup scanned the whole cell"
+        );
+        let mut result = Poll::Pending;
+        for _ in 0..128 {
+            planner.begin_frame(&mut world, &[actor]);
+            result = planner.request(&mut world, actor, goal());
+            assert!(planner.last_work <= REQUEST_BUDGET);
+            if result.is_ready() {
+                break;
+            }
+        }
+        assert_eq!(result, Poll::Ready(expected));
     }
 
     #[test]

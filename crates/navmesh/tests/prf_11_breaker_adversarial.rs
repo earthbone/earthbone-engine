@@ -5,7 +5,7 @@
 
 use std::task::Poll;
 
-use soe_navmesh::{NavGraph, ObstacleShape, NodeId};
+use soe_navmesh::{NavGraph, NodeId, ObstacleShape};
 
 fn grid(size: u32) -> NavGraph {
     let mut graph = NavGraph::new();

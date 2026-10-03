@@ -8139,3 +8139,35 @@ FormID order. A changed package or search goal cancels the old query, and unload
 actors lose it. Marker requests are transient and restart after save restoration.
 Cell lookup, base filtering, bed classification and reference initialization
 have separate timing entries. `marker_resume` measures retained candidate scans.
+
+Failed navigation requests retain their completed result, including the empty
+route for disconnected on-mesh endpoints. Repeating the same start and goal
+performs no endpoint lookup or search. Changed starts, goals or graph revisions
+discard that result. Existing package switches, explicit reevaluation and
+navigation invalidation also cancel it, and unloading removes the actor's
+request. Successful routes are consumed as before. These are transient query
+results, with no saved fields. The retained-path model in local
+`openmw/apps/openmw/mwmechanics/aipackage.cpp`, `pathTo` and
+`doesPathNeedRecalc`, reuses successful paths but rebuilds empty ones. The
+engine caches empty results too because repeated endpoint lookup was the
+measured cost, and uses its NAVM revision to retry when walkability changes.
+
+Door refresh retains sorted door identities and the last position and open
+state applied to the graph. Every tick reads the live reference, but unchanged
+doors need no footprint query. Changed positions and open states rebind or
+update blocking and invalidate actor routes when graph walkability changes.
+The cache is rebuilt with the graph and is not saved. Door associations still
+follow local xEdit NVNM Door Links and CommonLibSSE-NG `BSNavmesh.h`.
+Actor diagnostics also separate state, Calm and evaluation-eligibility checks
+from combat checks, procedure-tree entry, marker work and path requests.
+
+Sandbox request setup reads only the existing index's slice lengths. Candidate
+scans merge its sorted persistent, temporary and deleted slices through three
+retained offsets. Both tag filtering and marker classification fit the reference
+budget, including the first tick, without copying or sorting a whole cell per
+actor. This retains the same FormID order as `references_in_cell` and reads
+live marker state during each bounded scan.
+
+Ordinary `World::load_cell` prepares the world NAVM graph and query caches
+after prefetching references and before attaching the cell. The first AI tick
+therefore reads the prepared graph without relying on a host measurement hook.

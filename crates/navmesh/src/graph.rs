@@ -887,6 +887,20 @@ impl NavGraph {
         self.components();
     }
 
+    /// Revision of geometry, links and walkability for transient query caches.
+    ///
+    /// Compare revisions only on the same graph. Mutating query inputs advances
+    /// this value, including door bindings, flags and obstacles.
+    ///
+    /// # Errors
+    /// This function does not return errors.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    pub fn query_revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Path between two world points, each located on the graph first.
     /// Exact endpoints are retained. Off-mesh fallback approach/departure
     /// segments are not guaranteed to lie on the walkable surface.

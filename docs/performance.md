@@ -702,3 +702,68 @@ Mare measured 35.437 us first and 23.705 us warm, versus 38.102 us and
 57.709 us warm, versus 102.924 us and 68.509 us before indexing.
 The 498 library tests across game, navmesh and godot-host passed. Package
 clippy with all targets and warnings denied passed for all three crates.
+
+### PRF-11 repeated-request diagnosis, pass 3
+
+The lead's pass 2 release check reported 637 failing frames and a 24.893 ms
+maximum. Additional actor-driver phases separate actor state, Calm and
+evaluation eligibility from movement and its existing nested query timings.
+The initial pass 3 diagnostic, before changing request reuse or door refresh,
+reported 778 failures and a 39.097 ms maximum over 3,600 frames. It used Godot
+4.4.1 headless with the installed five-master gameplay load order.
+
+At frame 600, movement used 7.088 ms, including 6.254 ms in request setup.
+At frame 2400, setup used 8.461 ms of 9.092 ms in movement. A failed route was
+discarded on completion, so unchanged actors resolved the same endpoints
+again on later ticks. At frame 304, a sandbox request also spent 4.361 ms
+collecting and filtering cell references. Door refresh ranged from 1.257 to
+2.060 ms at the periodic samples. The worst frame, 2289, spent 19.516 ms in
+request setup, 5.260 ms in procedure-tree entry and 6.034 ms in door refresh.
+These are inclusive wall-clock phases, including time spent descheduled.
+
+Completed failures now remain in the transient planner until their inputs or
+the NAVM graph revision change. Unchanged requests perform no new query work.
+Door refresh reads live references each tick and reuses unchanged footprint
+bindings. Neither cache changes saved actor state or adds a scene-node path.
+
+With route reuse and unchanged-door filtering, periodic samples fell to 23.136
+us of setup and 129.645 us of door refresh at frame 600. That run overlapped
+the worktree's Rust test build. It still failed 184 frames and reached 118.969
+ms, with 81.543 ms in package selection on its worst tick. Its first tick
+also spent 7.142 ms collecting cell references, outside the marker scan budget.
+Sandbox request setup now reads only index slice lengths, and each bounded
+scan merges the sorted persistent, temporary and deleted slices. It no longer
+copies, filters and sorts the whole cell before its first slice.
+
+The installed Rust checks passed their three 60-second runs at 967.218,
+698.921 and 749.527 us maximum, but the cold first-tick regression failed at
+699.073 ms. Ordinary cell loading had left the world NAVM graph lazy.
+`World::load_cell` now prepares the graph after reference prefetch and before
+attachment, so this work occurs during loading rather than the first AI tick.
+
+The navmesh test command reported 83 passes with `SKYRIM_DATA` unset. A separate
+installed path survey passed on both graphs. Bannered Mare measured 34.095 us
+first and 24.877 us warm, and WhiterunWorld 91.253 us first and 60.033 us warm.
+Both baseline corridors and costs remain unchanged. The warm before/after
+pairs are 28.423 / 24.877 us and 68.509 / 60.033 us.
+
+After moving preparation into loading, all 173 game library tests passed.
+The installed integration selection passed 83 tests, including the cold
+first-tick check, all PRF-11 timed runs, door invalidation and cell transitions.
+The three Bannered Mare 60-second maxima were 703.269, 699.803 and 724.780 us.
+Package Clippy passed for game, navmesh and godot-host with all targets and
+warnings denied. No saved fields, dependencies or actor scene nodes were added.
+
+The final release extension passed the same Godot 4.4.1 headless check, with
+no compiler running in this worktree during measurement. The process exited
+zero. First-tick cell-reference work was 3.778 us. At frame 600, request setup
+was 11.439 us and door refresh 59.322 us, compared with 6.254 ms and 1.899 ms
+in the initial pass 3 diagnostic. The worst tick was frame 1800 at 1.756 ms,
+including 1.582 ms of actor processing, 264.609 us of request setup and
+153.110 us of door refresh. All 3,600 samples met the unchanged 8 ms limit.
+These are wall-clock observations on this machine, not a portable scheduling
+guarantee. Earlier failed diagnostic runs remain recorded above.
+
+```text
+PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=1756.340 failures=0
+```
