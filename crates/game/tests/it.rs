@@ -7,6 +7,9 @@
 mod common;
 mod support;
 
+#[path = "scr_23_breaker_adversarial.rs"]
+mod scr_23_breaker_adversarial;
+
 #[path = "cell_attach_binding.rs"]
 mod cell_attach_binding;
 
@@ -1180,8 +1183,12 @@ mod scr_14_adversarial;
 mod scr_15_adversarial;
 #[path = "scr_16_adversarial.rs"]
 mod scr_16_adversarial;
+#[path = "scr_16_breaker_adversarial.rs"]
+mod scr_16_breaker_adversarial;
 #[path = "scr_17_adversarial.rs"]
 mod scr_17_adversarial;
+#[path = "scr_17_breaker_adversarial.rs"]
+mod scr_17_breaker_adversarial;
 #[path = "scr_18_actor_base_gift_filter.rs"]
 mod scr_18_actor_base_gift_filter;
 #[path = "scr_18_adversarial.rs"]
@@ -1194,6 +1201,8 @@ mod scr_20_adversarial;
 mod scr_20_debug_natives;
 #[path = "scr_21_adversarial.rs"]
 mod scr_21_adversarial;
+#[path = "scr_21_breaker_adversarial.rs"]
+mod scr_21_breaker_adversarial;
 #[path = "scr_22_adversarial.rs"]
 mod scr_22_adversarial;
 #[path = "scr_22_debug_profiling.rs"]

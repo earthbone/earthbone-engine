@@ -90,6 +90,15 @@ and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
 
+### Debug collision switch, SCR-21
+
+`Debug.ToggleCollisions` changes `World::debug_collisions_enabled`. The host
+applies that value to resident cell collision bodies and the player's query
+bodies by setting their physics collision layer and mask to zero while off,
+then restoring layer and mask one when on. Bodies synchronized after a switch
+receive the current setting on the next host sync. Player movement still uses
+the `soe-physics` `SimpleWorld` solver.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
@@ -377,6 +386,18 @@ transition, and pass the new placement through `sync_game_pose` so the shared
 streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
+
+### Debug reference presentation and movement, SCR-23
+
+`PlayerNode` displays each `Debug.ShowRefPosition` request as a small emissive
+sphere at that reference's current world placement. The sphere mesh and
+material are shared. The host stores one `RenderingServer` instance RID per
+requested reference and frees the instances when the player node exits.
+`Debug.PlayerMoveToAndWait` requests are applied to the shared World before
+`sync_game_pose`. The latent Papyrus call resolves with 0 after the host has
+installed the destination, or -1 if the move cannot be applied or installed.
+`Debug.SetFootIK` is retained in World, but actor rendering does not yet apply
+foot inverse kinematics.
 
 `Game.ShakeController` queues a transient controller-shake request. The
 player adapter sends its left and right strengths and duration to every

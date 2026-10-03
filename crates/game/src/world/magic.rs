@@ -4166,6 +4166,11 @@ impl World {
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
         let mut applicable = effect.clone();
+        if self.debug_god_mode && self.player == Some(effect.target) {
+            applicable
+                .changes
+                .retain(|(name, amount)| name != "health" || f64::from(*amount) * scale >= 0.0);
+        }
         if self.is_ethereal(effect.target) {
             applicable
                 .changes

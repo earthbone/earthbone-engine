@@ -430,18 +430,21 @@ Stack profiling uses the current Papyrus thread. A failed file write is added
 to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
 native layer has no host frame-capture request path.
 
-**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`. While
+enabled, incoming player health damage is ignored by melee, magic and
+`DamageActorValue` paths. Other actors and non-health actor values keep their
+normal damage behavior.
 `Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
 package driver while it is false. `Debug.ToggleCollisions` flips
-`World::debug_collisions_enabled`. The host collision path does not read this
-flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
+`World::debug_collisions_enabled`. The Godot host applies this flag to resident
+cell collision bodies and player query collision bodies. `Debug.DumpAliasData`
+logs each runtime alias id and its filled form
 or `empty`, and logs a diagnostic when its argument is not a quest or has no
 runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments
 as `[channel] message`. The CK `Debug` class page documents these global
 functions. The local Skyrim Platform function catalog supplies the two-string
 signature for `DebugChannelNotify`, which is absent from that CK page.
-God-mode damage immunity and host collision switching are not implemented by
-these runtime flags.
+Player movement continues to use the `soe-physics` `SimpleWorld` solver.
 
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
@@ -603,6 +606,29 @@ notes the vanilla function can freeze. Separate named pages for the other
 four functions were absent from this corpus. SCR-20 tests cover native
 arguments, duplicate and missing names, queued host effects and latent
 completion. This host path does not reproduce the freeze note.
+
+### Debug presentation natives, SCR-23
+
+`Debug.SetFootIK(enabled)` changes a transient world setting. The current actor
+renderer has no foot-IK solver, so this setting does not change rendered
+poses. `Debug.ShowRefPosition(reference)` accepts a
+resolved placed reference, records its identity once, and logs an invalid
+reference when the object does not resolve to a placed reference.
+`Debug.PlayerMoveToAndWait(editorId)` resolves the destination reference,
+queues a host move, and suspends the Papyrus thread. The Godot host applies the
+placement and resolves the wait with 0 after destination resources install.
+Missing references log an error and return 0. Failed host installation returns
+-1. `Debug.MoveToCell`
+resolves a CELL editor id and moves the player to the cell origin. An unknown
+cell logs an error and leaves the player unchanged.
+
+The local `ck-wiki/Debug_Script.wikitext` documents the listed signatures and
+summaries, and `CenterOnCell_-_Debug.wikitext` documents the cell teleport
+argument and its warning about freezing. Individual pages for the four SCR-23
+functions are absent from the corpus. Host rendering displays each requested
+reference position as a small emissive sphere using `RenderingServer` instances.
+Foot IK remains a presentation gap because no solver or ground-contact input is
+available in the actor renderer.
 
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
@@ -1179,25 +1205,27 @@ and the equipped shout while retaining the actor's known spells and inventory.
 `Actor.RemoveAllSpells` clears known spells and spell hand assignments while
 leaving unrelated equipment in place. `StartVampireFeed` queues the documented
 `OnVampireFeed` event on the calling actor when its target resolves to a
-sleeping actor. `StartCannibal` remains a quiet stub because actor action state
-is not modeled. `ClearExtraArrows` needs
-attached-arrow state in the host renderer.
+sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
+calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
+is a no-op because the runtime does not model attached-arrow extra data. The
+CK native clears arrows from actor 3D, so host renderer support remains a
+prerequisite for implementing this behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
-`ShowRefPosition` records a resolved reference for development display.
-`PlayerMoveToAndWait` resolves a destination reference by editor id, moves the
-player to its position, rotation and cell, and returns `1.0` on success or
-`0.0` when the destination is missing. This float result is the runtime's
-success indication. The CK page defines a float return but does not describe
-its value. `MoveToCell` resolves a cell by editor id and moves the player to
-its origin. Failed destination lookups leave the player in place and write a
-Papyrus log entry. The existing Godot player pose sync reflects changed
-placement and cell state. The Godot host has no foot IK rig or reference
-tripod renderer yet, so the two display requests currently record their
-state without changing visuals. `PlayerMoveToAndWait` also moves synchronously
-and does not suspend the Papyrus stack while the host attaches the destination
-cell.
+The actor renderer has no foot IK solver, so changing this setting does not
+change rendered poses. `ShowRefPosition` records a resolved placed reference
+for development display. The Godot host displays each requested position as
+an emissive sphere using `RenderingServer` instances. `PlayerMoveToAndWait`
+resolves a destination reference by editor id, queues a host move, and
+suspends the Papyrus thread until the host installs the destination placement
+and cell. The host resolves the wait with `0.0` after installation or `-1.0`
+if the move cannot be applied. A missing destination logs an error and
+returns `0.0`. The CK page defines a float return but does not describe its
+value. `MoveToCell` resolves a cell by editor id and moves the player to its
+origin. Failed destination lookups leave the player in place and write a
+Papyrus log entry. The local source is
+`ck-wiki/Debug_Script.wikitext`.
 
 ## ForceRefTo and Form contract audit
 
@@ -1411,11 +1439,21 @@ Creation Engine frame capture or memory budgets.
   native error when the spell's delivery or effect is unsupported.
 - `MoveToPackageLocation` moves an actor to its selected package location
   center and cell. It logs a native error if that location is unavailable.
-- `WillIntimidateSucceed` shares condition function 655's estimate, comparing
-  player Speechcraft with the target's AIDT Confidence. The perk entry point
-  that supplies the complete intimidation formula is not implemented.
-- `GetWarmthRating` still returns zero. Armor warmth data and survival warmth
-  calculation are not implemented.
+- `WillIntimidateSucceed` compares player Speechcraft, after the player's
+  eligible `Mod Player Intimidation` PERK entries, with the target's AIDT
+  Confidence multiplied by 25. Value functions support Set, Add, Multiply,
+  random-range Add, actor-value Add/Set/Multiply and actor-value-scaled
+  Multiply. The entry point ID, function encodings and tab order follow UESP
+  `PERK.wikitext`. Native name, arguments and result follow CK
+  `WillIntimidateSucceed_-_Actor.wikitext`. The native evaluates perk
+  conditions with the actor as owner and the subject as target, including
+  conditional Papyrus variables from the calling VM.
+- `GetWarmthRating` sums equipped ARMO warmth classifications. ARMO records
+  with `Survival_ArmorWarm` contribute 54, those with `Survival_ArmorCold`
+  contribute 17, and unclassified ARMO records contribute 27. Other equipped
+  forms contribute zero. The total and no-argument signature follow CK
+  `Actor_Script.wikitext`. The keyword classifications are read from the
+  winning ARMO and KYWD records.
 - `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
   record and add or remove it from the world's transient active music type list.
   Duplicate additions and removing an inactive type leave the list unchanged.
@@ -2766,7 +2804,8 @@ functions, `SetRace`, `SetEyeTexture`, `SetCriticalStage`, `AttachAshPile`,
 the bleedout and AI flags, `WornHasKeyword`, `IsPlayersLastRiddenHorse` and
 `Game.AddPerkPoints`. Sixteen more went in as quiet stubs because the system
 behind them does not exist yet: flight, active magic effects, the ragdoll,
-the survival warmth rating, werewolf crime, jail time and the sun.
+werewolf crime, jail time and the sun. SCR-17 later connected the warmth query
+to equipped ARMO keywords.
 
 Decisions taken rather than read, since no wiki page states them:
 
