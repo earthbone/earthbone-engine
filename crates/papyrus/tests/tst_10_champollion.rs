@@ -76,7 +76,13 @@ fn add_function(
             params: function
                 .params
                 .iter()
-                .map(|param| param.type_name.to_ascii_lowercase())
+                .map(|param| {
+                    format!(
+                        "{}:{}",
+                        param.name.to_ascii_lowercase(),
+                        param.type_name.to_ascii_lowercase()
+                    )
+                })
                 .collect(),
             instructions: function.code.len(),
         },
@@ -124,8 +130,13 @@ pub fn champollion_functions(assembly: &str) -> BTreeMap<FunctionKey, FunctionSh
             instructions = 0;
             in_code = false;
         } else if let Some(rest) = line.strip_prefix(".param ") {
-            if let Some(param_type) = rest.split_whitespace().nth(1) {
-                params.push(param_type.to_ascii_lowercase());
+            let mut fields = rest.split_whitespace();
+            if let (Some(param_name), Some(param_type)) = (fields.next(), fields.next()) {
+                params.push(format!(
+                    "{}:{}",
+                    param_name.to_ascii_lowercase(),
+                    param_type.to_ascii_lowercase()
+                ));
             }
         } else if line == ".code" {
             in_code = true;
@@ -259,7 +270,7 @@ fn tst_10_champollion_assembly_inventory_parser_reads_signatures_and_opcodes() {
             String::new(),
         )),
         Some(&FunctionShape {
-            params: vec!["int".into()],
+            params: vec!["amount:int".into()],
             instructions: 2,
         })
     );
@@ -275,14 +286,14 @@ fn tst_10_champollion_reports_unmatched_loaded_functions() {
             String::new(),
         ),
         FunctionShape {
-            params: vec!["int".into()],
+            params: vec!["int:int".into()],
             instructions: 2,
         },
     )]);
     let decoded = BTreeMap::new();
     assert_eq!(
         differences(&pex, &decoded),
-        vec!["example::::tick:: PEX=Some(FunctionShape { params: [\"int\"], instructions: 2 }) Champollion=None"]
+        vec!["example::::tick:: PEX=Some(FunctionShape { params: [\"int:int\"], instructions: 2 }) Champollion=None"]
     );
 }
 
@@ -296,7 +307,7 @@ fn tst_10_champollion_equal_function_inventories_have_no_differences() {
             String::new(),
         ),
         FunctionShape {
-            params: vec!["int".into()],
+            params: vec!["int:int".into()],
             instructions: 2,
         },
     )]);
@@ -319,7 +330,7 @@ fn tst_10_champollion_instruction_inventory_skips_labels_and_debug_comments() {
             String::new(),
         )),
         Some(&FunctionShape {
-            params: vec!["int".into()],
+            params: vec!["value:int".into()],
             instructions: 2,
         }),
         "labels and debug comments are not instructions"
@@ -337,7 +348,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
                 String::new(),
             ),
             FunctionShape {
-                params: vec!["int".into()],
+                params: vec!["int:int".into()],
                 instructions: 2,
             },
         ),
@@ -362,7 +373,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
             String::new(),
         ),
         FunctionShape {
-            params: vec!["string".into()],
+            params: vec!["string:string".into()],
             instructions: 3,
         },
     )]);
@@ -371,7 +382,7 @@ fn tst_10_champollion_report_differences_include_missing_and_changed_functions()
         differences(&source, &champollion),
         vec![
             "example::::get::health PEX=Some(FunctionShape { params: [], instructions: 1 }) Champollion=None".to_owned(),
-            "example::running::tick:: PEX=Some(FunctionShape { params: [\"int\"], instructions: 2 }) Champollion=Some(FunctionShape { params: [\"string\"], instructions: 3 })".to_owned(),
+            "example::running::tick:: PEX=Some(FunctionShape { params: [\"int:int\"], instructions: 2 }) Champollion=Some(FunctionShape { params: [\"string:string\"], instructions: 3 })".to_owned(),
         ],
         "the report includes missing functions and signature or instruction differences"
     );

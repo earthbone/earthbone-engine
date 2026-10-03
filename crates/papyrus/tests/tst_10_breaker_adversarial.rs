@@ -41,10 +41,29 @@ fn champollion_property_getter_and_setter_remain_distinct_functions() {
     let assembly = ".object Example\n.property Health Int\n.function get\n.code\nRETURN health\n.endCode\n.endFunction ;get\n.function set\n.param value Int\n.code\nRETURN None\n.endCode\n.endFunction ;set\n.endProperty\n.endObject\n";
     let functions = champollion_harness::champollion_functions(assembly);
     let keys = BTreeMap::from([
-        (("example".into(), String::new(), "get".into(), "health".into()), ()),
-        (("example".into(), String::new(), "set".into(), "health".into()), ()),
+        (
+            (
+                "example".into(),
+                String::new(),
+                "get".into(),
+                "health".into(),
+            ),
+            (),
+        ),
+        (
+            (
+                "example".into(),
+                String::new(),
+                "set".into(),
+                "health".into(),
+            ),
+            (),
+        ),
     ]);
     let actual: BTreeMap<_, _> = functions.keys().cloned().map(|key| (key, ())).collect();
 
-    assert_eq!(actual, keys, "AsmCoder names accessors by kind and property");
+    assert_eq!(
+        actual, keys,
+        "AsmCoder names accessors by kind and property"
+    );
 }

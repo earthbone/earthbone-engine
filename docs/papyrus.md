@@ -85,7 +85,7 @@ when a runtime struct is created.
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
 
-`tests/tst_10_champollion.rs` compares function names, parameter types and
+`tests/tst_10_champollion.rs` compares function names, parameter names and types and
 instruction counts from every PEX in that archive with Champollion's assembly
 output. Labels and debug comments in the assembly do not count as instructions.
 Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
