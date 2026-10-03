@@ -1433,10 +1433,36 @@ mod shm_18_adversarial;
 mod shm_18_live_events;
 #[path = "shm_19_adversarial.rs"]
 mod shm_19_adversarial;
+#[path = "shm_19_breaker_adversarial.rs"]
+mod shm_19_breaker_adversarial;
 #[path = "shm_19_events.rs"]
 mod shm_19_events;
+#[path = "shm_19_extra_adversarial.rs"]
+mod shm_19_extra_adversarial;
+#[path = "shm_20_breaker_adversarial.rs"]
+mod shm_20_breaker_adversarial;
+#[path = "shm_20_extra_adversarial.rs"]
+mod shm_20_extra_adversarial;
+#[path = "shm_20_live_bindings.rs"]
+mod shm_20_live_bindings;
+#[path = "shm_21_adversarial.rs"]
+mod shm_21_adversarial;
+#[path = "shm_21_extra_adversarial.rs"]
+mod shm_21_extra_adversarial;
+#[path = "shm_21_live_event_state.rs"]
+mod shm_21_live_event_state;
+#[path = "shm_22_adversarial.rs"]
+mod shm_22_adversarial;
+#[path = "shm_22_extra_adversarial.rs"]
+mod shm_22_extra_adversarial;
+#[path = "shm_22_live_events.rs"]
+mod shm_22_live_events;
 #[path = "shm_23_adversarial.rs"]
 mod shm_23_adversarial;
+#[path = "shm_23_breaker_adversarial.rs"]
+mod shm_23_breaker_adversarial;
+#[path = "shm_23_extra_adversarial.rs"]
+mod shm_23_extra_adversarial;
 #[path = "shm_23_quest_start_stop.rs"]
 mod shm_23_quest_start_stop;
 #[path = "sound.rs"]

@@ -37,6 +37,12 @@ HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
 `None` when it is absent. The values are host frame state and are not saved.
+The MIT `EventState` implementation reads an instantiated reference's inventory,
+current actor death and unconscious flags, reference and winning-record deletion,
+and each actor's reserved furniture seat. Handles resolve through the current
+load order. Unknown or uninstantiated references return no result. A current
+seat is represented as a furniture Enter event. Binary hook requests return
+the shim's named unsupported-hook error.
 
 ## What is in it
 
@@ -89,6 +95,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
   observes the existing quest state and does not keep a second quest copy.
+  SHM-23 streams live start and failed-stop payloads from this source to a
+  compiled C++ sink over a test pipe. The test validates CommonLib event fields
+  and does not define a C ABI.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
@@ -207,14 +216,26 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 channels for disarm, dragon souls gained, level increase and location
 discovery. The matching `commonlib_*` methods send those event payloads to
 registered sinks. Form identities retain both the load-order file index and
-object id. Level increase reads `player_level` and the current player identity
-from the live world, and rejects levels outside the event's `u16` field before
-dispatch. These events add no saved state. Disarm, dragon soul awards and
-location discovery are event entry points for their gameplay callers. This
-crate does not currently implement those gameplay systems. Binary hook
-requests return the requested hook name as an unsupported result without
-changing runtime state. The corresponding source-level API and C++ contract
-fixture are in `crates/commonlib-shim`.
+object id. Player level increases are emitted after progression changes the
+live player level. Positive `ModActorValue` changes to the player's
+`dragonsouls` value emit the accepted increase. A successful weapon disarm
+emits the caster and target after the weapon is dropped. `AddToMap` emits
+location discovery only when it first adds the reference, using the cell's
+resolved worldspace when available. Level increase reads the current player
+identity and rejects levels outside the event's `u16` field before dispatch.
+The grab and release channel follows held-reference changes, harvest follows a
+successful `World::harvest_item` inventory addition, hit follows a committed
+melee contact, object loaded follows reference 3D residency changes, and quest
+stage follows a successful defined stage change. Quest stage events use item
+index zero because quest log callbacks are not run individually here. Form and
+reference identities use the live load order's runtime IDs. These channels add
+no saved state. Disarm, dragon soul awards and location discovery remain event
+entry points for gameplay callers, with successful weapon disarms, accepted
+dragon soul changes and first-time map additions already wired to dispatch.
+Binary hook requests return the requested hook name as an unsupported result
+without changing runtime state. Event payloads, generated C++
+declarations, the CommonLib source-level API, and its contract fixtures are in
+`crates/commonlib-shim`. Source headers are documented in `docs/shim.md`.
 
 ## Design
 
@@ -1008,8 +1029,12 @@ actor killer dispatch `ActorKill` after the victim enters dead state. The
 critical-hit reporting method validates an actor and winning WEAP record,
 then sends the caller-confirmed event. Critical chance and damage modifiers
 are not calculated by this reporting method. The listeners live only for the
-current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
-for the projected C++ payload contract and unsupported binary hook boundary.
+current World instance and are not saved. The SHM-20 channels dispatch after a
+successful shout cast, player skill rank gain, successful soul-gem fill, new
+player spell addition and streamed cell arrival. Their payloads resolve from
+the same world and load order. Binary hooks return explicit unsupported errors.
+See [shim](shim.md#event-binding-batch-shm-18) for the projected C++ payload
+contract and unsupported binary hook boundary.
 
 ## Conformance table
 

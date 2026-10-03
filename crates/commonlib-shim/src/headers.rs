@@ -870,19 +870,6 @@ struct DragonSoulsGained { float souls; };
 struct LevelIncrease { FormIdentity player; std::uint16_t new_level; };
 struct LocationDiscovery { FormIdentity map_marker; std::optional<std::string> worldspace_id; };
 
-class ScriptEventSourceHolder {
-public:
-    EventSource<DisarmedEvent>& disarmed() noexcept { return disarmed_; }
-    EventSource<DragonSoulsGained>& dragon_souls_gained() noexcept { return dragon_souls_gained_; }
-    EventSource<LevelIncrease>& level_increase() noexcept { return level_increase_; }
-    EventSource<LocationDiscovery>& location_discovery() noexcept { return location_discovery_; }
-private:
-    EventSource<DisarmedEvent> disarmed_;
-    EventSource<DragonSoulsGained> dragon_souls_gained_;
-    EventSource<LevelIncrease> level_increase_;
-    EventSource<LocationDiscovery> location_discovery_;
-};
-
 struct HookResult { bool installed; UnsupportedEventHook unsupported; };
 inline HookResult install_hook(UnsupportedEventHook hook) noexcept { return {false, hook}; }
 
@@ -926,6 +913,39 @@ struct TESQuestStageEvent {
     FormId formID;
     std::uint16_t stage;
     std::uint8_t itemIndex;
+};
+
+class ScriptEventSourceHolder {
+public:
+    EventSource<ShoutAttack>& shout_attack() noexcept { return shout_attack_; }
+    EventSource<SkillIncrease>& skill_increase() noexcept { return skill_increase_; }
+    EventSource<SoulsTrapped>& souls_trapped() noexcept { return souls_trapped_; }
+    EventSource<SpellsLearned>& spells_learned() noexcept { return spells_learned_; }
+    EventSource<TESCellFullyLoadedEvent>& cell_fully_loaded() noexcept { return cell_fully_loaded_; }
+    EventSource<TESGrabReleaseEvent>& grab_release() noexcept { return grab_release_; }
+    EventSource<TESHarvestedEvent>& harvested() noexcept { return harvested_; }
+    EventSource<TESHitEvent>& hit() noexcept { return hit_; }
+    EventSource<TESObjectLoadedEvent>& object_loaded() noexcept { return object_loaded_; }
+    EventSource<TESQuestStageEvent>& quest_stage() noexcept { return quest_stage_; }
+    EventSource<DisarmedEvent>& disarmed() noexcept { return disarmed_; }
+    EventSource<DragonSoulsGained>& dragon_souls_gained() noexcept { return dragon_souls_gained_; }
+    EventSource<LevelIncrease>& level_increase() noexcept { return level_increase_; }
+    EventSource<LocationDiscovery>& location_discovery() noexcept { return location_discovery_; }
+private:
+    EventSource<ShoutAttack> shout_attack_;
+    EventSource<SkillIncrease> skill_increase_;
+    EventSource<SoulsTrapped> souls_trapped_;
+    EventSource<SpellsLearned> spells_learned_;
+    EventSource<TESCellFullyLoadedEvent> cell_fully_loaded_;
+    EventSource<TESGrabReleaseEvent> grab_release_;
+    EventSource<TESHarvestedEvent> harvested_;
+    EventSource<TESHitEvent> hit_;
+    EventSource<TESObjectLoadedEvent> object_loaded_;
+    EventSource<TESQuestStageEvent> quest_stage_;
+    EventSource<DisarmedEvent> disarmed_;
+    EventSource<DragonSoulsGained> dragon_souls_gained_;
+    EventSource<LevelIncrease> level_increase_;
+    EventSource<LocationDiscovery> location_discovery_;
 };
 
 enum class HookKind { CallSite, Branch, Vtable };
