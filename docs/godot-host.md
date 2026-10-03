@@ -235,6 +235,25 @@ that selecting one row creates one resource. Run it after building the release e
 with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
 rendering pixels, and the plugin exits the editor when the check finishes.
 
+### Drop selected references to host collision, EDT-15
+
+`SoeFormTable.drop_selected_reference_to_ground(space, encoded_id)` casts a vertical ray
+through Godot's direct physics space at the selected REFR's horizontal position. The ray
+starts 100 Skyrim units above the reference and extends 10,000 units below it. A hit is
+converted from Godot metres and axes to Skyrim world coordinates. The editor updates only
+the reference's vertical transform value through `EditorDocument`, preserving horizontal
+position and rotation. The active-plugin edit is undoable through `SoeFormTable.undo()`.
+Malformed selections, unavailable physics spaces and rays without a hit return `false` and
+set `last_error()`. `query_ground_collision` exposes the same host query as a position
+inspection for callers that need to preview a surface hit.
+
+The ray query uses Godot's `PhysicsDirectSpaceState3D.intersect_ray` behavior described in
+local `engine-refs/godot-docs/classes/class_physicsdirectspacestate3d.rst`. REFR `DATA` is
+the six-float position and rotation layout from local xEdit's
+`TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `uesp-modfileformat/REFR.wikitext`.
+`godot/edt_15_drop_to_ground_test.gd` creates a server-side box collider and checks the
+host query hit and Skyrim-space surface height without game data.
+
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
 (`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG
