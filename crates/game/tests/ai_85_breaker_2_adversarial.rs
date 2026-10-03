@@ -89,7 +89,10 @@ fn ai_85_real_hours_are_fractional_idempotent_and_independent_of_timescale() {
     let half_hour = condition(716, 0.5);
     assert_eq!(evaluate(&game, id(0x900), &half_hour), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &half_hour), Ok(true));
-    assert_eq!(evaluate(&game, id(0x900), &condition(716, 0.5001)), Ok(false));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(716, 0.5001)),
+        Ok(false)
+    );
 }
 
 #[test]
@@ -115,8 +118,14 @@ fn ai_85_water_object_rejects_references_without_a_valid_water_base() {
     let game = fixture();
     assert_eq!(evaluate(&game, id(0x912), &condition(304, 1.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x910), &condition(304, 1.0)), Ok(false));
-    assert_eq!(evaluate(&game, id(0x913), &condition(304, 1.0)), Err(conditions::Error::Form(id(0x913))));
-    assert_eq!(evaluate(&game, id(0x812), &condition(304, 1.0)), Err(conditions::Error::Form(id(0x812))));
+    assert_eq!(
+        evaluate(&game, id(0x913), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0x913)))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x812), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0x812)))
+    );
 }
 
 #[test]

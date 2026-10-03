@@ -69,8 +69,14 @@ fn ai_85_restrained_reads_actor_state_and_rejects_non_actor_or_missing_subjects(
     game.world_mut().actor(id(0x900)).unwrap().restrained = true;
     assert_eq!(evaluate(&game, id(0x900), &query), Ok(true));
     assert_eq!(evaluate(&game, id(0x900), &condition(244, 0.0)), Ok(false));
-    assert_eq!(evaluate(&game, id(0x910), &query), Err(conditions::Error::Form(id(0x910))));
-    assert_eq!(evaluate(&game, id(0xdead), &query), Err(conditions::Error::Form(id(0xdead))));
+    assert_eq!(
+        evaluate(&game, id(0x910), &query),
+        Err(conditions::Error::Form(id(0x910)))
+    );
+    assert_eq!(
+        evaluate(&game, id(0xdead), &query),
+        Err(conditions::Error::Form(id(0xdead)))
+    );
 }
 
 #[test]
@@ -80,8 +86,14 @@ fn ai_85_water_object_uses_the_reference_base_record_and_validates_context() {
     assert_eq!(evaluate(&game, id(0x912), &condition(304, 0.0)), Ok(false));
     assert_eq!(evaluate(&game, id(0x910), &condition(304, 1.0)), Ok(false));
     assert_eq!(evaluate(&game, id(0x910), &condition(304, 0.0)), Ok(true));
-    assert_eq!(evaluate(&game, id(0x812), &condition(304, 1.0)), Err(conditions::Error::Form(id(0x812))));
-    assert_eq!(evaluate(&game, id(0xdead), &condition(304, 1.0)), Err(conditions::Error::Form(id(0xdead))));
+    assert_eq!(
+        evaluate(&game, id(0x812), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0x812)))
+    );
+    assert_eq!(
+        evaluate(&game, id(0xdead), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0xdead)))
+    );
 }
 
 #[test]
@@ -90,13 +102,22 @@ fn ai_85_documented_parameterless_functions_reject_both_slots_and_missing_target
     for function in [244, 304, 716] {
         let mut first = condition(function, 0.0);
         first.parameters[0] = 1;
-        assert_eq!(evaluate(&game, id(0x900), &first), Err(conditions::Error::Parameter(function, 1)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &first),
+            Err(conditions::Error::Parameter(function, 1))
+        );
         let mut second = condition(function, 0.0);
         second.parameters[1] = 1;
-        assert_eq!(evaluate(&game, id(0x900), &second), Err(conditions::Error::Parameter(function, 1)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &second),
+            Err(conditions::Error::Parameter(function, 1))
+        );
         let mut missing_target = condition(function, 0.0);
         missing_target.run_on = 1;
-        assert_eq!(evaluate(&game, id(0x900), &missing_target), Err(conditions::Error::Target(1)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &missing_target),
+            Err(conditions::Error::Target(1))
+        );
     }
 }
 
@@ -119,9 +140,18 @@ fn ai_85_restraint_and_real_clock_queries_survive_engine_save_load() {
 
     let mut restored = fixture();
     restored.load_state(&saved).unwrap();
-    assert_eq!(evaluate(&restored, id(0x900), &condition(244, 1.0)), Ok(true));
-    assert_eq!(evaluate(&restored, id(0x900), &condition(716, 1.5)), Ok(true));
-    assert_eq!(evaluate(&restored, id(0x900), &condition(716, 2.0)), Ok(false));
+    assert_eq!(
+        evaluate(&restored, id(0x900), &condition(244, 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&restored, id(0x900), &condition(716, 1.5)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&restored, id(0x900), &condition(716, 2.0)),
+        Ok(false)
+    );
 }
 
 #[test]
@@ -129,10 +159,19 @@ fn ai_85_undocumented_functions_remain_explicit_diagnostics() {
     let game = fixture();
     for function in [255, 265, 266, 267, 332] {
         assert!(!conditions::supports_function(function));
-        assert_eq!(evaluate(&game, id(0x900), &condition(function, 0.0)), Err(conditions::Error::Function(function)));
-        assert_eq!(evaluate(&game, id(0x910), &condition(function, 1.0)), Err(conditions::Error::Function(function)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(function, 0.0)),
+            Err(conditions::Error::Function(function))
+        );
+        assert_eq!(
+            evaluate(&game, id(0x910), &condition(function, 1.0)),
+            Err(conditions::Error::Function(function))
+        );
         let mut missing_target = condition(function, 1.0);
         missing_target.run_on = 1;
-        assert_eq!(evaluate(&game, id(0x900), &missing_target), Err(conditions::Error::Target(1)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &missing_target),
+            Err(conditions::Error::Target(1))
+        );
     }
 }
