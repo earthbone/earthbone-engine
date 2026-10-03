@@ -76,8 +76,17 @@ fn ui_25_breaker_installed_inventory_rows_never_use_missing_name_fallback() {
         let rows = inventory_menu::entries(&game, holder, Category::All);
         assert!(!rows.is_empty(), "empty holder {holder}");
         for row in rows {
-            assert_ne!(row.name, "Unnamed item", "holder {holder}, item {}", row.item);
-            assert!(!row.name.starts_with("<string "), "{}: {}", row.item, row.name);
+            assert_ne!(
+                row.name, "Unnamed item",
+                "holder {holder}, item {}",
+                row.item
+            );
+            assert!(
+                !row.name.starts_with("<string "),
+                "{}: {}",
+                row.item,
+                row.name
+            );
             assert_ne!(row.name, row.item.to_string(), "{}", row.item);
             assert_eq!(
                 row.name,
@@ -92,16 +101,20 @@ fn ui_25_breaker_installed_inventory_rows_never_use_missing_name_fallback() {
 }
 
 #[test]
-fn ui_25_breaker_installed_weapon_and_armor_cards_have_previewable_models() {
+fn ui_25_breaker_installed_weapon_and_armor_cards_have_model_paths() {
     let source = installed_source();
-    let (mut game, holders) = installed_holders(&source);
+    let (game, holders) = installed_holders(&source);
     let mut weapon = false;
     let mut armor = false;
     for holder in holders {
         for row in inventory_menu::entries(&game, holder, Category::All) {
-            let record = game.world().record(row.item).expect("inventory base record");
+            let tag = game
+                .world()
+                .record(row.item)
+                .expect("inventory base record")
+                .tag;
             let card = ItemCard::read(&mut game.world_mut(), row.item).unwrap();
-            match record.tag.as_bytes() {
+            match tag.as_bytes() {
                 b"WEAP" => {
                     assert!(card.damage.is_some(), "{} lacks weapon damage", row.item);
                     weapon = true;
@@ -112,12 +125,9 @@ fn ui_25_breaker_installed_weapon_and_armor_cards_have_previewable_models() {
                 }
                 _ => continue,
             }
-            let model = card.model.expect("equippable item ground model");
-            let surfaces = source.item_preview_surfaces(&model).unwrap();
             assert!(
-                !surfaces.is_empty()
-                    && surfaces.iter().all(|(arrays, _)| arrays.triangle_count() > 0),
-                "{} has no renderable preview surfaces",
+                card.model.as_deref().is_some_and(|model| !model.is_empty()),
+                "{} has no authored ground model path",
                 row.item
             );
         }

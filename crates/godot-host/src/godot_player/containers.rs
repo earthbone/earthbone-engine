@@ -3,7 +3,7 @@
 //! Container controls read the same inventory rows as the player menu and
 //! move an item through the shared game's notified transaction.
 
-use godot::classes::{Button, Label};
+use godot::classes::{Button, Label, VBoxContainer};
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 

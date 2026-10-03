@@ -41,10 +41,13 @@ fn ui_25_adversarial_installed_menu_items_keep_full_names() {
             })
             .collect()
     };
-    let merchant = merchant_chests.into_iter().find(|holder| {
-        game.world_mut().reference(*holder);
-        inventory_menu::entries(&game, *holder, Category::All).len() >= 5
-    }).expect("vanilla merchant inventory");
+    let merchant = merchant_chests
+        .into_iter()
+        .find(|holder| {
+            game.world_mut().reference(*holder);
+            inventory_menu::entries(&game, *holder, Category::All).len() >= 5
+        })
+        .expect("vanilla merchant inventory");
     let containers: Vec<_> = {
         let world = game.world();
         world
@@ -59,10 +62,13 @@ fn ui_25_adversarial_installed_menu_items_keep_full_names() {
             .take(100)
             .collect()
     };
-    let container = containers.into_iter().find(|holder| {
-        game.world_mut().reference(*holder);
-        !inventory_menu::entries(&game, *holder, Category::All).is_empty()
-    }).expect("vanilla container inventory");
+    let container = containers
+        .into_iter()
+        .find(|holder| {
+            game.world_mut().reference(*holder);
+            !inventory_menu::entries(&game, *holder, Category::All).is_empty()
+        })
+        .expect("vanilla container inventory");
     let player = game.player();
     for holder in [container, merchant] {
         for entry in inventory_menu::entries(&game, holder, Category::All) {
@@ -76,7 +82,12 @@ fn ui_25_adversarial_installed_menu_items_keep_full_names() {
         assert!(!rows.is_empty(), "empty holder {holder}");
         for row in rows {
             assert!(!row.name.trim().is_empty());
-            assert!(!row.name.starts_with("<string "), "{}: {}", row.item, row.name);
+            assert!(
+                !row.name.starts_with("<string "),
+                "{}: {}",
+                row.item,
+                row.name
+            );
             assert_ne!(row.name, row.item.to_string(), "{}", row.item);
             let card = ItemCard::read(&mut game.world_mut(), row.item)
                 .unwrap_or_else(|error| panic!("{} {}: {error}", row.item, row.name));
@@ -85,7 +96,10 @@ fn ui_25_adversarial_installed_menu_items_keep_full_names() {
             listed += 1;
         }
     }
-    assert!(listed >= 3, "expected rows across container, player and merchant");
+    assert!(
+        listed >= 3,
+        "expected rows across container, player and merchant"
+    );
 }
 
 #[test]
