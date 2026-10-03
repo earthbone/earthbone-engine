@@ -67,15 +67,32 @@ fn ai_85_is_water_object_distinguishes_water_from_non_water_references() {
     assert!(conditions::supports_function(304));
     assert_eq!(evaluate(&game, id(0x912), &condition(304, 1.0)), Ok(true));
     assert_eq!(evaluate(&game, id(0x910), &condition(304, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x912), &condition(304, 0.0)), Ok(false));
+    assert_eq!(evaluate(&game, id(0x910), &condition(304, 0.0)), Ok(true));
     assert_eq!(
         evaluate(&game, id(0x812), &condition(304, 1.0)),
         Err(conditions::Error::Form(id(0x812)))
+    );
+    assert_eq!(
+        evaluate(&game, id(0xdead), &condition(304, 1.0)),
+        Err(conditions::Error::Form(id(0xdead)))
     );
     let mut parameter = condition(304, 1.0);
     parameter.parameters[0] = 1;
     assert_eq!(
         evaluate(&game, id(0x912), &parameter),
         Err(conditions::Error::Parameter(304, 1))
+    );
+    parameter.parameters = [0, 1];
+    assert_eq!(
+        evaluate(&game, id(0x912), &parameter),
+        Err(conditions::Error::Parameter(304, 1))
+    );
+    let mut missing_target = condition(304, 1.0);
+    missing_target.run_on = 1;
+    assert_eq!(
+        evaluate(&game, id(0x912), &missing_target),
+        Err(conditions::Error::Target(1))
     );
 }
 
@@ -95,4 +112,10 @@ fn ai_85_get_restrained_uses_actor_flag_without_mutating_it_for_query() {
     let query = condition(244, 1.0);
     assert_eq!(evaluate(&game, id(0x900), &query), Ok(true));
     assert!(game.world_mut().actor(id(0x900)).unwrap().restrained);
+    let mut missing_target = query;
+    missing_target.run_on = 1;
+    assert_eq!(
+        evaluate(&game, id(0x900), &missing_target),
+        Err(conditions::Error::Target(1))
+    );
 }

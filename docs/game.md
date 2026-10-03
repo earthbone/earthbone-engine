@@ -3488,7 +3488,8 @@ was found for functions 255, 265, 266, 267 or 332. Those function IDs remain
 unsupported and return `conditions::Error::Function`, rather than inventing vendor
 or weather state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
 `uesp-modfileformat/Raw_Function_Data.wikitext`, CK
-`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
+`SetRestrained_-_Actor.wikitext`, `SetUnconscious_-_Actor.wikitext` and
+`Game_Script.wikitext`.
 
 `HasMagicEffect` matches an active MGEF on its subject. `IsSpellTarget` matches
 an active application from its magic item parameter. `HasShout` checks known
