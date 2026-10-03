@@ -281,8 +281,8 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
 }
 
 #[test]
-fn tst_17_dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
-    run_godot_audio_test(None, false);
+fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
+    run_godot_audio_test(None, true);
 }
 
 #[test]

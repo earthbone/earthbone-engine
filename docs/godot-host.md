@@ -1809,13 +1809,13 @@ quarter second of leading silence. The capture buffer is cleared between
 responses using Godot's `AudioEffectCapture` API, documented in local
 `engine-refs/godot-docs/classes/class_audioeffectcapture.rst`.
 This exercises the decoded `AudioStreamWav` and `AudioStreamPlayer3D` path in a
-windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
+headless Godot process. The Rust test runs when `SOE_GODOT_BIN`
 names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
 The script rejects an extension missing the voice methods before playback.
-The script exits on each checked failure and success path. The generic speaker
-check runs windowed, while the installed xWMA check runs headless. The Rust
+The script exits on each checked failure and success path. Both the generated
+WAV speaker check and the installed xWMA check run headless. The Rust
 test gives each Godot child 110 seconds, kills and reaps it at the deadline,
 and includes captured standard output and error in a failure message. A
 missing completion marker fails the test. The script watchdog exits after 90
