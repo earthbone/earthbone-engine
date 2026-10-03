@@ -94,9 +94,11 @@ impl Clock {
     }
 
     fn charge(&self, now: Instant) {
-        if let (Some(system), Some(since)) = (self.system.get(), self.since.get()) {
-            let total = &self.totals[system as usize];
-            total.set(total.get().saturating_add(nanos(now.duration_since(since))));
+        if !self.suspended.get() {
+            if let (Some(system), Some(since)) = (self.system.get(), self.since.get()) {
+                let total = &self.totals[system as usize];
+                total.set(total.get().saturating_add(nanos(now.duration_since(since))));
+            }
         }
         self.since.set(Some(now));
     }
@@ -159,10 +161,23 @@ pub fn with_timing_suspended<T>(work: impl FnOnce() -> T) -> T {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
-            CLOCK.with(|clock| clock.suspended.set(self.0));
+            CLOCK.with(|clock| {
+                if !self.0 {
+                    clock.suspended.set(false);
+                    clock.since.set(Some(Instant::now()));
+                }
+            });
         }
     }
-    let _restore = Restore(CLOCK.with(|clock| clock.suspended.replace(true)));
+    let previous = CLOCK.with(|clock| {
+        let previous = clock.suspended.get();
+        if !previous {
+            clock.charge(Instant::now());
+            clock.suspended.set(true);
+        }
+        previous
+    });
+    let _restore = Restore(previous);
     work()
 }
 

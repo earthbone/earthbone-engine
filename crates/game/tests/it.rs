@@ -1512,6 +1512,8 @@ mod prf_11;
 mod prf_11_adversarial;
 #[path = "prf_11_breaker2_adversarial.rs"]
 mod prf_11_breaker2_adversarial;
+#[path = "prf_11_breaker3_adversarial.rs"]
+mod prf_11_breaker3_adversarial;
 #[path = "prf_11_breaker_adversarial.rs"]
 mod prf_11_breaker_adversarial;
 #[path = "shm_11_breaker_adversarial.rs"]

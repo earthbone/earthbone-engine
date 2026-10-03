@@ -67,6 +67,8 @@ def parse_divan(text):
             continue
         match = MEDIAN.match(columns[2])
         if match:
+            if name in found:
+                raise ValueError(f"duplicate median for {name}")
             batch_ns = float(match.group(1)) * SCALE_NS[match.group(2)]
             found[name] = round(batch_ns / BATCH_COUNTS[name])
     return found
@@ -77,13 +79,14 @@ def evaluate(current, baseline, machine, include_installed=False, threshold=1.15
         return ["baseline machine does not match this host"]
     stored = baseline.get("operations", {})
     errors = []
+    threshold_percent = round(threshold * 100)
     required = OPERATIONS | (INSTALLED_OPERATIONS if include_installed else set())
     for name in sorted(required):
         if name not in current:
             errors.append(f"missing current median for {name}")
         elif name not in stored or stored[name] <= 0:
             errors.append(f"missing positive baseline for {name}")
-        elif current[name] > stored[name] * threshold:
+        elif current[name] * 100 > stored[name] * threshold_percent:
             increase = (current[name] / stored[name] - 1) * 100
             errors.append(f"{name} is {increase:.1f}% slower than baseline")
     return errors

@@ -177,6 +177,7 @@ impl Workload {
             return Err("stress VM logged errors".into());
         }
         let world = self.game.world();
+        let mut selected_actors = 0;
         for (index, &actor) in self.actors.iter().enumerate() {
             let reference = world
                 .reference_ref(actor)
@@ -187,6 +188,10 @@ impl Workload {
             let state = world
                 .actor_ref(actor)
                 .ok_or("stress actor state disappeared")?;
+            if state.ai.procedure == soe_game::ai::Procedure::None {
+                continue;
+            }
+            selected_actors += 1;
             let expected_procedure = if index % 2 == 0 {
                 soe_game::ai::Procedure::Travel
             } else {
@@ -204,6 +209,9 @@ impl Workload {
             if index % 2 == 1 && state.ai.destination.is_none() && !state.ai.arrived {
                 return Err(format!("sandbox actor {actor} has no active destination"));
             }
+        }
+        if selected_actors == 0 {
+            return Err("stress actors did not select any packages".into());
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
             return Err("streaming residency escaped its bounded ring".into());
