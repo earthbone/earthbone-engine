@@ -3233,6 +3233,13 @@ snapshot after gameplay startup and each gameplay tick, clears it when the
 data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
 array. It allocates no scene node or server resource. The host does not yet
 render EFSH authored textures, color keys or particles on reference geometry.
+An opt-in `scr-24-test` build adds a synthetic request driver to
+`CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
+RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
+tree-exit cleanup. Build with
+`cargo build -p soe-godot-host --release --features scr-24-test`, then run
+`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
+checks temporary server-instance ownership, not authored EFSH appearance.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space modifier rendering, MAG-71
