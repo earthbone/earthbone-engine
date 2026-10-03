@@ -162,6 +162,14 @@ from the active data VFS. `Game.PrecacheCharGenClear` drops the buffers and
 resets residency and byte counts. The asset buffers are CPU-side file data.
 This does not upload preview meshes or apply morphs to a rendered actor.
 
+The SCR-30 cache tests check retained file and byte counts, clear every cache
+counter after a cache load, and load installed head-part models and
+morph files when `SKYRIM_DATA` is set. The training presentation test checks
+the offer values used for the trainer heading and purchase button, including
+an unavailable trainer. The camera visibility test checks the value passed to
+the rendered actor instances for first and third person. These Rust checks do
+not inspect pixels from a live player appearance.
+
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
 model field and the NAM0 chargen TRI path.
@@ -176,8 +184,12 @@ initialization, and the resulting player actor state.
 `Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
 the actor form. Valid trainers also reach the UI-16 presenter through its
 pending request. The host opens the training menu once and consumes the typed
-request without presenting it again. Camera-target and first-person geometry
-requests are applied through the transient camera controls.
+request without presenting it again. The menu heading and purchase label are
+built from the current offer returned by `training_menu::entry`, while an
+invalid offer displays the unavailable label. Camera-target and first-person
+geometry requests are applied through transient camera controls. The first-
+person visibility flag reaches each player appearance RenderingServer
+instance only in first-person view.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
@@ -350,6 +362,10 @@ transition, and pass the new placement through `sync_game_pose` so the shared
 streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
+
+`Game.ShakeController` queues a transient controller-shake request. The
+player adapter sends its left and right strengths and duration to every
+connected joypad through Godot's `Input.start_joy_vibration`.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -2516,7 +2532,12 @@ in LIP target order. Stopping or finishing the voice clears the track and
 returns its weights to zero. Lines without a decodable LIP block keep the mouth
 weights empty or neutral. `tests/dlg_20_lip_playback.rs` exercises decoded
 frames through the same slot lifecycle used by SoundBank, including playback
-updates and interruption.
+updates and interruption. `tests/dlg_20_godot_lip.rs` packages a generated WAV
+and LIP block into a voice archive, then launches Godot with the extension and
+opens it through a live SoundBank. It checks that the exposed mouth weights
+match the frame selected by the player's playback position and return to zero
+when `stop_voice` interrupts playback. A nonzero player start offset makes the
+time sample deterministic in headless or windowed runs.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
@@ -2892,6 +2913,10 @@ and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
 delay and duration, and chooses black or white from its black-fade flag.
 Negative or non-finite timing values are rejected by the Game native and
 logged. These operations run after the VM tick that enqueued them.
+Camera requests share the rig mode helper used by the camera tests. The fade
+overlay uses one presentation value for its color, opacity and visibility,
+including when a door fallback fade overlaps a Papyrus fade. Save requests use
+the same generation writer as explicit host saves.
 
 ## Native menu framework
 
@@ -3272,6 +3297,13 @@ snapshot after gameplay startup and each gameplay tick, clears it when the
 data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
 array. It allocates no scene node or server resource. The host does not yet
 render EFSH authored textures, color keys or particles on reference geometry.
+An opt-in `scr-24-test` build adds a synthetic request driver to
+`CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
+RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
+tree-exit cleanup. Build with
+`cargo build -p soe-godot-host --release --features scr-24-test`, then run
+`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
+checks temporary server-instance ownership, not authored EFSH appearance.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space modifier rendering, MAG-71
@@ -3669,7 +3701,29 @@ match the cell streamer's own `load_radius` so the two never disagree about
 which cells are near. One streamer covers one LOD level, a caller that wants
 more than one level resident at once runs one streamer per level with
 disjoint radius bands, finer levels nearer the focus. Picking a level by
-distance automatically is left to that caller, unstarted here.
+distance can use `lod_rebuild::select_far_level`, which chooses the coarsest
+level whose measured projected silhouette edge error is below its pixel
+limit. The host does not yet feed rendered reference measurements into this
+selector.
+
+### Background LOD products, RND-16
+
+`lod_rebuild::LoadOrderHash` keys generated output by ordered profile plugin
+names, enabled state and slot assignment. Callers mix in
+`soe_esm::LoadOrder::fingerprint()` so edits to plugin contents also
+invalidate the cache. `LodBuildCache::request` returns a cached product when
+the key matches, shares a pending worker for the same key, or starts a worker
+for a cache miss. `GeneratedLod` carries
+object and terrain output together, and `finish` publishes only after the
+complete worker result is available. A failed worker leaves the cache
+unchanged.
+
+`silhouette_error_pixels` measures the maximum displacement of the four
+projected bounds edges in pixels. `select_far_level` chooses the coarsest
+candidate below the configured error limit and ignores non-finite
+measurements. The cache and selector are host APIs. The cell streamer does
+not yet schedule rebuilds when a profile is reloaded or apply selected levels
+to rendered references.
 
 The residency budget is recorded, not estimated ahead of the read.
 `Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each

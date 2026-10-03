@@ -419,13 +419,13 @@ semantics beyond their declared signatures and summaries.
 | `Faction.SetPlayerExpelled` | Sets whether the player is expelled. | Updates the faction state. |
 | `Faction.SetPlayerEnemy` | Sets whether the player is an enemy of this faction. | Updates the faction state. |
 | `Faction.IsFactionInCrimeGroup` | Takes another faction and reports whether it belongs to this faction's crime group. | Resolves `CRGR` to its linked `FLST` and checks membership. |
-| `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
-| `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
-| `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
+| `Faction.SendAssaultAlarm` | Finds a nearby NPC in this faction and has them behave as if assaulted. | Selects the nearest built faction actor and records a player assault through the crime system. |
+| `Faction.SendPlayerToJail` | Sends the player to this faction's jail, with inventory and real-jail options. | Serves the faction's bounty and marks the player arrested. Jail travel and belongings storage are not implemented. |
+| `Faction.ModReaction` | Modifies this faction's reaction toward another faction. | Saturating-adds the signed amount in the requested direction. |
 | `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias. An empty alias accepts the form. SCR-59 owns reference-type validation. |
 
-The inventory tests cover 22 `Faction` methods, including the three quiet
-stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no
+The inventory tests cover 22 implemented `Faction` methods and the single
+`ReferenceAlias.ForceRefIfEmpty` method. There are no
 global bindings for these names. No per-reference package reevaluation is
 claimed for alias assignment.
 `scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted

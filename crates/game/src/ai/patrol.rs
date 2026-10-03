@@ -85,6 +85,7 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
     }
     let mut dwell = None;
     let mut idle = None;
+    let mut topic = None;
     let mut in_patrol = false;
     for sub in &rec.subrecords {
         match sub.tag.as_bytes() {
@@ -123,7 +124,9 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
                 }
             }
             b"PDTO" if in_patrol => {
-                validate_topic(world, id, &sub.data)?;
+                if let Some(reference) = validate_topic(world, id, &sub.data)? {
+                    topic.get_or_insert(reference);
+                }
             }
             b"SCHR" | b"SCTX" if in_patrol => {}
             _ => in_patrol = false,
@@ -145,6 +148,7 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
         cell: reference.cell,
         dwell,
         idle,
+        topic,
         furniture: reference
             .base
             .is_some_and(|base| world.tag_of(base) == Some(T(b"FURN"))),
@@ -156,10 +160,15 @@ struct Marker {
     cell: Option<GlobalFormId>,
     dwell: f32,
     idle: Option<GlobalFormId>,
+    topic: Option<GlobalFormId>,
     furniture: bool,
 }
 
-fn validate_topic(world: &World, marker: GlobalFormId, data: &[u8]) -> Result<(), &'static str> {
+fn validate_topic(
+    world: &World,
+    marker: GlobalFormId,
+    data: &[u8],
+) -> Result<Option<GlobalFormId>, &'static str> {
     let kind = data.get(..4).ok_or("invalid Patrol marker topic")?;
     let kind = u32::from_le_bytes(kind.try_into().map_err(|_| "invalid Patrol marker topic")?);
     let payload = data.get(4..).ok_or("invalid Patrol marker topic")?;
@@ -177,12 +186,36 @@ fn validate_topic(world: &World, marker: GlobalFormId, data: &[u8]) -> Result<()
                 if world.tag_of(topic) != Some(T(b"DIAL")) {
                     return Err("invalid Patrol marker topic form");
                 }
+                Ok(Some(topic))
+            } else {
+                Ok(None)
             }
         }
-        1 if payload.len() == 4 => {}
-        _ => return Err("invalid Patrol marker topic type"),
+        1 if payload.len() == 4 => Ok(None),
+        _ => Err("invalid Patrol marker topic type"),
     }
-    Ok(())
+}
+
+fn start_topic(world: &mut World, actor: GlobalFormId, topic: GlobalFormId) {
+    if world.actor(actor).is_none_or(|state| {
+        state.dead || state.in_combat || state.unconscious || !state.allow_pc_dialogue
+    }) || world.dialogue.session.is_some()
+    {
+        return;
+    }
+    let listener = world.player();
+    if listener == actor || world.actor(listener).is_none_or(|state| state.dead) {
+        return;
+    }
+    world.dialogue.greeting_actor = None;
+    world.dialogue.session = Some(crate::dialogue::Session {
+        speaker: actor,
+        listener,
+        topic: Some(topic),
+        current_info: None,
+        last_info: None,
+        response_index: 0,
+    });
 }
 
 fn route(
@@ -555,6 +588,9 @@ fn advance(
         if let Some(idle) = marker.idle {
             let name = world.editor_id(idle).unwrap_or_default();
             world.animation_event(actor, &name, alloc);
+        }
+        if let Some(topic) = marker.topic {
+            start_topic(world, actor, topic);
         }
         state.dwell_until = Some(now + f64::from(marker.dwell));
         ai.patrol = Some(state);

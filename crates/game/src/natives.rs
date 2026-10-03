@@ -253,7 +253,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 385;
+pub const NATIVE_COUNT: usize = 388;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2566,6 +2566,79 @@ fn game(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    global!(
+        vm,
+        w,
+        "Game",
+        "SendWereWolfTransformation",
+        |world, _call| {
+            let player = world.player();
+            let mut witnesses = world.loaded_actors();
+            witnesses.sort();
+            for witness in witnesses {
+                if witness == player
+                    || world.commonlib_high_process(witness).is_none()
+                    || !world.is_actor_detected_by(player, witness).unwrap_or(false)
+                {
+                    continue;
+                }
+                if let Err(error) =
+                    world.record_witnessed_crime(player, witness, crate::crime::CrimeType::Werewolf)
+                {
+                    world.report_native_error("Game.SendWereWolfTransformation", error.to_string());
+                }
+                return none();
+            }
+            none()
+        }
+    );
+    global!(
+        vm,
+        w,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        |world, call| {
+            let modifier = match call.args.first() {
+                Some(Value::None) | None => None,
+                Some(value) => match world.form_arg(value) {
+                    Some(id) => Some(id),
+                    None => {
+                        world.report_native_error(
+                            "Game.SetSunGazeImageSpaceModifier",
+                            "expected an ImageSpaceModifier form".into(),
+                        );
+                        return none();
+                    }
+                },
+            };
+            if let Err(error) = world.set_sun_gaze_image_space_modifier(modifier) {
+                world.report_native_error("Game.SetSunGazeImageSpaceModifier", error.to_string());
+            }
+            none()
+        }
+    );
+    global!(vm, w, "Game", "ShakeController", |world, call| {
+        let left_strength = call.arg(0).as_float();
+        let right_strength = call.arg(1).as_float();
+        let duration = call.arg(2).as_float();
+        if !left_strength.is_finite()
+            || !right_strength.is_finite()
+            || !duration.is_finite()
+            || duration < 0.0
+        {
+            world.report_native_error(
+                "Game.ShakeController",
+                "strengths and duration must be finite, and duration must be non-negative".into(),
+            );
+            return none();
+        }
+        world.host_requests.push(HostRequest::ControllerShake {
+            left_strength: left_strength.clamp(0.0, 1.0),
+            right_strength: right_strength.clamp(0.0, 1.0),
+            duration,
+        });
+        none()
+    });
     global!(vm, w, "Game", "FadeOutGame", |world, call| {
         let seconds_before_fade = call.arg(2).as_float();
         let fade_duration = call.arg(3).as_float();
@@ -3513,14 +3586,35 @@ fn faction(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Faction", "ModReaction", |world, call, me| {
         let amount = call.arg(1).as_int();
         if let Some(other) = world.form_arg(&call.arg(0)) {
-            if let Some(f) = world.faction(me) {
-                let reaction = f
-                    .reactions
-                    .get(&other)
-                    .copied()
-                    .unwrap_or(reaction::NEUTRAL);
-                f.reactions.insert(other, reaction.saturating_add(amount));
-            }
+            world.mod_faction_reaction(me, other, amount);
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "SendAssaultAlarm", |world, call, me| {
+        if let Err(error) = world.send_assault_alarm(me) {
+            call.log
+                .push(call.time, format!("Faction.SendAssaultAlarm: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "SendPlayerToJail", |world, call, me| {
+        let remove_inventory = call
+            .args
+            .first()
+            .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
+        let real_jail = call
+            .args
+            .get(1)
+            .is_none_or(|value| matches!(value, Value::None) || value.as_bool());
+        if real_jail {
+            call.log.push(
+                call.time,
+                "Faction.SendPlayerToJail: jail placement is not implemented",
+            );
+        }
+        if let Err(error) = world.send_player_to_jail(me, remove_inventory) {
+            call.log
+                .push(call.time, format!("Faction.SendPlayerToJail: {error}"));
         }
         none()
     });
@@ -4929,8 +5023,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Faction", "SendAssaultAlarm"),
-        ("Faction", "SendPlayerToJail"),
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
@@ -4972,17 +5064,6 @@ fn stubs(vm: &mut Vm) -> usize {
         } else {
             vm.natives.register_method(class, name, native);
         }
-        n += 1;
-    }
-    let globals_none: &[(&str, &str)] = &[
-        // Werewolf crime, jail time and sun-gaze image space are not implemented.
-        ("Game", "SendWereWolfTransformation"),
-        ("Game", "SetSunGazeImageSpaceModifier"),
-        ("Game", "ShakeController"),
-    ];
-    for (class, name) in globals_none {
-        vm.natives
-            .register_global(class, name, Box::new(|_| none()));
         n += 1;
     }
     n
@@ -5230,6 +5311,11 @@ mod tests {
             "GetPlayersLastRiddenHorse",
             "AddPerkPoints",
             "GetDialogueTarget",
+            "SendWereWolfTransformation",
+            "ServeTime",
+            "ClearPrison",
+            "SetSunGazeImageSpaceModifier",
+            "ShakeController",
         ];
         for name in implemented {
             assert!(vm.natives.has_global("Game", name), "Game.{name}");
@@ -5241,11 +5327,6 @@ mod tests {
             "GetSunPositionY",
             "GetSunPositionZ",
             "ShakeCamera",
-            "SendWereWolfTransformation",
-            "ServeTime",
-            "ClearPrison",
-            "SetSunGazeImageSpaceModifier",
-            "ShakeController",
             "FadeOutGame",
             "RequestSave",
             "RequestAutoSave",
@@ -5558,8 +5639,11 @@ mod tests {
             "SetPlayerExpelled",
             "SetPlayerEnemy",
             "IsFactionInCrimeGroup",
+            "SendAssaultAlarm",
+            "SendPlayerToJail",
+            "ModReaction",
         ];
-        let stubs = ["SendAssaultAlarm", "SendPlayerToJail", "ModReaction"];
+        let stubs: [&str; 0] = [];
 
         for name in implemented.into_iter().chain(stubs) {
             assert!(vm.natives.has_method("Faction", name), "Faction.{name}");
@@ -5568,8 +5652,8 @@ mod tests {
                 "Faction.{name} is a method, not a global"
             );
         }
-        assert_eq!(implemented.len(), 19);
-        assert_eq!(stubs.len(), 3);
+        assert_eq!(implemented.len(), 22);
+        assert_eq!(stubs.len(), 0);
         assert_eq!(implemented.len() + stubs.len(), 22);
     }
 
