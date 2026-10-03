@@ -3,9 +3,7 @@
 
 //! Adversarial boundary checks for SAV-29 dialogue and scene change forms.
 
-use soe_save::{
-    dialogue_scene::SceneActionKind, ChangeForm, RefId, Save, SceneRuntime,
-};
+use soe_save::{dialogue_scene::SceneActionKind, ChangeForm, RefId, Save, SceneRuntime};
 use std::path::{Path, PathBuf};
 
 const FORM_FLAGS: u32 = 1;
@@ -81,7 +79,10 @@ fn sav_29_breaker_all_three_types_round_trip_each_known_flag_combination() {
                         decoded.form_flags.map(|value| (value.flags, value.unknown)),
                         (flags & FORM_FLAGS != 0).then_some((0x3412_FF80, 0xDCFE))
                     );
-                    assert_eq!(decoded.last_run_times, (flags & STATE != 0).then_some(vec![0x8000_0000, 0x7FC0_1234]));
+                    assert_eq!(
+                        decoded.last_run_times,
+                        (flags & STATE != 0).then_some(vec![0x8000_0000, 0x7FC0_1234])
+                    );
                     assert_eq!(decoded.data_bytes().unwrap(), payload);
                 }
                 37 => {
@@ -119,10 +120,7 @@ fn sav_29_breaker_scene_action_widths_follow_each_discriminator() {
         let decoded = SceneRuntime::read(&bytes).unwrap();
         assert_eq!(decoded.actions[0].kind, expected);
         assert_eq!(decoded.actions[0].time_bits, 0x8000_0000);
-        assert_eq!(
-            decoded.actions[0].timer_flags.is_some(),
-            kind == 2
-        );
+        assert_eq!(decoded.actions[0].timer_flags.is_some(), kind == 2);
         assert_eq!(bytes.len(), 25 + width + 3);
         assert_eq!(decoded.data_bytes().unwrap(), bytes);
     }
@@ -149,10 +147,7 @@ fn sav_29_breaker_rejects_unknown_actions_count_overruns_and_truncation() {
 
 #[test]
 fn sav_29_breaker_smqn_retains_empty_and_nonfinite_time_bit_patterns() {
-    let cases: [Vec<u32>; 2] = [
-        Vec::new(),
-        vec![0x8000_0000, 0x7FC0_4321, 0x7FA0_0001],
-    ];
+    let cases: [Vec<u32>; 2] = [Vec::new(), vec![0x8000_0000, 0x7FC0_4321, 0x7FA0_0001]];
     for times in cases {
         let mut payload = vec![0x12, 0x34, 0x56, 0x78, 0xFE, 0xDC];
         payload.extend((times.len() as u32).to_le_bytes());
@@ -204,7 +199,11 @@ fn sav_29_breaker_external_corpus_accounts_for_all_three_types() {
     let mut totals = [0usize; 3];
     for path in paths {
         let save = Save::open(&path).unwrap();
-        for form in save.change_forms.iter().filter(|form| [7, 36, 37].contains(&form.type_index())) {
+        for form in save
+            .change_forms
+            .iter()
+            .filter(|form| [7, 36, 37].contains(&form.type_index()))
+        {
             let payload = form.payload().unwrap();
             match form.type_index() {
                 7 => {

@@ -94,11 +94,22 @@ fn sav_29_adversarial_outer_flags_keep_typed_values_and_exact_payloads() {
 #[test]
 fn sav_29_adversarial_scene_action_types_have_exact_counted_widths() {
     let data = mixed_scene();
-    let scene = change(37, STATE, data.clone()).scene_change().unwrap().unwrap();
+    let scene = change(37, STATE, data.clone())
+        .scene_change()
+        .unwrap()
+        .unwrap();
     let runtime = scene.runtime_data().unwrap().unwrap();
     assert_eq!(
-        runtime.actions.iter().map(|action| action.kind).collect::<Vec<_>>(),
-        [SceneActionKind::Dialogue, SceneActionKind::Package, SceneActionKind::Timer]
+        runtime
+            .actions
+            .iter()
+            .map(|action| action.kind)
+            .collect::<Vec<_>>(),
+        [
+            SceneActionKind::Dialogue,
+            SceneActionKind::Package,
+            SceneActionKind::Timer
+        ]
     );
     assert_eq!(runtime.actions[2].timer_flags, Some([0x80, 0x01]));
     assert_eq!(runtime.data_bytes().unwrap(), data);
@@ -117,7 +128,9 @@ fn sav_29_adversarial_counts_reject_minimum_shortfalls_without_panicking() {
     }
     for cut in 0..valid.len() {
         assert!(
-            change(37, STATE, valid[..cut].to_vec()).scene_change().is_err(),
+            change(37, STATE, valid[..cut].to_vec())
+                .scene_change()
+                .is_err(),
             "truncated SCEN payload at {cut}"
         );
     }
@@ -136,7 +149,10 @@ fn sav_29_adversarial_corpus_reencodes_all_scene_runtime_bytes() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+            {
                 paths.push(path);
             }
         }
@@ -147,17 +163,29 @@ fn sav_29_adversarial_corpus_reencodes_all_scene_runtime_bytes() {
     let mut flag_variants = BTreeMap::new();
     for path in paths {
         let save = Save::open(&path).unwrap();
-        for form in save.change_forms.iter().filter(|form| form.record_type() == "SCEN") {
+        for form in save
+            .change_forms
+            .iter()
+            .filter(|form| form.record_type() == "SCEN")
+        {
             let scene = form.scene_change().unwrap().unwrap();
             let encoded = scene.data_bytes().unwrap();
-            assert_eq!(encoded, form.payload().unwrap().as_ref(), "{} {:?}", path.display(), form.form);
+            assert_eq!(
+                encoded,
+                form.payload().unwrap().as_ref(),
+                "{} {:?}",
+                path.display(),
+                form.form
+            );
             assert_eq!(scene.change_flags(), form.change_flags);
             *flag_variants.entry(form.change_flags).or_insert(0usize) += 1;
             scenes += 1;
             bytes += encoded.len();
         }
     }
-    eprintln!("SAV-29 adversarial corpus: {scenes} SCEN changes, {bytes} bytes, flags={flag_variants:?}");
+    eprintln!(
+        "SAV-29 adversarial corpus: {scenes} SCEN changes, {bytes} bytes, flags={flag_variants:?}"
+    );
     assert!(scenes >= 807);
     assert!(bytes > 0);
 }
@@ -172,10 +200,9 @@ fn sav_29_adversarial_corpus_actions_match_installed_scene_records() {
         eprintln!("SKYRIM_DATA unset, skipping SAV-29 installed correlation");
         return;
     };
-    let plugin = soe_esm::Plugin::parse(
-        &std::fs::read(Path::new(&data).join("Skyrim.esm")).unwrap(),
-    )
-    .unwrap();
+    let plugin =
+        soe_esm::Plugin::parse(&std::fs::read(Path::new(&data).join("Skyrim.esm")).unwrap())
+            .unwrap();
     let scenes: BTreeMap<_, _> = plugin
         .records
         .iter()
@@ -194,7 +221,10 @@ fn sav_29_adversarial_corpus_actions_match_installed_scene_records() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ess")) {
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+            {
                 paths.push(path);
             }
         }
@@ -203,7 +233,11 @@ fn sav_29_adversarial_corpus_actions_match_installed_scene_records() {
     let mut matched = 0usize;
     for path in paths {
         let save = Save::open(path).unwrap();
-        for form in save.change_forms.iter().filter(|form| form.record_type() == "SCEN") {
+        for form in save
+            .change_forms
+            .iter()
+            .filter(|form| form.record_type() == "SCEN")
+        {
             let scene = form.scene_change().unwrap().unwrap();
             let runtime = scene.runtime_data().unwrap().unwrap();
             let id = save.resolve(form.form).unwrap();
