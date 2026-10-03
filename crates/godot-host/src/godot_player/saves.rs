@@ -151,4 +151,49 @@ impl PlayerNode {
         }
         result
     }
+
+    /// Atomically load a verified native generation into a fresh Game, then
+    /// install its player cell and camera before replacing the active Game.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn attach_restored_generation(
+        &mut self,
+        directory: GString,
+        retained: i64,
+    ) -> VarDictionary {
+        let store = match store(&directory, retained) {
+            Ok(store) => store,
+            Err(error) => return failed(&error),
+        };
+        let Some(source) = &self.data_source else {
+            return failed("game data has not been loaded");
+        };
+        if self.game_streamer.is_none() {
+            return failed("cell streamer data has not been shared");
+        }
+
+        let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        let scripts = game.load_scripts_from_vfs(source.vfs());
+        if !scripts.scripts_failed.is_empty() {
+            return failed(&format!(
+                "could not load {} saved Papyrus definitions",
+                scripts.scripts_failed.len()
+            ));
+        }
+        let selected = match game.recover_generation(&store) {
+            Ok(selected) => selected,
+            Err(error) => return failed_save(&error),
+        };
+        if !self.attach_restored_game(game) {
+            return failed("restored game host resources could not be installed");
+        }
+
+        let mut result = VarDictionary::new();
+        result.set("ok", true);
+        result.set("state_loaded", true);
+        result.set("generation", selected.generation.to_string().as_str());
+        result.set("path", selected.path.to_string_lossy().as_ref());
+        result.set("rejected", &rejected(&selected.rejected));
+        result
+    }
 }
