@@ -2943,6 +2943,12 @@ fn debug(vm: &mut Vm, w: &Shared) {
                 _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
+            if name == "TraceStack" {
+                call.log.push(call.time, "Stack trace:");
+                for frame in &call.call_stack {
+                    call.log.push(call.time, format!("  {frame}"));
+                }
+            }
             none()
         });
     }

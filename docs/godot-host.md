@@ -1,5 +1,14 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Papyrus log profile routing, TOOL-07
+
+`DataSource` retains the resolved profile INI settings and INI directory.
+`PlayerNode` configures Game's Papyrus file sink from them before scripts start.
+When `[Papyrus] bEnableLogging=1`, the sink writes `Papyrus.0.log` and named
+user logs under `Logs/Script` in that profile directory. Disabled logging does
+not create files. The profile settings control trace lines and debug source
+detail, and existing numbered logs move up one slot on startup.
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples each ordered pair of resident, living actors in the same

@@ -142,7 +142,10 @@ object, `register_global(class, name, f)` for `Class.Function()`. Names are
 case-insensitive. Collision rule: first registration wins, later ones are
 recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
-`defer()` to allocate a latent id.
+`defer()` to allocate a latent id. It also gets the current call stack as
+outermost-to-innermost script function names, including source lines when PEX
+debug information provides them. `Debug.TraceStack` writes those frames after
+its message.
 
 `NativeRegistry::method_bindings` and `global_bindings` return sorted,
 lowercase `(class, name)` pairs for registered bindings. The game crate uses
@@ -592,3 +595,17 @@ location and thread identity while retaining their original in-memory text.
 The transient subscriber does not change the VM log's saved representation.
 The `tool_06_logging` tests check severity and VM error context. Subscriber
 filtering, counts and file output follow [trace.md](trace.md).
+
+## Vanilla Papyrus files, TOOL-07
+
+The game host writes `Logs/Script/Papyrus.0.log` and
+`Logs/Script/User/<name>.0.log` under the profile INI directory when
+`[Papyrus] bEnableLogging=1`. Each emitted line starts with the vanilla
+`[MM/DD/YYYY - H:MM:SSAM]` date and time form. Existing numbered logs shift up
+one slot when the file sink opens. `bEnableTrace` filters ordinary trace lines
+from the file, and `bLoadDebugInformation` controls source-line detail.
+`Debug.TraceStack` adds the active frames after its message. Every VM log entry
+still goes through the TOOL-06 tracing system. VM errors write a `stack:` block
+with source lines when available, otherwise `Line ?`, following
+`engine-refs/ck-wiki/Papyrus_Runtime_Errors.wikitext`. The INI key defaults
+and enabled preset follow the local Wrye Bash Skyrim debug-log presets.

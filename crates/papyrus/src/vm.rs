@@ -179,6 +179,8 @@ pub struct NativeCall<'a> {
     pub self_object: Option<ObjectId>,
     pub args: Vec<Value>,
     pub time: f64,
+    /// Active Papyrus call frames from outermost to innermost.
+    pub call_stack: Vec<String>,
     pub log: &'a mut Log,
     latent_counter: &'a mut u64,
     objects: &'a mut HashMap<ObjectId, GameObject>,
