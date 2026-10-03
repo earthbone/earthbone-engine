@@ -6661,10 +6661,11 @@ image-space inputs. `World::image_space_curve_samples` resolves each active
 modifier through its winning IMAD record, validates the authored key arrays,
 and samples float and RGBA keys at normalized age. Float keys use linear
 interpolation, with values held at the first or last key outside the key range.
-The host frame carries those samples with the independent active stack
-strength. This does not combine modifier values with base IMGS data or render
-a screen pass. The rendered acceptance check remains open until MAG-72 supplies
-the base values and rendering path.
+This interpolation is the current engine rule, not a recovered vanilla
+interpolator contract. The host receives each sample with its independent
+active stack strength, composes supported color, blur, DOF and HDR channels,
+and renders them through Godot. `docs/godot-host.md` records that mapping and
+the pixel fixture. Exact Skyrim shader parity remains unverified.
 
 The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
 `Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
@@ -6721,9 +6722,11 @@ storage, while `ImageSpaceModifierInstanceForm.h` calls binary entry points
 instead of defining interpolation or weighted composition. Target flags are
 set in 84 radial-blur records and 4 DOF records. The instance type stores a
 scene target, but the five Papyrus natives expose no target argument.
-Fallback target behavior, curve interpolation, unused channels and exact
-strength composition are not recovered contracts. They must not be inferred
-from similarly named Godot properties or a linear crossfade weight test.
+Fallback target behavior, curve interpolation parity, unused channels and
+exact vanilla strength composition are not recovered contracts. The host uses
+its documented weighted composition policy for supported channels. The
+synthetic pixel fixture demonstrates visible host behavior, not Skyrim shader
+parity.
 
 ## Value and Parts archetype, MAG-52
 

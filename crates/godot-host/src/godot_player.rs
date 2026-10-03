@@ -123,6 +123,7 @@ pub struct PlayerNode {
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     image_space_renderer: crate::image_space::renderer::BaseRenderer,
+    image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer,
     image_space_tint: Option<ImageSpaceTintView>,
     presented_hud_cart_mode: bool,
     effect_shaders: crate::effect_shader::EffectShaderStack,
@@ -214,6 +215,8 @@ impl INode3D for PlayerNode {
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             image_space_renderer: crate::image_space::renderer::BaseRenderer::default(),
+            image_space_modifier_renderer: crate::image_space::renderer::ModifierRenderer::default(
+            ),
             image_space_tint: None,
             presented_hud_cart_mode: false,
             effect_shaders: crate::effect_shader::EffectShaderStack::default(),
@@ -1705,6 +1708,7 @@ impl PlayerNode {
         overlay.set_mouse_filter(MouseFilter::IGNORE);
         overlay.hide();
         canvas.add_child(&overlay);
+        self.image_space_modifier_renderer.attach(&mut canvas);
         self.base_mut().add_child(&canvas);
         overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
         self.image_space_tint = Some(ImageSpaceTintView { overlay });
@@ -1715,9 +1719,21 @@ impl PlayerNode {
             .image_space
             .base()
             .map(crate::image_space::RenderedBase::from);
+        let modifiers = self
+            .game
+            .as_ref()
+            .and_then(|game| {
+                self.image_space
+                    .render_layers(&game.world())
+                    .ok()
+                    .map(|layers| crate::image_space::RenderedModifiers::from_layers(&layers))
+            })
+            .unwrap_or_default();
         if let Some(camera) = &mut self.camera {
-            self.image_space_renderer.apply(camera, rendered.as_ref());
+            self.image_space_renderer
+                .apply(camera, rendered.as_ref(), &modifiers);
         }
+        self.image_space_modifier_renderer.apply(&modifiers);
         if let Some(tint) = &mut self.image_space_tint {
             if let Some(values) = rendered.filter(|values| values.tint[0] > 0.0) {
                 tint.overlay.set_color(Color::from_rgba(
