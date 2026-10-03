@@ -182,6 +182,7 @@ pub struct Game {
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
+    frame_history: soe_trace::FrameHistory,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -264,6 +265,7 @@ impl Game {
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
+            frame_history: soe_trace::FrameHistory::default(),
         }
     }
 
@@ -1341,6 +1343,8 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        let frame = soe_trace::FrameSnapshot::when_recording();
+        let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
@@ -1348,12 +1352,16 @@ impl Game {
         }
         let mut game_hours = 0.0;
         if !menu_mode {
-            self.resume_quest_lifecycle_tasks();
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Quests);
+                self.resume_quest_lifecycle_tasks();
+            }
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let slow_time_scale = w.slow_time_scale();
             let before = w.clock.game_days;
             w.advance_clock_scaled(real_seconds, slow_time_scale);
+            let magic_scope = soe_trace::SystemScope::new(soe_trace::System::Magic);
             w.tick_image_space(real_seconds);
             w.tick_translations(real_seconds, &mut |name, class| {
                 vm.create_object_of(name, class)
@@ -1371,9 +1379,13 @@ impl Game {
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            drop(magic_scope);
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
-            w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            {
+                let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
+                w.tick_scene_actions(&mut |n, c| vm.create_object_of(n, c));
+            }
             if w.debug_ai_enabled {
                 w.ai_tick(real_seconds * slow_time_scale, &mut |n, c| {
                     vm.create_object_of(n, c)
@@ -1387,6 +1399,7 @@ impl Game {
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
             for (speaker, listener, topic) in greetings {
                 if self.begin_dialogue(speaker, listener).is_err() {
@@ -1399,6 +1412,7 @@ impl Game {
             }
         }
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
             for (speaker, listener) in starts {
                 if self.begin_dialogue(speaker, listener).is_ok() {
@@ -1406,9 +1420,13 @@ impl Game {
                 }
             }
         }
-        self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
+            self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
+        }
         self.run_until_idle(64);
         if !menu_mode {
+            let _system = soe_trace::SystemScope::new(soe_trace::System::Dialogue);
             if let Err(error) = self.update_dialogue_range() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
@@ -1417,6 +1435,17 @@ impl Game {
             }
         }
         self.push_tick_hash();
+        drop(tick_scope);
+        if let Some(frame) = frame {
+            self.frame_history.record(frame.finish());
+        }
+    }
+
+    /// Last tick's exclusive system durations and rolling 240-frame statistics.
+    /// This session data is independent of optional traces and is never saved.
+    #[must_use]
+    pub fn frame_history(&self) -> &soe_trace::FrameHistory {
+        &self.frame_history
     }
 
     fn resume_quest_lifecycle_tasks(&mut self) {
@@ -1435,7 +1464,9 @@ impl Game {
 
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         self.prepare_cell_events();
+        let quest_scope = soe_trace::SystemScope::new(soe_trace::System::Quests);
         self.dispatch_story_manager_events();
         let story_events = std::mem::take(&mut self.world.borrow_mut().pending_story_events);
         let mut routed = 0;
@@ -1452,6 +1483,7 @@ impl Game {
                     .push(self.vm.time(), format!("Keyword.SendStoryEvent: {error}")),
             }
         }
+        drop(quest_scope);
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
         let n = routed
             + pending
@@ -1630,6 +1662,7 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Papyrus);
         let loaded_cell = self.world.borrow().loaded_cell();
         if let Some(cell) = loaded_cell {
             self.bind_cell(cell);

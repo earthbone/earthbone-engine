@@ -206,6 +206,7 @@ impl PlayerNode {
     }
 
     pub(super) fn advance_game(&mut self, delta: f64, sprinting: bool) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
@@ -654,6 +655,7 @@ impl PlayerNode {
         self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
     fn prefetch_nearby_interior(&mut self, delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         use crate::interior_prefetch::{APPROACH_RADIUS, SELECTION_INTERVAL};
         self.interior_prefetch.poll();
         self.interior_prefetch_elapsed += delta.max(0.0);
@@ -851,6 +853,7 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let destination = {
             let Some(game) = &mut self.game else {
                 return true;

@@ -9,6 +9,41 @@ Capacity sweeps, enforced frame budgets and sustained workload checks are
 documented in [performance-limits.md](performance-limits.md). Historical
 measurements below remain tied to their recorded revisions.
 
+## Per-system frames, PRF-12
+
+`soe-trace` records fixed-slot exclusive system time with optional Chrome
+tracing off. `Game::frame_history` provides headless tick frames and rolling
+240-frame statistics. PlayerNode provides presentation frames through
+`SOE/<system>_ms` custom monitors in Godot's Debugger Monitors tab, alongside
+Godot's built-in process, physics and rendering monitors. F3 in the walkthrough
+shows milliseconds and percentages of the wall frame. On exit it prints and
+writes `user://soe-systems.txt` with per-system session totals, means, worst
+times and rolling p50 and p99. Idle systems report zero.
+
+The tick denominator is tick wall time. The host denominator is wall time
+between completed PlayerNode process callbacks, including rendering waits.
+Main-thread scope durations include waits inside their calls and do not
+measure GPU execution. Details and source paths are in
+[trace.md](trace.md), [game.md](game.md) and [godot-host.md](godot-host.md).
+Percentiles are computed when queried, outside the simulation tick.
+
+Run the declared overhead gate, which alternates recorded and suspended
+eight-tick batches in one warmed 1,000-actor travel/sandbox world, then
+asserts the median paired on/off ratio is below 1.01. A second world replays
+the same tick count with timing suspended to verify identical actor positions:
+
+```text
+rtk cargo test -p soe-game --release --test it prf_12_accumulator_under_one_percent -- --ignored --nocapture
+```
+
+The Rust `prf_12_` checks cover complete slots, exclusive nesting, idle
+frames, percentile eviction and overlapping game/host snapshots. After the
+release extension build and import, run the live monitor and overlay check:
+
+```text
+rtk proxy "$SOE_GODOT_BIN" --path godot --resolution 640x360 --script prf_12_monitors_test.gd
+```
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz

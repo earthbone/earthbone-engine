@@ -903,6 +903,7 @@ fn function_value(
 /// `OnPackageEnd`, `OnPackageChange` and `OnPackageStart` for the actor's
 /// scripts. Returns the package now running.
 pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Option<GlobalFormId> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
     let chosen = select(world, actor);
     switch_to(world, actor, chosen, alloc)
 }
@@ -2018,6 +2019,7 @@ fn refresh_nav_doors(world: &mut World) {
 
 /// Advance every loaded actor: evaluate when due, then move.
 pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     let _span = soe_trace::Span::new("ai.tick", "game");
     refresh_nav_doors(world);
     let now = world.clock.real_seconds;
@@ -2120,6 +2122,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
 
 /// Move away from a live hostile effect source along the vanilla navmesh.
 fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     let Some((position, cell)) = world
         .reference(actor)
         .map(|reference| (reference.position, reference.cell))
@@ -2175,6 +2178,7 @@ fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f
 
 /// Run away from the caster while a Turn Undead application is active.
 fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     let Some((mut position, mut cell)) = world
         .reference(actor)
         .map(|reference| (reference.position, reference.cell))
@@ -2301,6 +2305,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     if ignores_combat(world, actor) {
         return false;
     }
+    let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
     let Some(from) = world.reference(actor).map(|reference| reference.position) else {
         return false;
     };
@@ -2368,6 +2373,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
 
 /// Advance an engaged actor along the shared vanilla NAVM graph.
 fn pursue_combat_target(world: &mut World, actor: GlobalFormId, dt: f32) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
     let Some(target) = combat_target(world, actor) else {
         return;
     };
@@ -2464,6 +2470,7 @@ fn plan_combat(
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> Option<PlannedPath> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
     refresh_nav_doors(world);
     let path = world.ai.nav.as_ref()?.find_path_between(from, to)?;
     let cells = path
@@ -2489,6 +2496,7 @@ fn plan_flee(
     from: [f32; 3],
     threat: [f32; 3],
 ) -> Option<([f32; 3], PlannedPath)> {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
     ensure_nav_graph(world);
     let graph = world.ai.nav.as_ref()?;
     let start = graph.locate(from).or_else(|| graph.nearest(from))?;
@@ -2540,6 +2548,7 @@ fn plan(
     to: [f32; 3],
     to_cell: Option<GlobalFormId>,
 ) -> PlannedPath {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiPlanning);
     refresh_nav_doors(world);
     let (Some(graph), nav_cells) = (world.ai.nav.as_ref(), &world.ai.nav_cells) else {
         return (vec![to], vec![to_cell]);
@@ -2567,6 +2576,7 @@ pub(crate) fn path_points(world: &mut World, from: [f32; 3], to: [f32; 3]) -> Ve
 }
 
 fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
+    let _system = soe_trace::SystemScope::new(soe_trace::System::AiMovement);
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };

@@ -26,6 +26,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+mod frame;
+pub use frame::{
+    with_timing_suspended, FrameHistory, FrameSample, FrameSnapshot, System, SystemScope,
+    SystemStats, FRAME_HISTORY, SYSTEM_COUNT,
+};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
