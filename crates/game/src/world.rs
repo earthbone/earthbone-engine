@@ -441,6 +441,8 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+    /// Crime faction whose jail property chest holds the player's belongings.
+    pub jail_faction: Option<GlobalFormId>,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
 }

@@ -702,14 +702,16 @@ CK corpus supplies no usable return contract for these condition functions.
 crime faction at one in-game day per 100 gold of bounty, rounded up and
 capped at seven days. It advances the shared clock, clears that faction's
 violent and nonviolent bounty, clears partial skill-use experience, and adds
-the served days to the player's `days_in_jail`. That counter is stored in the
-`PRG-13` actor save section. When the winning FACT supplies a valid `PLCN`
-reference, ordinary player inventory moves to that player belongings chest.
+the served days to the player's `days_in_jail`. The counter and serving
+faction are stored in the `PRG-13` actor save section. Release uses that
+faction even if the player's current crime faction changes. When the winning
+FACT supplies a valid `PLCN` reference, ordinary player inventory moves to
+that player belongings chest.
 Stacks with an owner extra move to the faction's valid `STOL` evidence chest
 when it is present. Inventory changes are prepared before commit, and missing
 or invalid chest references leave the affected items with their current
 holder. `Game.ClearPrison` clears the served-day counter and transfers the
-contents of the player's crime faction `PLCN` back to the player. Contents in
+contents of the serving faction's `PLCN` back to the player. Contents in
 `STOL` remain evidence. Jail marker travel through `JAIL`, outfit changes
 through `JOUT`, and guard movement remain unimplemented. The FACT field
 definitions follow `TES5Edit/Core/wbDefinitionsTES5.pas` and

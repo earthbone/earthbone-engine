@@ -143,6 +143,7 @@ impl World {
         state.crime_gold_nonviolent = 0;
         let actor = self.actor(player).ok_or(Error::Actor(player))?;
         actor.days_in_jail = actor.days_in_jail.saturating_add(days);
+        actor.jail_faction = Some(faction);
         actor.skill_experience.clear();
         let scale = self.clock.timescale;
         if scale.is_finite() && scale > 0.0 {
@@ -160,9 +161,13 @@ impl World {
             if let Some(faction) = self
                 .actors
                 .get(&player)
-                .and_then(|actor| actor.crime_faction)
+                .and_then(|actor| actor.jail_faction)
             {
-                self.restore_jail_property(faction, player);
+                if self.restore_jail_property(faction, player) {
+                    if let Some(actor) = self.actors.get_mut(&player) {
+                        actor.jail_faction = None;
+                    }
+                }
             }
         }
     }
@@ -246,19 +251,19 @@ impl World {
 
     /// Return contents of the belongings chest to the player. Evidence chest
     /// contents remain confiscated.
-    fn restore_jail_property(&mut self, faction: GlobalFormId, player: GlobalFormId) {
+    fn restore_jail_property(&mut self, faction: GlobalFormId, player: GlobalFormId) -> bool {
         let Some(belongings) = self.faction_container(faction, T(b"PLCN")) else {
-            return;
+            return false;
         };
         let Some(player_inventory) = self.reference(player).map(|state| state.inventory.clone())
         else {
-            return;
+            return false;
         };
         let Some(chest_inventory) = self
             .reference(belongings)
             .map(|state| state.inventory.clone())
         else {
-            return;
+            return false;
         };
         let mut player_inventory = player_inventory;
         let mut chest_inventory = chest_inventory;
@@ -269,7 +274,7 @@ impl World {
         for (item, count) in items {
             let bundle = chest_inventory.take(item, count);
             if player_inventory.receive(item, bundle).is_err() {
-                return;
+                return false;
             }
         }
         // CONTEXT: Both inventory clones accepted every transfer before commit.
@@ -279,6 +284,7 @@ impl World {
         if let Some(state) = self.reference(belongings) {
             state.inventory = chest_inventory;
         }
+        true
     }
 
     fn faction_container(
@@ -388,6 +394,7 @@ pub(crate) fn write_days_in_jail(
     _pool: &mut ArrayPool,
 ) {
     writer.u32(actor.days_in_jail);
+    super::save::write_opt_form_id(writer, actor.jail_faction);
 }
 
 /// Restore the player's jail-day count from the PRG-13 actor section.
@@ -397,5 +404,10 @@ pub(crate) fn read_days_in_jail(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     actor.days_in_jail = reader.u32()?;
+    actor.jail_faction = if reader.remaining() > 0 {
+        super::save::read_opt_form_id(reader)?
+    } else {
+        None
+    };
     Ok(())
 }
