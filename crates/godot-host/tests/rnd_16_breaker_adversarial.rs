@@ -60,7 +60,28 @@ fn rnd_16_concurrent_requests_for_one_load_order_build_only_once() {
         vec!["objects", "terrain"]
     });
 
-    first.finish(&mut cache).unwrap();
-    second.finish(&mut cache).unwrap();
+    assert!(cache.get(cache_key).is_none());
+    let second = second.finish(&mut cache).unwrap();
+    let first = first.finish(&mut cache).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &cache.get(cache_key).unwrap()));
     assert_eq!(builds.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn rnd_16_failed_request_does_not_discard_a_pending_retry() {
+    let cache_key = LoadOrderHash::of(&order());
+    let mut cache = LodBuildCache::default();
+    let failed = cache.request(cache_key, || panic!("failed build"));
+    let stale = cache.request(cache_key, || panic!("duplicate build"));
+    assert!(failed.finish(&mut cache).is_err());
+    assert!(cache.get(cache_key).is_none());
+
+    let retry = cache.request(cache_key, || vec!["objects", "terrain"]);
+    assert!(stale.finish(&mut cache).is_err());
+    let shared = cache.request(cache_key, || panic!("retry must be shared"));
+    let shared = shared.finish(&mut cache).unwrap();
+    let retry = retry.finish(&mut cache).unwrap();
+    assert_eq!(*retry, ["objects", "terrain"]);
+    assert!(Arc::ptr_eq(&retry, &shared));
 }

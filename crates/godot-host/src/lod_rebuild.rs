@@ -8,7 +8,7 @@
 //! changes and plugin content changes cannot reuse stale products.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 
 use soe_profile::{LoadOrder, Slot};
@@ -66,12 +66,14 @@ pub struct GeneratedLod<TObject, TTerrain> {
 #[derive(Debug)]
 pub struct LodBuildCache<T> {
     entries: HashMap<LoadOrderHash, Arc<T>>,
+    running: HashMap<LoadOrderHash, Arc<LodBuildWorker<T>>>,
 }
 
 impl<T> Default for LodBuildCache<T> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            running: HashMap::new(),
         }
     }
 }
@@ -82,7 +84,7 @@ impl<T> LodBuildCache<T> {
         self.entries.get(&key).cloned()
     }
 
-    /// Return cached output or start building it on a background worker.
+    /// Return cached output, share an existing worker or start a new one.
     pub fn request<F>(&mut self, key: LoadOrderHash, build: F) -> LodBuildRequest<T>
     where
         T: Send + Sync + 'static,
@@ -91,16 +93,44 @@ impl<T> LodBuildCache<T> {
         if let Some(value) = self.get(key) {
             return LodBuildRequest::Ready(value);
         }
+        let worker = self.running.entry(key).or_insert_with(|| {
+            Arc::new(LodBuildWorker {
+                worker: Mutex::new(Some(thread::spawn(build))),
+                result: OnceLock::new(),
+            })
+        });
         LodBuildRequest::Running {
             key,
-            worker: thread::spawn(build),
+            worker: Arc::clone(worker),
         }
     }
 
-    fn publish(&mut self, key: LoadOrderHash, value: T) -> Arc<T> {
-        let value = Arc::new(value);
+    fn publish(&mut self, key: LoadOrderHash, value: Arc<T>) -> Arc<T> {
         self.entries.insert(key, Arc::clone(&value));
         value
+    }
+}
+
+/// A background worker whose result is shared by requests for the same key.
+#[derive(Debug)]
+pub struct LodBuildWorker<T> {
+    worker: Mutex<Option<JoinHandle<T>>>,
+    result: OnceLock<Result<Arc<T>, LodBuildError>>,
+}
+
+impl<T> LodBuildWorker<T> {
+    fn finish(&self) -> Result<Arc<T>, LodBuildError> {
+        self.result
+            .get_or_init(|| {
+                let worker = self
+                    .worker
+                    .lock()
+                    .map_err(|_| LodBuildError)?
+                    .take()
+                    .ok_or(LodBuildError)?;
+                worker.join().map(Arc::new).map_err(|_| LodBuildError)
+            })
+            .clone()
     }
 }
 
@@ -109,12 +139,12 @@ pub enum LodBuildRequest<T> {
     Ready(Arc<T>),
     Running {
         key: LoadOrderHash,
-        worker: JoinHandle<T>,
+        worker: Arc<LodBuildWorker<T>>,
     },
 }
 
 /// A worker failed before it could publish a complete result.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 #[error("LOD generation worker panicked")]
 pub struct LodBuildError;
 
@@ -123,10 +153,17 @@ impl<T> LodBuildRequest<T> {
     pub fn finish(self, cache: &mut LodBuildCache<T>) -> Result<Arc<T>, LodBuildError> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Running { key, worker } => match worker.join() {
-                Ok(value) => Ok(cache.publish(key, value)),
-                Err(_) => Err(LodBuildError),
-            },
+            Self::Running { key, worker } => {
+                let result = worker.finish();
+                if cache
+                    .running
+                    .get(&key)
+                    .is_some_and(|running| Arc::ptr_eq(running, &worker))
+                {
+                    cache.running.remove(&key);
+                }
+                result.map(|value| cache.publish(key, value))
+            }
         }
     }
 }

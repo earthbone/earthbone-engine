@@ -3580,7 +3580,8 @@ selector.
 names, enabled state and slot assignment. Callers mix in
 `soe_esm::LoadOrder::fingerprint()` so edits to plugin contents also
 invalidate the cache. `LodBuildCache::request` returns a cached product when
-the key matches, or starts a worker for a cache miss. `GeneratedLod` carries
+the key matches, shares a pending worker for the same key, or starts a worker
+for a cache miss. `GeneratedLod` carries
 object and terrain output together, and `finish` publishes only after the
 complete worker result is available. A failed worker leaves the cache
 unchanged.
@@ -3588,7 +3589,7 @@ unchanged.
 `silhouette_error_pixels` measures the maximum displacement of the four
 projected bounds edges in pixels. `select_far_level` chooses the coarsest
 candidate below the configured error limit and ignores non-finite
-measurements. The cache and selector are host APIs; the cell streamer does
+measurements. The cache and selector are host APIs. The cell streamer does
 not yet schedule rebuilds when a profile is reloaded or apply selected levels
 to rendered references.
 
