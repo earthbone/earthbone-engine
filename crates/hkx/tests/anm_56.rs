@@ -267,7 +267,11 @@ fn anm_56_installed_interval_modes_have_no_finite_time_windows() {
         soe_bsa::Archive::open(&Path::new(&data).join("Skyrim - Animations.bsa")).unwrap();
     let mut graphs = 0;
     let mut intervals = 0;
-    for path in archive.files().iter().filter(|path| path.ends_with(".hkx")) {
+    for path in archive.files().iter().filter(|path| {
+        Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("hkx"))
+    }) {
         let bytes = archive.read(path).unwrap();
         let pf = Packfile::parse(&bytes).unwrap();
         if pf.objects_of("hkbBehaviorGraph").is_empty() {

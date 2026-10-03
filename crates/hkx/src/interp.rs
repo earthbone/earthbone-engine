@@ -4220,6 +4220,9 @@ impl<'a> Interpreter<'a> {
 
     fn generate_machine(&mut self, id: NodeId, sm: &StateMachine, dt: f32) -> Output {
         self.nodes[id.0].time_in_state += dt;
+        if self.nodes[id.0].delayed.is_some() {
+            self.start_delayed(id, sm);
+        }
         let current_generator = self.nodes[id.0]
             .current_state
             .and_then(|c| sm.state(c))
