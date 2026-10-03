@@ -7719,14 +7719,17 @@ version 37 persists the record flags and saved markers.
 
 ## Saved projectile changes, SAV-24
 
-`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD and PBAR change
-forms to winning records and installs all changes atomically. The runtime
-query `World::restored_projectile_extra` returns the shared change flag word
-and exact payload bytes for each restored form. The `SAV-24` world section
-persists the result within SOEW version 37. TES5Edit
-`Core/wbDefinitionsTES5Saves.pas` defines the shared flags but leaves these
-subtype payload structures empty, so the importer does not map the raw payload
-onto plugin subrecords or claim subtype fields are implemented.
+`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD, PBAR, PCON and
+PARW change forms to winning records and installs all changes atomically. The
+runtime query `World::restored_projectile_extra` returns the change flag word
+and exact stored payload bytes for each restored form. The `SAV-24` world
+section persists the result within SOEW version 37. TES5Edit
+`Core/wbDefinitionsTES5Saves.pas` leaves these subtype payload structures
+empty, so the importer does not map payload bytes onto plugin subrecords or
+claim subtype fields are implemented. PCON placement is also decoded by the
+reference reconstruction path. PARW placement stays opaque because xEdit
+omits type 47 from its initial-data dispatch and FallrimTools uses its raw
+fallback.
 
 ## Scripted knockback and ragdoll requests, CMB-38
 
