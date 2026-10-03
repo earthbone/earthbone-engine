@@ -1,5 +1,10 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+The HTML menu embedding research and proposed PrismaUI compatibility contract
+are in [ui-frameworks.md](ui-frameworks.md#html-menus-and-prismaui-compatibility-ui-22).
+They describe options only. No HTML renderer or PrismaUI API adapter is
+implemented in the host.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared
