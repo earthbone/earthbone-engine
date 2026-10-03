@@ -3,9 +3,9 @@
 use soe_esm::LoadOrder;
 use soe_game::Game;
 use soe_papyrus::{
-    asm::{ident, s, FunctionBuilder, ScriptBuilder},
     Opcode::{CallStatic, Return},
     Value,
+    asm::{FunctionBuilder, ScriptBuilder, ident, s},
 };
 #[test]
 fn scr_50_negative_budget_index_uses_empty_name_without_panicking() {

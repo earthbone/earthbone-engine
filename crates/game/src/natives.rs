@@ -3979,7 +3979,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Apply",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Apply: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }
@@ -3992,7 +3999,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Remove",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Remove: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }
