@@ -352,6 +352,10 @@ mod ai_86_adversarial;
 mod ai_86_condition_contracts;
 #[path = "ai_87_adversarial.rs"]
 mod ai_87_adversarial;
+#[path = "ai_88_adversarial.rs"]
+mod ai_88_adversarial;
+#[path = "ai_88_breaker_adversarial.rs"]
+mod ai_88_breaker_adversarial;
 #[path = "ai_89_adversarial.rs"]
 mod ai_89_adversarial;
 #[path = "ai_89_mounted_patrol.rs"]
@@ -1199,14 +1203,22 @@ mod scr_23_adversarial;
 mod scr_23_debug_natives;
 #[path = "scr_24_adversarial.rs"]
 mod scr_24_adversarial;
+#[path = "scr_24_breaker_adversarial.rs"]
+mod scr_24_breaker_adversarial;
 #[path = "scr_24_effect_shader.rs"]
 mod scr_24_effect_shader;
 #[path = "scr_25_adversarial.rs"]
 mod scr_25_adversarial;
+#[path = "scr_25_breaker_adversarial.rs"]
+mod scr_25_breaker_adversarial;
 #[path = "scr_26_adversarial.rs"]
 mod scr_26_adversarial;
+#[path = "scr_26_breaker_adversarial.rs"]
+mod scr_26_breaker_adversarial;
 #[path = "scr_27_adversarial.rs"]
 mod scr_27_adversarial;
+#[path = "scr_27_breaker_adversarial.rs"]
+mod scr_27_breaker_adversarial;
 #[path = "scr_28_adversarial.rs"]
 mod scr_28_adversarial;
 #[path = "scr_29_adversarial.rs"]
@@ -1215,6 +1227,8 @@ mod scr_29_adversarial;
 mod scr_29_game_native_contracts;
 #[path = "scr_30_adversarial.rs"]
 mod scr_30_adversarial;
+#[path = "scr_30_breaker_adversarial.rs"]
+mod scr_30_breaker_adversarial;
 #[path = "scr_30_game_natives.rs"]
 mod scr_30_game_natives;
 #[path = "scr_31_adversarial.rs"]

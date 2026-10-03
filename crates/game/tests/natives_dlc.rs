@@ -69,6 +69,8 @@ const COLD_ARMOR: u32 = 0xA20;
 const DEFAULT_ARMOR: u32 = 0xA21;
 const INTIMIDATION_PERK: u32 = 0xA22;
 const INTIMIDATION_RANGE_PERK: u32 = 0xA23;
+const SUN_GAZE_IMAD: u32 = 0xA24;
+const CRIME_FACTION: u32 = 0xA25;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -156,14 +158,59 @@ fn test_plugin() -> Plugin {
         (DRAGON_BASE, "DragonBase"),
         (HORSE_BASE, "HorseBase"),
     ] {
+        let mut npc = Record::new(T(b"NPC_"), id)
+            .zsub(EDID, edid)
+            .sub(T(b"ACBS"), acbs(0))
+            .sub(
+                T(b"AIDT"),
+                [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            );
+        if id == PLAYER_BASE {
+            npc = npc.sub(T(b"CRIF"), le(CRIME_FACTION));
+        }
+        p.push_top(npc);
+    }
+    let mut crime_values = vec![0; 20];
+    crime_values[18..20].copy_from_slice(&5_u16.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"FACT"), CRIME_FACTION)
+            .zsub(EDID, "Scr27CrimeFaction")
+            .sub(T(b"DATA"), (0x40_u32).to_le_bytes())
+            .sub(T(b"CRVA"), crime_values),
+    );
+    let settings: [(&str, f32); 26] = [
+        ("fSneakBaseValue", 1.0),
+        ("fSneakMaxDistance", 2000.0),
+        ("fSneakDistanceAttenuationExponent", 1.0),
+        ("fSneakSoundsMult", 0.0),
+        ("fSneakSoundLosMult", 0.0),
+        ("fSneakEquippedWeightBase", 0.0),
+        ("fSneakEquippedWeightMult", 0.0),
+        ("fSneakRunningMult", 0.0),
+        ("fSneakActionMult", 0.0),
+        ("fSneakLightMoveMult", 0.0),
+        ("fSneakLightRunMult", 0.0),
+        ("fDetectionSneakLightMod", 1.0),
+        ("fSneakLightMult", 1.0),
+        ("fSneakStealthBoyMult", 0.0),
+        ("fSneakPerceptionSkillMin", 0.0),
+        ("fSneakPerceptionSkillMax", 0.0),
+        ("fSneakAlertMod", 0.0),
+        ("fSneakCombatMod", 0.0),
+        ("fCombatStealthPointMax", 100.0),
+        ("fCombatStealthPointDrainMult", 0.0),
+        ("fCombatStealthPointRegenMult", 0.0),
+        ("fCombatStealthPointRegenMin", 0.0),
+        ("fCombatStealthPointRegenAlertWaitTime", 0.0),
+        ("fCombatStealthPointRegenLostWaitTime", 0.0),
+        ("iCombatStealthPointDetectionThreshold", 10000.0),
+        ("iCombatStealthPointSneakDetectionThreshold", 10000.0),
+    ];
+    for (index, (name, value)) in settings.into_iter().enumerate() {
         p.push_top(
-            Record::new(T(b"NPC_"), id)
-                .zsub(EDID, edid)
-                .sub(T(b"ACBS"), acbs(0))
-                .sub(
-                    T(b"AIDT"),
-                    [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                ),
+            Record::new(T(b"GMST"), 0xB00 + index as u32)
+                .zsub(EDID, name)
+                .sub(T(b"DATA"), value.to_le_bytes()),
         );
     }
     p.push_top(Record::new(T(b"SHOU"), SHOUT_A).zsub(EDID, "ShoutDrainVitality"));
@@ -202,6 +249,11 @@ fn test_plugin() -> Plugin {
             .sub(T(b"EFIT"), effect_entry),
     );
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
+    p.push_top(
+        Record::new(T(b"IMAD"), SUN_GAZE_IMAD)
+            .zsub(EDID, "SunGazeImad")
+            .sub(T(b"DNAM"), vec![0; 244]),
+    );
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
     p.push_top(clothing(VAMPIRE_ARMOR, "VampireRobes").sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)));
     p.push_top(clothing(PLAIN_ARMOR, "FarmClothes"));
@@ -1027,6 +1079,139 @@ fn perk_points_add_and_clamp_at_255() {
     call_global(&mut g, "Game", "AddPerkPoints", &[Value::Int(300)]);
     assert_eq!(g.world().perk_points, 255);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_27_shake_controller_queues_arguments_and_rejects_invalid_duration() {
+    let mut g = game();
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeController",
+        &[Value::Float(0.25), Value::Float(0.75), Value::Float(1.5)],
+    );
+    assert!(matches!(
+        g.world().host_requests.as_slice(),
+        [soe_game::HostRequest::ControllerShake {
+            left_strength: 0.25,
+            right_strength: 0.75,
+            duration: 1.5,
+        }]
+    ));
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeController",
+        &[Value::Float(0.5), Value::Float(0.5), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().host_requests.len(), 1);
+    assert_eq!(
+        g.world().native_errors,
+        [(
+            "Game.ShakeController".to_owned(),
+            "strengths and duration must be finite, and duration must be non-negative".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn scr_27_set_sun_gaze_modifier_validates_saves_and_triggers_on_sungazing() {
+    let mut g = game();
+    let modifier = g.object_of_form(form(&g, "SunGazeImad"));
+    call_global(
+        &mut g,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        &[Value::Object(modifier)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        &[Value::Int(123)],
+    );
+    assert_eq!(g.world().native_errors.len(), 1);
+    let player = g.player();
+    {
+        let mut world = g.world_mut();
+        let sun = world.sun_position();
+        let origin = world.reference(player).unwrap().position;
+        world.camera_look = [sun[0] - origin[0], sun[1] - origin[1], sun[2] - origin[2]];
+    }
+    g.tick(0.01);
+    assert!(g
+        .world()
+        .image_space_layers()
+        .iter()
+        .any(|layer| { layer.modifier == form(&g, "SunGazeImad") && layer.strength == 1.0 }));
+    let saved = g.save_state().unwrap();
+    let mut restored = game();
+    restored.load_state(&saved).unwrap();
+    assert!(restored
+        .world()
+        .image_space_layers()
+        .iter()
+        .any(|layer| { layer.modifier == form(&restored, "SunGazeImad") }));
+}
+
+#[test]
+fn scr_27_send_werewolf_transformation_records_detection_as_crime() {
+    let mut g = game();
+    let player = g.player();
+    let witness = form(&g, "VampireRef");
+    g.world_mut()
+        .evaluate_detection(
+            &[soe_game::detection::Observation {
+                observer: witness,
+                target: player,
+                distance: 1.0,
+                line_of_sight: true,
+                light_level: 1.0,
+                motion: soe_game::detection::Motion::Still,
+                action_sound: 0.0,
+                action_sound_distance: None,
+                action_sound_line_of_sight: None,
+            }],
+            0.0,
+        )
+        .unwrap();
+    assert!(g
+        .world()
+        .awareness(witness, player)
+        .is_some_and(|awareness| matches!(
+            awareness.level,
+            soe_game::detection::DetectionLevel::Alert
+                | soe_game::detection::DetectionLevel::Combat
+        )));
+    assert!(g.world_mut().commonlib_high_process(witness).is_some());
+    assert_eq!(
+        g.world_mut().actor(player).unwrap().crime_faction,
+        Some(soe_esm::GlobalFormId {
+            file: 0,
+            object: CRIME_FACTION
+        })
+    );
+    call_global(&mut g, "Game", "SendWereWolfTransformation", &[]);
+    assert!(
+        g.world_mut()
+            .actor(witness)
+            .unwrap()
+            .witnessed_crimes
+            .contains(&player),
+        "native errors: {:?}",
+        g.world().native_errors
+    );
+    let crime_faction = soe_esm::GlobalFormId {
+        file: 0,
+        object: CRIME_FACTION,
+    };
+    assert_eq!(
+        g.world_mut()
+            .faction(crime_faction)
+            .unwrap()
+            .crime_gold_nonviolent,
+        5
+    );
 }
 
 /// GetWarmthRating is zero when the actor has no equipped armor.

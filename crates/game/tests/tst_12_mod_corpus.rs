@@ -174,10 +174,7 @@ fn asset_references(plugin: &Plugin) -> Vec<String> {
                     .and_then(|ext| ext.to_str())
                     .unwrap_or_default()
                     .to_ascii_lowercase();
-                if ASSET_EXTENSIONS.contains(&extension.as_str())
-                    && value.contains(['/', '\\'])
-                    && !value.starts_with('\\')
-                {
+                if ASSET_EXTENSIONS.contains(&extension.as_str()) && value.contains(['/', '\\']) {
                     references.insert(value.replace('\\', "/").to_ascii_lowercase());
                 }
             }

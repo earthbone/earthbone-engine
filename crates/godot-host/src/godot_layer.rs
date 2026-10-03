@@ -482,6 +482,13 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.free_destruction_models();
         self.free_occluders();
+        #[cfg(feature = "scr-24-test")]
+        {
+            let effect_count = i64::try_from(self.effect_shaders.len()).unwrap_or(-1);
+            self.signals()
+                .scr_24_effect_shaders_released()
+                .emit(effect_count);
+        }
         self.free_effect_shaders();
         self.free_runtime_lights();
         self.clear_terrain_lod();
@@ -1124,6 +1131,56 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    #[cfg(feature = "scr-24-test")]
+    #[func]
+    pub fn scr_24_effect_shader_sync(&mut self, action: i32, duration: f32, delta: f32) -> i64 {
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        plugin.push_top(soe_esm::Record::new(soe_esm::Tag::new(b"EFSH"), 1));
+        plugin.push_top(soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 2));
+        plugin.push_top(
+            soe_esm::Record::new(soe_esm::Tag::new(b"REFR"), 10)
+                .sub(soe_esm::Tag::new(b"NAME"), 2_u32.to_le_bytes())
+                .sub(soe_esm::Tag::new(b"DATA"), vec![0; 24]),
+        );
+        let mut order = soe_esm::LoadOrder::new();
+        if order.add("Scr24Renderer.esm", plugin).is_err() {
+            return -1;
+        }
+        let game = soe_game::Game::new(order);
+        let shader = soe_esm::GlobalFormId { file: 0, object: 1 };
+        let target = soe_esm::GlobalFormId {
+            file: 0,
+            object: 10,
+        };
+        if game.world_mut().reference(target).is_none() {
+            return -1;
+        }
+        let result = match action {
+            1 => game
+                .world_mut()
+                .play_effect_shader(shader, target, duration),
+            2 => game.world_mut().stop_effect_shader(shader, target),
+            _ => Ok(()),
+        };
+        if result.is_err() {
+            return -1;
+        }
+        let requests = game.world_mut().take_effect_shader_requests();
+        let world = game.world();
+        self.sync_effect_shaders(&world, requests, &[], delta);
+        i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
+    }
+
+    #[cfg(feature = "scr-24-test")]
+    #[func]
+    pub fn scr_24_effect_shader_count(&self) -> i64 {
+        i64::try_from(self.effect_shaders.len()).unwrap_or(-1)
+    }
+
+    #[cfg(feature = "scr-24-test")]
+    #[signal]
+    fn scr_24_effect_shaders_released(count: i64);
+
     fn defer_tethers_for_collision_reset(&mut self) {
         self.pending_tethers.extend(self.tethers.pairs());
         self.tethers.free();
