@@ -97,6 +97,7 @@ impl LoadOrder {
     pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
+        soe_trace::info!(target: "esm", system = "esm", plugin = name, records = plugin.records.len(), "adding plugin to load order");
         let fingerprint = plugin.fingerprint();
         // CONTEXT: xEdit Core/Hardcoded/Skyrim.esp defines this engine-owned
         // global, absent from the shipped master but present in ESS globals.

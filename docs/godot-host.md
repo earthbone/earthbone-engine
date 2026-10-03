@@ -4260,3 +4260,35 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Shared logging and controls, TOOL-06
+
+The extension installs the shared tracing subscriber at Scene initialization,
+using `SOE_LOG` and `user://logs/engine.log`. Host diagnostics use the facade
+with subsystem targets such as `host::melee` and `host::data_source`.
+`SoeLogBridge` flushes completed one-second message buckets each frame and
+queues worker events for delivery on the main thread. Errors use Godot's
+`push_error` path and warnings use `push_warning`, reaching the debugger.
+Other levels use Godot output. Every enabled level reaches size-rotated files.
+Exit-tree and extension shutdown flush the current bucket.
+
+`godot/diagnostics.gd` is an autoload with F3 verbosity controls and a backtick
+logging console. Both reload the same filter. F3 shows five seconds of recent
+messages. `log` reads the directives and `log <directives>` changes them.
+Invalid filters retain the previous setting. The panel releases the captured
+mouse while open and restores its prior mode on closure. It adds one control
+node for the host, with no node per placed reference.
+
+`SoeLogBridge::log_window` and `dump_log_window` expose inclusive logging-clock
+windows, including the current pending bucket, for hitch captures. PRF-18's
+automatic recorder is absent in this checkout. The host regression checks the
+window export directly rather than claiming automatic hitch capture.
+The `tool_06_godot_routing_and_editor_debugger` test runs a windowed scene and
+an editor scene with `SOE_GODOT_BIN`, asserting error/warning routing, output,
+file context, repeated counts, release-level elision, console reload and F3
+controls. Both scenes quit when their checks end.
+
+The routing source is the local Godot documentation's GlobalScope
+`push_error`, `push_warning` and `print_rich` contracts. Lifecycle callbacks
+follow local gdext `godot-core/src/init/mod.rs`. Details of the subscriber,
+retention bounds and dependencies are in [trace.md](trace.md).

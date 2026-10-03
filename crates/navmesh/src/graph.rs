@@ -751,6 +751,7 @@ impl NavGraph {
         costs: PathCosts,
     ) -> Option<Path> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
+        soe_trace::trace!(target: "navmesh", system = "navmesh", from = ?from, to = ?to, "finding path");
         if !costs.is_valid() {
             return None;
         }

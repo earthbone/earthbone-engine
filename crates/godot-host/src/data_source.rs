@@ -737,7 +737,7 @@ impl DataSource {
                     }
                 }
                 Err(e) => {
-                    eprintln!("stream_cell: {model}: {e}");
+                    soe_trace::warn!(target: "host::data_source", system = "host::data_source", "stream_cell: {model}: {e}");
                     stats.meshes_failed += 1;
                 }
             }

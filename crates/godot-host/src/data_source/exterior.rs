@@ -290,7 +290,9 @@ impl DataSource {
                 Ok(land) => {
                     out.insert(cell_id, (id, land));
                 }
-                Err(e) => eprintln!("stream_exterior: LAND {id}: {e}"),
+                Err(e) => {
+                    soe_trace::warn!(target: "host::exterior", system = "host::exterior", "stream_exterior: LAND {id}: {e}");
+                }
             }
         }
         out
@@ -454,7 +456,9 @@ impl DataSource {
                                 mesh_identity: None,
                             });
                         }
-                        Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
+                        Err(e) => {
+                            soe_trace::warn!(target: "host::exterior", system = "host::exterior", "stream_exterior: LAND {land_id}: {e}");
+                        }
                     }
                     let grass = self.grass_surfaces_for_cell(cell, *land_id, land, h);
                     loaded.stats.grass_placements += grass.placed;

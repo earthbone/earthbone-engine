@@ -143,7 +143,7 @@ impl SoeReferenceTransformEditor {
         match document.save(path) {
             Ok(_) => true,
             Err(error) => {
-                godot_error!("SoeReferenceTransformEditor: {error}");
+                soe_trace::error!(target: "host::reference_editor", system = "host::reference_editor", "SoeReferenceTransformEditor: {error}");
                 false
             }
         }

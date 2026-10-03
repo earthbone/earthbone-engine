@@ -26,6 +26,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+pub mod logging;
+pub use tracing;
+pub use tracing::{debug, error, info, trace, warn};
+
 /// Events kept in the global list. Past this the oldest are dropped, so a
 /// runaway trace keeps the newest window.
 pub const MAX_EVENTS: usize = 1 << 22;
