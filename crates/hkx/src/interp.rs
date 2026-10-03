@@ -313,6 +313,21 @@ impl SynchronizedClipScene {
         [self.participants[0].actor, self.participants[1].actor]
     }
 
+    /// Cancel the scene and clear its clip-time overrides from both interpreters.
+    /// The returned actor ids let the host release its corresponding locks.
+    pub fn cancel_and_clear_interpreter_times(
+        &mut self,
+        first: &mut Interpreter<'_>,
+        first_generator: NodeId,
+        second: &mut Interpreter<'_>,
+        second_generator: NodeId,
+    ) -> [u64; 2] {
+        let actors = self.cancel();
+        first.clear_synchronized_clip_time(first_generator);
+        second.clear_synchronized_clip_time(second_generator);
+        actors
+    }
+
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -4933,15 +4948,11 @@ mod tests {
             7,
         )
         .unwrap();
-        let mut host_locked_actors = vec![7, 9];
-
-        for actor in scene.cancel() {
-            host_locked_actors.retain(|locked| *locked != actor);
-        }
-        assert!(first.clear_synchronized_clip_time(NodeId(1)));
-        assert!(second.clear_synchronized_clip_time(NodeId(1)));
-
-        assert!(host_locked_actors.is_empty());
+        assert_eq!(
+            scene
+                .cancel_and_clear_interpreter_times(&mut first, NodeId(1), &mut second, NodeId(1),),
+            [7, 9]
+        );
         assert_eq!(first.nodes[0].synchronized_time, None);
         assert_eq!(second.nodes[0].synchronized_time, None);
     }

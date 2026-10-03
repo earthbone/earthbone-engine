@@ -443,9 +443,11 @@ What each node does:
   the lead actor, advances the scene once per frame, then sets each wrapped
   clip's synchronized time before updating its interpreter. Cancel returns
   both actor ids and makes the scene inactive. The host clears the synchronized
-  time override on each interpreter when the scene ends or is cancelled. The
-  ANM-20 cancellation test verifies release of both host actor locks and
-  clearing both interpreter overrides.
+  time override on each interpreter when the scene ends or is cancelled.
+  `cancel_and_clear_interpreter_times` cancels the scene, clears both
+  interpreter overrides and returns both actor ids for the host to unlock.
+  Host lock release remains the caller's responsibility and is not covered by
+  this crate's tests.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph

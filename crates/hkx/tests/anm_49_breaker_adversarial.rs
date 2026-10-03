@@ -26,7 +26,10 @@ fn evaluate_guard(source: &str) -> (i32, usize) {
     let mut vm = Interpreter::new(&graph, &clips, Vec::new());
     vm.send_event(1);
     vm.update(0.0);
-    (vm.current_state(vm.active_states()[0].0).unwrap(), vm.unsupported().conditions.len())
+    (
+        vm.current_state(vm.active_states()[0].0).unwrap(),
+        vm.unsupported().conditions.len(),
+    )
 }
 
 #[test]
@@ -49,7 +52,10 @@ fn undefined_real_results_reject_guards_without_transition() {
     for source in ["mod(1, 0) == 0", "sqrtinv(0) == 0", "sqrt(-1) == 0"] {
         let (state, unsupported) = evaluate_guard(source);
         assert_eq!(state, 0, "undefined scalar result must not pass: {source}");
-        assert_eq!(unsupported, 1, "invalid scalar result should be reported: {source}");
+        assert_eq!(
+            unsupported, 1,
+            "invalid scalar result should be reported: {source}"
+        );
     }
 }
 
@@ -58,6 +64,12 @@ fn seeded_random_functions_stay_within_authored_bounds() {
     let (state, unsupported) = evaluate_guard(
         "rand01() >= 0 && rand01() < 1 && randrange(-2, 3) >= -2 && randrange(-2, 3) < 3",
     );
-    assert_eq!(state, 1, "random outputs must stay within their stated bounds");
-    assert_eq!(unsupported, 0, "valid bounded random guards should be supported");
+    assert_eq!(
+        state, 1,
+        "random outputs must stay within their stated bounds"
+    );
+    assert_eq!(
+        unsupported, 0,
+        "valid bounded random guards should be supported"
+    );
 }

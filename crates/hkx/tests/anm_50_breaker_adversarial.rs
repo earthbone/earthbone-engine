@@ -12,8 +12,7 @@ const TROLL_GUARD: &str =
 
 fn guarded(source: &str) -> BehaviorGraph {
     let bytes = common::graph(&common::Root::Machine, "idle", "stagger");
-    let mut graph =
-        BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
+    let mut graph = BehaviorGraph::from_packfile(&Packfile::parse(&bytes).unwrap()).unwrap();
     graph.data.variable_names = vec!["staggerDirection".into(), "staggerMagnitude".into()];
     graph.data.variable_infos = vec![
         VariableInfo {
@@ -60,7 +59,11 @@ fn anm_50_breaker_troll_guard_reevaluates_both_bounds_on_repeated_events() {
         vm.variables.set_by_name("staggerMagnitude", magnitude);
         vm.send_event(event);
         vm.update(0.0);
-        assert_eq!(current(&vm), expected, "event={event}, magnitude={magnitude}");
+        assert_eq!(
+            current(&vm),
+            expected,
+            "event={event}, magnitude={magnitude}"
+        );
     }
     assert!(vm.unsupported().conditions.is_empty());
 }
@@ -86,10 +89,9 @@ fn anm_50_breaker_installed_guard_is_reached_from_its_authored_start_state() {
         eprintln!("SKYRIM_DATA not set, skipping installed troll behavior check");
         return;
     };
-    let archive = soe_bsa::Archive::open(
-        &std::path::Path::new(&data).join("Skyrim - Animations.bsa"),
-    )
-    .expect("animation archive opens");
+    let archive =
+        soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
+            .expect("animation archive opens");
     let bytes = archive
         .read("meshes/actors/troll/behaviors/trollbehavior.hkx")
         .expect("troll behavior is present");
@@ -118,7 +120,10 @@ fn anm_50_breaker_installed_guard_is_reached_from_its_authored_start_state() {
     }
     assert_eq!(matches.len(), 1, "authored troll guard should be unique");
     let (machine, source_state, start_state, event, target_state) = matches[0];
-    assert_eq!(source_state, start_state, "the guard must be reachable initially");
+    assert_eq!(
+        source_state, start_state,
+        "the guard must be reachable initially"
+    );
 
     for (magnitude, expected_state) in [
         (0.3, start_state),

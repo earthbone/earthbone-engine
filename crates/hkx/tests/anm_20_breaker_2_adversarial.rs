@@ -17,9 +17,19 @@ fn markers(values: &[(&str, f32)]) -> Vec<SyncMarker> {
 fn second_lead_drives_peer_through_unmatched_markers() {
     let mut scene = SynchronizedClipScene::new(
         11,
-        markers(&[("start", 2.0), ("private", 2.5), ("impact", 4.0), ("end", 5.0)]),
+        markers(&[
+            ("start", 2.0),
+            ("private", 2.5),
+            ("impact", 4.0),
+            ("end", 5.0),
+        ]),
         29,
-        markers(&[("start", 1.0), ("impact", 3.0), ("other", 3.5), ("end", 4.0)]),
+        markers(&[
+            ("start", 1.0),
+            ("impact", 3.0),
+            ("other", 3.5),
+            ("end", 4.0),
+        ]),
         29,
     )
     .unwrap();
