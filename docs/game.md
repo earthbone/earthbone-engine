@@ -91,6 +91,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
   observes the existing quest state and does not keep a second quest copy.
+  SHM-23 streams live start and failed-stop payloads from this source to a
+  compiled C++ sink over a test pipe. The test validates CommonLib event fields
+  and does not define a C ABI.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
