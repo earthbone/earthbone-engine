@@ -155,6 +155,7 @@ impl World {
             return Err(Error::Experience);
         }
         let mut level = actor.level;
+        let previous_level = level;
         let mut experience = actor.character_experience + amount;
         let mut choices = actor.level_up_choices;
         if !experience.is_finite() {
@@ -181,6 +182,11 @@ impl World {
         actor.level_up_choices = choices;
         if self.is_player_reference(actor_id) {
             self.player_level = level;
+            if level > previous_level {
+                for reached_level in previous_level + 1..=level {
+                    let _ = self.commonlib_level_increase_at(reached_level);
+                }
+            }
         }
         Ok(())
     }
@@ -284,6 +290,9 @@ impl World {
             .skill_experience
             .insert(skill.to_owned(), next_experience);
         let skill_ranks_gained = next_level - level;
+        if skill_ranks_gained > 0.0 && actor_id == self.player() {
+            self.commonlib_skill_increase(skill);
+        }
         if skill_ranks_gained > 0.0
             && level_setting(self, "fXPLevelUpBase").is_ok()
             && level_setting(self, "fXPLevelUpMult").is_ok()

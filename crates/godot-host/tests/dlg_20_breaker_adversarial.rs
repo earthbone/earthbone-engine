@@ -76,3 +76,30 @@ fn dlg_20_breaker_voice_without_lip_resets_prior_targets_to_neutral() {
     voice.update(6, true, 0.5);
     assert!(voice.weights().iter().all(|weight| *weight == 0.0));
 }
+
+#[test]
+fn dlg_20_breaker_repeated_and_stale_stop_calls_preserve_the_current_line() {
+    let mut voice = DialogueVoice::default();
+    voice.start(4, Some(lip_track()), 2.0);
+    voice.update(4, true, 1.0);
+    voice.stop(4);
+    voice.stop(4);
+    assert_eq!(voice.weights(), [0.0, 0.0]);
+
+    voice.start(5, Some(lip_track()), 2.0);
+    voice.update(5, true, 0.0);
+    voice.stop(4);
+    assert_eq!(voice.weights(), [0.1, 0.2]);
+}
+
+#[test]
+fn dlg_20_breaker_invalid_duration_replacement_keeps_targets_neutral() {
+    let mut voice = DialogueVoice::default();
+    voice.start(1, Some(lip_track()), 2.0);
+    voice.update(1, true, 0.5);
+    assert_eq!(voice.weights(), [0.3, 0.4]);
+
+    voice.start(2, Some(lip_track()), f64::NAN);
+    voice.update(2, true, 0.5);
+    assert_eq!(voice.weights(), [0.0, 0.0]);
+}

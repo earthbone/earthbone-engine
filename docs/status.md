@@ -1,5 +1,93 @@
 # Status, per subsystem
 
+## Checkpoint, 2026-10-03, end of backlog run round 3
+
+The lead refreshes this section after every backlog round. The table comes from
+`.soe-run-tools/status_table.py` over BACKLOG.csv. Open rows carry their
+remaining work in the evidence column, partial rows name the open clause.
+
+| Area | Done | Open | Blocked |
+|---|---:|---:|---:|
+| Papyrus natives (SCR) | 44 | 29 | 0 |
+| Saves (SAV) | 55 | 3 | 11 |
+| Menus and HUD (UI) | 13 | 11 | 0 |
+| Animation (ANM) | 51 | 8 | 0 |
+| Magic (MAG) | 65 | 5 | 3 |
+| CommonLib shim (SHM) | 15 | 8 | 0 |
+| Test harness (TST) | 10 | 8 | 0 |
+| Playtest bots (PLY) | 0 | 7 | 0 |
+| AI packages, schedules, detection (AI) | 86 | 1 | 4 |
+| Godot host (HST) | 14 | 5 | 0 |
+| Audio (AUD) | 6 | 4 | 0 |
+| Progression (perks, skills, leveled lists) (PRG) | 17 | 3 | 1 |
+| Combat (CMB) | 35 | 2 | 1 |
+| Editor (EDT) | 25 | 3 | 0 |
+| Performance (PRF) | 8 | 3 | 0 |
+| File formats (FMT) | 28 | 2 | 0 |
+| Mod data (SPID, KID, BOS, OAR) (MOD) | 8 | 2 | 0 |
+| Rendering (RND) | 14 | 1 | 1 |
+| Tools (TOOL) | 3 | 2 | 0 |
+| Crafting (CRF) | 8 | 0 | 0 |
+| Dialogue (DLG) | 21 | 0 | 0 |
+| Inventory (INV) | 8 | 0 | 0 |
+| **All 663 rows** | **534** | **107** | **21** |
+
+### What runs today
+
+`godot/walkthrough.gd` is the playable prototype. With `SKYRIM_DATA` set and
+the release extension built, it loads the installed plugins and archives,
+streams Whiterun's Bannered Mare and places the player there: WASD moves, the
+mouse looks, E activates, Space jumps, Ctrl sneaks, F switches the camera.
+`PlayerNode::start_gameplay` starts the game VM over the same records and
+archives the renderer uses. Every frame `Game::tick` (`crates/game/src/lib.rs`)
+runs AI packages, activation, force greets, dialogue, magic, scene actions,
+quest lifecycle tasks and menu mode.
+
+The host also has the native menu framework, the dialogue menu (DLG-10),
+footsteps, dialogue voice playback, ranged release and projectile flight
+(CMB-08, CMB-22), death ragdolls (CMB-19), water, grass, rock instancing and
+distant terrain LOD (RND-02, RND-11, RND-04, RND-03). It saves and reloads its
+own native save generations (`save_game_generation`,
+`recover_game_generation`, SAV-63). Merged but partial, with the open clause
+in the backlog row: the main menu lifecycle (UI-18), music (AUD-05), stagger
+(CMB-27) and attaching a restored player (SAV-19, blocked). See
+[godot-host](godot-host.md) for each feature's evidence.
+
+### What does not run yet
+
+- No vanilla save loads from the walkthrough. The host can convert a `.ess`
+  into one of its own save generations (`accept_vanilla_recovery_session` in
+  `crates/godot-host/src/save_recovery.rs`, SAV-61), refusing a save whose
+  PCON or PARW change forms it cannot read, and `attach_restored_generation`
+  resumes from a native generation. No GDScript call opens a `.ess` yet, and
+  SAV-19 (resume the host from a restored vanilla game) still lacks the test
+  that connects the two.
+- No new game starts. The walkthrough always begins in the Bannered Mare, and
+  the host has no new-game path.
+- 30 Papyrus native rows are open. The SCR rows in BACKLOG.csv name each
+  native and what its implementation still lacks.
+- The walkthrough is slow and stutters. Before PRF-11 a frame froze inside
+  NavGraph::locate during NPC planning. With PRF-11's first pass, planning still
+  takes 8 to 100 ms in 71 percent of frames in a 60 second Bannered Mare check.
+  No per-system frame breakdown exists to show where the rest of the frame goes
+  (PRF-12 to PRF-15).
+- In the 2026-10-03 walkthrough, menus printed form IDs instead of item names:
+  the inventory menu falls back to the form ID when `World::name_of` finds no
+  name. Menus also have no item preview (UI-25), and container looting does not
+  follow QuickLoot IE yet (UI-26).
+- Everything in the game, Papyrus and navmesh crates runs on one thread. The VM
+  interleaves script threads on it in slices of 64 instructions (PRF-17).
+- The playtest bots (PLY-01 to PLY-07) are drafted, not merged.
+- Checks only the user can run are pending: the TOOL-04 probe capture in the
+  original game, HST-05 on a physical speaker, PRF-08 windowed cold starts and
+  a SAV-65 crafting save. The kit is in `.soe-run-tools/session/`.
+
+The sections below predate the backlog run and are no longer maintained. Where
+they disagree with BACKLOG.csv or a subsystem doc, the backlog and that doc
+are current.
+
+## Earlier status, before the backlog run
+
 The completed combat integration adds difficulty selection, weapon and armor
 templates, armor slot replacement, race-based unarmed damage and the authored
 melee contact bridge.

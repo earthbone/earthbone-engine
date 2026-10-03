@@ -27,7 +27,8 @@ fn fixture() -> Game {
         .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x900u32.to_le_bytes())
-        .sub(Tag(*b"ANAM"), []);
+        .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0xA20u32.to_le_bytes());
     plugin.push_top(scene);
     let topic = Record::new(Tag(*b"DIAL"), 0xA10)
         .sub(Tag(*b"QNAM"), 0xA20u32.to_le_bytes())

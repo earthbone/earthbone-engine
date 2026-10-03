@@ -73,6 +73,12 @@ impl CameraHostState {
         self.first_person_geometry_visible
     }
 
+    /// Whether the player rig's first-person instances should reach the renderer.
+    #[must_use]
+    pub fn rendered_first_person_geometry_visible(&self, mode: CameraMode) -> bool {
+        mode != CameraMode::First || self.first_person_geometry_visible
+    }
+
     #[must_use]
     pub fn sitting_rotation_degrees(&self) -> f32 {
         self.sitting_rotation_degrees
@@ -166,6 +172,16 @@ impl CameraMode {
             CameraMode::Third => CameraMode::First,
         }
     }
+}
+
+/// Apply one of the explicit Game camera mode requests to the live rig.
+#[cfg(any(feature = "godot", test))]
+pub(crate) fn apply_game_camera_request(rig: &mut CameraRig, first_person: bool) {
+    rig.mode = if first_person {
+        CameraMode::First
+    } else {
+        CameraMode::Third
+    };
 }
 
 /// The tunables, under their vanilla INI names where one exists.
@@ -852,5 +868,14 @@ mod tests {
         assert!((wrap_angle(TAU) - 0.0).abs() < 1e-5);
         assert!(wrap_angle(3.0 * PI) <= PI + 1e-5);
         assert!(wrap_angle(-3.0 * PI) >= -PI - 1e-5);
+    }
+
+    #[test]
+    fn scr_28_game_camera_requests_change_the_live_rig_mode() {
+        let mut rig = CameraRig::default().with_mode(CameraMode::Third);
+        apply_game_camera_request(&mut rig, true);
+        assert_eq!(rig.mode, CameraMode::First);
+        apply_game_camera_request(&mut rig, false);
+        assert_eq!(rig.mode, CameraMode::Third);
     }
 }

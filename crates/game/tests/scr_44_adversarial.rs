@@ -11,9 +11,9 @@ use soe_papyrus::{
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
 }
-fn game() -> Game {
-    let mut p = Plugin::new(FileHeader::default());
-    let scene = Record::new(Tag(*b"SCEN"), 0x800)
+fn scene_record(id: u32, name: &str) -> Record {
+    Record::new(Tag(*b"SCEN"), id)
+        .zsub(Tag(*b"EDID"), name)
         .sub(Tag(*b"HNAM"), [])
         .zsub(Tag(*b"NAM0"), "Start")
         .sub(Tag(*b"NEXT"), [])
@@ -27,8 +27,13 @@ fn game() -> Game {
         .sub(Tag(*b"SNAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x800u32.to_le_bytes())
-        .sub(Tag(*b"ANAM"), []);
-    p.push_top(scene);
+        .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes())
+}
+fn game() -> Game {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(scene_record(0x800, "TestScene"));
+    p.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
     let mut o = LoadOrder::new();
     o.add("Scene.esm", p).unwrap();
     Game::new(o)
@@ -78,4 +83,25 @@ fn scr_44_completion_requires_authored_action_id_not_slot_number() {
     assert!(g.world_mut().complete_scene_action(id(0x800), 0));
     assert!(!g.world().scene_action_complete(id(0x800), 0));
     assert!(g.world().scene_action_complete(id(0x800), 55));
+}
+
+#[test]
+fn scr_44_same_action_id_is_scoped_to_its_scene() {
+    let mut p = Plugin::new(FileHeader::default());
+    p.push_top(scene_record(0x800, "FirstScene"));
+    p.push_top(scene_record(0x801, "SecondScene"));
+    let mut order = LoadOrder::new();
+    order.add("Scene.esm", p).unwrap();
+    let mut g = Game::new(order);
+    g.start();
+    let mut alloc = |_: &str, _: &str| ObjectId(1);
+    assert!(g.world_mut().start_scene(id(0x800), &mut alloc));
+    assert!(g.world_mut().start_scene(id(0x801), &mut alloc));
+    assert!(g.world_mut().complete_scene_action(id(0x800), 0));
+
+    assert!(g.world().scene_action_complete(id(0x800), 55));
+    assert!(!g.world().scene_action_complete(id(0x801), 55));
+
+    assert!(g.world_mut().complete_scene_action(id(0x801), 0));
+    assert!(g.world().scene_action_complete(id(0x801), 55));
 }

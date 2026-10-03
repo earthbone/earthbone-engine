@@ -724,6 +724,17 @@ impl World {
         count: i32,
         target: Option<GlobalFormId>,
     ) -> crate::inventory::Bundle {
+        self.remove_item_bundle_with_ownership(holder, item, count, target, true)
+    }
+
+    pub(super) fn remove_item_bundle_with_ownership(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: Option<GlobalFormId>,
+        keep_ownership: bool,
+    ) -> crate::inventory::Bundle {
         let moved = count
             .min(
                 self.reference(holder)
@@ -747,6 +758,9 @@ impl World {
         let mut bundle = source.inventory.take(item, moved);
         if let Some(target) = target {
             bundle.unequip();
+            if !keep_ownership {
+                bundle.clear_ownership();
+            }
             // CONTEXT: Both references and recipient capacity were checked above.
             if let Some(recipient) = self.refs.get_mut(&target) {
                 let result = recipient.inventory.receive(item, bundle.clone());

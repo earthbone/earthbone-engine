@@ -37,11 +37,13 @@ fn scene() -> Record {
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x900u32.to_le_bytes())
         .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes())
 }
 
 fn fixture_game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(scene());
+    plugin.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
     let mut order = LoadOrder::new();
     order.add("Scene.esp", plugin).unwrap();
     Game::new(order)

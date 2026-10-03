@@ -97,8 +97,15 @@ workflows. Add override-chain inspection, undo, text exports for version
 control, standard asset imports, navmesh regeneration and play-from-here.
 The editor design is not an implemented editor.
 
-Use a native Godot UI and an MCM-compatible configuration API for the
-`SKI_ConfigBase` interface. Scaleform SWF execution is outside the chosen route.
+Use a native Godot UI with SkyUI's layout and behaviour as the default, and an
+MCM-compatible configuration API for the `SKI_ConfigBase` interface (user,
+2026-10-03: the menus must stay as close to SkyUI as possible). Interface SWF
+art from the load order (vanilla, SkyUI or any mod) is converted into a
+Godot-native cache at load time and never committed. SkyUI's own art and icons
+come only from the user's install, a fallback theme uses GPL-compatible icon
+sets. Menu systems mods use alongside Scaleform (SKSE Menu Framework and dMenu
+ImGui menus, PrismaUI HTML menus) get compatible hooks. Running mod SWF menus
+through an extended Ruffle is a later track, decided after research.
 ENB's closed injection protocol is out of scope. The extensible, configurable
 post-processing that preset authors need remains in scope.
 

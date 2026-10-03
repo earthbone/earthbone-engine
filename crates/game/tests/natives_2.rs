@@ -25,7 +25,10 @@ use soe_esm::{
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
-use soe_game::{world::RngStream, HostRequest};
+use soe_game::{
+    world::{RngStream, SpellArtAction, SpellArtRequest},
+    HostRequest,
+};
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -72,6 +75,7 @@ const FLAMES: u32 = 0x915;
 const BOX_MESSAGE: u32 = 0x916;
 const NOTE_MESSAGE: u32 = 0x917;
 const SCENE: u32 = 0x918;
+const SCENE_QUEST: u32 = 0xA32;
 const SOUND: u32 = 0x919;
 const COUNTER: u32 = 0x91A;
 const QUEST: u32 = 0x91B;
@@ -393,6 +397,7 @@ fn test_plugin() -> Plugin {
             .zsub(T(b"DESC"), "Hello note")
             .sub(T(b"DNAM"), le(0)),
     );
+    p.push_top(quest::build_record(SCENE_QUEST, "TestSceneQuest", 0));
     p.push_top(
         Record::new(T(b"SCEN"), SCENE)
             .zsub(EDID, "TestScene")
@@ -408,6 +413,7 @@ fn test_plugin() -> Plugin {
             .sub(T(b"ENAM"), 0u32.to_le_bytes())
             .sub(T(b"DATA"), 0x900u32.to_le_bytes())
             .sub(T(b"ANAM"), [])
+            .sub(T(b"PNAM"), le(SCENE_QUEST))
             .sub(
                 T(b"VMAD"),
                 Vmad {
@@ -606,7 +612,7 @@ fn scripts() -> Vec<Vec<u8>> {
     vec![alias, reference_alias, watcher, listener, scene]
 }
 
-fn game() -> Game {
+pub(super) fn game() -> Game {
     let bytes = test_plugin().to_bytes();
     let plugin = Plugin::parse(&bytes).unwrap();
     let mut order = LoadOrder::new();
@@ -681,7 +687,7 @@ fn type_of(v: &Value) -> &'static str {
 
 /// Call `name` on `target` through a one-off script, the way a vanilla
 /// script's `CallMethod` would, and hand back the result.
-fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
+pub(super) fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
     let n = PROBES.fetch_add(1, Ordering::SeqCst);
     let script = format!("Probe{n}");
     let mut fun = FunctionBuilder::new("Run", "Var")
@@ -783,6 +789,37 @@ fn scr_21_set_god_mode_updates_the_shared_runtime_switch() {
 }
 
 #[test]
+fn scr_21_god_mode_blocks_player_health_damage_only() {
+    let mut game = game();
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        world.actor(player).expect("player actor");
+        let health = world.actor(player).unwrap().values.get("health").current();
+        let stamina = world.actor(player).unwrap().values.get("stamina").current();
+        world.debug_god_mode = true;
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        let actor = world.actor(player).unwrap();
+        assert_eq!(actor.values.get("health").current(), health);
+        world.damage_actor_value(player, "stamina", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("stamina").current(),
+            stamina - 25.0
+        );
+    }
+    {
+        let mut world = game.world_mut();
+        world.debug_god_mode = false;
+        let health = world.actor(player).unwrap().values.get("health").current();
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("health").current(),
+            health - 25.0
+        );
+    }
+}
+
+#[test]
 fn scr_21_toggle_ai_alternates_the_package_driver_switch() {
     let mut game = game();
     assert!(game.world().debug_ai_enabled);
@@ -860,7 +897,7 @@ fn scr_21_debug_channel_notify_logs_channel_and_message() {
     assert!(game.vm.log.contains("[combat] hit"));
 }
 
-fn obj(game: &mut Game, edid: &str) -> Value {
+pub(super) fn obj(game: &mut Game, edid: &str) -> Value {
     let id = game.form(edid).unwrap_or_else(|| panic!("no form {edid}"));
     Value::Object(game.object_of_form(id))
 }
@@ -870,7 +907,7 @@ fn is(game: &mut Game, v: &Value, edid: &str) -> bool {
     v.as_object() == Some(game.object_of_form(id))
 }
 
-fn errors(game: &Game) -> Vec<String> {
+pub(super) fn errors(game: &Game) -> Vec<String> {
     game.traces()
         .into_iter()
         .filter(|t| t.contains("no function") || t.contains("no global") || t.contains("error"))
@@ -1912,6 +1949,99 @@ fn scr_25_mod_reaction_handles_default_missing_target_and_overflow() {
         "the reaction must saturate at the integer boundary"
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// The faction alarm uses a resident member as witness and records player assault.
+#[test]
+fn scr_25_send_assault_alarm_records_nearest_faction_witness() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let guard_id = g.form("GuardRef").unwrap();
+    let faction_id = g.form("GuardsFaction").unwrap();
+    let guard_base = g.form("GuardBase").unwrap();
+    let player = g.world_mut().player();
+    let nearby_guard = {
+        let mut world = g.world_mut();
+        world.reference(guard_id).unwrap().position = [100.0, 0.0, 0.0];
+        let spawned = world.place_at(guard_base, player, false);
+        world.reference(spawned).unwrap().position = [2.0, 0.0, 0.0];
+        world.actor(spawned).unwrap().factions.insert(faction_id, 0);
+        spawned
+    };
+
+    assert_eq!(call(&mut g, &guards, "SendAssaultAlarm", &[]), Value::None);
+
+    assert!(g
+        .world_mut()
+        .actor(nearby_guard)
+        .unwrap()
+        .witnessed_crimes
+        .contains(&player));
+    assert!(g.world_mut().actor_is_alarmed(nearby_guard));
+    assert!(!g
+        .world_mut()
+        .actor(guard_id)
+        .unwrap()
+        .witnessed_crimes
+        .contains(&player));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Alarm dispatch reports a missing faction witness and jail requires a tracked faction.
+#[test]
+fn scr_25_faction_crime_methods_report_missing_prerequisites() {
+    let mut g = game();
+    let thieves = obj(&mut g, "ThievesFaction");
+
+    assert_eq!(call(&mut g, &thieves, "SendAssaultAlarm", &[]), Value::None);
+    assert_eq!(
+        call(
+            &mut g,
+            &thieves,
+            "SendPlayerToJail",
+            &[Value::Bool(false), Value::Bool(false)],
+        ),
+        Value::None
+    );
+
+    assert!(g.vm.log.contains("no resident actor"));
+    assert!(g.vm.log.contains("does not track crime"));
+    let player = g.world_mut().player();
+    assert_eq!(g.world_mut().actor(player).unwrap().days_in_jail, 0);
+}
+
+/// Jail arguments are observed, sentencing clears bounty and marks the player arrested.
+#[test]
+fn scr_25_send_player_to_jail_serves_sentence_and_reports_host_options() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let faction = g.form("GuardsFaction").unwrap();
+    let player = g.world_mut().player();
+    {
+        let mut world = g.world_mut();
+        let state = world.faction(faction).unwrap();
+        state.crime_gold_violent = 150;
+        state.crime_gold_nonviolent = 25;
+    }
+
+    assert_eq!(
+        call(
+            &mut g,
+            &guards,
+            "SendPlayerToJail",
+            &[Value::Bool(true), Value::Bool(true)],
+        ),
+        Value::None
+    );
+
+    let mut world = g.world_mut();
+    assert_eq!(world.actor(player).unwrap().days_in_jail, 2);
+    assert!(world.actor(player).unwrap().arrested);
+    let faction_state = world.faction(faction).unwrap();
+    assert_eq!(faction_state.crime_gold_violent, 0);
+    assert_eq!(faction_state.crime_gold_nonviolent, 0);
+    drop(world);
+    assert!(g.vm.log.contains("jail placement is not implemented"));
 }
 
 /// ModCrimeGold adds to the violent or non-violent bounty and to the
@@ -3530,10 +3660,11 @@ fn scenes_begin_and_end() {
         g.traces()
     );
     call(&mut g, &scene, "ForceStart", &[]);
-    assert_eq!(g.traces().iter().filter(|t| *t == "scene begin").count(), 1);
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene begin").count(), 2);
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene end").count(), 1);
     call(&mut g, &scene, "Stop", &[]);
     assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
-    assert!(g.traces().iter().any(|t| t == "scene end"));
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene end").count(), 2);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
@@ -3550,7 +3681,9 @@ fn scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding() {
         Value::Bool(false)
     );
     call(&mut g, &scene, "ForceStart", &[]);
-    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), Value::None);
+    let owning_quest_id = g.world().order().resolve(0, SCENE_QUEST);
+    let owning_quest = Value::Object(g.object_of_form(owning_quest_id));
+    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), owning_quest);
     call(&mut g, &scene, "Stop", &[]);
     assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
 
@@ -3616,31 +3749,33 @@ fn sounds_and_spells_are_recorded() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// Spell.Preload and Spell.Unload take no arguments. The game validates the
-/// spell record and reports the missing art-resource system without changing
-/// cast or active-effect state.
+/// Spell.Preload and Spell.Unload validate the spell through the world API and
+/// queue the matching host art request without changing magic state.
 #[test]
-fn scr_47_spell_art_methods_report_missing_resource_system() {
+fn scr_47_spell_art_methods_queue_ordered_host_requests() {
     let mut g = game();
     let flames = obj(&mut g, "Flames");
+    let spell = g.form("Flames").unwrap();
     let spells_before = g.world().spell_casts.clone();
     let effects_before = g.world().active_effects().count();
 
+    assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
     assert_eq!(call(&mut g, &flames, "Preload", &[]), Value::None);
     assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
 
-    let traces = g.traces();
-    assert!(
-        traces
-            .iter()
-            .any(|line| { line == "Spell.Preload: spell art resource loading is unsupported" }),
-        "{traces:?}"
-    );
-    assert!(
-        traces
-            .iter()
-            .any(|line| { line == "Spell.Unload: spell art resource loading is unsupported" }),
-        "{traces:?}"
+    assert_eq!(
+        g.world_mut().take_spell_art_requests(),
+        vec![
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Unload
+            },
+        ]
     );
     assert_eq!(g.world().spell_casts, spells_before);
     assert_eq!(g.world().active_effects().count(), effects_before);
@@ -3666,7 +3801,7 @@ fn scr_70_registry_matches_the_audited_sound_and_shader_bindings() {
         assert!(g.vm.natives.has_global(class, name), "{class}.{name}");
         assert!(!g.vm.natives.has_method(class, name), "{class}.{name}");
     }
-    assert!(!g.vm.natives.has_method("Sound", "PlayAndWait"));
+    assert!(g.vm.natives.has_method("Sound", "PlayAndWait"));
     assert!(!g.vm.natives.has_method("Sound", "GetDescriptor"));
 }
 
@@ -3692,6 +3827,7 @@ fn scr_70_sound_instances_follow_the_declared_contract() {
         &[Value::Int(2), Value::Float(2.0)],
     );
     assert_eq!(g.world().sound_instances[&2].2, 1.0);
+    assert_eq!(g.world().sound_instances[&1].2, 1.0);
     call_global(
         &mut g,
         "Sound",
@@ -3699,9 +3835,11 @@ fn scr_70_sound_instances_follow_the_declared_contract() {
         &[Value::Int(2), Value::Float(-1.0)],
     );
     assert_eq!(g.world().sound_instances[&2].2, 0.0);
+    assert_eq!(g.world().sound_instances[&1].2, 1.0);
 
     call_global(&mut g, "Sound", "StopInstance", &[Value::Int(1)]);
     assert!(!g.world().sound_instances.contains_key(&1));
+    assert!(g.world().sound_instances.contains_key(&2));
 }
 
 /// The Game flags: fast travel, AI driven, chargen, beast form, words

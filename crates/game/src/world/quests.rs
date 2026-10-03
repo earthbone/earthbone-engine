@@ -34,6 +34,7 @@ impl World {
         let aliases = def
             .aliases
             .iter()
+            .filter(|a| a.fill.is_none() || a.forced_ref.is_some())
             .map(|a| {
                 let target = if a.location { None } else { a.forced_ref };
                 (a.id, target.map(|raw| self.order.resolve(rref.file, raw)))
@@ -459,6 +460,7 @@ impl World {
         if (was_running || started) && !is_running {
             self.send_quest_start_stop(id, false);
         }
+        self.commonlib_quest_stage(id, stage);
         true
     }
 
@@ -469,6 +471,15 @@ impl World {
     }
 
     pub fn alias_ref(&mut self, quest: GlobalFormId, alias: u32) -> Option<GlobalFormId> {
+        if self
+            .quest_state(quest)
+            .is_some_and(|state| state.aliases.contains_key(&alias))
+        {
+            return self
+                .quest_state(quest)
+                .and_then(|state| state.aliases.get(&alias).copied())
+                .flatten();
+        }
         self.resolve_alias_ref(quest, alias).ok().flatten()
     }
 
@@ -495,17 +506,15 @@ impl World {
             return Err(AliasResolutionError::Cycle(cycle));
         }
         let Some((fill, current_target)) = self.quest_state(quest).and_then(|state| {
-            state.def.alias(alias).map(|definition| {
-                (
-                    definition.fill,
-                    state.aliases.get(&alias).copied().flatten(),
-                )
-            })
+            state
+                .def
+                .alias(alias)
+                .map(|definition| (definition.fill, state.aliases.get(&alias).copied()))
         }) else {
             return Ok(None);
         };
         if let Some(target) = current_target {
-            return Ok(Some(target));
+            return Ok(target);
         }
         path.push(node);
         let result = match fill {
@@ -521,7 +530,7 @@ impl World {
                 let target_quest = self.order.resolve(rref.file, raw_quest);
                 self.resolve_alias_ref_inner(target_quest, target, path)?
             }
-            None => current_target,
+            None => None,
         };
         path.pop();
         Ok(result)

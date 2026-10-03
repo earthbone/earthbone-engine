@@ -4,7 +4,7 @@
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
-fn map_marker_bit_updates_preserve_other_flags_and_are_idempotent() {
+fn shm_13_map_marker_bit_updates_preserve_other_flags_and_are_idempotent() {
     let include = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("include");
     let scratch = std::env::temp_dir().join(format!("soe-shm-13-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();

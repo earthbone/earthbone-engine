@@ -136,9 +136,22 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SCR-01", write: World::write_reference_events, read: World::read_reference_events },
     super::magic::GRANTED_PERK_SECTION,
     super::image_space::SECTION,
+    Section { name: "SCR-27", write: write_sun_gaze_modifier, read: read_sun_gaze_modifier },
     super::magic::TAPER_SECTION,
 ];
 fn write_empty_section(_world: &World, _writer: &mut Writer, _pool: &mut ArrayPool) {}
+
+fn write_sun_gaze_modifier(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    world.write_sun_gaze_modifier(writer);
+}
+
+fn read_sun_gaze_modifier(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    world.read_sun_gaze_modifier(reader)
+}
 
 fn read_pending_script_calls(
     world: &mut World,
@@ -351,7 +364,36 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-76", write: write_known_magic_effects, read: read_known_magic_effects },
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
+    Section { name: "SHM-13", write: write_favorites, read: read_favorites },
 ];
+
+fn write_favorites(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(actor.favorites.len());
+    for form in &actor.favorites {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_favorites(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 6 {
+        return Err(VmError::State(
+            "SHM-13 favorite count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut favorites = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !favorites.insert(super::save::read_form_id(reader)?) {
+            return Err(VmError::State("SHM-13 duplicate favorite form".into()));
+        }
+    }
+    actor.favorites = favorites;
+    Ok(())
+}
 
 fn write_stagger_metadata(
     state: &ActorState,

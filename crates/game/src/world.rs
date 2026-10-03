@@ -50,6 +50,7 @@ mod calendar;
 mod combat;
 pub mod commonlib;
 mod commonlib_events;
+pub mod commonlib_magic;
 mod contact;
 mod crime;
 mod death;
@@ -199,6 +200,10 @@ pub enum DebugHostRequest {
         cell: GlobalFormId,
         latent: Option<LatentId>,
     },
+    MovePlayerToReference {
+        reference: GlobalFormId,
+        latent: LatentId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -281,7 +286,7 @@ impl RefState {
         }
     }
 
-    fn new(base: Option<GlobalFormId>) -> Self {
+    pub(crate) fn new(base: Option<GlobalFormId>) -> Self {
         RefState {
             base,
             cell: None,
@@ -349,6 +354,8 @@ pub struct ActorState {
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
+    /// Forms the actor has marked in the magic favorites list.
+    pub favorites: BTreeSet<GlobalFormId>,
     /// CK knowable forms whose `Known` flag is set for the player.
     pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
@@ -477,6 +484,8 @@ pub struct ActorState {
     pub skill_experience: BTreeMap<String, f32>,
     /// Cumulative in-game days served in prison.
     pub days_in_jail: u32,
+    /// Crime faction whose jail property chest holds the player's belongings.
+    pub jail_faction: Option<GlobalFormId>,
     /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
     pub head_tracking: Option<bool>,
     /// Reference attached through Papyrus `Actor.SetVehicle`.
@@ -778,6 +787,29 @@ pub enum HostRequest {
     },
     CameraFirstPerson,
     CameraThirdPerson,
+    ControllerShake {
+        left_strength: f32,
+        right_strength: f32,
+        duration: f32,
+    },
+}
+
+/// Operation requested by Papyrus to load or release a spell's art resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellArtAction {
+    /// Load art referenced by the spell for later use.
+    Preload,
+    /// Release art previously requested by `Preload`.
+    Unload,
+}
+
+/// One spell art operation awaiting the host resource provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellArtRequest {
+    /// Spell whose art resources are requested.
+    pub spell: GlobalFormId,
+    /// Requested resource operation.
+    pub action: SpellArtAction,
 }
 
 pub struct World {
@@ -873,6 +905,8 @@ pub struct World {
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
     pub host_requests: Vec<HostRequest>,
+    pub(crate) spell_art_requests: Vec<SpellArtRequest>,
+    pub(crate) preloaded_spell_art: BTreeSet<GlobalFormId>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     /// Script events submitted by Papyrus and waiting for Story Manager routing.
@@ -998,6 +1032,8 @@ pub struct World {
         BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
     pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) sun_gaze_modifier: Option<GlobalFormId>,
+    pub(crate) sun_gazing_last_tick: bool,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Active shader particle geometries derived from winning SPGD records.
     pub(crate) shader_particles: shader_particles::ShaderParticleState,
@@ -1220,6 +1256,8 @@ impl World {
             frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),
+            spell_art_requests: Vec::new(),
+            preloaded_spell_art: BTreeSet::new(),
             story_manager_events: Vec::new(),
             pending_story_events: Vec::new(),
             timers: Vec::new(),
@@ -1302,6 +1340,8 @@ impl World {
             telekinesis_grab: None,
             next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            sun_gaze_modifier: None,
+            sun_gazing_last_tick: false,
             weather_image_space: None,
             shader_particles: shader_particles::ShaderParticleState::default(),
             effect_shaders: effect_shader::EffectShaderState::default(),
@@ -1350,6 +1390,15 @@ impl World {
     /// This method does not panic.
     pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
         std::mem::take(&mut self.host_requests)
+    }
+
+    /// Take pending spell art operations in Papyrus call order.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn take_spell_art_requests(&mut self) -> Vec<SpellArtRequest> {
+        std::mem::take(&mut self.spell_art_requests)
     }
 }
 

@@ -67,7 +67,8 @@ fn game() -> Game {
         .sub(T(b"SNAM"), 0u32.to_le_bytes())
         .sub(T(b"ENAM"), 0u32.to_le_bytes())
         .sub(T(b"DATA"), 0x900u32.to_le_bytes())
-        .sub(T(b"ANAM"), []);
+        .sub(T(b"ANAM"), [])
+        .sub(T(b"PNAM"), QUEST.to_le_bytes());
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), PLAYER_BASE).sub(T(b"ACBS"), vec![0; 24]));
     plugin.push_top(Record::new(T(b"NPC_"), 0x901).sub(T(b"ACBS"), vec![0; 24]));

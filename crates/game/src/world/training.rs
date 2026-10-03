@@ -126,9 +126,6 @@ impl World {
 
     /// Queue a Papyrus Game.ShowTrainingMenu request for the host presenter.
     pub fn request_training_menu(&mut self, trainer: GlobalFormId) -> bool {
-        if trainer_class(self, trainer).is_err() {
-            return false;
-        }
         self.pending_training_menu = Some(trainer);
         true
     }

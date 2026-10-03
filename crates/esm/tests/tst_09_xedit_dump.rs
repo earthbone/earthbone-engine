@@ -22,9 +22,11 @@ use soe_esm::{Plugin, Tag};
 type RecordKey = (String, u32);
 type FieldKey = (RecordKey, String, usize);
 
+const XEDIT_RECORD_SIGNATURES: [&str; 6] = ["QUST", "NPC_", "PACK", "CELL", "REFR", "LVLI"];
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Dump {
-    records: BTreeSet<RecordKey>,
+    records: BTreeMap<RecordKey, usize>,
     fields: BTreeMap<FieldKey, Vec<u8>>,
 }
 
@@ -42,7 +44,7 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let form_id =
                     parse_hex_u32(form_id).map_err(|e| format!("line {line_number}: {e}"))?;
                 let key = (signature.to_string(), form_id);
-                if !dump.records.insert(key.clone()) {
+                if dump.records.insert(key.clone(), 1).is_some() {
                     return Err(format!(
                         "line {line_number}: duplicate record {signature}:{form_id:08X}"
                     ));
@@ -59,7 +61,7 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let data =
                     parse_hex_bytes(bytes).map_err(|e| format!("line {line_number}: {e}"))?;
                 let record = (signature.to_string(), form_id);
-                if !dump.records.contains(&record) {
+                if !dump.records.contains_key(&record) {
                     return Err(format!(
                         "line {line_number}: field precedes record {signature}:{form_id:08X}"
                     ));
@@ -112,8 +114,11 @@ pub(crate) fn from_plugin(plugin: &Plugin) -> Dump {
     let mut dump = Dump::default();
     for record in &plugin.records {
         let signature = record.tag.to_string();
+        if !XEDIT_RECORD_SIGNATURES.contains(&signature.as_str()) {
+            continue;
+        }
         let record_key = (signature, record.form_id);
-        dump.records.insert(record_key.clone());
+        *dump.records.entry(record_key.clone()).or_default() += 1;
         let mut ordinals = BTreeMap::<String, usize>::new();
         for field in &record.subrecords {
             let name = field.tag.to_string();
@@ -142,10 +147,12 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
             report.push(format!("count {signature}: xEdit={left}, engine={right}"));
         }
     }
-    for key in expected.records.union(&actual.records) {
-        if !expected.records.contains(key) {
+    let expected_keys: BTreeSet<_> = expected.records.keys().collect();
+    let actual_keys: BTreeSet<_> = actual.records.keys().collect();
+    for key in expected_keys.union(&actual_keys) {
+        if !expected.records.contains_key(key) {
             report.push(format!("extra engine record {}:{:08X}", key.0, key.1));
-        } else if !actual.records.contains(key) {
+        } else if !actual.records.contains_key(key) {
             report.push(format!("missing engine record {}:{:08X}", key.0, key.1));
         }
     }
@@ -185,10 +192,10 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
     report
 }
 
-fn counts(records: &BTreeSet<RecordKey>) -> BTreeMap<String, usize> {
+fn counts(records: &BTreeMap<RecordKey, usize>) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
-    for (signature, _) in records {
-        *counts.entry(signature.clone()).or_default() += 1;
+    for ((signature, _), count) in records {
+        *counts.entry(signature.clone()).or_default() += count;
     }
     counts
 }
@@ -206,6 +213,26 @@ fn tst_09_matches_record_counts_and_field_bytes() {
     let source = "RECORD\tCELL\t00000001\nFIELD\tCELL\t00000001\tDATA\t0\t0100\n";
     let expected = parse_dump(source).unwrap();
     let plugin = Plugin::parse(&fixture_plugin()).unwrap();
+    assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
+}
+
+#[test]
+fn tst_09_compares_only_record_types_selected_for_the_xedit_dump() {
+    let expected = parse_dump("RECORD\tCELL\t00000001\n").unwrap();
+    let cell = soe_esm::Record::new(soe_esm::Tag::new(b"CELL"), 1);
+    let unrelated = soe_esm::Record::new(soe_esm::Tag::new(b"STAT"), 2);
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    let cell_index = plugin.push_record(cell);
+    let unrelated_index = plugin.push_record(unrelated);
+    let mut cell_group = soe_esm::Group::new(soe_esm::GroupKind::Top(soe_esm::Tag::new(b"CELL")));
+    cell_group.entries.push(soe_esm::Entry::Record(cell_index));
+    let mut unrelated_group =
+        soe_esm::Group::new(soe_esm::GroupKind::Top(soe_esm::Tag::new(b"STAT")));
+    unrelated_group
+        .entries
+        .push(soe_esm::Entry::Record(unrelated_index));
+    plugin.groups.extend([cell_group, unrelated_group]);
+
     assert!(differences(&expected, &from_plugin(&plugin)).is_empty());
 }
 

@@ -7,6 +7,9 @@ use super::*;
 use soe_game::combat::Hand;
 use soe_game::world::DYNAMIC_FILE;
 
+#[path = "../shm_19_breaker_adversarial.rs"]
+mod shm_19_breaker_adversarial;
+
 const WEAPON: u32 = 0x700;
 const RIGHT_SLOT: u32 = 0x701;
 const LEFT_SLOT: u32 = 0x703;
@@ -96,6 +99,46 @@ fn mag_32_disarm_drops_one_equipped_weapon_as_a_recoverable_reference() {
         .item
         .is_none());
     assert!(!game.world().reference_ref(dropped_id).unwrap().enabled);
+}
+
+#[test]
+fn shm_19_successful_disarm_publishes_the_live_actor_pair() {
+    use std::{cell::RefCell, rc::Rc};
+
+    use soe_commonlib_shim::events::{DisarmedEvent, EventSink, FormIdentity, NotifyControl};
+
+    struct Capture(Rc<RefCell<Vec<DisarmedEvent>>>);
+
+    impl EventSink<DisarmedEvent> for Capture {
+        fn process(&mut self, event: &DisarmedEvent) -> NotifyControl {
+            self.0.borrow_mut().push(*event);
+            NotifyControl::Continue
+        }
+    }
+
+    let mut game = disarm_fixture(5.0);
+    game.world_mut().actor(id(ACTOR)).unwrap().level = 5;
+    game.world_mut().add_item(id(ACTOR), id(WEAPON), 1);
+    game.world_mut()
+        .equip_hand_weapon(id(ACTOR), Hand::Right, id(WEAPON))
+        .unwrap();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    game.world_mut()
+        .commonlib_event_sources()
+        .disarmed()
+        .add_sink(Box::new(Capture(seen.clone())));
+
+    cast(&mut game, SPELL, ACTOR).unwrap();
+
+    let identity = FormIdentity(u64::from(id(ACTOR).file) << 32 | u64::from(id(ACTOR).object));
+    assert_eq!(game.world_mut().item_count(id(ACTOR), id(WEAPON)), 0);
+    assert_eq!(
+        *seen.borrow(),
+        [DisarmedEvent {
+            source: identity,
+            target: identity,
+        }]
+    );
 }
 
 #[test]

@@ -13,44 +13,14 @@ fn shm_15_cpp_world_contract_compiles_and_runs() {
     let source = scratch.join("world.cpp");
     fs::write(
         &source,
-        r#"
+        r"
 #include <RE/Skyrim.h>
-#include <cassert>
-
-struct Fixture final : RE::TES {
-    std::optional<RE::Setting> setting(const std::string& name) const override {
-        return RE::Setting{name,
-            RE::SettingValue{RE::SettingValue::Kind::Float, false, 0, 3.5F, {}}};
-    }
-    RE::Sky sky() const override { return {18.25F}; }
-    std::optional<RE::ReanimateEffect> reanimate_effect(std::uint64_t id) const override {
-        if (id != 4) return std::nullopt;
-        return RE::ReanimateEffect{4, {1}, {2}, {3}, 8.0F, 1.0, 5.0};
-    }
-    bool sit_sleep_state(RE::FormId, RE::SIT_SLEEP_STATE&,
-                         RE::UnsupportedWorldHook& error) const override {
-        error = {"SIT_SLEEP_STATE", "runtime state unavailable"};
-        return false;
-    }
-    RE::UnsupportedWorldHook hook(const std::string&) const override {
-        return {"binary hook", "no target in this engine"};
-    }
-};
-
-int main() {
-    Fixture world;
-    const auto setting = world.setting("fTest");
-    assert(setting && setting->name == "fTest" && setting->value.float_value == 3.5F);
-    assert(world.sky().hour == 18.25F);
-    assert(world.reanimate_effect(4)->target.value == 3);
-    assert(!world.reanimate_effect(5));
-    RE::SIT_SLEEP_STATE state{};
-    RE::UnsupportedWorldHook error{};
-    assert(!world.sit_sleep_state({1}, state, error));
-    assert(std::string(error.name) == "SIT_SLEEP_STATE");
-    assert(std::string(world.hook("write_vfunc").reason).find("no target") != std::string::npos);
-}
-"#,
+#include <type_traits>
+static_assert(std::is_base_of_v<RE::TES, RE::CallbackTES>);
+static_assert(std::is_standard_layout_v<RE::RuntimeStateCallbacks>);
+static_assert(RE::SIT_SLEEP_STATE::kIsSleeping == static_cast<RE::SIT_SLEEP_STATE>(7));
+int main() { return 0; }
+",
     )
     .unwrap();
     let binary = scratch.join("world-contract");

@@ -14,7 +14,7 @@ LOD and TRI morph data.
 |---|---|---|
 | `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`, `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
 | `skse64/scripts/vanilla/Utility.psc` and `ck-wiki/Utility_Script.wikitext` distinguish wait seconds, menu seconds and game hours | `papyrus/src/vm.rs`, `vm/state.rs`, `vm/hash.rs`, `game/src/lib.rs`. Tests `utility_wait_domains_survive_save_and_timescale_changes`, `version_one_clock_loads_with_legacy_defaults`, `game_tick_supplies_timescale_and_menu_pause_to_waits` | Menu UI must call `tick_menu_mode`. Version 1 saves cannot recover which wait function produced a legacy sleep. |
-| CK `Quest_Script.wikitext`, `Alias_Script.wikitext`, `ReferenceAlias_Script.wikitext`, and the named `Clear_-_ReferenceAlias.wikitext` contract cover the Quest and reference-alias registry bindings | `NativeRegistry::method_bindings` and `global_bindings` expose sorted runtime binding inventories. `game/tests/scr_68_native_contracts.rs` compares each Quest, Alias and ReferenceAlias method and Quest global with the CK class declarations. It also verifies optional-only `ReferenceAlias.Clear` behavior. `TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/QUST.wikitext` establish QUST alias Optional as FNAM bit 1. | The corpus lacks most linked individual pages for these methods, so those comparisons use the class-page descriptions. Quest `IsStarting` and `IsStopping` are quiet false stubs despite CK describing transition state. SCR-43 owns those fixes. |
+| CK `Quest_Script.wikitext`, `Alias_Script.wikitext`, `ReferenceAlias_Script.wikitext`, and the named `Clear_-_ReferenceAlias.wikitext` contract cover the Quest and reference-alias registry bindings | `NativeRegistry::method_bindings` and `global_bindings` expose sorted runtime binding inventories. `game/tests/scr_68_native_contracts.rs` compares each Quest, Alias and ReferenceAlias method and Quest global with the CK class declarations. Actor getters filter non-actors. `Clear` validates the QUST Optional flag, reports required aliases, clears optional aliases and reevaluates the held actor's package. `TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/QUST.wikitext` establish Optional as FNAM bit 1. | The corpus lacks most linked individual pages for these methods, so those comparisons use the class-page descriptions. Quest `IsStarting` and `IsStopping` are quiet false stubs despite CK describing transition state. SCR-43 owns those fixes. |
 | `ck-wiki/DispelSpell_-_Actor.wikitext` and `DispelAllSpells_-_Actor.wikitext` require active-effect removal | `game/src/natives.rs` no longer destroys known or equipped spells. Test `dispelling_never_removes_known_or_equipped_spells` replaces the incorrect test oracle. Both calls are counted as stubs. | Active-effect ownership, expiry, removal and protected categories remain unimplemented. Cast recording is not magic execution. |
 | SPID `SPID/src/LookupConfigs.h::ChanceComponentParser` accepts trailing `!`. `Defs.h::Chance` preserves deterministic mode. `LookupFilters.cpp` seeds per actor. | `moddata/src/spid.rs` preserves the percent and marker, rejects malformed values. `game/src/moddata.rs` rolls ordinary chance per matching base and reports unsupported deterministic fractional rules. Parser and runtime regressions cover `0!`, `50!`, `100!`. | Exact SPID per-actor lifecycle and seed, and KID's separate seed in `src/Data/BaseFilters.cpp`, remain work. |
 | Shipped `skse64/scripts/vanilla/Quest.psc::GetStage` calls `GetCurrentStageID`. CK `Quest_Script.wikitext` describes the highest stage. | Both native getters return `highest`. Test `quest_getters_agree_after_lower_stage_and_reset` sets 20 then 10 and resets. | Wider quest lifecycle semantics still need original-runtime comparisons. |
@@ -43,6 +43,29 @@ signatures and behavior notes instead.
 The previous inventory grouped `Topic` with `MusicType` and listed both Add
 and Remove. The source declares no `Topic.Remove`. The docs now list only
 `Topic.Add`. These sources contain no Spell or Topic global bindings.
+
+## ShaderParticleGeometry and Sound native audit, SCR-70
+
+`NativeRegistry::method_bindings` and `global_bindings` produce the registered
+inventory. The local CK crawl has no `ShaderParticleGeometry` or `Sound`
+function pages. Its `ATTEMPTS.md` records the archive crawl and unsuccessful
+routes, so this audit uses the local shipped PSC and reference headers where
+available rather than inferring undocumented CK descriptions.
+
+| Binding | Contract source and comparison | Current behavior and owner |
+|---|---|---|
+| `ShaderParticleGeometry.Apply` method | CK page absent. CommonLib RTTI identifies a `void(float)` native shape. Local UESP `Raw_Function_Data.wikitext` lists the corresponding condition function with `Form, Float`. The method fade parameter remains based on the engine's registered API and implementation. | Reads and validates the winning SPGD record, adds or restarts its transient layer, and fades by seconds. `SCR-46` owns layer behavior and the missing host render path. |
+| `ShaderParticleGeometry.Remove` method | Same missing CK page and `void(float)` RTTI evidence. | Removes or fades the matching layer. `SCR-46` owns layer behavior and the missing host render path. |
+| `Sound.Play` method | Local shipped `skse64/scripts/vanilla/Sound.psc`: takes an `ObjectReference`, returns an integer instance ID. | Records source and sound, returns a fresh nonzero ID. Physical output verification is `HST-05`. |
+| `Sound.StopInstance` global | `Sound.psc`: takes an integer instance ID and returns nothing. | Removes only the selected instance. |
+| `Sound.SetInstanceVolume` global | `Sound.psc`: takes integer instance ID and float volume, clamps the volume to 0 through 1, returns nothing. | Updates the selected instance and clamps its volume. |
+
+The same PSC declares `PlayAndWait(ObjectReference) -> Bool` and
+`GetDescriptor() -> SoundDescriptor`. Neither is in the native registry. No
+existing backlog row owns those missing bindings. They remain unassigned API
+gaps because this audit cannot add or widen a backlog row. The exact registry
+sets and registered method behavior are covered by the `scr_70_` tests listed
+in `docs/game.md`.
 
 ## Leveled-list native contracts
 
@@ -164,54 +187,70 @@ merely because the repository includes them.
 ## Native contract audit, SCR-67
 
 The registry inventory comes from `game/src/natives.rs::register`, including
-the method registrations and the quiet-stub tables. The inventory test checks
-each direct `ObjectReference` method and both `MusicType` methods against the
-live `NativeRegistry`. Neither class has a direct global binding. Inherited
-`Form` methods are outside this class inventory.
+implemented methods and quiet stubs. `scr_67_object_reference_method_inventory_matches_registry`
+compares the full sorted set returned by `NativeRegistry::method_bindings`
+against the ObjectReference inventory below and checks the corresponding
+global set is empty. `scr_67_music_type_bindings_are_methods_and_not_globals`
+does the same for MusicType.Add and MusicType.Remove. Neither class has a
+direct global binding. Inherited `Form` methods are outside this inventory.
 
 For each listed `ObjectReference` method, the corresponding
 `ck-wiki/<Function>_-_ObjectReference.wikitext` page was compared for its
 Papyrus signature, parameter order and defaults, return type and stated
 behavior. The class declaration is `ck-wiki/ObjectReference_Script.wikitext`.
 `MusicType.Add` and `MusicType.Remove` have no named function or class page in
-the local CK corpus. They are registered as methods and remain quiet stubs.
-Their owning implementation work is SCR-37.
+the local CK corpus. Their no-argument, no-return signatures were compared
+with `skymp/skyrim-platform/src/platform_se/codegen/convert-files/FunctionsDump.txt`.
+They validate a live MUSC receiver and mutate the world's transient music-type
+list, as described in `game.md`.
 
 | Registry method | CK contract comparison |
 |---|---|
 | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled | The enable pages distinguish waiting and no-wait variants. The state queries return booleans. |
-| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded is a stub assigned to SCR-38. |
+| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded reads reference cell residency. Publishing exact host 3D residency is assigned to HST-13. |
 | GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior | Form returns and interior-cell query match their CK pages. |
 | GetPositionX, GetPositionY, GetPositionZ, GetAngleX, GetAngleY, GetAngleZ | The six scalar getters match the axis and degree contracts. |
 | SetPosition, SetAngle | Both take three floats. SetAngle uses degrees at the Papyrus boundary. |
 | MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
 | Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
 | GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
-| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems does not yet honor quest-item retention. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems honors `abKeepOwnership`. Quest-item retention remains unsupported because stacks do not classify quest objects. |
 | GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
-| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation returns a boolean. The three unavailable animation/wait systems are quiet stubs assigned to SCR-39 and SCR-41. |
+| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation queues an event and returns a boolean. PlayAnimationAndWait and WaitForAnimationEvent defer until an event. PlayGamebryoAnimation only accepts a non-empty name. Authored legacy animation playback remains unsupported under SCR-39. |
 | GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
 | PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
 | AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
-| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction and GetCurrentDestructionStage are stubs. Destruction-stage behavior belongs to SCR-40. |
+| SetDestroyed, ClearDestruction, GetCurrentDestructionStage | The state setters and query match the documented types. ClearDestruction resets supported destruction state. GetCurrentDestructionStage returns the stage or -1 when none is set. |
 | IgnoreFriendlyHits, IsIgnoringFriendlyHits | Setter and query match the documented boolean behavior. |
 | GetCurrentLocation, GetEditorLocation, IsInLocation | Reference location queries match their return types and child-location behavior. |
+| IsInDialogueWithPlayer | The named page takes no arguments and returns whether this actor or talking activator is talking to the player. The native reads the current dialogue target and returns false for other references. |
 | GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner | Owner methods match their typed form parameters and None returns. |
 | AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | These are void methods on references. Their matching alias declarations are separately registered on `ReferenceAlias`. |
 | SetAnimationVariableFloat, SetAnimationVariableInt, SetAnimationVariableBool | Each setter takes its typed value and returns None. |
 | GetAnimationVariableFloat, GetAnimationVariableInt, GetAnimationVariableBool | Each getter returns the matching scalar type. |
-| GetCurrentScene, IsFurnitureInUse, IsFurnitureMarkerInUse, GetTriggerObjectCount | Signatures match the class pages. Each is currently a quiet stub assigned to SCR-38 or SCR-39. |
-| SetMotionType, ApplyHavokImpulse, SetNoFavorAllowed, DamageObject, KnockAreaEffect, PushActorAway, InterruptCast | Their parameter contracts are documented, but implementations are quiet stubs assigned to SCR-39 or SCR-40. |
-| ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, CreateDetectionEvent, TranslateTo, SplineTranslateTo, StopTranslation, Reset | Their method bindings are quiet stubs assigned to SCR-41 or SCR-42. |
+| GetCurrentScene | Takes no arguments and returns the active scene for this reference, or None. It reads the world's active scene set. |
+| IsFurnitureInUse, IsFurnitureMarkerInUse | Signatures and defaults match the CK pages. The runtime reads HST-09 marker reservations. It currently returns false whenever `abIgnoreReserved` is true because the saved actor seat state does not distinguish a reservation from actual use. HST-09 owns that state distinction. |
+| GetTriggerObjectCount | Takes no arguments and returns the count of tracked trigger occupants. A non-trigger logs an error and returns zero. This uses HST-14 trigger tracking. |
+| SetMotionType, ApplyHavokImpulse | SetMotionType takes the motion type and optional activation flag. ApplyHavokImpulse takes a direction and magnitude. Both validate the request and queue host physics work. Host support is bounded to HST-12's movable references. |
+| SetNoFavorAllowed, DamageObject | Their argument and result shapes match their pages. SetNoFavorAllowed updates the shared flag. DamageObject advances supported destruction state. |
+| KnockAreaEffect, PushActorAway | Their signatures match the CK pages. Both queue shared actor impulses through CMB-38. KnockAreaEffect uses the documented magnitude and radius with a documented linear attenuation approximation. |
+| InterruptCast, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse | InterruptCast clears the shared pending cast. Ragdoll methods set a saved actor override through CMB-38. TetherToHorse moves the horse to an approximate cart-relative position. Host constraint work belongs to HST-15. |
+| CreateDetectionEvent | Takes an owner Actor and sound level, then records a shared detection event. |
+| TranslateTo, SplineTranslateTo, StopTranslation, Reset | Translation methods queue linear or spline motion and dispatch completion/failure events through HST-16. Reset restores the reference's supported authored state. |
+| MusicType.Add, MusicType.Remove | Both are methods with no arguments and no return. They validate the receiver as a live MUSC record and add or remove it from the world's transient active music list. |
 
-The audit found two implementation discrepancies. `MoveTo` ignored
-`abMatchRotation`. SCR-67 fixes it, and the synthetic native-call test covers
-both the default and false value. `RemoveAllItems` currently clears every
-inventory entry even when `abRemoveQuestItems` is false. The inventory model
-does not preserve quest-item eligibility, so the owning fix needs an inventory
-contract row before it can be implemented. SCR-67 is restricted to the game
-crate and the backlog is explicitly unchanged, so this finding remains open
-and is the completion gap for this audit.
+The audit found that `MoveTo` ignored `abMatchRotation`. SCR-67 fixes it, and
+`scr_67_move_to_respects_match_rotation_and_default` checks the default true
+case and the false case. The named `IsInDialogueWithPlayer` page was also
+missing from the earlier hand-kept inventory. The registry-derived check now
+includes it and the docs record its argument and result contract.
+
+`RemoveAllItems` honors `abKeepOwnership` when transferring stacks. The
+`abRemoveQuestItems` policy remains unsupported because the game's stack model
+does not classify quest objects for this call. No existing open backlog row
+owns that Papyrus removal policy. A dedicated inventory prerequisite row is
+needed. This audit does not edit `BACKLOG.csv` under the task boundary.
+This remains an explicit implementation gap.
 
 ## Native contract audit, SCR-73
 
@@ -267,11 +306,11 @@ also say both classes have no global functions.
 | `Alias.GetName` | SKSE addition. Returns the alias's unique name, not its display name. | Reads the alias definition name. |
 | `Alias.GetReference` | Returns the ObjectReference held by the alias. | Returns the current alias target. |
 | `Alias.GetRef` | Shorthand for `GetReference`. | Returns the same current alias target. |
-| `Alias.GetActorReference` | Returns the held reference as an Actor. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
-| `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.GetActorReference` | Returns the held reference as an Actor. | Returns the target only when its resolved runtime class is `Actor`, otherwise returns `None`. |
+| `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Uses the same actor-type check and return value as `GetActorReference`. |
 | `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
 | `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
-| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. SCR-68 owns optional validation and its diagnostic. Package reevaluation remains unimplemented there. |
+| `Alias.Clear` | Clears an optional reference alias, logs an error for a required alias, and causes the held actor to reevaluate its package. | Required aliases retain their target and emit a trace diagnostic. Optional aliases are cleared, then the held actor's package stack is reevaluated. |
 | `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
 | `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method. Alias runtime objects have no resolved form ID. |
 | `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
@@ -344,10 +383,10 @@ come from `engine-refs/ck-wiki` and the shipped
 | `Cell.SetActorOwner` | `SetActorOwner_-_Cell.wikitext` and `Cell.psc` take an `ActorBase`. `None` clears the owner. | Stores only an `NPC_` record or clears on `None`. Other types are ignored. |
 | `Cell.SetFactionOwner` | `Cell_Script.wikitext` and `skse64/scripts/vanilla/Cell.psc` declare a `Faction` argument. | Stores only a `FACT` record or clears on `None`. Other types are ignored. |
 | `Cell.SetPublic` | `Cell_Script.wikitext` declares a boolean public/private setting. `Cell.psc` gives the argument a default of true. | Writes the supplied boolean, defaulting a missing argument to true. |
-| `Alias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on `Alias`, inherited by `ReferenceAlias`. Clears the target but does not validate optional status or reevaluate packages. SCR-68 owns both gaps. |
+| `Alias.Clear`, `ReferenceAlias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on both classes because alias method inheritance is not resolved for ReferenceAlias dispatch. Validates Optional, clears the runtime alias override and reevaluates the former target package. |
 
 The Cell method comparison has eight bindings. The exact-name `Clear` comparison
-has one method binding and no global binding. The setter type discrepancy is
+has two method bindings and no global binding. The setter type discrepancy is
 corrected by checking resolved record tags before changing `XOWN`.
 
 ## Faction and ForceRefIfEmpty native contracts, SCR-58
@@ -380,13 +419,13 @@ semantics beyond their declared signatures and summaries.
 | `Faction.SetPlayerExpelled` | Sets whether the player is expelled. | Updates the faction state. |
 | `Faction.SetPlayerEnemy` | Sets whether the player is an enemy of this faction. | Updates the faction state. |
 | `Faction.IsFactionInCrimeGroup` | Takes another faction and reports whether it belongs to this faction's crime group. | Resolves `CRGR` to its linked `FLST` and checks membership. |
-| `Faction.SendAssaultAlarm` | Sends the faction's assault alarm. | Quiet stub. Alarm dispatch has no owning row in this audit. |
-| `Faction.SendPlayerToJail` | Sends the player to jail for this faction. | Quiet stub. Jail transfer is outside this native audit's implementation scope. |
-| `Faction.ModReaction` | Takes a faction and modifies its reaction by a delta. | Quiet stub. Reaction modification is outside this native audit's implementation scope. |
+| `Faction.SendAssaultAlarm` | Finds a nearby NPC in this faction and has them behave as if assaulted. | Selects the nearest built faction actor and records a player assault through the crime system. |
+| `Faction.SendPlayerToJail` | Sends the player to this faction's jail, with inventory and real-jail options. | Serves the faction's bounty and marks the player arrested. Jail travel and belongings storage are not implemented. |
+| `Faction.ModReaction` | Modifies this faction's reaction toward another faction. | Saturating-adds the signed amount in the requested direction. |
 | `ReferenceAlias.ForceRefIfEmpty` | Takes an object reference and fills the alias only if it is empty, returning whether it succeeded. | Preserves an occupied alias. An empty alias accepts the form. SCR-59 owns reference-type validation. |
 
-The inventory tests cover 22 `Faction` methods, including the three quiet
-stubs, and the single `ReferenceAlias.ForceRefIfEmpty` method. There are no
+The inventory tests cover 22 implemented `Faction` methods and the single
+`ReferenceAlias.ForceRefIfEmpty` method. There are no
 global bindings for these names. No per-reference package reevaluation is
 claimed for alias assignment.
 `scr_56_cell_owner_setters_require_the_ck_record_type` covers both accepted

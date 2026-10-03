@@ -580,6 +580,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.stagger_direction);
     h.bool(a.trespassing);
     h.u32(a.days_in_jail);
+    opt_form(h, a.jail_faction);
     h.bool(a.voice_recovery_until.is_some());
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
@@ -1107,6 +1108,7 @@ impl World {
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_sun_gaze_modifier(&mut magic);
         self.write_weather_image_space(&mut magic);
         self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);

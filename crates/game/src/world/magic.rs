@@ -38,6 +38,7 @@ use crate::conditions::{self, Context};
 
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{Alloc, Handle, Pending, World, T};
+use super::{SpellArtAction, SpellArtRequest};
 
 mod state;
 pub(crate) use state::PERK_SECTION as GRANTED_PERK_SECTION;
@@ -298,6 +299,45 @@ impl World {
         Ok(())
     }
 
+    /// Request that the host load art resources referenced by a spell.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `id` does not resolve to a valid spell record.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn preload_spell_art(&mut self, id: GlobalFormId) -> Result<(), MagicError> {
+        self.spell(id)?;
+        self.spell_art_requests.push(SpellArtRequest {
+            spell: id,
+            action: SpellArtAction::Preload,
+        });
+        self.preloaded_spell_art.insert(id);
+        Ok(())
+    }
+
+    /// Request that the host release art resources previously loaded for a spell.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `id` does not resolve to a valid spell record.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    pub fn unload_spell_art(&mut self, id: GlobalFormId) -> Result<(), MagicError> {
+        self.spell(id)?;
+        if self.preloaded_spell_art.remove(&id) {
+            self.spell_art_requests.push(SpellArtRequest {
+                spell: id,
+                action: SpellArtAction::Unload,
+            });
+        }
+        Ok(())
+    }
+
     fn resolve_effect_perk(
         &self,
         effect: GlobalFormId,
@@ -546,6 +586,7 @@ impl World {
         if let Some(state) = self.actor(actor) {
             state.voice_recovery_until = (recovery > 0.0).then_some(deadline);
         }
+        self.commonlib_shout_attack(shout);
         Ok(())
     }
 
@@ -1634,7 +1675,13 @@ impl World {
         let disarms = prepared
             .iter()
             .filter(|prepared| prepared.disarm)
-            .map(|prepared| (prepared.effect.target, prepared.effect.magnitude))
+            .map(|prepared| {
+                (
+                    prepared.effect.caster,
+                    prepared.effect.target,
+                    prepared.effect.magnitude,
+                )
+            })
             .collect();
         let cost = self.spell_cost(spell, caster)?;
         let actor = self.actor(caster).ok_or(MagicError::Target)?;
@@ -2118,6 +2165,13 @@ impl World {
 
     /// Add a known spell and activate it when it is a constant-effect ability.
     pub fn add_actor_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        if !self
+            .order
+            .winner(spell)
+            .is_some_and(|record| record.tag == T(b"SPEL") && !record.is_deleted())
+        {
+            return false;
+        }
         let Some(state) = self.actor(actor) else {
             return false;
         };
@@ -2125,6 +2179,9 @@ impl World {
             return false;
         }
         self.apply_abilities(actor, [spell].into_iter().collect());
+        if actor == self.player() {
+            self.commonlib_spell_learned(spell);
+        }
         true
     }
 
@@ -3045,7 +3102,13 @@ impl World {
         let disarms: Vec<_> = ordinary
             .iter()
             .filter(|prepared| prepared.disarm)
-            .map(|prepared| (prepared.effect.target, prepared.effect.magnitude))
+            .map(|prepared| {
+                (
+                    prepared.effect.caster,
+                    prepared.effect.target,
+                    prepared.effect.magnitude,
+                )
+            })
             .collect();
         for effect in locks {
             if let Some(level) = effect.lock_level {
@@ -3076,7 +3139,7 @@ impl World {
         &mut self,
         prepared: Vec<PreparedEffect>,
         alloc: Alloc<'_>,
-        disarms: Vec<(GlobalFormId, f32)>,
+        disarms: Vec<(Option<GlobalFormId>, GlobalFormId, f32)>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         let mut feed_targets = std::collections::BTreeSet::new();
@@ -3302,8 +3365,8 @@ impl World {
             }
             applied.push(id);
         }
-        for (target, magnitude) in disarms {
-            self.disarm_equipped_weapon(target, magnitude, alloc);
+        for (source, target, magnitude) in disarms {
+            self.disarm_equipped_weapon(source, target, magnitude, alloc);
         }
         for corpse in feed_targets {
             self.feed_corpse(corpse)?;
@@ -3312,7 +3375,13 @@ impl World {
     }
 
     /// Drop one eligible hand weapon into a loose reference at the target.
-    fn disarm_equipped_weapon(&mut self, target: GlobalFormId, magnitude: f32, alloc: Alloc<'_>) {
+    fn disarm_equipped_weapon(
+        &mut self,
+        source: Option<GlobalFormId>,
+        target: GlobalFormId,
+        magnitude: f32,
+        alloc: Alloc<'_>,
+    ) {
         let Some(level) = self.actor(target).map(|actor| actor.level) else {
             return;
         };
@@ -3349,6 +3418,9 @@ impl World {
         }
         if let Some(reference) = self.reference(target) {
             reference.inventory.unequip(weapon);
+        }
+        if let Some(source) = source {
+            self.commonlib_disarmed(source, target);
         }
         self.inventory_event(target, weapon, -1, None, alloc);
     }
@@ -4126,6 +4198,11 @@ impl World {
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
         let mut applicable = effect.clone();
+        if self.debug_god_mode && self.player == Some(effect.target) {
+            applicable
+                .changes
+                .retain(|(name, amount)| name != "health" || f64::from(*amount) * scale >= 0.0);
+        }
         if self.is_ethereal(effect.target) {
             applicable
                 .changes
@@ -4465,7 +4542,9 @@ impl World {
         if let Some(id) = traps.first() {
             if let Some(effect) = self.active_effects.get(id).cloned() {
                 if let Some(caster) = effect.caster {
-                    self.fill_soul_gem(caster, target, alloc);
+                    if self.fill_soul_gem(caster, target, alloc) {
+                        self.commonlib_souls_trapped(caster, target);
+                    }
                 }
             }
         }
@@ -4474,9 +4553,14 @@ impl World {
         }
     }
 
-    fn fill_soul_gem(&mut self, caster: GlobalFormId, target: GlobalFormId, alloc: Alloc<'_>) {
+    fn fill_soul_gem(
+        &mut self,
+        caster: GlobalFormId,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> bool {
         let Some(level) = self.actor_ref(target).map(|actor| actor.level) else {
-            return;
+            return false;
         };
         let soul_size = self.soul_size(level);
         let npc_soul = self.is_npc_soul_target(target);
@@ -4497,20 +4581,21 @@ impl World {
             .into_iter()
             .min_by_key(|(capacity, item, _)| (*capacity, *item))
         else {
-            return;
+            return false;
         };
         let Some(reference) = self.reference(caster) else {
-            return;
+            return false;
         };
         if reference.inventory.count(filled) == i32::MAX {
-            return;
+            return false;
         }
         let removed = reference.inventory.take(empty, 1);
         if removed.count() != 1 || reference.inventory.add(filled, 1).is_err() {
-            return;
+            return false;
         }
         self.inventory_event(caster, empty, -1, None, alloc);
         self.inventory_event(caster, filled, 1, None, alloc);
+        true
     }
 
     fn soul_size(&self, level: u32) -> u8 {

@@ -62,6 +62,15 @@ const HUNT_PACKAGE: u32 = 0xA19;
 const HAND_SPELL: u32 = 0xA1A;
 const COMBAT_EFFECT: u32 = 0xA1B;
 const COMBAT_SPELL: u32 = 0xA1C;
+const WARM_KEYWORD: u32 = 0xA1D;
+const COLD_KEYWORD: u32 = 0xA1E;
+const WARM_ARMOR: u32 = 0xA1F;
+const COLD_ARMOR: u32 = 0xA20;
+const DEFAULT_ARMOR: u32 = 0xA21;
+const INTIMIDATION_PERK: u32 = 0xA22;
+const INTIMIDATION_RANGE_PERK: u32 = 0xA23;
+const SUN_GAZE_IMAD: u32 = 0xA24;
+const CRIME_FACTION: u32 = 0xA25;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -127,6 +136,16 @@ fn clothing(id: u32, edid: &str) -> Record {
         .sub(T(b"BOD2"), body)
 }
 
+fn armor_with_slot(id: u32, edid: &str, slot: u32, keyword: Option<u32>) -> Record {
+    let mut body = le(slot).to_vec();
+    body.extend_from_slice(&le(2));
+    let armor = Record::new(T(b"ARMO"), id)
+        .zsub(EDID, edid)
+        .sub(T(b"DNAM"), le(0))
+        .sub(T(b"BOD2"), body);
+    keyword.map_or(armor.clone(), |keyword| armor.sub(T(b"KWDA"), le(keyword)))
+}
+
 fn test_plugin() -> Plugin {
     let mut p = Plugin::new(FileHeader {
         flags: flags::MASTER,
@@ -139,14 +158,59 @@ fn test_plugin() -> Plugin {
         (DRAGON_BASE, "DragonBase"),
         (HORSE_BASE, "HorseBase"),
     ] {
+        let mut npc = Record::new(T(b"NPC_"), id)
+            .zsub(EDID, edid)
+            .sub(T(b"ACBS"), acbs(0))
+            .sub(
+                T(b"AIDT"),
+                [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            );
+        if id == PLAYER_BASE {
+            npc = npc.sub(T(b"CRIF"), le(CRIME_FACTION));
+        }
+        p.push_top(npc);
+    }
+    let mut crime_values = vec![0; 20];
+    crime_values[18..20].copy_from_slice(&5_u16.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"FACT"), CRIME_FACTION)
+            .zsub(EDID, "Scr27CrimeFaction")
+            .sub(T(b"DATA"), (0x40_u32).to_le_bytes())
+            .sub(T(b"CRVA"), crime_values),
+    );
+    let settings: [(&str, f32); 26] = [
+        ("fSneakBaseValue", 1.0),
+        ("fSneakMaxDistance", 2000.0),
+        ("fSneakDistanceAttenuationExponent", 1.0),
+        ("fSneakSoundsMult", 0.0),
+        ("fSneakSoundLosMult", 0.0),
+        ("fSneakEquippedWeightBase", 0.0),
+        ("fSneakEquippedWeightMult", 0.0),
+        ("fSneakRunningMult", 0.0),
+        ("fSneakActionMult", 0.0),
+        ("fSneakLightMoveMult", 0.0),
+        ("fSneakLightRunMult", 0.0),
+        ("fDetectionSneakLightMod", 1.0),
+        ("fSneakLightMult", 1.0),
+        ("fSneakStealthBoyMult", 0.0),
+        ("fSneakPerceptionSkillMin", 0.0),
+        ("fSneakPerceptionSkillMax", 0.0),
+        ("fSneakAlertMod", 0.0),
+        ("fSneakCombatMod", 0.0),
+        ("fCombatStealthPointMax", 100.0),
+        ("fCombatStealthPointDrainMult", 0.0),
+        ("fCombatStealthPointRegenMult", 0.0),
+        ("fCombatStealthPointRegenMin", 0.0),
+        ("fCombatStealthPointRegenAlertWaitTime", 0.0),
+        ("fCombatStealthPointRegenLostWaitTime", 0.0),
+        ("iCombatStealthPointDetectionThreshold", 10000.0),
+        ("iCombatStealthPointSneakDetectionThreshold", 10000.0),
+    ];
+    for (index, (name, value)) in settings.into_iter().enumerate() {
         p.push_top(
-            Record::new(T(b"NPC_"), id)
-                .zsub(EDID, edid)
-                .sub(T(b"ACBS"), acbs(0))
-                .sub(
-                    T(b"AIDT"),
-                    [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                ),
+            Record::new(T(b"GMST"), 0xB00 + index as u32)
+                .zsub(EDID, name)
+                .sub(T(b"DATA"), value.to_le_bytes()),
         );
     }
     p.push_top(Record::new(T(b"SHOU"), SHOUT_A).zsub(EDID, "ShoutDrainVitality"));
@@ -185,9 +249,53 @@ fn test_plugin() -> Plugin {
             .sub(T(b"EFIT"), effect_entry),
     );
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
+    p.push_top(
+        Record::new(T(b"IMAD"), SUN_GAZE_IMAD)
+            .zsub(EDID, "SunGazeImad")
+            .sub(T(b"DNAM"), vec![0; 244]),
+    );
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
     p.push_top(clothing(VAMPIRE_ARMOR, "VampireRobes").sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)));
     p.push_top(clothing(PLAIN_ARMOR, "FarmClothes"));
+    p.push_top(Record::new(T(b"KYWD"), WARM_KEYWORD).zsub(EDID, "Survival_ArmorWarm"));
+    p.push_top(Record::new(T(b"KYWD"), COLD_KEYWORD).zsub(EDID, "Survival_ArmorCold"));
+    p.push_top(armor_with_slot(
+        WARM_ARMOR,
+        "WarmArmor",
+        1 << 0,
+        Some(WARM_KEYWORD),
+    ));
+    p.push_top(armor_with_slot(
+        COLD_ARMOR,
+        "ColdArmor",
+        1 << 1,
+        Some(COLD_KEYWORD),
+    ));
+    p.push_top(armor_with_slot(DEFAULT_ARMOR, "DefaultArmor", 1 << 2, None));
+    p.push_top(
+        Record::new(T(b"PERK"), INTIMIDATION_PERK)
+            .zsub(EDID, "Scr17IntimidationPerk")
+            .sub(T(b"PRKE"), [2, 0, 0])
+            .sub(T(b"DATA"), [43, 2, 2])
+            .sub(T(b"PRKC"), [0])
+            .sub(T(b"PRKC"), [1])
+            .sub(T(b"EPFT"), [1])
+            .sub(T(b"EPFD"), 25.0_f32.to_le_bytes())
+            .sub(T(b"PRKF"), []),
+    );
+    let mut range = 1.0_f32.to_le_bytes().to_vec();
+    range.extend_from_slice(&5.0_f32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"PERK"), INTIMIDATION_RANGE_PERK)
+            .zsub(EDID, "Scr17IntimidationRangePerk")
+            .sub(T(b"PRKE"), [2, 0, 0])
+            .sub(T(b"DATA"), [43, 4, 2])
+            .sub(T(b"PRKC"), [0])
+            .sub(T(b"PRKC"), [1])
+            .sub(T(b"EPFT"), [2])
+            .sub(T(b"EPFD"), range)
+            .sub(T(b"PRKF"), []),
+    );
     p.push_top(Record::new(T(b"IDLE"), FEED_IDLE).zsub(EDID, "IdleVampireFeed"));
     p.push_top(Record::new(T(b"KYWD"), LINK_KEYWORD).zsub(EDID, "LinkCoffin"));
     p.push_top(Record::new(T(b"EFSH"), BLOOD_SHADER).zsub(EDID, "BloodShader"));
@@ -973,8 +1081,140 @@ fn perk_points_add_and_clamp_at_255() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// GetWarmthRating "Obtains the total warmth rating for the actor" is zero
-/// without the survival plugin. SCR-26 supplies the sky functions.
+#[test]
+fn scr_27_shake_controller_queues_arguments_and_rejects_invalid_duration() {
+    let mut g = game();
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeController",
+        &[Value::Float(0.25), Value::Float(0.75), Value::Float(1.5)],
+    );
+    assert!(matches!(
+        g.world().host_requests.as_slice(),
+        [soe_game::HostRequest::ControllerShake {
+            left_strength: 0.25,
+            right_strength: 0.75,
+            duration: 1.5,
+        }]
+    ));
+    call_global(
+        &mut g,
+        "Game",
+        "ShakeController",
+        &[Value::Float(0.5), Value::Float(0.5), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().host_requests.len(), 1);
+    assert_eq!(
+        g.world().native_errors,
+        [(
+            "Game.ShakeController".to_owned(),
+            "strengths and duration must be finite, and duration must be non-negative".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn scr_27_set_sun_gaze_modifier_validates_saves_and_triggers_on_sungazing() {
+    let mut g = game();
+    let modifier = g.object_of_form(form(&g, "SunGazeImad"));
+    call_global(
+        &mut g,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        &[Value::Object(modifier)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetSunGazeImageSpaceModifier",
+        &[Value::Int(123)],
+    );
+    assert_eq!(g.world().native_errors.len(), 1);
+    let player = g.player();
+    {
+        let mut world = g.world_mut();
+        let sun = world.sun_position();
+        let origin = world.reference(player).unwrap().position;
+        world.camera_look = [sun[0] - origin[0], sun[1] - origin[1], sun[2] - origin[2]];
+    }
+    g.tick(0.01);
+    assert!(g
+        .world()
+        .image_space_layers()
+        .iter()
+        .any(|layer| { layer.modifier == form(&g, "SunGazeImad") && layer.strength == 1.0 }));
+    let saved = g.save_state().unwrap();
+    let mut restored = game();
+    restored.load_state(&saved).unwrap();
+    assert!(restored
+        .world()
+        .image_space_layers()
+        .iter()
+        .any(|layer| { layer.modifier == form(&restored, "SunGazeImad") }));
+}
+
+#[test]
+fn scr_27_send_werewolf_transformation_records_detection_as_crime() {
+    let mut g = game();
+    let player = g.player();
+    let witness = form(&g, "VampireRef");
+    g.world_mut()
+        .evaluate_detection(
+            &[soe_game::detection::Observation {
+                observer: witness,
+                target: player,
+                distance: 1.0,
+                line_of_sight: true,
+                light_level: 1.0,
+                motion: soe_game::detection::Motion::Still,
+                action_sound: 0.0,
+                action_sound_distance: None,
+                action_sound_line_of_sight: None,
+            }],
+            0.0,
+        )
+        .unwrap();
+    assert!(g
+        .world()
+        .awareness(witness, player)
+        .is_some_and(|awareness| matches!(
+            awareness.level,
+            soe_game::detection::DetectionLevel::Alert
+                | soe_game::detection::DetectionLevel::Combat
+        )));
+    assert!(g.world_mut().commonlib_high_process(witness).is_some());
+    assert_eq!(
+        g.world_mut().actor(player).unwrap().crime_faction,
+        Some(soe_esm::GlobalFormId {
+            file: 0,
+            object: CRIME_FACTION
+        })
+    );
+    call_global(&mut g, "Game", "SendWereWolfTransformation", &[]);
+    assert!(
+        g.world_mut()
+            .actor(witness)
+            .unwrap()
+            .witnessed_crimes
+            .contains(&player),
+        "native errors: {:?}",
+        g.world().native_errors
+    );
+    let crime_faction = soe_esm::GlobalFormId {
+        file: 0,
+        object: CRIME_FACTION,
+    };
+    assert_eq!(
+        g.world_mut()
+            .faction(crime_faction)
+            .unwrap()
+            .crime_gold_nonviolent,
+        5
+    );
+}
+
+/// GetWarmthRating is zero when the actor has no equipped armor.
 #[test]
 fn the_systems_without_an_engine_answer_quietly() {
     let mut g = game();
@@ -989,6 +1229,100 @@ fn the_systems_without_an_engine_answer_quietly() {
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: warmth combines warm, cold and unclassified equipped armor.
+#[test]
+fn scr_17_get_warmth_rating_sums_equipped_armor_keywords() {
+    let mut g = game();
+    let actor = form(&g, "VampireRef");
+    let actor_object = obj(&mut g, "VampireRef");
+    let warm = form(&g, "WarmArmor");
+    let cold = form(&g, "ColdArmor");
+    let ordinary = form(&g, "DefaultArmor");
+    {
+        let mut world = g.world_mut();
+        world.equip_item(actor, warm).unwrap();
+        world.equip_item(actor, cold).unwrap();
+        world.equip_item(actor, ordinary).unwrap();
+    }
+    assert_eq!(
+        call(&mut g, &actor_object, "GetWarmthRating", &[]),
+        Value::Float(98.0)
+    );
+    assert_eq!(
+        call(&mut g, &actor_object, "GetWarmthRating", &[Value::Int(1)]),
+        Value::Float(0.0)
+    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("GetWarmthRating expects no arguments")));
+}
+
+/// SCR-17: installed Survival Mode keywords select the same armor ratings.
+#[test]
+fn scr_17_get_warmth_rating_uses_installed_survival_keywords() {
+    let Some(order) = crate::common::installed::load_order(&[
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+        "ccQDRSSE001-SurvivalMode.esl",
+    ]) else {
+        eprintln!("SKYRIM_DATA not set, skipping installed warmth check");
+        return;
+    };
+    let mut g = Game::from_shared_order(order);
+    let player = {
+        let mut world = g.world_mut();
+        let warm = world.form("Survival_ArmorWarm").unwrap();
+        let cold = world.form("Survival_ArmorCold").unwrap();
+        let mut found_warm = None;
+        let mut found_cold = None;
+        let mut found_default = None;
+        for (armor, record) in world.order().winners_of(T(b"ARMO")) {
+            if record.is_deleted() {
+                continue;
+            }
+            let mut has_warm = false;
+            let mut has_cold = false;
+            if let Some(data) = record.find(T(b"KWDA")) {
+                if data.len() % 4 != 0 {
+                    continue;
+                }
+                for chunk in data.as_chunks::<4>().0 {
+                    let raw = u32::from_le_bytes(*chunk);
+                    match world.resolve_from(armor, raw) {
+                        Some(id) if id == warm => has_warm = true,
+                        Some(id) if id == cold => has_cold = true,
+                        _ => {}
+                    }
+                }
+            }
+            if has_warm && found_warm.is_none() {
+                found_warm = Some(armor);
+            } else if has_cold && found_cold.is_none() {
+                found_cold = Some(armor);
+            } else if !has_warm && !has_cold && found_default.is_none() {
+                found_default = Some(armor);
+            }
+        }
+        let player = world.player();
+        world.actor(player).unwrap();
+        world.actor(player).unwrap().equipped.extend([
+            found_warm.expect("installed warm armor"),
+            found_cold.expect("installed cold armor"),
+            found_default.expect("installed unclassified armor"),
+        ]);
+        player
+    };
+    let actor = Value::Object(g.object_of_form(player));
+    assert_eq!(
+        call(&mut g, &actor, "GetWarmthRating", &[]),
+        Value::Float(98.0)
+    );
 }
 
 /// CK `UnequipAll` forces the actor to unequip every currently equipped item.
@@ -1180,6 +1514,54 @@ fn scr_17_will_intimidate_succeed_uses_speechcraft_and_confidence() {
         .traces()
         .iter()
         .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments")));
+}
+
+/// SCR-17: owned Mod Player Intimidation entries modify the live Speechcraft test.
+#[test]
+fn scr_17_will_intimidate_succeed_applies_owned_perk_entry_point() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    let target_id = form(&g, "VampireRef");
+    let perk = form(&g, "Scr17IntimidationPerk");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    g.world_mut()
+        .set_actor_value(target_id, "confidence", 2.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(false)
+    );
+    g.world_mut().actor(player).unwrap().perks.insert(perk);
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: Add Range to Value uses the authored inclusive bounds.
+#[test]
+fn scr_17_will_intimidate_succeed_applies_perk_range_modifier() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    let target_id = form(&g, "VampireRef");
+    let perk = form(&g, "Scr17IntimidationRangePerk");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    g.world_mut()
+        .set_actor_value(target_id, "confidence", 2.0)
+        .unwrap();
+    g.world_mut().actor(player).unwrap().perks.insert(perk);
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
 /// SCR-26: sun queries read calendar and player state, gaze uses the host

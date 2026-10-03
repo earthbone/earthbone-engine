@@ -71,3 +71,17 @@ fn scr_30_host_applies_game_camera_target_and_geometry_controls() {
     assert_eq!(state.target(), Some(actor));
     assert!(!state.first_person_geometry_visible());
 }
+
+#[test]
+fn scr_30_rendered_geometry_visibility_respects_pov_and_native_flag() {
+    let mut state = CameraHostState::default();
+    assert!(state.rendered_first_person_geometry_visible(CameraMode::First));
+    state.apply(CameraControls {
+        first_person_geometry: false,
+        ..CameraControls::default()
+    });
+    assert!(!state.rendered_first_person_geometry_visible(CameraMode::First));
+    assert!(state.rendered_first_person_geometry_visible(CameraMode::Third));
+    state.apply(CameraControls::default());
+    assert!(state.rendered_first_person_geometry_visible(CameraMode::First));
+}

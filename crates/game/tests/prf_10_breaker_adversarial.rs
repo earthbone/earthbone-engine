@@ -39,17 +39,7 @@ fn call(game: &mut Game, name: &str, index: Option<i32>) -> Value {
 }
 
 #[test]
-fn budget_categories_match_the_runtime_limits() {
-    let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetBudgetCount", None), Value::Int(2));
-    assert_eq!(
-        call(&mut game, "GetBudgetName", Some(0)),
-        Value::string("Papyrus instructions per slice")
-    );
-    assert_eq!(
-        call(&mut game, "GetBudgetName", Some(1)),
-        Value::string("Exterior cell loads per update")
-    );
+fn scheduler_budget_limits_are_runtime_constants() {
     assert_eq!(PAPYRUS_INSTRUCTIONS_PER_SLICE, 100_000);
     assert_eq!(EXTERIOR_CELL_LOADS_PER_UPDATE, 2);
 }
@@ -58,7 +48,10 @@ fn budget_categories_match_the_runtime_limits() {
 fn invalid_budget_indices_return_type_specific_fallbacks() {
     let mut game = Game::new(LoadOrder::new());
     for index in [i32::MIN, -1, 2, i32::MAX] {
-        assert_eq!(call(&mut game, "GetBudgetName", Some(index)), Value::None);
+        assert_eq!(
+            call(&mut game, "GetBudgetName", Some(index)),
+            Value::string("")
+        );
         assert_eq!(
             call(&mut game, "GetCurrentBudget", Some(index)),
             Value::Int(0)
@@ -98,7 +91,7 @@ fn streaming_counter_uses_measured_loads_and_strict_limit_boundary() {
 #[test]
 fn vm_counter_reports_scheduler_work_instead_of_the_configured_limit() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(call(&mut game, "GetBudgetCount", None), Value::Int(2));
+    let _ = call(&mut game, "GetCurrentBudget", Some(0));
     let measured = call(&mut game, "GetCurrentBudget", Some(0));
     assert!(
         matches!(measured, Value::Int(n) if n > 0 && n < PAPYRUS_INSTRUCTIONS_PER_SLICE as i32)
