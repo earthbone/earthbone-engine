@@ -4844,7 +4844,8 @@ mod tests {
     use super::*;
 
     use crate::behavior::{
-        Binding, ExpressionData, LookAtBone, Node, VariableBindingSet, VariableValueSet,
+        BehaviorGraph, Binding, ExpressionData, LookAtBone, Node, VariableBindingSet,
+        VariableValueSet,
     };
     use crate::spline::encode;
 
@@ -4852,6 +4853,97 @@ mod tests {
         while !bytes.len().is_multiple_of(4) {
             bytes.push(0);
         }
+    }
+
+    #[test]
+    fn anm_20_cancellation_releases_host_locks_and_clears_each_interpreter_time_override() {
+        let synchronized_graph = || {
+            let clip = Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbClipGenerator".into(),
+                name: "paired clip".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::Clip(ClipGenerator {
+                    animation_name: "paired.hkx".into(),
+                    ..Default::default()
+                }),
+            };
+            let synchronized = Node {
+                id: NodeId(1),
+                offset: 0,
+                class: "BSSynchronizedClipGenerator".into(),
+                name: "paired scene".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::SynchronizedClip {
+                    clip_generator: Some(NodeId(0)),
+                    sync_anim_prefix: String::new(),
+                    sync_clip_ignore_mark_placement: false,
+                    get_to_mark_time: 0.0,
+                    mark_error_threshold: 0.0,
+                    lead_character: false,
+                    reorient_support_char: false,
+                    apply_motion_from_root: false,
+                    animation_binding_index: -1,
+                },
+            };
+            BehaviorGraph {
+                name: "paired scene test".into(),
+                variable_mode: 0,
+                root: Some(NodeId(1)),
+                data: BehaviorGraphData::default(),
+                nodes: vec![clip, synchronized],
+            }
+        };
+        let first_graph = synchronized_graph();
+        let second_graph = synchronized_graph();
+        let clips = ClipLibrary::default();
+        let mut first = Interpreter::new(&first_graph, &clips, Vec::new());
+        let mut second = Interpreter::new(&second_graph, &clips, Vec::new());
+        assert!(first.set_synchronized_clip_time(NodeId(1), 0.75));
+        assert!(second.set_synchronized_clip_time(NodeId(1), 0.5));
+        assert_eq!(first.nodes[0].synchronized_time, Some(0.75));
+        assert_eq!(second.nodes[0].synchronized_time, Some(0.5));
+
+        let mut scene = SynchronizedClipScene::new(
+            7,
+            vec![
+                SyncMarker {
+                    name: "start".into(),
+                    time: 0.0,
+                },
+                SyncMarker {
+                    name: "impact".into(),
+                    time: 1.0,
+                },
+            ],
+            9,
+            vec![
+                SyncMarker {
+                    name: "start".into(),
+                    time: 0.25,
+                },
+                SyncMarker {
+                    name: "impact".into(),
+                    time: 1.25,
+                },
+            ],
+            7,
+        )
+        .unwrap();
+        let mut host_locked_actors = vec![7, 9];
+
+        for actor in scene.cancel() {
+            host_locked_actors.retain(|locked| *locked != actor);
+        }
+        assert!(first.clear_synchronized_clip_time(NodeId(1)));
+        assert!(second.clear_synchronized_clip_time(NodeId(1)));
+
+        assert!(host_locked_actors.is_empty());
+        assert_eq!(first.nodes[0].synchronized_time, None);
+        assert_eq!(second.nodes[0].synchronized_time, None);
     }
 
     /// One transform track at a non-reference x position. This is encoded as
