@@ -54,12 +54,34 @@ impl World {
         }
     }
 
-    /// Read the placed HAZD reference fields currently represented by the
-    /// reference table. This does not simulate the hazard.
+    /// Read a placed hazard's reference fields. PHZD placements are projected
+    /// directly from their record, while a generic reference can name HAZD as
+    /// its base. This does not simulate the hazard.
     pub fn commonlib_hazard(&mut self, reference: GlobalFormId) -> Option<HazardState> {
-        let (base, position, enabled) = {
-            let state = self.reference(reference)?;
-            (state.base?, state.position, state.enabled)
+        let state = self
+            .reference(reference)
+            .and_then(|state| state.base.map(|base| (base, state.position, state.enabled)));
+        let (base, position, enabled) = if let Some(state) = state {
+            state
+        } else {
+            let source = self.order.winner_ref(reference)?;
+            let record = self.order.record(source);
+            if record.tag != soe_esm::Tag(*b"PHZD") {
+                return None;
+            }
+            let base = self
+                .order
+                .resolve(source.file, super::le_u32(record.find(super::T(b"NAME"))?)?);
+            let data = record.find(super::T(b"DATA"))?;
+            if data.len() < 24 {
+                return None;
+            }
+            let position = [
+                super::le_f32(data),
+                super::le_f32(&data[4..]),
+                super::le_f32(&data[8..]),
+            ];
+            (base, position, true)
         };
         if self.record(base)?.tag != soe_esm::Tag(*b"HAZD") {
             return None;
@@ -241,6 +263,14 @@ impl LiveDataHandler {
                 },
             })
             .collect();
+        let mut files: Vec<FileInfo> = files;
+        files.sort_by_key(|file| {
+            (
+                file.is_light(),
+                file.regular_index.unwrap_or_default(),
+                file.light_index.unwrap_or_default(),
+            )
+        });
         Self { forms, files }
     }
 }
@@ -846,5 +876,206 @@ mod tests {
         assert!(actor
             .set_actor_value(ActorValue(u32::MAX), 10.0)
             .is_err_and(|error| error == ActorApiError::UnsupportedOperation));
+    }
+
+    #[test]
+    fn shm_16_populated_world_views_reach_cpp_mit_contracts() {
+        use std::fs;
+        use std::process::Command;
+
+        let mut world = world();
+        let id = GlobalFormId {
+            file: 0,
+            object: 0x801,
+        };
+        let _ = world.reference(id).unwrap();
+        world.refs.get_mut(&id).unwrap().is_actor = true;
+        let actor_state = ActorState {
+            weapon_drawn: true,
+            ..ActorState::default()
+        };
+        world.actors.insert(id, actor_state);
+
+        let handler = world.commonlib_data_handler();
+        let form = handler.lookup_by_editor_id("Shm16Base").unwrap();
+        let form_id = form.form_id().0.to_string();
+        let form_type = form.form_type().as_str().to_owned();
+        let editor_id = form.editor_id().unwrap().to_owned();
+        let regular_file = handler.file(0).unwrap();
+        let light_file = handler.file(1).unwrap();
+        let (reference_id, base_id, position, pointer) = {
+            let reference = world.commonlib_reference(id).unwrap();
+            (
+                reference.form_id().0.to_string(),
+                reference.base().0.to_string(),
+                reference.position(),
+                reference.pointer(),
+            )
+        };
+        let pointer_id = pointer.0.unwrap().0.to_string();
+        let weapon_state = world.commonlib_actor(id).unwrap().weapon_state() as u32;
+        let mut reference = world.commonlib_reference(id).unwrap();
+        let unsupported = reference.set_base(FormId(0x900)).unwrap_err();
+
+        let scratch = std::env::temp_dir().join(format!("soe-shm-16-live-{}", std::process::id()));
+        fs::create_dir_all(&scratch).unwrap();
+        let source = scratch.join("live.cpp");
+        fs::write(
+            &source,
+            r#"
+#include <RE/Skyrim.h>
+#include <SKSE/SKSE.h>
+#include <cassert>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+struct Form final : RE::Form {
+    RE::FormId id;
+    RE::FormType type;
+    std::string edid;
+    Form(RE::FormId id, RE::FormType type, std::string edid)
+        : id(id), type(type), edid(std::move(edid)) {}
+    RE::FormId form_id() const override { return id; }
+    RE::FormType form_type() const override { return type; }
+    std::optional<std::string> editor_id() const override { return edid; }
+};
+struct Data final : RE::TESDataHandler {
+    Form form;
+    std::vector<std::string> loaded_files;
+    Data(Form form, std::vector<std::string> files)
+        : form(std::move(form)), loaded_files(std::move(files)) {}
+    const RE::Form* lookup(RE::FormId id) const override {
+        return id == form.id ? &form : nullptr;
+    }
+    const RE::Form* lookup_by_editor_id(const std::string& id) const override {
+        return id == form.edid ? &form : nullptr;
+    }
+    std::vector<RE::FormId> forms_of_type(RE::FormType type) const override {
+        return type.as_str() == "MISC" ? std::vector<RE::FormId>{form.id} : std::vector<RE::FormId>{};
+    }
+    std::vector<std::string> files() const override { return loaded_files; }
+    std::optional<RE::FileInfo> file(std::size_t index) const override {
+        if (index == 0) return RE::FileInfo{loaded_files[0], 0, std::nullopt};
+        if (index == 1) return RE::FileInfo{loaded_files[1], std::nullopt, 0};
+        return std::nullopt;
+    }
+};
+struct Ref final : RE::TESObjectREFR {
+    RE::FormId id, base_id;
+    RE::ObjectRefHandle pointer_handle;
+    RE::NiPoint3 pos;
+    std::string unsupported_operation;
+    Ref(RE::FormId id, RE::FormId base_id, RE::ObjectRefHandle pointer_handle,
+        RE::NiPoint3 pos, std::string unsupported_operation)
+        : id(id), base_id(base_id), pointer_handle(pointer_handle), pos(pos),
+          unsupported_operation(std::move(unsupported_operation)) {}
+    RE::FormId form_id() const override { return id; }
+    RE::ObjectRefHandle handle() const override { return pointer_handle; }
+    RE::FormId base() const override { return base_id; }
+    RE::NiPoint3 position() const override { return pos; }
+    RE::NiPoint3 rotation() const override { return {}; }
+    std::optional<RE::FormId> parent_cell() const override { return std::nullopt; }
+    bool is_disabled() const override { return false; }
+    bool is_deleted() const override { return false; }
+    RE::Unsupported set_base(RE::FormId) override { return {unsupported_operation.c_str()}; }
+};
+struct Actor final : RE::Actor {
+    Ref ref;
+    RE::WEAPON_STATE weapon;
+    Actor(Ref ref, RE::WEAPON_STATE weapon) : ref(std::move(ref)), weapon(weapon) {}
+    RE::ObjectRefHandle handle() const override { return ref.handle(); }
+    RE::FormId form_id() const override { return ref.form_id(); }
+    RE::FormId base() const override { return ref.base(); }
+    RE::NiPoint3 position() const override { return ref.position(); }
+    RE::NiPoint3 rotation() const override { return ref.rotation(); }
+    std::optional<RE::FormId> parent_cell() const override { return ref.parent_cell(); }
+    bool is_disabled() const override { return ref.is_disabled(); }
+    bool is_deleted() const override { return ref.is_deleted(); }
+    RE::Unsupported set_base(RE::FormId id) override { return ref.set_base(id); }
+    RE::ActorHandle actor_handle() const override { return {form_id().value}; }
+    RE::ActorPtr actor_ptr() const override { return {{actor_handle()}}; }
+    RE::ActorState state() const override { return {false, false, false, weapon == RE::WEAPON_STATE::kDrawn, false}; }
+    std::optional<float> actor_value(RE::ActorValue) const override { return 90.0F; }
+    std::optional<RE::ActorApiError> set_actor_value(RE::ActorValue, float) override { return std::nullopt; }
+    RE::FormId race() const override { return base(); }
+    bool is_dead() const override { return false; }
+    bool is_player() const override { return false; }
+    RE::WEAPON_STATE weapon_state() const override { return weapon; }
+    bool add_spell(RE::FormId) override { return false; }
+    bool add_perk(RE::FormId) override { return false; }
+    bool add_item(RE::FormId, std::uint32_t) override { return false; }
+};
+int main(int argc, char** argv) {
+    assert(argc == 14);
+    Data data{Form{RE::FormId{static_cast<std::uint32_t>(std::stoul(argv[1]))},
+                   RE::FormType::new_type("MISC"), argv[3]}, {argv[4], argv[5]}};
+    const auto id = RE::FormId{static_cast<std::uint32_t>(std::stoul(argv[1]))};
+    assert(data.lookup(id)->form_type().as_str() == argv[2]);
+    assert(data.lookup_by_editor_id(argv[3])->form_id() == id);
+    assert(data.forms_of_type(RE::FormType::new_type("MISC")) == std::vector<RE::FormId>{id});
+    assert((data.files() == std::vector<std::string>{argv[4], argv[5]}));
+    assert(data.file(0)->regular_index == 0 && data.file(1)->light_index == 0);
+    Ref ref{RE::FormId{static_cast<std::uint32_t>(std::stoul(argv[6]))},
+            RE::FormId{static_cast<std::uint32_t>(std::stoul(argv[7]))},
+            RE::ObjectRefHandle{static_cast<std::uint32_t>(std::stoul(argv[13]))},
+            RE::NiPoint3{std::stof(argv[8]), std::stof(argv[9]), std::stof(argv[10])}, argv[12]};
+    RE::TESObjectREFRPtr pointer{ref.handle()};
+    assert(pointer.handle->value == std::stoul(argv[13]));
+    assert(ref.base().value == static_cast<std::uint32_t>(std::stoul(argv[7])));
+    assert(ref.position().x == std::stof(argv[8]) && ref.position().y == std::stof(argv[9]));
+    assert(ref.position().z == std::stof(argv[10]));
+    Actor actor{ref, static_cast<RE::WEAPON_STATE>(std::stoul(argv[11]))};
+    assert(actor.weapon_state() == RE::WEAPON_STATE::kDrawn);
+    assert(actor.state().weapon_drawn);
+    assert(std::string(ref.set_base({}).operation) == argv[12]);
+    assert(std::string(SKSE::TRAMPOLINE.what).find("no target") != std::string::npos);
+}
+"#,
+        )
+        .unwrap();
+        let binary = scratch.join("live-contract");
+        let compiled = Command::new("c++")
+            .arg("-std=c++20")
+            .arg("-I")
+            .arg(
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../commonlib-shim/include"),
+            )
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "C++ fixture compile failed: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        let result = Command::new(&binary)
+            .args([
+                form_id,
+                form_type,
+                editor_id,
+                regular_file.name,
+                light_file.name,
+                reference_id,
+                base_id,
+                position.x.to_string(),
+                position.y.to_string(),
+                position.z.to_string(),
+                weapon_state.to_string(),
+                unsupported.operation.to_owned(),
+                pointer_id,
+            ])
+            .status()
+            .unwrap();
+        assert!(
+            result.success(),
+            "C++ fixture rejected populated World state"
+        );
+        assert_eq!(unsupported.operation, "TESObjectREFR::SetBaseObject");
+        assert_eq!(pointer.0.unwrap().0, 0x801);
+        fs::remove_dir_all(scratch).unwrap();
     }
 }

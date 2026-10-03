@@ -5,6 +5,10 @@ values in the existing actor component store for actors already built in the
 world. It resolves actor-value indices through the vanilla actor-value name
 table. Its default-object lookup reads DOBJ records through the footstep
 record view and returns the resolved FormID. It does not cache either result.
+SHM-14 adds runtime FormID handles to the `WorldState` player view. Its C++
+contract test queries player identity, position, actor values, death state and
+loaded actor forms from a Rust service borrowing `World`. Player object-reference
+handles contain the runtime FormID.
 
 `ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
 regional sound entry's `RDMO` when the cell has none. It returns eligible
@@ -62,7 +66,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
 
 - `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
   stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
-  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results. The
+  SHM-12 C++ contract test exchanges requests with a Rust test fixture that answers from this
+  adapter and a live `World`.
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
@@ -210,7 +216,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
   reanimation effects from this same `World`. Sit and sleep animation state is
   not stored by the runtime, so the adapter reports it as unsupported. Binary
-  address and vtable hooks have no runtime target.
+  address and vtable hooks have no runtime target. SHM-15 exposes this view to
+  C++ through the MIT `RuntimeStateCallbacks` table and `RE::CallbackTES`. The
+  SHM-15 C++ fixture queries a test host that reads each result from the live
+  `World` without keeping a copied state.
 
 `World::commonlib_event_sources` exposes the in-process CommonLib event
 channels for disarm, dragon souls gained, level increase and location
@@ -720,7 +729,21 @@ state. Projectile runtime access returns an explicit unsupported-hook result
 because projectile simulation is not implemented. The matching local
 CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 `ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
-shim exposes source-level C++ declarations only, without an FFI bridge.
+shim exposes source-level C++ declarations, with no general FFI bridge.
+
+`World::commonlib_extra_worn`, `commonlib_game_setting`, `commonlib_hazard`,
+`commonlib_high_process` and `commonlib_resolve_hit` project current inventory,
+setting, placed hazard, actor combat-process and resolved melee-hit state into
+the MIT shim types. Hazard reads require a placed reference whose base record
+is HAZD. High-process reads include combat membership, target and stagger only.
+Hit resolution runs through the existing melee combat path. The SHM-11 game
+tests cover live settings, worn markers, present and absent hazards, actor
+combat process state, and a resolved hit. These Rust adapters do not provide a
+C++ to Rust binding.
+
+condition API also has a request/reply bridge for compiled C++ condition
+calls. The game handles each request against the current world and VM. This
+transport does not provide general plugin loader services.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. It
@@ -1015,6 +1038,12 @@ and associated keywords. `World::commonlib_reference` builds a reference through
 world path, then exposes its current base, transform, cell and enabled/deleted flags through
 the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
 File views retain the load-order filename and regular or light slot.
+`shm_16_populated_world_views_reach_cpp_mit_contracts` samples non-empty winning
+records, regular and light files, reference transform and base, and drawn actor
+state from these adapters, then passes those values to a compiled C++ consumer
+that exercises the MIT contracts. Unsupported `SetBaseObject` and trampoline
+hooks are checked in the C++ fixture. This checks populated cross-language
+contract values without providing a C++ to Rust ABI.
 
 `World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
 Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
@@ -1033,8 +1062,10 @@ current World instance and are not saved. The SHM-20 channels dispatch after a
 successful shout cast, player skill rank gain, successful soul-gem fill, new
 player spell addition and streamed cell arrival. Their payloads resolve from
 the same world and load order. Binary hooks return explicit unsupported errors.
-See [shim](shim.md#event-binding-batch-shm-18) for the projected C++ payload
-contract and unsupported binary hook boundary.
+A game integration fixture forwards these live events to compiled C++ sinks
+over a test pipe and checks the responses. This test transport is not an engine
+plugin ABI. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
+payload contract and unsupported binary hook boundary.
 
 ## Conformance table
 
@@ -8020,3 +8051,14 @@ API](https://docs.wasmtime.dev/api/wasmtime/component/index.html) and the
 [Rust component build
 guide](https://component-model.bytecodealliance.org/language-support/creating-runnable-components/rust.html).
 The project decision and acceptance check are in `ENGINE-PLAN.md`, round 4.
+
+## CommonLib magic provider, SHM-13
+
+`CommonLibMagic` adapts favorites, casting checks, active magic effects,
+reference marker flags and default equipment requests through the MIT
+`MagicWorldState` provider. Favorite forms are stored on their actor and
+persisted by the `SHM-13` actor save section. Marker visibility and fast travel
+use the existing reference flags. `ShowAllHidden`, unsupported cast checks
+and non-default equip parameters return explicit unsupported-state errors.
+Supported equipment requests use `World::equip_item`, and dispel requests use
+the shared active-effect removal path.
