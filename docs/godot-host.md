@@ -90,6 +90,17 @@ and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
 
+### Papyrus weather image-space selection, SCR-54
+
+`Weather.SetActive` requests flow from `World` into `ImageSpaceStack` on the
+next host sync. If no explicit image-space selection is active, the stack reads
+the selected WTHR record's daytime `IMSP` slot and resolves its `IMGS` values.
+The camera renderer applies those values through Godot's `Environment` and
+`CameraAttributesPractical`. An explicit image-space selection takes
+precedence. This path renders image-space adjustments only. It does not render
+WTHR cloud layers, sky colors, precipitation, ambient lighting or transition
+timing, and the daytime slot is used at all game hours.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each

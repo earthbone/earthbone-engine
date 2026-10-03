@@ -21,10 +21,16 @@ fn fixture() -> Game {
     );
     plugin.push_top(Record::new(Tag::new(b"AMMO"), 0x201));
     plugin.push_top(Record::new(Tag::new(b"ARMO"), 0x202));
-    plugin.push_top(Record::new(Tag::new(b"REFR"), 0x300).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()));
-    plugin.push_top(Record::new(Tag::new(b"ACHR"), 0x301).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag::new(b"REFR"), 0x300).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()),
+    );
+    plugin.push_top(
+        Record::new(Tag::new(b"ACHR"), 0x301).sub(Tag::new(b"NAME"), 0x100_u32.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
-    order.add("SCR53-breaker.esp", plugin).expect("plugin loads");
+    order
+        .add("SCR53-breaker.esp", plugin)
+        .expect("plugin loads");
     Game::new(order)
 }
 
@@ -35,18 +41,31 @@ fn call_fire(game: &mut Game, weapon_form: u32, source: Value, ammo: Value) -> V
         .param("ammo", "Var")
         .ins(
             CallMethod,
-            vec![s("Fire"), ident("self"), ident("result"), ident("source"), ident("ammo")],
+            vec![
+                s("Fire"),
+                ident("self"),
+                ident("result"),
+                ident("source"),
+                ident("ammo"),
+            ],
         )
         .ins(Return, vec![])
         .local("result", "None")
         .build();
     game.load_script(
-        &ScriptBuilder::new(script, "Weapon").function(function).bytes(),
+        &ScriptBuilder::new(script, "Weapon")
+            .function(function)
+            .bytes(),
     )
     .expect("probe script loads");
     let weapon = game.object_of_form(id(weapon_form));
-    game.vm.attach(weapon, script).expect("weapon accepts probe");
-    let thread = game.vm.call(weapon, "Run", &[source, ammo]).expect("probe calls");
+    game.vm
+        .attach(weapon, script)
+        .expect("weapon accepts probe");
+    let thread = game
+        .vm
+        .call(weapon, "Run", &[source, ammo])
+        .expect("probe calls");
     assert!(game.run_until_idle(32));
     game.vm.thread_result(thread).expect("thread completes")
 }
@@ -59,8 +78,14 @@ fn form(game: &mut Game, object: u32) -> Value {
 fn actor_source_satisfies_object_reference_contract() {
     let mut game = fixture();
     let source = form(&mut game, 0x301);
-    assert_eq!(call_fire(&mut game, 0x200, source, Value::None), Value::None);
-    assert!(game.vm.log.contains("unsupported weapon fire behavior: ranged projectile execution"));
+    assert_eq!(
+        call_fire(&mut game, 0x200, source, Value::None),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("unsupported weapon fire behavior: ranged projectile execution"));
     assert!(game.world().pending.is_empty());
 }
 
@@ -69,8 +94,14 @@ fn missing_ammo_form_is_reported_without_side_effects() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
     let missing_ammo = form(&mut game, 0x404);
-    assert_eq!(call_fire(&mut game, 0x200, source, missing_ammo), Value::None);
-    assert!(game.vm.log.contains("weapon fire ammo 0:000404 is missing or is not an AMMO"));
+    assert_eq!(
+        call_fire(&mut game, 0x200, source, missing_ammo),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("weapon fire ammo 0:000404 is missing or is not an AMMO"));
     assert!(game.world().pending.is_empty());
     assert!(game.world().spell_casts.is_empty());
 }
@@ -79,9 +110,14 @@ fn missing_ammo_form_is_reported_without_side_effects() {
 fn missing_weapon_form_is_reported_without_side_effects() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
-    let weapon = game.object_of_form(id(0x405));
-    assert_eq!(call_fire(&mut game, 0x405, source, Value::None), Value::None);
-    assert!(game.vm.log.contains("weapon fire weapon 0:000405 is missing or is not a WEAP"));
+    assert_eq!(
+        call_fire(&mut game, 0x405, source, Value::None),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("weapon fire weapon 0:000405 is missing or is not a WEAP"));
     assert!(game.world().pending.is_empty());
 }
 
@@ -90,10 +126,20 @@ fn repeated_valid_requests_each_report_unsupported_without_mutation() {
     let mut game = fixture();
     let source = form(&mut game, 0x300);
     let ammo = form(&mut game, 0x201);
-    assert_eq!(call_fire(&mut game, 0x200, source.clone(), ammo.clone()), Value::None);
+    assert_eq!(
+        call_fire(&mut game, 0x200, source.clone(), ammo.clone()),
+        Value::None
+    );
     assert_eq!(call_fire(&mut game, 0x200, source, ammo), Value::None);
     assert_eq!(
-        game.vm.log.entries.iter().filter(|entry| entry.message.contains("Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution")).count(),
+        game.vm
+            .log
+            .entries
+            .iter()
+            .filter(|entry| entry.message.contains(
+                "Weapon.Fire: unsupported weapon fire behavior: ranged projectile execution"
+            ))
+            .count(),
         2
     );
     assert!(game.world().pending.is_empty());
