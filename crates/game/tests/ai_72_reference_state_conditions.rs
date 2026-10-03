@@ -190,6 +190,24 @@ fn ai_72_open_state_and_default_open_follow_reference_records() {
 }
 
 #[test]
+fn ai_72_package_conditions_report_opening_and_closing_transitions() {
+    let game = fixture();
+    let door = id(CLOSED_DOOR);
+
+    assert!(game.world_mut().begin_door_opening(door));
+    assert!(package_evaluate(&game, door, &condition(157, 0, 2.0)));
+    assert!(!package_evaluate(&game, door, &condition(157, 0, 1.0)));
+    assert!(game.world_mut().finish_door_transition(door));
+    assert!(package_evaluate(&game, door, &condition(157, 0, 1.0)));
+
+    assert!(game.world_mut().begin_door_closing(door));
+    assert!(package_evaluate(&game, door, &condition(157, 0, 4.0)));
+    assert!(!package_evaluate(&game, door, &condition(157, 0, 3.0)));
+    assert!(game.world_mut().finish_door_transition(door));
+    assert!(package_evaluate(&game, door, &condition(157, 0, 3.0)));
+}
+
+#[test]
 fn ai_72_current_package_and_destroyed_queries_read_live_state() {
     let game = fixture();
     assert!(conditions::supports_function(161));

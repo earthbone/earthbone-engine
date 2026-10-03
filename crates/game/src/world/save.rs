@@ -1797,6 +1797,7 @@ fn read_ref_state_with_table(
         deleted,
         activation_blocked,
         opened,
+        open_transition: None,
         locked,
         lock_level,
         lock_extra: None,
