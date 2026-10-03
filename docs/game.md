@@ -8371,6 +8371,40 @@ selection, conditions, switching, combat checks, movement and path requests.
 The host exposes these alongside total planning time. Nested phase durations
 overlap, so they are not a partition of total time.
 
+### Navigation workers, PRF-17
+
+Pending navigation requests resume on Rayon workers borrowing the world's NAVM
+graph and mesh-to-cell table. The dispatcher reserves node budgets before each
+batch and applies results in the previous rotating FormID order. Unused node
+reservations feed the next batch. Both one-worker and multi-worker execution
+retain the 64-node request and 512-node frame budgets. No request can advance
+twice in a frame. Cancellation and graph revision checks precede dispatch.
+
+`AiWorld::set_planning_workers` installs a dedicated pool with a nonzero size.
+Pool creation errors preserve the existing pool and pending work. Without an
+explicit pool, resumed requests use Rayon's shared pool, whose worker count
+can be set through `RAYON_NUM_THREADS` before its first use.
+`AiWorld::planning_workers` exposes completed jobs, busy time per worker,
+caller dispatch/join time and utilisation for the last tick. These measurements
+cover resumed navigation only. Busy time measures elapsed request execution,
+not operating-system CPU accounting. Its `phase_busy` table sums worker search
+durations and can exceed frame wall time. These sums stay separate from the
+calling thread's `planning_phases` timings. PRF-14's active work recorder enters each job,
+so worker path and triangle operations remain in the caller's frame totals.
+The resumed navigation dispatch/join interval is charged once to PRF-12's
+AI planning system, without adding worker busy durations to frame wall time.
+
+The dispatcher uses exclusive request borrows, with no application mutex held
+or acquired by a job. There is no per-lock wait measurement for Rayon's internal
+scheduler. Worker configuration, requests and timing data are transient and do
+not change saves. The pool is joined before world mutation resumes.
+
+Initial request setup and its first slice still run on the calling thread,
+as do package evaluation, marker selection, combat and movement. Papyrus
+execution is unchanged. [threading.md](threading.md) records the reference
+evidence and the unimplemented parts of PRF-17. The dependency uses the already
+locked Rayon, rayon-core, either and Crossbeam utilities.
+
 Marker and bed base filtering reads existing reference state first, or the
 winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
 with reference initialization, without choosing actor templates or initializing

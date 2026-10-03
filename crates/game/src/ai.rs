@@ -61,6 +61,7 @@ mod markers;
 mod navigation;
 mod patrol;
 mod tree;
+pub use navigation::PlanningWorkers;
 pub use patrol::PatrolState;
 pub use tree::TreeState;
 
@@ -215,6 +216,23 @@ struct NavDoor {
 }
 
 impl AiWorld {
+    /// Set the pool size for resumed navigation searches. Pending work is retained.
+    ///
+    /// # Errors
+    /// Returns Rayon's error if the worker pool cannot be created. The old pool
+    /// remains active on failure.
+    pub fn set_planning_workers(
+        &mut self,
+        workers: std::num::NonZeroUsize,
+    ) -> Result<(), rayon::ThreadPoolBuildError> {
+        self.planner.set_workers(workers)
+    }
+
+    /// Measurements for resumed navigation jobs in the last AI tick.
+    pub fn planning_workers(&self) -> &PlanningWorkers {
+        &self.planner.workers
+    }
+
     pub fn nav_graph(&self) -> Option<&NavGraph> {
         self.nav.as_ref()
     }
@@ -2086,6 +2104,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
     let started = std::time::Instant::now();
     world.ai.planning_phases.clear();
     world.ai.planner.phases.clear();
+    world.ai.planner.workers = PlanningWorkers::default();
     refresh_nav_doors(world);
     world.ai.door_refresh_time = started.elapsed();
     let scheduling_started = std::time::Instant::now();
