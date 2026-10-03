@@ -848,7 +848,7 @@ signal these values, and unset state returns an unavailable-state diagnostic.
 These host signals are transient and reset when an actor is rebuilt after load.
 They participate in the determinism hash while present.
 The condition ids and parameter types follow local xEdit
-`TES5Edit/Core/wbDefinitionsTES5.pas`; the ward enum is also defined there.
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The ward enum is also defined there.
 CommonLibSSE-NG's `Actor::IsDualCasting` reads the high-process flag, which
 supports treating this as animation/process state. The local CK dump has no
 condition pages for these three natives, so shout variation's numeric value is
