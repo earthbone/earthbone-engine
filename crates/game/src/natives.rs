@@ -1777,7 +1777,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         ("SetAlert", 0),
         ("SetAttackActorOnSight", 1),
         ("SetDontMove", 2),
-        ("SetAllowPCDialogue", 3),
+        ("AllowPCDialogue", 3),
     ] {
         method!(vm, w, "Actor", name, |world, call, me| {
             let on = call.args.first().is_none_or(Value::as_bool);
