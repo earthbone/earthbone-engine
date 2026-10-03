@@ -45,8 +45,9 @@ the game's record-backed projectile query and SAV-24 world section. PCON's
 remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)
 for the source review and remaining evidence requirement.
 
-The format was not reverse engineered. It is documented and it has a mature
-open implementation, so both were read first.
+The container format is documented and has a mature open implementation,
+so both were read first. SCEN runtime field widths were inferred from the
+external save corpus where those sources leave the payload undefined.
 
 ## Sources, and what each gave
 
@@ -1071,11 +1072,13 @@ typed values distinguish an absent flag section from one whose bytes are zero.
 The INFO marker is said once and has no payload. SMQN's time-last-run marker
 carries a 32-bit count followed by that many float bit patterns. Its decoder
 checks the count against the remaining bytes and preserves NaN and signed-zero
-bits. SCEN's active marker carries variable scene data. The decoder retains
-that data as opaque bytes because its internal field boundaries are unknown.
+bits. SCEN's active marker carries counted runtime data. `SceneRuntime::read`
+decodes its complete layout, and `SceneChange::runtime_data` exposes that
+typed view while `active_data` retains the original bytes.
 The typed values reconstruct their flags and payload bytes. `Save::write`
 still keeps the original compressed or raw change-form data.
-The scene encoder rejects active data when its active marker is absent.
+The scene decoder and encoder reject malformed runtime bytes. The encoder
+also rejects active data when its active marker is absent.
 
 The field order and flag positions follow local TES5Edit
 `Core/wbDefinitionsTES5Saves.pas`. UESP `Save_File_Format.wikitext` supplies
@@ -1083,13 +1086,54 @@ the INFO, SMQN and SCEN change type indices. FallrimTools `ChangeForm.java`
 dispatches these types to its opaque default reader, so it supplies no field
 layout to reuse. The 60-save external corpus supplies the observed SMQN count
 and float-array layout. xEdit lists both SMQN and SCEN bit 31 as null payloads,
-which conflicts with that corpus. Unknown change bits, truncated form flags,
-invalid SMQN counts and trailing bytes outside SCEN's active data return errors.
-SCEN active data cannot yet be checked for interior truncation.
+which conflicts with that corpus. Unknown change bits, truncated fields,
+invalid counts, unknown SCEN action types and trailing bytes return errors.
 The external survey read 60 saves in place and re-encoded all 32,438 INFO,
 3,054 SMQN and 807 SCEN changes exactly, covering 197,758 payload bytes.
 Every observed change used bit 31 alone. The other three defined flag
 combinations have synthetic coverage.
+
+### SCEN runtime layout, SAV-29
+
+The runtime starts with a byte, a little-endian 32-bit phase index, two state
+bytes and a little-endian 32-bit action count. Each action contains a 32-bit
+type discriminator, a 32-bit floating-point value retained as bits, and two
+state bytes. Type 2 adds two more state bytes. Types 0 and 1 consume ten bytes,
+and type 2 consumes twelve. Their Dialogue, Package and Timer names follow
+CommonLibSSE-NG `include/RE/B/BGSSceneAction.h`, xEdit's plugin SCEN action
+union in `Core/wbDefinitionsTES5.pas`, and UESP `SCEN.wikitext`.
+
+After the actions come two state bytes, another 32-bit float bit pattern,
+a 32-bit phase count, three state bytes per phase, and a final 32-bit value.
+The exact byte length is `25 + 10 * actions + 2 * timers + 3 * phases`.
+Bit zero of the outer change flags gates the preceding six-byte form flags.
+Bit 31 gates the entire runtime. Runtime state bytes do not gate fields in
+this layout. Their meanings remain unassigned, and all byte values are
+retained. The leading byte is observed as one and the trailing word as zero
+or one, but neither observation restricts accepted values. The phase index
+retains the `u32::MAX` sentinel. Timer fields on another action type, or a
+timer missing its two additional bytes, are encoding errors.
+
+This layout consumes all 807 SCEN payloads across the 60 external saves to
+their exact end, including 244 distinct payloads. The two counts are bounded
+by remaining bytes before allocation. The corpus test re-encodes typed fields,
+rejects every shorter prefix and one-byte suffix, and compares repeated scene
+identities in consecutive saves ordered by header save number and path.
+It rejects 124,038 prefixes across 124,038 payload bytes and compares 577
+repeated identities, of which 187 change between consecutive saves.
+The installed-data test independently matches the saved action counts,
+discriminators and phase counts to all 673 changes whose identities occur in
+`Skyrim.esm`. Other scene identities still receive the complete layout and
+truncation checks. No payload suffix is left opaque. Flag meanings and live
+scene execution are outside this decoder's contract.
+
+UESP `Save_File_Format.wikitext` supplies change-form framing and compression.
+`Extra_data.wikitext` describes the separate SceneData extra as a RefID, which
+does not define the SCEN change payload. ReSaver's
+`resaver/ess/ChangeForm.java` and `ChangeFormDefault.java` preserve these forms
+raw and cannot validate their interior. The Rust decoder uses the measured
+layout because none of those readers defines it. No source code or save
+file was copied into this repository.
 
 ## Form-list and leveled-list changes
 

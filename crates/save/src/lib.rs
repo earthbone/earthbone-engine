@@ -10,9 +10,9 @@
 //! type 3 is the global variable table and type 1001 is the Papyrus virtual
 //! machine.
 //!
-//! The format is documented on the UESP wiki and implemented in ReSaver, part
-//! of Fallrim Tools. Neither was reverse engineered here, see `docs/save.md`
-//! for what each contributed and where they disagree.
+//! The container format is documented on UESP and implemented in ReSaver,
+//! part of Fallrim Tools. SCEN runtime widths come from the external save
+//! corpus. See `docs/save.md` for sources and their disagreements.
 //!
 //! The reader keeps raw bytes for everything it does not decode, so
 //! [`Save::write`] reproduces a file it read byte for byte. That is the
@@ -51,7 +51,10 @@ pub use change::{
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
-pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};
+pub use dialogue_scene::{
+    InfoChange, SceneActionKind, SceneActionState, SceneChange, SceneRuntime,
+    StoryManagerQuestNodeChange,
+};
 pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
