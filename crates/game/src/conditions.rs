@@ -272,6 +272,7 @@ pub fn supports_function(function: u16) -> bool {
             | 633
             | 654
             | 655
+            | 657
             | 656
             | 659
             | 254
@@ -3101,6 +3102,21 @@ fn function_value(
             // CK Actor.IsArrested reports the actor's current arrest state.
             no_parameter(c)?;
             boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
+        }
+        657 => {
+            // CK Actor.IsArrestingTarget is false for non-guards and guards
+            // that are not alerted. The active arrest interaction is not
+            // represented in the runtime, so an alerted guard is unavailable.
+            no_parameter(c)?;
+            let guard_faction = world
+                .resolve_from(subject, 0x0008_6eee)
+                .ok_or(Error::Form(subject))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if !actor.factions.contains_key(&guard_faction) || !actor.alerted {
+                boolean(false)
+            } else {
+                return Err(Error::Unavailable(c.function));
+            }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
 

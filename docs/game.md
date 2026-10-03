@@ -2491,15 +2491,21 @@ actor's first link or the link matching the authored keyword. These selectors
 still require the selected reference to pass the search eligibility checks.
 Object Type values 1 to 15 match their corresponding base record types. Values
 14 and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
-Unknown Object Type values and other target selectors are unsupported. A
-negative authored radius is unsupported. The search uses the
+Values 16 and 17 match combat wearable armor and any armor. Combat wearable
+uses the `ARMO.BOD2` or `BODT` armor type, where 0 is Light, 1 is Heavy, and 2
+is Clothing. Values 18 to 20 select unarmed, melee, and ranged weapons by
+`WEAP.DNAM`. Values 21 to 24 select spells by delivery, 25 selects placed
+actors, 26 and 27 select beds and chairs by furniture animation, and 28
+selects shouts. Unknown Object Type values and other target selectors are
+unsupported. A negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
 or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
 authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
 Find procedure page. Target kinds and Object Type labels follow xEdit's
-`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. The UESP
+`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. Its `ARMO`
+`BOD2` and `BODT` definitions supply the armor subtype offsets and enum. The UESP
 PACK page documents value 11 as any weapon, and xEdit's `wbRecord(ALCH)`
 defines the Food Item flag. Package alias resolution uses the actor's selected
 quest alias or the package owner quest. Linked references use the actor's
@@ -2590,6 +2596,13 @@ navmeshed cells on a travel package once a quest stage unlocks it, sandbox
 to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
+
+AI-14 evaluates eligible simultaneous children in tree order. Wait children
+share one real-time deadline, using the longest active Wait unless a child
+marked to complete the package supplies an earlier deadline. UseMagic children
+cast through the actor's assigned spell path while that Wait group runs. A
+UseMagic child marked to complete the package ends the group after its cast.
+Async procedure children remain unsupported.
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
@@ -4050,19 +4063,26 @@ state sets LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads
 false until
 a bribe or intimidate native writes it.
 
-AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
-parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
-value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
-Arrested state reads the subject actor's `arrested` field, matching CK's
-`IsArrested`. Nonzero unused parameter slots and subjects without actor state
-return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
-`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
-has no arresting-target state to evaluate. Its condition is reported as
-`Error::Function(657)` instead of guessing from combat or alert state. The
-function names and parameter counts follow local xEdit
+AI-46 covers parameterless functions `GetBribeSuccess` (654),
+`GetIntimidateSuccess` (655), `GetArrestedState` (656) and
+`GetArrestingActor` (657). Bribe success reads the subject's
+`LastBribedIntimidated` actor
+value, consistent with CK's `SetBribed` status contract and the paired
+intimidation status functions `SetIntimidated` and `IsIntimidated`. Arrested
+state reads the subject actor's `arrested` field, matching CK's `IsArrested`.
+`GetIntimidateSuccess` (655) reports an unavailable result when the subject
+has the required actor state, because CK's `WillIntimidateSucceed` points to
+the unimplemented "Mod Player Intimidation" perk entry point. Subjects without
+the required confidence value return `Error::StateContract(655)`. Nonzero
+unused parameter slots and subjects without actor state return explicit
+errors for implemented predicates. `GetArrestingActor` (657) follows CK's
+`IsArrestingTarget`: it returns false for non-guards and non-alerted guards.
+The runtime does not track an alerted guard's active arrest interaction, so
+that context returns `Error::Unavailable(657)`. Function IDs and parameter
+counts follow local xEdit
 `wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
-contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
-`IsArrestingTarget` pages.
+contracts follow the local CK `SetBribed`, `SetIntimidated`, `IsIntimidated`,
+`IsArrested`, `IsArrestingTarget` and `WillIntimidateSucceed` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
@@ -6468,23 +6488,33 @@ PTDA alias through the package's owning quest and selects the alias's reference
 as the route start. That resolved global form identity is saved with Patrol
 progress, so an alias into an overriding plugin retains its namespace after
 reload. Object ID targets resolve in the package's defining plugin. A target
-that names a FormList searches its entries in authored order. Object Type 8,
-Miscellaneous, searches winning MISC bases in load-order order. Both paths save
-the selected reference identity with Patrol progress. Other Object Type values
-and Find-derived starts remain unsupported. AI-33's Find procedure owns its
-selected-reference result in the `AI-21` actor section.
+that names a FormList searches its entries in authored order. Object Type
+targets search matching winning base records in load-order order, then use the
+first placed reference of that base. The xEdit Object Type enum values 1
+through 28 map to their record categories. Food versus alchemy, combat armor,
+weapon classes, spell delivery, and bed versus chair furniture use their
+authored subtype fields. Object Type 8, Miscellaneous, searches winning MISC
+bases in load-order order. Actor targets require a placed actor reference, and
+an actor used as a route marker defaults to zero dwell if it has no XPRD.
+Both FormList and Object Type paths save the selected global reference
+identity with Patrol progress. AI-33's Find procedure owns a separate
+selected-reference result and is not present in this worktree.
 
-xEdit `wbDefinitionsTES5.pas` defines Object Type 8 as Miscellaneous and PTDA
-Object ID as a form link. The UESP PACK description confirms the target and
-count fields. The CK package target pages were not present in the local corpus.
+xEdit `wbDefinitionsTES5.pas` defines the Object Type categories, their
+subtypes, and PTDA Object ID as a form link. The UESP PACK description
+confirms the target and count fields. The CK package target pages were not
+present in the local corpus.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
 field contexts, invalid state, and
-`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`. The
-adversarial AI-91 tests check Object ID, FormList, and Object Type 8 selection
-and save/load of each selected start.
+`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`,
+`ai_91_form_list_route_start_saves_the_authored_first_reference` and
+`ai_91_object_type_route_starts_save_the_selected_reference`, and
+`ai_91_search_route_start_keeps_the_winning_namespace_and_saved_target`. The
+Object Type test covers each selectable enum category and saves and reloads its
+selected start.
 These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.
