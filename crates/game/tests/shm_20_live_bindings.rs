@@ -3,7 +3,14 @@
 
 //! SHM-20 event bindings from successful runtime operations.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    fs,
+    io::Write,
+    path::PathBuf,
+    process::{ChildStdin, Command, Stdio},
+    rc::Rc,
+};
 
 use soe_commonlib_shim::{
     events::{
@@ -30,6 +37,315 @@ impl<T: Clone> EventSink<T> for Capture<T> {
         self.0.borrow_mut().push(event.clone());
         NotifyControl::Continue
     }
+}
+
+struct CppConsumer(Rc<RefCell<ChildStdin>>);
+
+impl CppConsumer {
+    fn send(&self, kind: u8, first: u32, second: u32) {
+        let mut input = self.0.borrow_mut();
+        input
+            .write_all(&[kind])
+            .expect("write event kind to C++ fixture");
+        input
+            .write_all(&first.to_le_bytes())
+            .expect("write first event field to C++ fixture");
+        input
+            .write_all(&second.to_le_bytes())
+            .expect("write second event field to C++ fixture");
+    }
+}
+
+impl EventSink<ShoutAttack> for CppConsumer {
+    fn process(&mut self, event: &ShoutAttack) -> NotifyControl {
+        self.send(1, event.shout.0, 0);
+        NotifyControl::Continue
+    }
+}
+
+impl EventSink<SkillIncrease> for CppConsumer {
+    fn process(&mut self, event: &SkillIncrease) -> NotifyControl {
+        self.send(2, event.player.0, event.actor_value.0);
+        NotifyControl::Continue
+    }
+}
+
+impl EventSink<SoulsTrapped> for CppConsumer {
+    fn process(&mut self, event: &SoulsTrapped) -> NotifyControl {
+        self.send(3, event.trapper.0, event.target.0);
+        NotifyControl::Continue
+    }
+}
+
+impl EventSink<SpellsLearned> for CppConsumer {
+    fn process(&mut self, event: &SpellsLearned) -> NotifyControl {
+        self.send(4, event.spell.0, 0);
+        NotifyControl::Continue
+    }
+}
+
+impl EventSink<TESCellFullyLoadedEvent> for CppConsumer {
+    fn process(&mut self, event: &TESCellFullyLoadedEvent) -> NotifyControl {
+        self.send(5, event.cell.0, 0);
+        NotifyControl::Continue
+    }
+}
+
+fn cpp_consumer() -> (std::process::Child, Rc<RefCell<ChildStdin>>) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("soe-shm-20-live-{}", std::process::id()));
+    fs::create_dir_all(&scratch).expect("create C++ fixture directory");
+    let source = scratch.join("live_events.cpp");
+    fs::write(
+        &source,
+        r#"
+#include <RE/Skyrim.h>
+#include <SKSE/SKSE.h>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+
+struct LiveState {
+    unsigned count{};
+    bool valid{true};
+    void receive(const RE::ShoutAttack& event) {
+        valid = valid && event.shout.value == 0x803;
+    }
+    void receive(const RE::SkillIncrease& event) {
+        valid = valid && event.player.value != 0 && event.actor_value.value == 6;
+    }
+    void receive(const RE::SoulsTrapped& event) {
+        valid = valid && event.trapper.value == 0x110 && event.target.value == 0x111;
+    }
+    void receive(const RE::SpellsLearned& event) {
+        valid = valid && event.spell.value == 0x801;
+    }
+    void receive(const RE::TESCellFullyLoadedEvent& event) {
+        valid = valid && event.cell.value == 0x900;
+    }
+};
+
+template <class Event>
+struct Sink final : RE::EventSink<Event> {
+    LiveState& state;
+    explicit Sink(LiveState& value) : state(value) {}
+    RE::NotifyControl process(const Event& event) override {
+        state.receive(event);
+        ++state.count;
+        return RE::NotifyControl::Continue;
+    }
+};
+
+int main() {
+    RE::ScriptEventSourceHolder sources;
+    LiveState state;
+    sources.shout_attack().add_sink(std::make_unique<Sink<RE::ShoutAttack>>(state));
+    sources.skill_increase().add_sink(std::make_unique<Sink<RE::SkillIncrease>>(state));
+    sources.souls_trapped().add_sink(std::make_unique<Sink<RE::SoulsTrapped>>(state));
+    sources.spells_learned().add_sink(std::make_unique<Sink<RE::SpellsLearned>>(state));
+    sources.cell_fully_loaded().add_sink(
+        std::make_unique<Sink<RE::TESCellFullyLoadedEvent>>(state));
+
+    std::uint8_t kind{};
+    std::uint32_t first{};
+    std::uint32_t second{};
+    for (unsigned index = 0; index < 5; ++index) {
+        if (std::fread(&kind, sizeof(kind), 1, stdin) != 1) return 1;
+        if (std::fread(&first, sizeof(first), 1, stdin) != 1 ||
+            std::fread(&second, sizeof(second), 1, stdin) != 1) return 1;
+        switch (kind) {
+        case 1: sources.shout_attack().send(RE::ShoutAttack{{first}}); break;
+        case 2: sources.skill_increase().send(RE::SkillIncrease{{first}, {second}}); break;
+        case 3: sources.souls_trapped().send(RE::SoulsTrapped{{first}, {second}}); break;
+        case 4: sources.spells_learned().send(RE::SpellsLearned{{first}}); break;
+        case 5: sources.cell_fully_loaded().send(RE::TESCellFullyLoadedEvent{{first}}); break;
+        default: return 2;
+        }
+    }
+    if (state.count != 5 || !state.valid) return 3;
+    const auto hook = RE::request_hook(RE::HookKind::Vtable);
+    if (hook.code != RE::HookErrorCode::Unsupported || hook.kind != RE::HookKind::Vtable) return 4;
+    return std::strcmp(SKSE::TRAMPOLINE.what,
+        "SKSE::Trampoline patches machine code and has no target in this engine") == 0 ? 0 : 5;
+}
+"#,
+    )
+    .expect("write C++ live event fixture");
+    let executable = scratch.join("live_events");
+    let compile = Command::new("c++")
+        .arg("-std=c++20")
+        .arg("-I")
+        .arg(root.join("../commonlib-shim/include"))
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("a C++20 compiler is required by the SHM-20 done check");
+    assert!(
+        compile.status.success(),
+        "live C++ fixture compile failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("start C++ live event consumer");
+    let input = Rc::new(RefCell::new(
+        child.stdin.take().expect("piped fixture stdin"),
+    ));
+    (child, input)
+}
+
+#[test]
+fn shm_20_live_world_events_reach_the_compiled_mit_event_sinks() {
+    let (mut cpp, cpp_input) = cpp_consumer();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(npc::build_record(
+        ACTOR,
+        "Shouter",
+        "Shouter",
+        npc::Config::default(),
+        npc::Stats::default(),
+    ));
+    plugin.push_top(Record::new(T(b"MGEF"), 0x801).sub(T(b"DATA"), {
+        let mut data = vec![0; 152];
+        data[0..4].copy_from_slice(&6u32.to_le_bytes());
+        data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        data[68..72].copy_from_slice(&24u32.to_le_bytes());
+        data
+    }));
+    plugin.push_top(
+        Record::new(T(b"SPEL"), 0x802)
+            .sub(T(b"SPIT"), vec![0; 36])
+            .sub(T(b"EFID"), 0x801u32.to_le_bytes())
+            .sub(
+                T(b"EFIT"),
+                [
+                    10.0f32.to_le_bytes(),
+                    0u32.to_le_bytes(),
+                    0u32.to_le_bytes(),
+                ]
+                .concat(),
+            ),
+    );
+    let mut shout = Record::new(T(b"SHOU"), 0x803);
+    for index in 0..3 {
+        let mut word = vec![0; 12];
+        if index == 2 {
+            word[4..8].copy_from_slice(&0x802u32.to_le_bytes());
+            word[8..12].copy_from_slice(&4.0f32.to_le_bytes());
+        }
+        shout = shout.sub(T(b"SNAM"), word);
+    }
+    plugin.push_top(shout);
+    let mut order = LoadOrder::new();
+    order.add("Shm20CppShout.esp", plugin).unwrap();
+    let mut game = Game::new(order);
+    let actor = game.player();
+    {
+        let mut world = game.world_mut();
+        let state = world.actor(actor).unwrap();
+        state.shouts.insert(id(0x803));
+        state.equipped_shout = Some(id(0x803));
+    }
+    game.world_mut()
+        .commonlib_event_sources()
+        .shout_attack()
+        .add_sink(Box::new(CppConsumer(cpp_input.clone())));
+    game.world_mut()
+        .cast_shout(actor, None, &mut |_, _| soe_papyrus::ObjectId(0))
+        .unwrap();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(npc::build_record(
+        ACTOR,
+        "Learner",
+        "Learner",
+        npc::Config::default(),
+        npc::Stats::default(),
+    ));
+    plugin.push_top(
+        Record::new(T(b"AVIF"), 0x801)
+            .sub(T(b"EDID"), b"AVOneHanded\0".to_vec())
+            .sub(
+                T(b"AVSK"),
+                [2.0f32, 1.0, 0.2, 2.0]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ),
+    );
+    plugin.push_top(
+        Record::new(T(b"GMST"), 0x802)
+            .sub(T(b"EDID"), b"fSkillUseCurve\0".to_vec())
+            .sub(T(b"DATA"), 2.0f32.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    order.add("Shm20CppSkill.esp", plugin).unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    game.world_mut()
+        .commonlib_event_sources()
+        .skill_increase()
+        .add_sink(Box::new(CppConsumer(cpp_input.clone())));
+    game.world_mut()
+        .advance_skill(player, "onehanded", 10.0)
+        .unwrap();
+
+    let mut game = soul_trap_game();
+    game.world_mut()
+        .commonlib_event_sources()
+        .souls_trapped()
+        .add_sink(Box::new(CppConsumer(cpp_input.clone())));
+    game.world_mut()
+        .cast_spell(
+            id(0x300),
+            id(0x110),
+            Some(id(0x110)),
+            Some(id(0x111)),
+            &mut |_, _| soe_papyrus::ObjectId(0),
+        )
+        .unwrap();
+    assert!(game.world_mut().kill_actor(id(0x111), Some(id(0x110))));
+    game.pump();
+    game.pump();
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(npc::build_record(
+        ACTOR,
+        "Learner",
+        "Learner",
+        npc::Config::default(),
+        npc::Stats::default(),
+    ));
+    plugin.push_top(Record::new(T(b"SPEL"), 0x801));
+    let mut order = LoadOrder::new();
+    order.add("Shm20CppSpell.esp", plugin).unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    game.world_mut()
+        .commonlib_event_sources()
+        .spells_learned()
+        .add_sink(Box::new(CppConsumer(cpp_input.clone())));
+    assert!(game.world_mut().add_actor_spell(player, id(0x801)));
+
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(T(b"CELL"), 0x900));
+    let mut order = LoadOrder::new();
+    order.add("Shm20CppCell.esp", plugin).unwrap();
+    let game = Game::new(order);
+    game.world_mut()
+        .commonlib_event_sources()
+        .cell_fully_loaded()
+        .add_sink(Box::new(CppConsumer(cpp_input.clone())));
+    game.world_mut()
+        .attach_streaming_cells(&[id(0x900)])
+        .unwrap();
+
+    drop(cpp_input);
+    assert!(cpp.wait().expect("wait for C++ event consumer").success());
 }
 
 fn soul_trap_game() -> Game {

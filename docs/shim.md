@@ -84,7 +84,10 @@ holder exposes one source per payload. The game emits shout
 attacks after successful casts, player skill increases after a skill rank is
 gained, soul traps after a soul gem is filled, learned player spells when
 newly added, and fully loaded cells when streamed into the world. Binary hooks
-remain unsupported.
+remain unsupported. The SHM-20 game integration test streams all five live
+payloads to the generated C++ event sources, whose sinks check the fields and
+the unsupported hook result. This test transport does not add a C++ to Rust
+ABI.
 
 SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
 read-only snapshot of the states the runtime currently tracks. The
@@ -384,7 +387,8 @@ actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live ga
 SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
 `World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
 player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
-payload contracts and checks sink dispatch against synthetic state fixtures. SHM-21 implements the
+payload contracts and streams events from live game producers to the generated C++ event sources.
+SHM-21 implements the
 five event-state queries on `World` and checks live inventory, actor, deletion and furniture state
 plus unsupported-hook errors. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and

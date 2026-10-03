@@ -917,6 +917,11 @@ struct TESQuestStageEvent {
 
 class ScriptEventSourceHolder {
 public:
+    EventSource<ShoutAttack>& shout_attack() noexcept { return shout_attack_; }
+    EventSource<SkillIncrease>& skill_increase() noexcept { return skill_increase_; }
+    EventSource<SoulsTrapped>& souls_trapped() noexcept { return souls_trapped_; }
+    EventSource<SpellsLearned>& spells_learned() noexcept { return spells_learned_; }
+    EventSource<TESCellFullyLoadedEvent>& cell_fully_loaded() noexcept { return cell_fully_loaded_; }
     EventSource<TESGrabReleaseEvent>& grab_release() noexcept { return grab_release_; }
     EventSource<TESHarvestedEvent>& harvested() noexcept { return harvested_; }
     EventSource<TESHitEvent>& hit() noexcept { return hit_; }
@@ -927,6 +932,11 @@ public:
     EventSource<LevelIncrease>& level_increase() noexcept { return level_increase_; }
     EventSource<LocationDiscovery>& location_discovery() noexcept { return location_discovery_; }
 private:
+    EventSource<ShoutAttack> shout_attack_;
+    EventSource<SkillIncrease> skill_increase_;
+    EventSource<SoulsTrapped> souls_trapped_;
+    EventSource<SpellsLearned> spells_learned_;
+    EventSource<TESCellFullyLoadedEvent> cell_fully_loaded_;
     EventSource<TESGrabReleaseEvent> grab_release_;
     EventSource<TESHarvestedEvent> harvested_;
     EventSource<TESHitEvent> hit_;
