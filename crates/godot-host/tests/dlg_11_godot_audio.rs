@@ -9,12 +9,68 @@ use soe_bsa::{write_bsa, BsaFile, BsaVersion, Vfs};
 use soe_esm::{FileHeader, Plugin};
 use soe_godot_host::data_source::vfs_from_loadout;
 use soe_profile::LoadoutInput;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const FIRST: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/First_00000A00_3.fuz";
 const SECOND: &str = "Sound/Voice/Dialogue.esm/VoiceHuman/Second_00000B00_3.fuz";
 static GODOT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+const GODOT_TIMEOUT: Duration = Duration::from_secs(110);
+
+struct BoundedOutput {
+    output: Output,
+    timed_out: bool,
+}
+
+fn output_reader<R: Read + Send + 'static>(mut stream: R) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stream.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+fn run_bounded(mut child: Child, timeout: Duration) -> BoundedOutput {
+    let stdout = output_reader(child.stdout.take().expect("stdout is piped"));
+    let stderr = output_reader(child.stderr.take().expect("stderr is piped"));
+    let deadline = Instant::now() + timeout;
+    let mut timed_out = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("Godot process status is readable") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            timed_out = true;
+            let _ = child.kill();
+            break child.wait().expect("killed Godot process is reaped");
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+    BoundedOutput {
+        output: Output {
+            status,
+            stdout: stdout.join().expect("stdout reader completes after exit"),
+            stderr: stderr.join().expect("stderr reader completes after exit"),
+        },
+        timed_out,
+    }
+}
+
+fn failure_message(output: &BoundedOutput) -> String {
+    format!(
+        "Godot dialogue audio test {}\nstdout:\n{}\nstderr:\n{}",
+        if output.timed_out {
+            "exceeded its wall-clock limit and was killed"
+        } else {
+            "failed"
+        },
+        String::from_utf8_lossy(&output.output.stdout),
+        String::from_utf8_lossy(&output.output.stderr)
+    )
+}
 
 fn wave() -> Vec<u8> {
     let sample_rate = 22_050_u32;
@@ -147,19 +203,10 @@ fn godot_binary() -> Option<PathBuf> {
         })
 }
 
-fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
-    let _lock = GODOT_TEST_LOCK.lock().unwrap();
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest.join("../..");
-    let project = workspace.join("godot");
-    let Some(godot) = godot_binary() else {
-        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
-        return;
-    };
-
+fn build_release_extension(workspace: &Path) {
     // CONTEXT: Cargo test does not refresh the release library Godot loads.
     let build = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
         .arg(workspace.join("target"))
         .output()
@@ -170,6 +217,19 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
+}
+
+fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
+    let _lock = GODOT_TEST_LOCK.lock().unwrap();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest.join("../..");
+    let project = workspace.join("godot");
+    let Some(godot) = godot_binary() else {
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+        return;
+    };
+
+    build_release_extension(&workspace);
 
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("Data");
@@ -179,7 +239,7 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
     if headless {
         command.args(["--headless", "--quit-after", "3600"]);
     }
-    let output = command
+    let child = command
         .args(["--path"])
         .arg(&project)
         .args(["--script"])
@@ -188,13 +248,17 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
         .env("DLG_11_TEST_DATA", &data)
         .env("DLG_11_FIRST_VOICE", FIRST)
         .env("DLG_11_SECOND_VOICE", SECOND)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("Godot process starts");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let output = run_bounded(child, GODOT_TIMEOUT);
     assert!(
-        output.status.success() && stdout.contains("RESULT: PASS"),
-        "Godot dialogue audio test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        !output.timed_out
+            && output.output.status.success()
+            && String::from_utf8_lossy(&output.output.stdout).contains("RESULT: PASS"),
+        "{}",
+        failure_message(&output)
     );
 }
 
@@ -217,8 +281,45 @@ fn dlg_11_voice_archive_fixture_resolves_and_decodes_both_responses() {
 }
 
 #[test]
-fn dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
+fn tst_17_dlg_11_godot_mixer_plays_and_interrupts_voice_at_speaker() {
     run_godot_audio_test(None, false);
+}
+
+#[test]
+fn tst_17_godot_script_quits_on_missing_fixture() {
+    let _lock = GODOT_TEST_LOCK.lock().unwrap();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest.join("../..");
+    let project = workspace.join("godot");
+    let Some(godot) = godot_binary() else {
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+        return;
+    };
+    build_release_extension(&workspace);
+    let child = Command::new(godot)
+        .arg("--headless")
+        .args(["--path"])
+        .arg(&project)
+        .args(["--script"])
+        .arg(project.join("dlg_11_audio_test.gd"))
+        .args(["--resolution", "640x360"])
+        .env("DLG_11_TEST_DATA", "")
+        .env("DLG_11_FIRST_VOICE", "")
+        .env("DLG_11_SECOND_VOICE", "")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Godot process starts");
+    let output = run_bounded(child, GODOT_TIMEOUT);
+
+    assert!(
+        !output.timed_out
+            && !output.output.status.success()
+            && String::from_utf8_lossy(&output.output.stderr)
+                .contains("dialogue voice fixtures were not supplied"),
+        "{}",
+        failure_message(&output)
+    );
 }
 
 #[test]
@@ -230,4 +331,24 @@ fn dlg_11_installed_xwma_voice_plays_in_headless_godot_mixer() {
     let voices = installed_voice_pair(&data)
         .expect("installed Skyrim voice archive must provide a decodable xWMA voice");
     run_godot_audio_test(Some(voices), true);
+}
+
+#[test]
+#[cfg(unix)]
+fn tst_17_godot_child_timeout_kills_process_and_keeps_captured_output() {
+    let child = Command::new("sh")
+        .args(["-c", "printf 'child started\\n'; exec sleep 5"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("test child starts");
+    let result = run_bounded(child, Duration::from_millis(100));
+
+    assert!(result.timed_out, "child should be stopped at its deadline");
+    assert!(
+        String::from_utf8_lossy(&result.output.stdout).contains("child started"),
+        "{}",
+        failure_message(&result)
+    );
+    assert!(failure_message(&result).contains("child started"));
 }
