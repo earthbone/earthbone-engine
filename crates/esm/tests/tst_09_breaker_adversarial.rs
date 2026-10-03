@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 #[path = "tst_09_xedit_dump.rs"]
 mod subject;
 

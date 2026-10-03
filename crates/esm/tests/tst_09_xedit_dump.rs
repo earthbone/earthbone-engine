@@ -26,7 +26,7 @@ const XEDIT_RECORD_SIGNATURES: [&str; 6] = ["QUST", "NPC_", "PACK", "CELL", "REF
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Dump {
-    records: BTreeSet<RecordKey>,
+    records: BTreeMap<RecordKey, usize>,
     fields: BTreeMap<FieldKey, Vec<u8>>,
 }
 
@@ -44,7 +44,7 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let form_id =
                     parse_hex_u32(form_id).map_err(|e| format!("line {line_number}: {e}"))?;
                 let key = (signature.to_string(), form_id);
-                if !dump.records.insert(key.clone()) {
+                if dump.records.insert(key.clone(), 1).is_some() {
                     return Err(format!(
                         "line {line_number}: duplicate record {signature}:{form_id:08X}"
                     ));
@@ -61,7 +61,7 @@ pub(crate) fn parse_dump(input: &str) -> Result<Dump, String> {
                 let data =
                     parse_hex_bytes(bytes).map_err(|e| format!("line {line_number}: {e}"))?;
                 let record = (signature.to_string(), form_id);
-                if !dump.records.contains(&record) {
+                if !dump.records.contains_key(&record) {
                     return Err(format!(
                         "line {line_number}: field precedes record {signature}:{form_id:08X}"
                     ));
@@ -118,7 +118,7 @@ pub(crate) fn from_plugin(plugin: &Plugin) -> Dump {
             continue;
         }
         let record_key = (signature, record.form_id);
-        dump.records.insert(record_key.clone());
+        *dump.records.entry(record_key.clone()).or_default() += 1;
         let mut ordinals = BTreeMap::<String, usize>::new();
         for field in &record.subrecords {
             let name = field.tag.to_string();
@@ -147,10 +147,12 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
             report.push(format!("count {signature}: xEdit={left}, engine={right}"));
         }
     }
-    for key in expected.records.union(&actual.records) {
-        if !expected.records.contains(key) {
+    let expected_keys: BTreeSet<_> = expected.records.keys().collect();
+    let actual_keys: BTreeSet<_> = actual.records.keys().collect();
+    for key in expected_keys.union(&actual_keys) {
+        if !expected.records.contains_key(key) {
             report.push(format!("extra engine record {}:{:08X}", key.0, key.1));
-        } else if !actual.records.contains(key) {
+        } else if !actual.records.contains_key(key) {
             report.push(format!("missing engine record {}:{:08X}", key.0, key.1));
         }
     }
@@ -190,10 +192,10 @@ pub(crate) fn differences(expected: &Dump, actual: &Dump) -> Vec<String> {
     report
 }
 
-fn counts(records: &BTreeSet<RecordKey>) -> BTreeMap<String, usize> {
+fn counts(records: &BTreeMap<RecordKey, usize>) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
-    for (signature, _) in records {
-        *counts.entry(signature.clone()).or_default() += 1;
+    for ((signature, _), count) in records {
+        *counts.entry(signature.clone()).or_default() += count;
     }
     counts
 }

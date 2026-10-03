@@ -295,7 +295,8 @@ truncated entries, and all five installed masters.
   Following `FIELD` rows contain signature, FormID, subrecord signature, zero-based
   repeated-field ordinal, and hexadecimal bytes. It compares the QUST, NPC_, PACK,
   CELL, REFR and LVLI signatures selected by the test plan, including their record
-  identities and subrecord payloads. Differences are printed by category and cause
+  identities and subrecord payloads. Engine record counts retain repeated physical
+  records even when they share a FormID. Differences are printed by category and cause
   the gated test to fail. Malformed rows also fail with their line number. xEdit's
   `TES5Dump` source (`engine-refs/TES5Edit/xDump.dpr`) filters record signatures with
   `DumpRecords` and emits a nested display tree, so the dump must be normalized into
