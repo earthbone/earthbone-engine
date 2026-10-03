@@ -3048,7 +3048,7 @@ fn utility(vm: &mut Vm, w: &Shared) {
                     call.args.len()
                 ),
             );
-            return none();
+            return i(0);
         }
         i(ENGINE_BUDGETS.len() as i32)
     });
@@ -3061,19 +3061,21 @@ fn utility(vm: &mut Vm, w: &Shared) {
                     call.args.len()
                 ),
             );
-            return none();
+            return s("");
         }
         let Some(Value::Int(index)) = call.args.first() else {
             call.log.push(
                 call.time,
                 "error: Utility.GetBudgetName expects an integer budget index",
             );
-            return none();
+            return s("");
         };
         let Ok(index) = usize::try_from(*index) else {
-            return none();
+            return s("");
         };
-        ENGINE_BUDGETS.get(index).map_or_else(none, |name| s(name))
+        ENGINE_BUDGETS
+            .get(index)
+            .map_or_else(|| s(""), |name| s(name))
     });
     global!(vm, w, "Utility", "GetCurrentBudget", |world, call| {
         let index = call.arg(0).as_int();

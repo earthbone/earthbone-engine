@@ -44,7 +44,7 @@ fn scr_50_beta_frame_rate_queries_report_missing_capture_provider() {
 }
 
 #[test]
-fn scr_50_memory_queries_report_missing_tracking_provider() {
+fn scr_50_frame_rate_queries_read_the_active_capture() {
     let mut game = Game::new(LoadOrder::new());
     assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
     assert!(game
@@ -56,44 +56,83 @@ fn scr_50_memory_queries_report_missing_tracking_provider() {
         .vm
         .log
         .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
+    call(&mut game, "StartFrameRateCapture", &[]);
+    game.tick(1.0 / 60.0);
+    game.tick(1.0 / 30.0);
+    assert_eq!(call(&mut game, "GetMinFrameRate", &[]), Value::Float(30.0));
+    assert_eq!(call(&mut game, "GetMaxFrameRate", &[]), Value::Float(60.0));
 }
 
 #[test]
-fn scr_50_budget_name_validates_index_and_reports_missing_tracking() {
+fn scr_50_current_memory_requires_tracking_and_validates_arity() {
     let mut game = Game::new(LoadOrder::new());
+    assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
+    assert_eq!(
+        call(&mut game, "GetCurrentMemory", &[Value::Int(1)]),
+        Value::None
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentMemory expects 0 argument(s), got 1"));
+}
+
+#[test]
+fn scr_50_budget_count_and_names_read_engine_categories() {
+    let mut game = Game::new(LoadOrder::new());
+    assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::Int(2));
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(0)]),
+        Value::string("Papyrus instructions per slice")
+    );
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(1)]),
+        Value::string("Exterior cell loads per update")
+    );
+    assert_eq!(
+        call(&mut game, "GetBudgetName", &[Value::Int(-1)]),
+        Value::string("")
+    );
     assert_eq!(
         call(&mut game, "GetBudgetName", &[Value::Bool(true)]),
-        Value::None
+        Value::string("")
     );
     assert!(game
         .vm
         .log
         .contains("Utility.GetBudgetName expects an integer budget index"));
-
     assert_eq!(
-        call(&mut game, "GetBudgetName", &[Value::Int(0)]),
-        Value::string("Papyrus instructions per slice")
+        call(&mut game, "GetBudgetCount", &[Value::Int(0)]),
+        Value::Int(0)
     );
-    assert!(!game
+    assert!(game
         .vm
         .log
-        .contains("Utility.GetBudgetName: memory tracking is unavailable"));
+        .contains("Utility.GetBudgetCount expects 0 argument(s), got 1"));
+    assert_eq!(call(&mut game, "GetBudgetName", &[]), Value::string(""));
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetName expects 1 argument(s), got 0"));
 }
 
 #[test]
 fn scr_50_global_queries_reject_unexpected_arguments() {
     let mut game = Game::new(LoadOrder::new());
-    assert_eq!(
-        call(&mut game, "GetMaxFrameRate", &[Value::Int(1)]),
-        Value::None
-    );
-    assert!(game
-        .vm
-        .log
-        .contains("Utility.GetMaxFrameRate expects 0 argument(s), got 1"));
+    for name in ["GetMinFrameRate", "GetMaxFrameRate"] {
+        assert_eq!(call(&mut game, name, &[Value::Int(1)]), Value::None);
+        assert!(game
+            .vm
+            .log
+            .contains(&format!("Utility.{name} expects 0 argument(s), got 1")));
+    }
     assert_eq!(
         call(&mut game, "GetBudgetCount", &[Value::Int(0)]),
-        Value::None
+        Value::Int(0)
     );
     assert!(game
         .vm

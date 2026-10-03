@@ -36,7 +36,7 @@ fn call_global(game: &mut Game, name: &str, args: &[Value]) -> Value {
 }
 
 #[test]
-fn prf_10_budget_queries_expose_limits_and_diagnose_missing_memory_tracking() {
+fn prf_10_budget_queries_expose_engine_categories_and_limits() {
     let mut game = Game::new(LoadOrder::new());
 
     assert_eq!(call_global(&mut game, "GetCurrentMemory", &[]), Value::None);
@@ -73,7 +73,7 @@ fn prf_10_budget_queries_expose_limits_and_diagnose_missing_memory_tracking() {
     for index in [-1, 2, i32::MAX] {
         assert_eq!(
             call_global(&mut game, "GetBudgetName", &[Value::Int(index)]),
-            Value::None
+            Value::string("")
         );
         assert_eq!(
             call_global(&mut game, "GetCurrentBudget", &[Value::Int(index)]),
