@@ -3085,8 +3085,9 @@ Versions 32 to 36 add assigned hand spells, summoned references, encounter-zone
 visit times, saved list flags and chances, active scene phase state, and BOS
 record flags on instantiated references. Version
 37 persists INFO said-once markers, SMQN last-run float bit patterns, and SCEN
-active markers and opaque active data in record overrides. The
-`World::restore_vanilla_dialogue_scene_changes` path validates all targets
+active markers and exact runtime bytes in record overrides. The save crate
+validates SCEN action widths, counts and field boundaries before this import.
+The `World::restore_vanilla_dialogue_scene_changes` path validates all targets
 before applying them. INFO state updates dialogue history, SCEN state updates
 the playing-scene set, and the record accessors expose the saved values. INFO
 has no saved timestamp, so its said-once marker uses the current game day.
