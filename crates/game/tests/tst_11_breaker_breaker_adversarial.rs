@@ -5,9 +5,7 @@ use soe_game::harness;
 
 #[test]
 fn papyrus_trace_payload_keeps_trailing_spaces_and_tabs() {
-    let traces = harness::papyrus_log_traces(
-        "[09/20/2026 - 10:00:01AM] trace payload  \t\r\n",
-    );
+    let traces = harness::papyrus_log_traces("[09/20/2026 - 10:00:01AM] trace payload  \t\r\n");
 
     assert_eq!(traces, ["trace payload  \t"]);
 }

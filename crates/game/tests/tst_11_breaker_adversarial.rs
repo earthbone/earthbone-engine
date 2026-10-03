@@ -16,9 +16,8 @@ fn tst_11_empty_timestamped_trace_is_skipped() {
 
 #[test]
 fn tst_11_trace_trailing_spaces_are_preserved() {
-    let traces = harness::papyrus_log_traces(
-        "[09/20/2026 - 10:00:01AM] trace with meaningful spaces   \n",
-    );
+    let traces =
+        harness::papyrus_log_traces("[09/20/2026 - 10:00:01AM] trace with meaningful spaces   \n");
 
     assert_eq!(traces, ["trace with meaningful spaces   "]);
 }
@@ -44,7 +43,10 @@ fn tst_11_differential_reports_each_missing_duplicate_and_later_trace() {
 
     assert_eq!(report.failures.len(), 1, "{:?}", report.failures);
     let failure = &report.failures[0];
-    assert!(failure.contains("expected trace 2 \"repeated\""), "{failure}");
+    assert!(
+        failure.contains("expected trace 2 \"repeated\""),
+        "{failure}"
+    );
     assert!(failure.contains("expected trace 3 \"last\""), "{failure}");
     assert_eq!(failure.matches("expected trace ").count(), 2, "{failure}");
 }
