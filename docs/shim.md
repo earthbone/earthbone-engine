@@ -285,9 +285,11 @@ and omission of executable callback state follow this shim's source-level
 boundary rather than copying CommonLib's pointer representation.
 SHM-11 adds `RE/WorldTypes.h`. Its `WorldTypes` interface groups the five planned concepts behind
 one caller-owned adapter, while `GameSettingCollection` exposes a read-only setting query.
-Unsupported executable hooks return a named `UnsupportedHookInfo` with a reason. C++ fixtures execute
-against a contract fixture, and game tests exercise the Rust adapter against `World` state. A C++
-plugin cannot directly call the Rust adapter until a native bridge is added.
+Unsupported executable hooks return a named `UnsupportedHookInfo` with a reason. The C++ fixture
+checks the source-level contract using a fixture adapter. Game tests exercise the Rust adapter
+against live `World` settings, inventory markers, placed hazards, actor combat state and resolved
+melee results. There is no C++ to Rust bridge, so separately compiled C++ plugins cannot call these
+live adapters. The API is source-level and carries no C++ runtime layout.
 The public alandtse CommonLib headers read for this batch were
 `include/RE/E/ExtraWorn.h`, `include/RE/G/GameSettingCollection.h`,
 `include/RE/H/Hazard.h`, `include/RE/H/HighProcessData.h` and
@@ -350,8 +352,8 @@ SKSE export names and checks its unsupported-hook metadata. It does not compile 
 upstream plugin, whose game interfaces and trampoline hooks have no engine implementation here.
 The SHM-03 test compiles the generated headers, and its game-side test calls the adapter over live
 actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust.
-SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
-`World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
+SHM-11 C++ fixtures check the world type contract against fixture adapters, and game tests exercise
+its Rust adapter against `World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
 player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
 payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
