@@ -243,6 +243,25 @@ that selecting one row creates one resource. Run it after building the release e
 with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
 rendering pixels, and the plugin exits the editor when the check finishes.
 
+### Drop selected references to host collision, EDT-15
+
+`SoeFormTable.drop_selected_reference_to_ground(space, encoded_id)` casts a vertical ray
+through Godot's direct physics space at the selected REFR's horizontal position. The ray
+starts 100 Skyrim units above the reference and extends 10,000 units below it. A hit is
+converted from Godot metres and axes to Skyrim world coordinates. The editor updates only
+the reference's vertical transform value through `EditorDocument`, preserving horizontal
+position and rotation. The active-plugin edit is undoable through `SoeFormTable.undo()`.
+Malformed selections, unavailable physics spaces and rays without a hit return `false` and
+set `last_error()`. `query_ground_collision` exposes the same host query as a position
+inspection for callers that need to preview a surface hit.
+
+The ray query uses Godot's `PhysicsDirectSpaceState3D.intersect_ray` behavior described in
+local `engine-refs/godot-docs/classes/class_physicsdirectspacestate3d.rst`. REFR `DATA` is
+the six-float position and rotation layout from local xEdit's
+`TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `uesp-modfileformat/REFR.wikitext`.
+`godot/edt_15_drop_to_ground_test.gd` creates a server-side box collider and checks the
+host query hit and Skyrim-space surface height without game data.
+
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
 (`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG
@@ -535,6 +554,23 @@ therefore participates in the same divergence report as world and VM state.
 
 ## Streaming
 
+### Vanilla save recovery sessions, SAV-61
+
+`save_recovery::accept_vanilla_recovery_session` performs a read-only
+dependency preflight before restoring a vanilla ESS. Missing plugins, missing
+scripts and changed regular/light plugin kinds return the report and refuse
+session start. ESS provenance that is unavailable in the format remains
+reported as unknown. Unimported projectile and hazard changes, opaque PCON
+remainders and PARW payloads also refuse execution so they are not silently
+omitted. Other supported restoration errors return before a recovery
+generation is written.
+
+After restoration succeeds, the host writes a native generation to the
+caller-provided recovery store. The operation does not open or replace the
+source ESS path. It does not claim that every vanilla change-form type or
+saved Papyrus behavior can be resumed. A caller has to opt into this operation
+after reviewing its returned dependency report.
+
 ### Attaching a restored player, SAV-19
 
 `PlayerNode::attach_restored_game` accepts a `Game` after its vanilla-save
@@ -580,10 +616,30 @@ The viewport camera frames the rendered bounds after selection. The installed-da
 check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
 checks that the second selection replaces the first cell's render instances.
 
-This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
-cell records, expose reference selection, or add transform gizmos. The Godot project opens
-the cell view only after the author enters a valid `Data` directory or launches the editor
-with `SKYRIM_DATA` set.
+This milestone supplies a read-only cell tree and rendered cell preview. Reference transform
+editing is provided by the separate `addons/soe_reference_gizmo` dock described below. The
+Godot project opens the cell view only after the author enters a valid `Data` directory or
+launches the editor with `SKYRIM_DATA` set.
+
+### Selected reference transform gizmo, EDT-14
+
+The `addons/soe_reference_gizmo` editor dock opens plugin paths through
+`SoeReferenceTransformEditor`, takes a resolved `file:object` FormID, and adds one
+`SoeReferenceGizmoTarget` proxy Node3D to the edited scene. Godot's registered
+`EditorNode3DGizmoPlugin` attaches a draggable handle to that selected proxy. Its commit
+callback calls `commit_gizmo_transform`, which forwards position and rotation to
+`SoeReferenceTransformEditor::set_reference_transform` and then to
+`EditorDocument::set_reference_transform`. The record remains the source used for plugin
+output. Undo calls the document edit log and reloads the proxy pose from the winning record.
+The Save plugin button writes the active plugin. This creates one proxy node for the selected
+reference only. Ordinary cell rendering remains RID-backed.
+
+Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value
+used by this adapter. `godot/edt_14_gizmo_test.gd` exercises the gizmo callback adapter and
+proxy update in Godot. The editor crate tests verify the record operation, undo, and saved
+`REFR` placement. Reference selection from the cell tree and automatic replacement of the
+streamed cell preview after a placement edit are not implemented by this milestone.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
 per update. After a successful streaming update, it records the number of committed
@@ -2948,19 +3004,18 @@ default colors. Its active dialog setters model `SetColorDialogStartColor` and
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
-first, then registered mod config mappings in registration order. A vanilla
-match has an empty config name, and a mod match reports that config's name.
-`remap_key_scanned` performs this lookup before dispatching the callback. The
-manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
-so this host models the public callback contract and the manager's conflict
-lookup. Conflict maps are currently supplied to `KeyConflictScanner` by the
-caller. The host does not yet query Godot's live input map or ask registered
-Papyrus configs for `GetCustomControl`. Color dialog parameters are exposed by
-the host model. They are not yet wired to Papyrus calls to the two SkyUI setter
-functions. Synthetic tests cover callback eligibility, vanilla and mod
-conflict precedence, callback arguments, color dialog parameters, acceptance
-and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
+conflicts from the active gameplay `Bindings`, including every key in a chord
+and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
+bindings first, then asks each registered MCM config to run its
+`GetCustomControl(keyCode)` method in registration order. It reports the first
+nonempty custom control with that config's `ModName`. The older scanner
+constructor and `remap_key_scanned` remain available for focused callers and
+fixtures. Color dialog parameters are exposed by the host model. They are not
+yet wired to Papyrus calls to the two SkyUI setter functions. Synthetic tests
+cover active binding discovery, registered script calls, callback eligibility,
+conflict precedence, color dialog parameters, acceptance and cancellation
+without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -4025,3 +4080,13 @@ input, deterministic source ordering for ties, top-four opaque selection,
 valid combined indices and transformed `MultiMesh` placement. The frame-time
 comparison was run through `godot/bench.gd`. An exterior attempt was rejected
 because its large world coordinates produced zero rendered primitives.
+
+## Restored player attachment, SAV-19
+
+`PlayerNode::attach_restored_generation` reads a verified native generation
+into a fresh `Game`, installs the restored player cell, collision and camera,
+and advances one frame before reporting success. A failed generation read
+leaves the active game untouched. The destination cell and all six pose
+components must be present and finite before the host sync starts. The Godot
+acceptance check saves a live player's generation and attaches it to a fresh
+player using the same installed cell data.

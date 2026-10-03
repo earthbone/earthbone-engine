@@ -77,10 +77,14 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
-- `world/shim_extras`: CommonLib extra-data views over reference teleport
-  destinations and inventory outfit/poison extras. Missing reference IDs and
-  north rotation have no authoritative runtime field and are reported as
-  unsupported by the shim adapter.
+- `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
+  map-marker records, authored XLKR links and loaded linked-reference state,
+  teleport destinations, inventory outfit/poison extras and resolved XAPR
+  activation parents. XAPR targets must be REFR or ACHR records. Missing
+  linked-reference targets are reported when their forms are absent from the
+  form table. Interior cells expose the zero north-rotation default. Exterior
+  worldspace north rotation is not represented by runtime records and returns
+  no value. Executable vtable hooks return an explicit unsupported result.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
@@ -222,18 +226,21 @@ and returns the current page labels. `mcm_open`, `mcm_select_page` and
 functions. Those functions deliver the initial empty-page reset, selected-page
 reset, open and close callbacks. The registry and active menu selection are
 session UI state, while page labels remain script properties. This bridge
-does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
-order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
-`SKI_ConfigManager.psc` sources.
-The focused fixture assembles equivalent lifecycle methods in Papyrus
-bytecode. `ui_05_original_skyui_source_defines_lifecycle_order` checks the
-original source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc`
-path. `ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and
-runs the unmodified `SKI_ConfigBase.pex` when
-`SOE_SKYUI_CONFIG_BASE_PEX` names that file. The PEX execution check skips when
-the compiled SkyUI script is unavailable. It was not available in the local
-reference checkout or installed game data during this change, so the
-unmodified script execution remains unverified here.
+also exposes `mcm_custom_control` and `mcm_custom_controls`, which call
+registered configs' `GetCustomControl(keyCode)` methods and return string
+results in registration order. The methods use ordinary Papyrus dispatch so
+config overrides are honored. It does not execute SkyUI's Scaleform panel or
+its option APIs. The lifecycle order and limit come from the local SkyUI
+`SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources. The focused fixture
+assembles equivalent lifecycle methods in Papyrus bytecode.
+`ui_05_original_skyui_source_defines_lifecycle_order` checks the original
+source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc` path.
+`ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and runs
+the unmodified `SKI_ConfigBase.pex` when `SOE_SKYUI_CONFIG_BASE_PEX` names that
+file. The PEX execution check skips when the compiled SkyUI script is
+unavailable. It was not available in the local reference checkout or installed
+game data during this change, so unmodified-script execution remains
+unverified here.
 
 ### Furniture activation, HST-09
 
