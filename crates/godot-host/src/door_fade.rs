@@ -127,6 +127,32 @@ impl DoorFade {
     }
 }
 
+/// The color and visibility written to the shared Godot fade overlay.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FadeOverlayPresentation {
+    pub(crate) rgba: [f32; 4],
+    pub(crate) visible: bool,
+}
+
+/// Resolve the game fade and door fallback into the overlay's rendered state.
+pub(crate) fn fade_overlay_presentation(
+    door: &DoorFade,
+    game: &GameFade,
+) -> FadeOverlayPresentation {
+    let door_opacity = door.opacity();
+    let game_opacity = game.opacity();
+    let (opacity, black) = if game_opacity > door_opacity {
+        (game_opacity, game.is_black())
+    } else {
+        (door_opacity, true)
+    };
+    let channel = if black { 0.0 } else { 1.0 };
+    FadeOverlayPresentation {
+        rgba: [channel, channel, channel, opacity],
+        visible: opacity > 0.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +191,26 @@ mod tests {
         assert_eq!(fade.advance(0.5), 0.5);
         assert_eq!(fade.advance(0.5), 0.0);
         assert!(!fade.is_black());
+    }
+
+    #[test]
+    fn scr_28_game_fade_maps_to_the_rendered_overlay() {
+        let door = DoorFade::default();
+        let mut game = GameFade::default();
+        assert!(game.request(true, true, 0.25, 0.5));
+        assert_eq!(
+            fade_overlay_presentation(&door, &game).rgba,
+            [0.0, 0.0, 0.0, 0.0]
+        );
+        assert!(!fade_overlay_presentation(&door, &game).visible);
+        game.advance(0.5);
+        let half_black = fade_overlay_presentation(&door, &game);
+        assert_eq!(half_black.rgba, [0.0, 0.0, 0.0, 0.5]);
+        assert!(half_black.visible);
+        assert!(game.request(true, false, 0.0, 1.0));
+        game.advance(0.5);
+        let half_white = fade_overlay_presentation(&door, &game);
+        assert_eq!(half_white.rgba, [1.0, 1.0, 1.0, 0.5]);
+        assert!(half_white.visible);
     }
 }
