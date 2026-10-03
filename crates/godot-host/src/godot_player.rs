@@ -46,6 +46,7 @@ mod exterior;
 mod footsteps;
 mod gameplay;
 mod hud;
+mod item_card;
 mod lockpicking;
 mod magic;
 mod melee;
@@ -144,6 +145,7 @@ pub struct PlayerNode {
     game_fade: GameFade,
     door_fade_view: Option<DoorFadeView>,
     hud_view: Option<hud::HudView>,
+    item_card_view: Option<item_card::ItemCardView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -276,6 +278,7 @@ impl INode3D for PlayerNode {
             lockpick_status: None,
             restore_mouse_on_focus: None,
             hud_view: None,
+            item_card_view: None,
         }
     }
 
@@ -402,6 +405,9 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        if let Some(view) = self.item_card_view.as_mut() {
+            view.tick(delta);
+        }
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }

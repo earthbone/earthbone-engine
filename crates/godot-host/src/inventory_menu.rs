@@ -73,7 +73,7 @@ pub fn entries(game: &Game, holder: GlobalFormId, category: Category) -> Vec<Ent
             let category = category_for(world.record(*item));
             Entry {
                 item: *item,
-                name: world.name_of(*item).unwrap_or_else(|| format!("{item}")),
+                name: crate::item_card::display_name(&world, *item),
                 count,
                 equipped: equipped.is_some_and(|items| items.contains(item)),
                 category,

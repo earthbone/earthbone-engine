@@ -1,5 +1,30 @@
 # soe-game: the runtime form table and the first natives
 
+## Initial inventory list selection, UI-25
+
+Fresh references resolve CNTO and distributed LVLI quantities through the
+existing `World::roll_leveled_inventory` path at their encounter level.
+Concrete quantities and leaf COED stacks replace the list entries in the
+shared reference inventory before outfit application. Repeated reference
+lookups use those stacks without another roll. Dynamic containers and the
+fallback player inventory use the same resolver. Invalid initial lists reject
+authored reference construction or disable a dynamic placement with an empty
+inventory. Failed selection restores the resolver's RNG state.
+Vendor VEND lists that name an LVLI match its descendant item forms after
+stock materialization, without another roll during vendor refresh.
+
+The existing inventory writer stores the concrete result. Native save loading
+and vanilla inventory restoration retain their supplied inventory and do not
+generate fresh contents. This adds no field or save section. The raw authored
+inventory builder remains available to the vanilla inventory delta importer.
+
+The source is local UESP `LVLI.wikitext` and the repository's shared LVLI
+resolver, which implements xEdit's list flags, nested counts and COED metadata.
+UI-25 reuses it because a menu-specific list selection would create a second
+inventory and change the result on refresh. `ui_25_initial_inventory.rs` checks
+concrete counts, repeated lookup, native save reload, dynamic placement and
+invalid cyclic lists.
+
 The MIT CommonLib shim's `WorldState` implementation reads and writes actor
 values in the existing actor component store for actors already built in the
 world. It resolves actor-value indices through the vanilla actor-value name
