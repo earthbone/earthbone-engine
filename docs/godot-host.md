@@ -2354,6 +2354,12 @@ brings in the selected track using the MUSC fade. Abrupt transitions skip both
 ramps. Starting another transition stops the earlier outgoing slot, so it
 cannot continue under the latest selection.
 
+`aud_05_godot_interrupted_transition_replaces_stale_player_stream` runs the
+SoundBank in Godot with three synthetic archive tracks. It checks both players
+during the first fade, verifies each configured fade changes player volume,
+then interrupts the fade and checks that the reused slot no longer has the
+first track assigned. AudioEffectCapture confirms mixer output during playback.
+
 Loose `.xwm` music and xWMA files in FUZ require the optional
 `xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
 policy, or track cycle/order flags. It uses those records' eligible ordered
