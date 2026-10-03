@@ -25,6 +25,28 @@ fn fixture() -> Game {
             Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
         );
     }
+    plugin.push_top(Record::new(Tag(*b"KYWD"), 0x1200).zsub(Tag(*b"EDID"), "MagicDisease"));
+    let mut effect_data = vec![0; 152];
+    effect_data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+    effect_data[80..84].copy_from_slice(&1_u32.to_le_bytes());
+    effect_data[84..88].copy_from_slice(&3_u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(Tag(*b"MGEF"), 0x1201)
+            .sub(Tag(*b"DATA"), effect_data)
+            .sub(Tag(*b"KWDA"), 0x1200_u32.to_le_bytes()),
+    );
+    let mut spell_data = vec![0; 36];
+    spell_data[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    spell_data[20..24].copy_from_slice(&3_u32.to_le_bytes());
+    let mut spell_effect = 0.0_f32.to_le_bytes().to_vec();
+    spell_effect.extend_from_slice(&0_u32.to_le_bytes());
+    spell_effect.extend_from_slice(&10_u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(Tag(*b"SPEL"), 0x1202)
+            .sub(Tag(*b"SPIT"), spell_data)
+            .sub(Tag(*b"EFID"), 0x1201_u32.to_le_bytes())
+            .sub(Tag(*b"EFIT"), spell_effect),
+    );
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x911).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));
@@ -198,16 +220,98 @@ fn ai_70_random_percent_compares_a_bounded_roll() {
 }
 
 #[test]
-fn ai_70_unavailable_contracts_report_explicit_diagnostics() {
+fn ai_70_reference_state_functions_are_registered() {
+    assert!(conditions::supports_function(27));
+    assert!(conditions::supports_function(36));
+    assert!(conditions::supports_function(39));
+}
+
+#[test]
+fn ai_70_line_of_sight_uses_latest_host_observation_and_validates_reference() {
     let game = fixture();
-    for function in [27, 36, 39] {
-        assert!(!conditions::supports_function(function));
-        assert_eq!(
-            evaluate(&game, id(0x900), &condition(function, 0, 1.0)),
-            Err(conditions::Error::UnavailableContractReason(
-                function,
-                "the local CK corpus does not define a runtime contract",
-            ))
-        );
-    }
+    let observation = Observation {
+        observer: id(0x901),
+        target: id(0x900),
+        distance: 0.0,
+        line_of_sight: true,
+        light_level: 100.0,
+        motion: Motion::Still,
+        action_sound: 0.0,
+        action_sound_distance: None,
+        action_sound_line_of_sight: None,
+    };
+    game.world_mut()
+        .evaluate_detection(&[observation], 0.0)
+        .unwrap();
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 1.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 0.0)),
+        Ok(false)
+    );
+    let mut blocked = observation;
+    blocked.line_of_sight = false;
+    game.world_mut()
+        .evaluate_detection(&[blocked], 0.0)
+        .unwrap();
+    assert_eq!(
+        evaluate(&game, id(0x901), &condition(27, 0x900, 0.0)),
+        Ok(true)
+    );
+    assert!(matches!(
+        evaluate(&game, id(0x901), &condition(27, 0xfff, 1.0)),
+        Err(conditions::Error::Form(_))
+    ));
+    assert_eq!(
+        evaluate(&game, id(0x911), &condition(27, 0x900, 1.0)),
+        Err(conditions::Error::Form(id(0x911)))
+    );
+}
+
+#[test]
+fn ai_70_menu_mode_compares_host_menu_state_and_rejects_unknown_menu_ids() {
+    let game = fixture();
+    assert_eq!(evaluate(&game, id(0x900), &condition(36, 0, 0.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(36, 0, 1.0)),
+        Ok(false)
+    );
+    game.world_mut().set_menu_mode(true);
+    assert_eq!(evaluate(&game, id(0x900), &condition(36, 0, 1.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(36, 1, 1.0)),
+        Err(conditions::Error::UnavailableContractReason(
+            36,
+            "the runtime tracks menu mode without individual menu identities",
+        ))
+    );
+}
+
+#[test]
+fn ai_70_get_disease_matches_active_magic_disease_keyword_effects() {
+    let mut game = fixture();
+    let disease = condition(39, 0, 1.0);
+    assert_eq!(evaluate(&game, id(0x900), &disease), Ok(false));
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(0x1202),
+            id(0x900),
+            Some(id(0x900)),
+            Some(id(0x900)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(evaluate(&game, id(0x900), &disease), Ok(true));
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(39, 1, 0.0)),
+        Err(conditions::Error::Parameter(39, 1))
+    );
+    assert_eq!(
+        evaluate(&game, id(0x911), &condition(39, 0, 0.0)),
+        Err(conditions::Error::Form(id(0x911)))
+    );
 }

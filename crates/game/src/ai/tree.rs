@@ -150,13 +150,15 @@ impl Tree {
             .filter(|_| self.location(branch).is_some())
     }
 
-    fn simultaneous_wait(
+    fn simultaneous_children(
         &self,
         parent: usize,
         actor: GlobalFormId,
         world: &mut World,
+        ai: &AiState,
         quest: Option<GlobalFormId>,
-    ) -> Option<(f32, bool, Option<u32>)> {
+        alloc: Alloc<'_>,
+    ) -> Option<(f32, bool, Option<u32>, bool)> {
         let mut child = parent + 1;
         let mut duration = 0.0_f32;
         let mut success_duration = None;
@@ -164,31 +166,49 @@ impl Tree {
         let mut stop_movement = false;
         let mut indefinite = false;
         let mut found = false;
+        let mut waits = 0usize;
         while child < self.ends[parent] {
             let branch = self.branches.get(child)?;
             if branch.child_count != 0 || !branch.kind.eq_ignore_ascii_case("procedure") {
                 return None;
             }
             if conditions_hold(world, actor, self.owner, quest, &branch.conditions) {
-                let (seconds, stop) = self.wait_parameters(branch)?;
-                duration = duration.max(seconds);
-                indefinite |= seconds == 0.0;
-                if branch.success_completes_package && seconds > 0.0 {
-                    let replace = success_duration.is_none_or(|current| seconds < current);
-                    if replace {
-                        success_duration = Some(seconds);
-                        success_branch = Some(child as u32);
+                match procedure(branch) {
+                    Procedure::Wait { .. } => {
+                        let (seconds, stop) = self.wait_parameters(branch)?;
+                        duration = duration.max(seconds);
+                        indefinite |= seconds == 0.0;
+                        waits += 1;
+                        if branch.success_completes_package && seconds > 0.0 {
+                            let replace = success_duration.is_none_or(|current| seconds < current);
+                            if replace {
+                                success_duration = Some(seconds);
+                                success_branch = Some(child as u32);
+                            }
+                        }
+                        stop_movement |= stop;
                     }
+                    Procedure::UseMagic => {
+                        use_magic(world, actor, ai, self, branch, alloc).ok()?;
+                        if branch.success_completes_package {
+                            return Some((0.0, false, Some(child as u32), true));
+                        }
+                    }
+                    _ => return None,
                 }
-                stop_movement |= stop;
                 found = true;
             }
             child = self.ends[child];
         }
         if let Some(seconds) = success_duration {
-            return Some((seconds, stop_movement, success_branch));
+            return Some((seconds, stop_movement, success_branch, false));
         }
-        found.then_some((if indefinite { 0.0 } else { duration }, stop_movement, None))
+        found.then_some((
+            if indefinite { 0.0 } else { duration },
+            stop_movement,
+            None,
+            waits == 0,
+        ))
     }
 
     fn patrol_parameters(
@@ -690,27 +710,33 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState, al
             continue;
         }
         if branch.kind.eq_ignore_ascii_case("simultaneous") && branch.procedure.is_none() {
-            match tree.simultaneous_wait(index, actor, world, quest) {
-                Some((seconds, stop_movement, completion_branch)) => {
+            match tree.simultaneous_children(index, actor, world, ai, quest, alloc) {
+                Some((seconds, stop_movement, completion_branch, finished)) => {
                     if let Some(branch) = completion_branch {
                         state.branch = branch;
                     }
-                    state.active = true;
-                    let deadline =
-                        (seconds > 0.0).then_some(world.clock.real_seconds + f64::from(seconds));
-                    super::begin_procedure(
-                        world,
-                        actor,
-                        ai,
-                        Procedure::Wait { stop_movement },
-                        None,
-                        None,
-                    );
-                    ai.wait_until = deadline;
+                    state.active = !finished;
+                    state.finished = finished;
+                    if finished {
+                        ai.procedure = Procedure::None;
+                        complete(world, ai);
+                    } else {
+                        let deadline = (seconds > 0.0)
+                            .then_some(world.clock.real_seconds + f64::from(seconds));
+                        super::begin_procedure(
+                            world,
+                            actor,
+                            ai,
+                            Procedure::Wait { stop_movement },
+                            None,
+                            None,
+                        );
+                        ai.wait_until = deadline;
+                    }
                 }
                 None => {
                     ai.procedure = Procedure::Unsupported(
-                        "Simultaneous supports only Wait children until AI-87 completion rules are available".into(),
+                        "Simultaneous has an unsupported or failed child procedure".into(),
                     );
                     state.active = true;
                 }

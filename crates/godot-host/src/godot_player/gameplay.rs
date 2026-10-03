@@ -348,9 +348,11 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_camera_controls(&mut self) {
-        let Some(game) = &self.game else {
+        let Some(game) = &mut self.game else {
             return;
         };
+        game.world_mut()
+            .set_player_first_person(self.rig.mode == super::CameraMode::First);
         let controls = game.world().camera_controls;
         self.camera_state.apply(controls);
         self.rig

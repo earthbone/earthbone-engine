@@ -4,6 +4,7 @@
 //! AI-14 simultaneous PACK fixtures use finite Wait children.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::combat::Hand;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, condition, CompValue, Condition, Schedule};
 use soe_game::Game;
@@ -20,6 +21,10 @@ fn id(object: u32) -> GlobalFormId {
 }
 
 fn game(first_wait: f32, second_wait: f32) -> Game {
+    game_with_magic(first_wait, second_wait, false)
+}
+
+fn game_with_magic(first_wait: f32, second_wait: f32, magic: bool) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let tree = package::close_header(package::build_template(TEMPLATE, "ConcurrentWaits"), None);
     let tree = package::with_float_input(tree, 5, first_wait);
@@ -27,11 +32,17 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
     let tree = package::with_float_input(tree, 6, second_wait);
     let tree = package::with_bool_input(tree, 10, true);
     let tree = package::finish(tree);
-    let mut prcb = 2u32.to_le_bytes().to_vec();
+    let mut prcb = (if magic { 3u32 } else { 2u32 }).to_le_bytes().to_vec();
     prcb.extend_from_slice(&0u32.to_le_bytes());
     let tree = tree.zsub(T(b"ANAM"), "Simultaneous").sub(T(b"PRCB"), prcb);
     let tree = package::with_procedure(tree, "Wait", &[5, 9], false);
-    let tree = package::with_procedure(tree, "Wait", &[6, 10], false);
+    let tree = if magic {
+        let tree = package::with_procedure(tree, "UseMagic", &[0], false);
+        let tree = package::with_procedure(tree, "Wait", &[6, 10], false);
+        package::with_input_name(tree, 0, "Target", true)
+    } else {
+        package::with_procedure(tree, "Wait", &[6, 10], false)
+    };
     plugin.push_top(tree);
     let enabled = Condition {
         comparison: condition::EQUAL,
@@ -44,10 +55,17 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
         reference: 0,
         param3: -1,
     };
-    let pack = package::close_header(
+    let mut pack = package::close_header(
         package::build_record(PACK, "Concurrent", 0, Schedule::default()),
         Some(TEMPLATE),
     );
+    if magic {
+        let target_data = [6u32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat();
+        pack = pack
+            .zsub(T(b"ANAM"), "Target")
+            .sub(T(b"PTDA"), target_data)
+            .sub(T(b"UNAM"), [0u8]);
+    }
     plugin.push_top(package::finish(package::with_condition(pack, &enabled)));
     plugin.push_top(
         npc::build_record(
@@ -71,6 +89,30 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
             .sub(T(b"FNAM"), b"f")
             .sub(T(b"FLTV"), 1.0f32.to_le_bytes()),
     );
+    if magic {
+        let mut effect_data = vec![0; 152];
+        effect_data[0..4].copy_from_slice(&(1u32 << 1).to_le_bytes());
+        effect_data[4..8].copy_from_slice(&7.0f32.to_le_bytes());
+        effect_data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        effect_data[64..68].copy_from_slice(&0u32.to_le_bytes());
+        effect_data[68..72].copy_from_slice(&24u32.to_le_bytes());
+        effect_data[84..88].copy_from_slice(&3u32.to_le_bytes());
+        plugin.push_top(Record::new(T(b"MGEF"), 0x805).sub(T(b"DATA"), effect_data));
+        let mut spell_data = vec![0; 36];
+        spell_data[0..4].copy_from_slice(&7u32.to_le_bytes());
+        spell_data[4..8].copy_from_slice(&1u32.to_le_bytes());
+        spell_data[8..12].copy_from_slice(&0u32.to_le_bytes());
+        spell_data[20..24].copy_from_slice(&3u32.to_le_bytes());
+        plugin.push_top(
+            Record::new(T(b"SPEL"), 0x806)
+                .sub(T(b"SPIT"), spell_data)
+                .sub(T(b"EFID"), 0x805u32.to_le_bytes())
+                .sub(
+                    T(b"EFIT"),
+                    [5.0f32.to_le_bytes(), 0u32.to_le_bytes(), 0u32.to_le_bytes()].concat(),
+                ),
+        );
+    }
     let mut order = LoadOrder::new();
     order
         .add(
@@ -80,6 +122,19 @@ fn game(first_wait: f32, second_wait: f32) -> Game {
         .unwrap();
     let game = Game::new(order);
     assert!(game.world_mut().drive_actor(id(ACTOR)));
+    if magic {
+        game.world_mut()
+            .set_actor_value(id(ACTOR), "magicka", 20.0)
+            .unwrap();
+        game.world_mut()
+            .actor(id(ACTOR))
+            .unwrap()
+            .spells
+            .insert(id(0x806));
+        game.world_mut()
+            .equip_hand_spell(id(ACTOR), Hand::Right, id(0x806))
+            .unwrap();
+    }
     game
 }
 
@@ -134,4 +189,41 @@ fn ai_14_indefinite_wait_child_keeps_the_simultaneous_group_active() {
     let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
     assert_eq!(ai.wait_until, None);
     assert!(ai.tree.as_ref().unwrap().active);
+}
+
+#[test]
+fn ai_14_use_magic_child_runs_once_while_wait_child_uses_shared_clock() {
+    let mut game = game_with_magic(1.0, 2.0, true);
+    game.tick(0.25);
+    assert_eq!(game.world().clock.real_seconds, 0.25);
+    let ai = game.world().actor_ref(id(ACTOR)).unwrap().ai.clone();
+    assert_eq!(
+        game.world_mut().actor_value(id(ACTOR), "magicka"),
+        13.0,
+        "actor AI: {ai:?}"
+    );
+    assert_eq!(
+        game.world().actor_ref(id(ACTOR)).unwrap().ai.wait_until,
+        Some(2.25)
+    );
+
+    let saved = game.save_state().unwrap();
+    let mut restored = game_with_magic(1.0, 2.0, true);
+    restored.load_state(&saved).unwrap();
+    game.tick(1.0);
+    restored.tick(1.0);
+    assert_eq!(game.world().clock.real_seconds, 1.25);
+    assert_eq!(restored.world().clock.real_seconds, 1.25);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 13.0);
+    assert_eq!(restored.world_mut().actor_value(id(ACTOR), "magicka"), 13.0);
+    assert!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .as_ref()
+            .unwrap()
+            .active
+    );
 }

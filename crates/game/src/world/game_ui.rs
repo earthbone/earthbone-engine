@@ -13,6 +13,11 @@ pub enum GameUiError {
 }
 
 impl World {
+    /// Set whether the host currently presents any menu.
+    pub fn set_menu_mode(&mut self, enabled: bool) {
+        self.menu_mode = enabled;
+    }
+
     /// Record an invalid argument from a Papyrus native whose return type is void.
     pub fn report_native_error(&mut self, native: &str, error: String) {
         self.native_errors.push((native.to_owned(), error));

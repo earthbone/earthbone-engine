@@ -44,6 +44,10 @@ mod ai_14_adversarial;
 mod ai_14_breaker_adversarial;
 #[path = "ai_14_breaker_adversarial_2.rs"]
 mod ai_14_breaker_adversarial_2;
+#[path = "ai_14_breaker_breaker_adversarial.rs"]
+mod ai_14_breaker_breaker_adversarial;
+#[path = "ai_14_breaker_breaker_adversarial_2.rs"]
+mod ai_14_breaker_breaker_adversarial_2;
 #[path = "ai_15_adversarial.rs"]
 mod ai_15_adversarial;
 #[path = "ai_16_adversarial.rs"]
@@ -210,6 +214,9 @@ mod ai_59_magic_conditions;
 mod ai_60_adversarial;
 #[path = "ai_60_magic_conditions.rs"]
 mod ai_60_magic_conditions;
+
+#[path = "ai_60_breaker_adversarial.rs"]
+mod ai_60_breaker_adversarial;
 #[path = "ai_61_adversarial.rs"]
 mod ai_61_adversarial;
 #[path = "ai_61_magic_conditions.rs"]
@@ -258,6 +265,8 @@ mod ai_69_adversarial;
 mod ai_69_quest_conditions;
 #[path = "ai_70_adversarial.rs"]
 mod ai_70_adversarial;
+#[path = "ai_70_breaker_adversarial.rs"]
+mod ai_70_breaker_adversarial;
 #[path = "ai_70_reference_state_conditions.rs"]
 mod ai_70_reference_state_conditions;
 #[path = "ai_71_adversarial.rs"]
@@ -336,6 +345,10 @@ mod ai_90_adversarial;
 mod ai_90_breaker_adversarial;
 #[path = "ai_91_adversarial.rs"]
 mod ai_91_adversarial;
+#[path = "ai_91_breaker_adversarial.rs"]
+mod ai_91_breaker_adversarial;
+#[path = "ai_91_breaker_breaker_adversarial.rs"]
+mod ai_91_breaker_breaker_adversarial;
 #[path = "anm_09_adversarial.rs"]
 mod anm_09_adversarial;
 #[path = "anm_09_oar_runtime.rs"]

@@ -226,6 +226,70 @@ fn ai_60_untracked_ward_dual_cast_and_voice_state_return_specific_diagnostics() 
 }
 
 #[test]
+fn ai_60_ward_dual_cast_and_voice_conditions_match_host_state() {
+    let game = fixture();
+    {
+        let mut world = game.world_mut();
+        world.set_ward_state(id(ACTOR), Some(1)).unwrap();
+        world.set_dual_casting(id(ACTOR), Some(true)).unwrap();
+        world.set_shout_variation(id(ACTOR), Some(2)).unwrap();
+    }
+    for (function, parameter, expected) in [(602, 1, 1.0), (627, 0, 1.0), (676, 0, 2.0)] {
+        assert_eq!(
+            evaluate(&game, &condition(function, parameter, 0, expected)),
+            Ok(true),
+            "positive function {function}"
+        );
+    }
+    assert_eq!(evaluate(&game, &condition(602, 2, 0, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, &condition(627, 0, 0, 0.0)), Ok(false));
+    assert_eq!(evaluate(&game, &condition(676, 0, 0, 1.0)), Ok(false));
+
+    {
+        let mut world = game.world_mut();
+        world.set_ward_state(id(ACTOR), Some(0)).unwrap();
+        world.set_dual_casting(id(ACTOR), Some(false)).unwrap();
+        world.set_shout_variation(id(ACTOR), Some(0)).unwrap();
+    }
+    assert_eq!(evaluate(&game, &condition(602, 1, 0, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, &condition(627, 0, 0, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, &condition(676, 0, 0, 1.0)), Ok(false));
+    assert_eq!(evaluate(&game, &condition(602, 1, 0, 0.0)), Ok(true));
+    assert_eq!(evaluate(&game, &condition(627, 0, 0, 0.0)), Ok(true));
+    assert_eq!(evaluate(&game, &condition(676, 0, 0, 0.0)), Ok(true));
+}
+
+#[test]
+fn ai_60_host_magic_state_rejects_invalid_ward_enum() {
+    let game = fixture();
+    assert!(game.world_mut().set_ward_state(id(ACTOR), Some(3)).is_err());
+    assert_eq!(
+        evaluate(&game, &condition(602, 1, 0, 0.0)),
+        Err(conditions::Error::UnavailableContractReason(
+            602,
+            "ward animation state is not supplied by the host"
+        ))
+    );
+}
+
+#[test]
+fn ai_60_host_magic_state_changes_actor_determinism_hash() {
+    let game = fixture();
+    let baseline = game.world_mut().state_hash();
+    {
+        let mut world = game.world_mut();
+        world.set_ward_state(id(ACTOR), Some(1)).unwrap();
+        assert_ne!(world.state_hash(), baseline);
+        world.set_ward_state(id(ACTOR), None).unwrap();
+        world.set_dual_casting(id(ACTOR), Some(false)).unwrap();
+        assert_ne!(world.state_hash(), baseline);
+        world.set_dual_casting(id(ACTOR), None).unwrap();
+        world.set_shout_variation(id(ACTOR), Some(0)).unwrap();
+        assert_ne!(world.state_hash(), baseline);
+    }
+}
+
+#[test]
 fn ai_60_magic_conditions_reject_nonactor_subjects() {
     let game = fixture();
     for (function, first, second) in [

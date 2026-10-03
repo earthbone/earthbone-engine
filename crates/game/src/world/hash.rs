@@ -468,6 +468,27 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     ] {
         h.bool(flag);
     }
+    match a.ward_state {
+        None => h.u8(0),
+        Some(state) => {
+            h.u8(1);
+            h.u32(state);
+        }
+    }
+    match a.dual_casting {
+        None => h.u8(0),
+        Some(value) => {
+            h.u8(1);
+            h.bool(value);
+        }
+    }
+    match a.shout_variation {
+        None => h.u8(0),
+        Some(variation) => {
+            h.u8(1);
+            h.i32(variation);
+        }
+    }
     opt_form(h, a.exclusive_branch);
     h.len(a.relationships.len());
     for (id, rank) in &a.relationships {
