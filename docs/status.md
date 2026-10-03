@@ -55,9 +55,13 @@ in the backlog row: the main menu lifecycle (UI-18), music (AUD-05), stagger
 
 ### What does not run yet
 
-- No vanilla save loads in the host. The game crate restores a `.ess` file
-  (`restore_vanilla_save_file`, `restore_vanilla_world_and_vm` in
-  `crates/game/src/vanilla_save.rs`), but no `PlayerNode` call reaches it.
+- No vanilla save loads from the walkthrough. The host can convert a `.ess`
+  into one of its own save generations (`accept_vanilla_recovery_session` in
+  `crates/godot-host/src/save_recovery.rs`, SAV-61), refusing a save whose
+  PCON or PARW change forms it cannot read, and `attach_restored_generation`
+  resumes from a native generation. No GDScript call opens a `.ess` yet, and
+  SAV-19 (resume the host from a restored vanilla game) still lacks the test
+  that connects the two.
 - No new game starts. The walkthrough always begins in the Bannered Mare, and
   the host has no new-game path.
 - 30 Papyrus native rows are open. The SCR rows in BACKLOG.csv name each
