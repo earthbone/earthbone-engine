@@ -51,7 +51,11 @@ fn game(records: Vec<Record>) -> Game {
     order.add("Prg17.esm", plugin).unwrap();
     let game = Game::new(order);
     let player = game.world_mut().player();
-    game.world_mut().actor(player).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(player)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     game.world_mut()
         .actor(player)
         .unwrap()
@@ -77,12 +81,13 @@ fn noop(_: &mut World, _: &EntryPointInvocation) {}
 #[test]
 fn prg_17_prke_raw_rank_zero_and_one_are_one_based_and_priority_is_retained() {
     const PERK_TWO: u32 = 0x802;
-    let mut game = game(vec![
-        entry(PERK, 0, 17, None),
-        entry(PERK_TWO, 1, 4, None),
-    ]);
+    let mut game = game(vec![entry(PERK, 0, 17, None), entry(PERK_TWO, 1, 4, None)]);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK_TWO));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK_TWO));
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, noop);
 
@@ -98,7 +103,10 @@ fn prg_17_prke_raw_rank_zero_and_one_are_one_based_and_priority_is_retained() {
     .map(|invocation| (invocation.rank, invocation.priority))
     .collect::<BTreeSet<_>>();
     assert_eq!(observed, BTreeSet::from([(1, 17), (2, 4)]));
-    assert_eq!(dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)), Ok(2));
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(2)
+    );
 }
 
 #[test]
@@ -111,17 +119,26 @@ fn prg_17_condition_tab_uses_its_supplied_actor_and_missing_tab_errors() {
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, noop);
 
-    assert_eq!(dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)), Ok(1));
-    let empty = EntryPointContext { tabs: vec![], ..context(actor) };
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(1)
+    );
+    let empty = EntryPointContext {
+        tabs: vec![],
+        ..context(actor)
+    };
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &empty),
-        Err(DispatchError::MissingTab { perk: id(PERK), tab: 0 })
+        Err(DispatchError::MissingTab {
+            perk: id(PERK),
+            tab: 0
+        })
     );
 }
 
 #[test]
 fn prg_17_owned_perk_identity_survives_game_save_load_before_dispatch() {
-    let mut original = game(vec![entry(PERK, 0, 0, None)]);
+    let original = game(vec![entry(PERK, 0, 0, None)]);
     let actor = original.world_mut().player();
     let bytes = original.save_state().unwrap();
     let mut restored = game(vec![entry(PERK, 0, 0, None)]);
@@ -129,5 +146,8 @@ fn prg_17_owned_perk_identity_survives_game_save_load_before_dispatch() {
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, noop);
 
-    assert_eq!(dispatcher.dispatch(&mut restored, actor, ENTRY, &context(actor)), Ok(1));
+    assert_eq!(
+        dispatcher.dispatch(&mut restored, actor, ENTRY, &context(actor)),
+        Ok(1)
+    );
 }

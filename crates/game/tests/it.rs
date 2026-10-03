@@ -1045,6 +1045,8 @@ mod prg_16_purchase_data_semantics;
 
 #[path = "prg_17_adversarial.rs"]
 mod prg_17_adversarial;
+#[path = "prg_17_breaker_adversarial.rs"]
+mod prg_17_breaker_adversarial;
 #[path = "quest_flow.rs"]
 mod quest_flow;
 #[path = "real_crafting.rs"]

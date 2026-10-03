@@ -33,7 +33,11 @@ fn game(record: Record) -> Game {
     order.add("Prg17.esm", plugin).unwrap();
     let game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     game
 }
 
@@ -53,7 +57,7 @@ fn noop(_: &mut World, _: &EntryPointInvocation) {}
 
 #[test]
 fn prg_17_raw_rank_and_priority_accept_full_byte_range() {
-    let mut game = game(entry(u8::MAX, u8::MAX));
+    let game = game(entry(u8::MAX, u8::MAX));
     let actor = game.world_mut().player();
     let invocations = soe_game::perks::entry_point_invocations(
         &mut game.world_mut(),
