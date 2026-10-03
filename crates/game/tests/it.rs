@@ -331,6 +331,8 @@ mod ai_83_breaker_adversarial;
 mod ai_83_relationship_conditions;
 #[path = "ai_84_breaker_adversarial.rs"]
 mod ai_84_breaker_adversarial;
+#[path = "ai_85_breaker_adversarial.rs"]
+mod ai_85_breaker_adversarial;
 #[path = "ai_84_world_conditions.rs"]
 mod ai_84_world_conditions;
 #[path = "ai_85_adversarial.rs"]

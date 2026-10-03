@@ -42,7 +42,7 @@ fn fixture() -> Game {
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x820));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x920).sub(Tag(*b"NAME"), form(0x820)));
     let mut order = LoadOrder::new();
-    order.add("Ai83Conditions.esm", plugin).unwrap();
+    assert!(order.add("Ai83Conditions.esm", plugin).is_ok());
     Game::new(order)
 }
 
