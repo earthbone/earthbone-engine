@@ -4148,6 +4148,20 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Actor", "StartCannibal", |world, call, me| {
+        if world
+            .form_arg(&call.arg(0))
+            .and_then(|target| world.actor(target))
+            .is_some_and(|target| target.dead)
+        {
+            world.request_animation(me, "CannibalStart");
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ClearExtraArrows", |world, _call, me| {
+        world.request_animation(me, "ClearExtraArrows");
+        none()
+    });
     self_method!(
         vm,
         w,
@@ -4888,9 +4902,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
-        ("Actor", "StartCannibal"),
-        // Attached-arrow state is owned by the host renderer.
-        ("Actor", "ClearExtraArrows"),
         // Music and particle systems are not implemented yet.
     ];
     for (class, name) in methods_none {
