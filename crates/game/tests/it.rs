@@ -28,10 +28,6 @@ mod ai_05_breaker_adversarial;
 mod ai_05_package_flags;
 #[path = "ai_09_adversarial.rs"]
 mod ai_09_adversarial;
-#[path = "ai_88_adversarial.rs"]
-mod ai_88_adversarial;
-#[path = "ai_88_breaker_adversarial.rs"]
-mod ai_88_breaker_adversarial;
 #[path = "ai_09_door_links.rs"]
 mod ai_09_door_links;
 #[path = "ai_12_adversarial.rs"]
@@ -312,6 +308,10 @@ mod ai_86_adversarial;
 mod ai_86_condition_contracts;
 #[path = "ai_87_adversarial.rs"]
 mod ai_87_adversarial;
+#[path = "ai_88_adversarial.rs"]
+mod ai_88_adversarial;
+#[path = "ai_88_breaker_adversarial.rs"]
+mod ai_88_breaker_adversarial;
 #[path = "ai_89_adversarial.rs"]
 mod ai_89_adversarial;
 #[path = "ai_89_mounted_patrol.rs"]

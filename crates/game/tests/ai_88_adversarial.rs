@@ -35,12 +35,10 @@ fn ptdo(kind: u32, data: &[u8]) -> Vec<u8> {
     result
 }
 
-fn order(topic_data: Vec<Vec<u8>>, furniture: bool) -> LoadOrder {
+fn order(topic_data: &[Vec<u8>], furniture: bool) -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
-    let mut template = package::close_header(
-        package::build_template(TEMPLATE, "PatrolAdversarial"),
-        None,
-    );
+    let mut template =
+        package::close_header(package::build_template(TEMPLATE, "PatrolAdversarial"), None);
     let mut target = 0i32.to_le_bytes().to_vec();
     target.extend_from_slice(&A.to_le_bytes());
     target.extend_from_slice(&0i32.to_le_bytes());
@@ -81,13 +79,22 @@ fn order(topic_data: Vec<Vec<u8>>, furniture: bool) -> LoadOrder {
     }
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
     for (marker, next) in [(A, Some(B)), (B, None)] {
-        let base = if furniture && marker == A { FURNITURE } else { 0 };
-        let mut record = placed(*b"REFR", marker, base, if marker == A { 110.0 } else { 220.0 })
-            .sub(T(b"XPRD"), 1.0f32.to_le_bytes())
-            .sub(T(b"XPPA"), [])
-            .sub(T(b"INAM"), 0u32.to_le_bytes());
+        let base = if furniture && marker == A {
+            FURNITURE
+        } else {
+            0
+        };
+        let mut record = placed(
+            *b"REFR",
+            marker,
+            base,
+            if marker == A { 110.0 } else { 220.0 },
+        )
+        .sub(T(b"XPRD"), 1.0f32.to_le_bytes())
+        .sub(T(b"XPPA"), [])
+        .sub(T(b"INAM"), 0u32.to_le_bytes());
         if marker == A {
-            for data in &topic_data {
+            for data in topic_data {
                 record = record.sub(T(b"PDTO"), data.clone());
             }
         }
@@ -98,12 +105,15 @@ fn order(topic_data: Vec<Vec<u8>>, furniture: bool) -> LoadOrder {
     }
     let mut load_order = LoadOrder::new();
     load_order
-        .add("Ai88Adversarial.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Ai88Adversarial.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     load_order
 }
 
-fn game(topic_data: Vec<Vec<u8>>, furniture: bool) -> Game {
+fn game(topic_data: &[Vec<u8>], furniture: bool) -> Game {
     let mut game = Game::new(order(topic_data, furniture));
     game.player();
     assert!(game.world_mut().drive_actor(id(ACTOR)));
@@ -117,7 +127,7 @@ fn patrol_state(game: &mut Game) -> ai::AiState {
 #[test]
 fn ai_88_uses_first_dial_and_ignores_subtype_entries() {
     let mut game = game(
-        vec![
+        &[
             ptdo(1, b"SUBT"),
             ptdo(0, &TOPIC.to_le_bytes()),
             ptdo(0, &OTHER_TOPIC.to_le_bytes()),
@@ -126,7 +136,9 @@ fn ai_88_uses_first_dial_and_ignores_subtype_entries() {
     );
     game.tick(1.0);
     assert_eq!(
-        game.world().dialogue_session().and_then(|session| session.topic),
+        game.world()
+            .dialogue_session()
+            .and_then(|session| session.topic),
         Some(id(TOPIC))
     );
     assert_eq!(patrol_state(&mut game).patrol.unwrap().current, id(A));
@@ -135,7 +147,7 @@ fn ai_88_uses_first_dial_and_ignores_subtype_entries() {
 #[test]
 fn ai_88_rejects_unresolved_or_non_dial_topic_references_before_route_start() {
     for topic in [0x900, BASE] {
-        let mut game = game(vec![ptdo(0, &topic.to_le_bytes())], false);
+        let mut game = game(&[ptdo(0, &topic.to_le_bytes())], false);
         game.tick(1.0);
         assert!(game.world().dialogue_session().is_none());
         assert!(matches!(
@@ -147,7 +159,7 @@ fn ai_88_rejects_unresolved_or_non_dial_topic_references_before_route_start() {
 
 #[test]
 fn ai_88_invalid_topic_kind_does_not_run_marker_actions() {
-    let mut game = game(vec![ptdo(2, &[0; 4])], true);
+    let mut game = game(&[ptdo(2, &[0; 4])], true);
     game.tick(1.0);
     assert!(game.world().dialogue_session().is_none());
     assert_eq!(game.world().furniture_seat(id(ACTOR)), None);
@@ -159,7 +171,7 @@ fn ai_88_invalid_topic_kind_does_not_run_marker_actions() {
 
 #[test]
 fn ai_88_null_topic_reference_is_a_valid_no_op() {
-    let mut game = game(vec![ptdo(0, &0u32.to_le_bytes())], false);
+    let mut game = game(&[ptdo(0, &0u32.to_le_bytes())], false);
     game.tick(1.0);
     assert!(game.world().dialogue_session().is_none());
     assert_eq!(patrol_state(&mut game).patrol.unwrap().current, id(A));
@@ -167,7 +179,7 @@ fn ai_88_null_topic_reference_is_a_valid_no_op() {
 
 #[test]
 fn ai_88_does_not_replace_an_open_dialogue_and_releases_furniture_before_advance() {
-    let mut game = game(vec![ptdo(0, &TOPIC.to_le_bytes())], true);
+    let mut game = game(&[ptdo(0, &TOPIC.to_le_bytes())], true);
     let player = game.world_mut().player();
     game.begin_dialogue(player, id(ACTOR)).unwrap();
     game.tick(1.0);
@@ -183,7 +195,7 @@ fn ai_88_does_not_replace_an_open_dialogue_and_releases_furniture_before_advance
 #[test]
 fn ai_88_saved_dwell_does_not_replay_a_closed_marker_topic() {
     let topic_data = vec![ptdo(0, &TOPIC.to_le_bytes())];
-    let mut original = game(topic_data.clone(), false);
+    let mut original = game(&topic_data, false);
     original.tick(1.0);
     assert_eq!(
         original
@@ -194,7 +206,7 @@ fn ai_88_saved_dwell_does_not_replay_a_closed_marker_topic() {
     );
     original.close_dialogue();
     let saved = original.save_state().unwrap();
-    let mut restored = Game::new(order(topic_data, false));
+    let mut restored = Game::new(order(&topic_data, false));
     restored.load_state(&saved).unwrap();
     assert_eq!(restored.world().save_state(), original.world().save_state());
 

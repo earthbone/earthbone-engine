@@ -59,8 +59,14 @@ fn order() -> LoadOrder {
         Some(TEMPLATE),
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     plugin.push_top(Record::new(T(b"DIAL"), TOPIC).zsub(T(b"EDID"), "PatrolTopic"));
     plugin.push_top(
@@ -85,7 +91,10 @@ fn order() -> LoadOrder {
     );
     let mut load_order = LoadOrder::new();
     load_order
-        .add("Ai88FurnitureSave.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .add(
+            "Ai88FurnitureSave.esm",
+            Plugin::parse(&plugin.to_bytes()).unwrap(),
+        )
         .unwrap();
     load_order
 }
