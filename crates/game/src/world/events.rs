@@ -127,6 +127,11 @@ pub enum ReferencePhysicsRequest {
         cart_pivot: [f32; 3],
         horse_pivot: [f32; 3],
     },
+    /// Position and constrain a cart's horse using the resident host bodies.
+    TetherToHorse {
+        cart: GlobalFormId,
+        horse: GlobalFormId,
+    },
 }
 
 impl World {

@@ -552,19 +552,24 @@ CK pages define sit values 0, 2, 3 and 4, flying values 0 through 4, and
 systems before they can be completed.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
-current time-driven sun position in Skyrim units, using a 100,000-unit orbit
-with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
-is relative to the player's current placement. `Game.IsPlayerSungazing`
+current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
+orbit. The model places the sun east at 06:00, overhead at 12:00 and west at
+18:00, relative to the player's current placement. `Game.IsPlayerSungazing`
 compares the host camera direction with the sun direction and returns true
-within one degree. `Game.ShakeCamera` queues a transient request for the host.
-Its source defaults to the player, strength defaults to 0.5 and clamps to 0
-through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
-fallback. Invalid source types, non-finite values and negative durations do
-not queue an effect. These camera requests are transient and are not saved.
-The CK pages define the returned coordinates and gaze meaning, while the
-shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
-not specify the sun orbit formula or gaze angular tolerance, so those are
-runtime choices.
+within the runtime's one-degree angular cutoff. These orbit and cutoff values
+are runtime model choices. The local CK `Game_Script.wikitext` describes the
+coordinate getters and says sungazing checks whether the player looks directly
+at the sun. The shipped `Game.psc` confirms their global signatures. Neither
+source specifies an orbit formula, radius, or angular tolerance. The tests
+`scr_26_sun_orbit_uses_100000_unit_radius_and_clock_cardinals` and
+`scr_26_sungazing_uses_one_degree_angular_cutoff` pin the chosen model.
+`Game.ShakeCamera` queues a transient request for the host. Its source defaults
+to the player, strength defaults to 0.5 and clamps to 0 through 1, and duration
+zero uses `fCameraShakeDuration` or a 0.25-second fallback. Invalid source
+types, non-finite values and negative durations do not queue an effect. These
+camera requests are transient and are not saved. The shipped `Game.psc` and CK
+page define the native signature and description. Shipped script defaults
+provide shake defaults and clamping.
 
 ### Debug natives, SCR-20
 
@@ -699,8 +704,9 @@ assault. The combat path uses the victim's crime faction and its `CRVA`
 assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
 and lethal player hits do not add an assault bounty. The victim's witnessed
 perpetrator set and the faction's violent bounty are updated through the
-existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
-remain later work.
+existing crime recorder. `Faction.SendAssaultAlarm` also records a player
+assault using the nearest built actor in its faction as witness and marks that
+actor alarmed.
 
 **Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
 `LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
@@ -723,7 +729,11 @@ the served days to the player's `days_in_jail`. That counter is stored in the
 `PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
 record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
 this path, so prison placement and stolen-item confiscation or belongings
-restoration are not implemented.
+restoration are not implemented. `Faction.SendPlayerToJail` serves the
+receiver faction's bounty through this accounting path and marks the player
+arrested after a positive sentence. Its inventory-removal option removes the
+player's inventory. The real-jail option still produces a Papyrus trace because
+jail-marker travel is not implemented.
 
 **Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
 when the player has enough `Gold001`, jail for a positive bounty, and
@@ -764,11 +774,15 @@ and forced movement state are not implemented.
 **Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
 `ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
 cleared by `Actor.ClearArrested`. It also resets the player's cumulative
-served-day counter. `Game.ServeTime` applies the remaining jail time. The
-engine does not yet select a high-process witness for werewolf crime, trigger
-a sun-gaze modifier, or send controller rumble to Godot.
-`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
-`ShakeController` remain stubs until those owning systems exist.
+served-day counter. `Game.ServeTime` applies the remaining jail time.
+`Game.SendWereWolfTransformation` records the werewolf crime with the first
+sorted loaded high-process actor whose shared detection state marks the player
+Alert or in Combat. `Game.SetSunGazeImageSpaceModifier` validates and saves an
+optional IMAD form, then applies it when the player starts looking at the sun.
+`Game.ShakeController` queues finite strengths and a non-negative duration for
+the Godot host, clamping strengths to the host's 0 to 1 range. Invalid
+controller-shake values are appended to the world's native error collection
+without queuing a request.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -805,15 +819,17 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse at
-the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
-horse into the cart's cell. It queues a transient host request for the cart and
-horse references using the CK page's chassis and horse connection pivots. The
-host resolves those forms to resident rigid body RIDs and connects them with a
-pin joint. The CK page names `HorseSpine2` as the horse connection and gives
-pivots in Havok units. This runtime connects the reference body as a whole and
-does not resolve that bone or build the cart's wheel and pole constraints.
-Replacing a tether or unloading its collision cell frees the old joint.
+**ObjectReference.TetherToHorse.** The native moves the supplied horse by the
+CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
+cart yaw, copies the cart rotation and cell, then queues the pair for host
+physics. The host waits until both references have resident collision bodies
+before creating their pin joint, using the CK chassis pivot `[0, 3.5, -0.2]`
+and horse pivot `[0, 0, -0.5]` in Havok units. A missing, invalid or
+self-reference argument leaves the world unchanged. The CK
+`TetherToHorse_-_ObjectReference.wikitext` page names `HorseSpine2` as the
+horse connection. The runtime connects whole reference bodies and does not
+sample that bone or build the cart wheels, pole and suspension rig from NIF
+data. Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure
@@ -898,7 +914,17 @@ UI-15 supplies the gift menu and inventory transaction path.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the
 given faction, defaulting an absent reaction to neutral and saturating at the
-`i32` bounds. The shipped `Faction.psc` supplies its argument contract.
+`i32` bounds through `World::mod_faction_reaction`. The shipped
+`skse64/scripts/vanilla/Faction.psc` supplies the argument contract.
+`Faction.SendAssaultAlarm` chooses the nearest built actor belonging to its
+faction, marks it alarmed, then records the player's assault through the
+witnessed-crime API.
+The CK `SendAssaultAlarm_-_Actor.wikitext` page describes the actor alarm as
+simulating an assault by the player. `Faction.SendPlayerToJail` routes its
+receiver faction through the existing sentence accounting API. The vanilla
+PSC declares the inventory and real-jail flags. Inventory removal is applied
+when requested. Real-jail travel still produces a trace because jail-marker
+travel is not implemented.
 
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,
@@ -1038,10 +1064,10 @@ an SKSE member.
 | ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu, SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, ShakeController, ShakeCamera | FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC sky functions: GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell | |
-| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
+| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup, SendAssaultAlarm, SendPlayerToJail | - |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, ShakeController, SendWereWolfTransformation, SetSunGazeImageSpaceModifier, IncrementStat, QueryStat, IsFastTravelEnabled, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, `SetINI*` and `GetINI*` (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetCurrentBudget, OverBudget | GetCurrentMemory, GetBudgetCount, GetBudgetName. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -1223,9 +1249,9 @@ comments. No bindings in this inventory are globals.
 | Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
 | Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
 | Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
-| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding. Witnessed assault handling is part of PRG-12's arrest path. |
-| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding. Jail, property handling and sentence effects belong to PRG-13. |
-| Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
+| Faction.SendAssaultAlarm | Selects the nearest built actor in the faction and records a player assault through the crime system. A missing witness or untracked faction is traced. |
+| Faction.SendPlayerToJail | Serves the receiver faction's bounty through jail sentence accounting and marks the player arrested after a positive sentence. Jail travel and belongings storage are not implemented. |
+| Faction.ModReaction | Takes another faction and a signed delta, then saturating-adds it to this faction's reaction toward it. |
 | ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
 
 The shipped `ReferenceAlias.psc` also returns false when already filled and
@@ -1474,7 +1500,8 @@ Creation Engine frame capture or memory budgets.
   `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
   `ModCrimeGold` adds to the violent or non-violent bounty and to the infamy
   of that kind, `PlayerPayCrimeGold` removes the bounty from the player's
-  `Gold001` and clears it. Jail and the assault alarm are stubs.
+  `Gold001` and clears it. Faction assault alarms and jail sentencing use the
+  witnessed-crime and jail-accounting paths described above.
 - Perks, the crime faction and the outfits are seeded from `PRKR`, `CRIF`,
   `DOFT` and `SOFT`. `SetCrimeFaction` also joins the faction, per its page.
   `StartSneaking` toggles, per its page. `SetRestrained` and
@@ -1618,12 +1645,12 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
 | `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
 | `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
-| `Game.ShakeCamera` | Quiet stub. CK takes a source reference and strength. |
-| `Game.SendWereWolfTransformation` | Quiet stub for the CK crime-reporting operation. |
-| `Game.ServeTime` | Quiet stub for the CK jail-time operation. |
-| `Game.ClearPrison` | Quiet stub for clearing player prison state. |
-| `Game.SetSunGazeImageSpaceModifier` | Quiet stub for setting the sun-gaze image modifier. |
-| `Game.ShakeController` | Quiet stub. CK takes two strengths and a duration. |
+| `Game.ShakeCamera` | Queues a source reference, strength and duration for the host camera. |
+| `Game.SendWereWolfTransformation` | Reports werewolf crime through a loaded high-process actor with current Alert or Combat detection. |
+| `Game.ServeTime` | Serves jail time against the player's crime faction when one is set. |
+| `Game.ClearPrison` | Clears the player's arrested flag and cumulative served-day counter. |
+| `Game.SetSunGazeImageSpaceModifier` | Sets the saved IMAD modifier triggered when sungazing begins. |
+| `Game.ShakeController` | Queues left and right rumble strengths plus duration for the Godot host. |
 | `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
 | `Game.RequestSave` | Quiet stub for a normal save request. |
 | `Game.RequestAutoSave` | Quiet stub for an autosave request. |
@@ -1634,11 +1661,11 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
 | `Game.PlayBink` | Quiet stub. CK takes a filename and four playback flags. |
 | `Game.AdvanceSkill` | Quiet stub. CK takes a skill name and usage magnitude. |
-| `Game.PrecacheCharGen` | Quiet stub for preloading character-generation assets. |
-| `Game.PrecacheCharGenClear` | Quiet stub for clearing the character-generation cache. |
-| `Game.ShowTrainingMenu` | Quiet stub. CK takes the trainer actor. |
-| `Game.ShowFirstPersonGeometry` | Quiet stub. CK takes a visibility flag. |
-| `Game.SetCameraTarget` | Quiet stub. CK takes the target actor. |
+| `Game.PrecacheCharGen` | Queues the host to retain available race head-part models and chargen TRI assets. |
+| `Game.PrecacheCharGenClear` | Queues the host to release retained race head-part and chargen TRI assets. |
+| `Game.ShowTrainingMenu` | Queues a valid trainer actor for the host training presenter. |
+| `Game.ShowFirstPersonGeometry` | Sets whether the player's first-person geometry is shown in first-person view. |
+| `Game.SetCameraTarget` | Sets a valid actor as the camera anchor target. |
 | `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
 | `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
 | `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |

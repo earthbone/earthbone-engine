@@ -572,8 +572,8 @@ impl PlayerNode {
                 );
                 if is_player {
                     visual.bind_mut().set_first_person_geometry_visible(
-                        self.rig.mode != CameraMode::First
-                            || self.camera_state.first_person_geometry_visible(),
+                        self.camera_state
+                            .rendered_first_person_geometry_visible(self.rig.mode),
                     );
                     self.player_appearance = Some(visual);
                 }
@@ -1859,18 +1859,13 @@ impl PlayerNode {
     }
 
     fn refresh_door_fade(&mut self) {
-        let door_opacity = self.door_fade.opacity();
-        let game_opacity = self.game_fade.opacity();
-        let (opacity, black) = if game_opacity > door_opacity {
-            (game_opacity, self.game_fade.is_black())
-        } else {
-            (door_opacity, true)
-        };
+        let presentation =
+            crate::door_fade::fade_overlay_presentation(&self.door_fade, &self.game_fade);
         if let Some(view) = &mut self.door_fade_view {
-            let channel = if black { 0.0 } else { 1.0 };
+            let [red, green, blue, alpha] = presentation.rgba;
             view.overlay
-                .set_color(Color::from_rgba(channel, channel, channel, opacity));
-            view.overlay.set_visible(opacity > 0.0);
+                .set_color(Color::from_rgba(red, green, blue, alpha));
+            view.overlay.set_visible(presentation.visible);
         }
     }
 

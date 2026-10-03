@@ -57,7 +57,8 @@ pub fn apply_host_request(menu: &mut MainMenuState, request: HostRequest) {
         HostRequest::FadeOutGame { .. }
         | HostRequest::Save { .. }
         | HostRequest::CameraFirstPerson
-        | HostRequest::CameraThirdPerson => {}
+        | HostRequest::CameraThirdPerson
+        | HostRequest::ControllerShake { .. } => {}
     }
 }
 
