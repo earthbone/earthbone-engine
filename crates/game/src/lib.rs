@@ -1632,7 +1632,8 @@ impl Game {
             let instructions = self.vm.run(self.budget);
             self.world.borrow_mut().papyrus_instructions_last_slice = instructions;
             self.world.borrow_mut().collect_effect_objects(&mut self.vm);
-            let queued = self.world.borrow().has_pending_calls();
+            let world = self.world.borrow();
+            let queued = world.has_pending_calls() || !world.completed_animation_waits.is_empty();
             if self.vm.idle() && !queued {
                 return true;
             }

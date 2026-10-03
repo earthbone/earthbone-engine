@@ -11,7 +11,10 @@ use soe_esm::{Plugin, Tag};
 
 #[test]
 fn edt_15_drop_requires_a_collision_and_keeps_successful_edit_undoable() {
-    let godot = PathBuf::from(std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN"));
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+        return;
+    };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
     let fixture = tempfile::tempdir().unwrap();
