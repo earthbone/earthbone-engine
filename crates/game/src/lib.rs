@@ -52,6 +52,7 @@ pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod perks;
+pub mod play;
 pub mod player_input;
 pub mod progression;
 pub mod quest;
