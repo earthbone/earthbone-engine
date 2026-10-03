@@ -1184,6 +1184,8 @@ mod scr_20_adversarial;
 mod scr_20_debug_natives;
 #[path = "scr_21_adversarial.rs"]
 mod scr_21_adversarial;
+#[path = "scr_21_breaker_adversarial.rs"]
+mod scr_21_breaker_adversarial;
 #[path = "scr_22_adversarial.rs"]
 mod scr_22_adversarial;
 #[path = "scr_22_debug_profiling.rs"]

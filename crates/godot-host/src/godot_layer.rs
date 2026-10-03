@@ -843,8 +843,11 @@ impl CellStreamerNode {
             self.tethers.release_reference(id);
         }
         if let Some(space) = self.collision_space {
+            self.collision
+                .set_collisions_enabled(world.debug_collisions_enabled);
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
+            self.collision.sync_collision_state();
             self.collision
                 .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);

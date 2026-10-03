@@ -578,13 +578,16 @@ impl World {
         // reductions on the same base damage, so they stack multiplicatively
         // rather than adding. Sources do not state vanilla's exact ordering,
         // see docs/combat.md.
-        let health_damage = finite(
+        let mut health_damage = finite(
             f64::from(weapon_damage)
                 * (1.0 - reduction)
                 * (1.0 - block_reduction)
                 * (1.0 - resistance_reduction)
                 * difficulty,
         )?;
+        if self.debug_god_mode && self.player == Some(hit.target) {
+            health_damage = 0.0;
+        }
         // Stagger magnitude scales the damage that actually lands (post
         // armor and block, matching the row's "hit magnitude") by the
         // weapon's own Stagger fraction, so a fully absorbed hit and a
