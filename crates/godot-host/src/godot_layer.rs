@@ -108,6 +108,9 @@ pub struct CellStreamerNode {
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
     /// Detect Life shader pairs currently synchronized to the renderer.
     detect_life_shaders: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
+    /// RFCT visuals keyed by the game-owned Play call identity.
+    visual_effects:
+        std::collections::BTreeMap<soe_game::world::VisualEffectId, RuntimeVisualEffect>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -257,6 +260,15 @@ struct EffectShaderInstance {
     color_alpha: f32,
     fade: [f32; 4],
     cell: Option<GlobalFormId>,
+}
+
+/// A visible RFCT effect instance owned by the shared game request.
+#[allow(dead_code)]
+struct RuntimeVisualEffect {
+    rid: Rid,
+    mesh: Gd<SphereMesh>,
+    material: Gd<StandardMaterial3D>,
+    target: GlobalFormId,
 }
 
 /// One runtime light attached to a RenderingServer scenario, without a node.
@@ -455,6 +467,7 @@ impl INode3D for CellStreamerNode {
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
             detect_life_shaders: std::collections::BTreeSet::new(),
+            visual_effects: std::collections::BTreeMap::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -481,6 +494,7 @@ impl INode3D for CellStreamerNode {
         self.free_destruction_models();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_visual_effects();
         self.free_runtime_lights();
         self.clear_terrain_lod();
         self.tethers.free();
@@ -742,6 +756,103 @@ impl CellStreamerNode {
                 true
             }
         });
+    }
+
+    /// Draw one server-side visual for each active RFCT Play call. The game
+    /// owns instance identity and expiry, while this layer follows the
+    /// target's shared placement and releases stale render resources.
+    pub(crate) fn sync_visual_effects(&mut self, world: &soe_game::World) {
+        let Some(scenario) = self.scenario() else {
+            self.free_visual_effects();
+            return;
+        };
+        let active: Vec<_> = world.visual_effect_instances().cloned().collect();
+        let wanted: std::collections::BTreeSet<_> = active.iter().map(|effect| effect.id).collect();
+        let mut server = RenderingServer::singleton();
+        self.visual_effects.retain(|id, effect| {
+            if wanted.contains(id) {
+                true
+            } else {
+                server.free_rid(effect.rid);
+                false
+            }
+        });
+        for request in active {
+            let Some(placement) = world.ref_placement(request.target).filter(|p| p.visible) else {
+                if let Some(effect) = self.visual_effects.remove(&request.id) {
+                    server.free_rid(effect.rid);
+                }
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(effect) = self.visual_effects.get_mut(&request.id) {
+                server.instance_set_transform(effect.rid, transform);
+                effect.target = request.target;
+                continue;
+            }
+            let data = world.visual_effect_data(request.effect);
+            let Some(data) = data.filter(|data| data.art.is_some() || data.shader.is_some()) else {
+                continue;
+            };
+            let mut mesh = SphereMesh::new_gd();
+            mesh.set_radius(0.55);
+            mesh.set_height(1.1);
+            let mut material = StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_transparency(Transparency::ALPHA);
+            let tint = if data.shader.is_some() {
+                Color::from_rgba(0.24, 0.78, 1.0, 0.76)
+            } else {
+                Color::from_rgba(0.95, 0.62, 0.24, 0.76)
+            };
+            material.set_albedo(tint);
+            material.set_feature(Feature::EMISSION, true);
+            material.set_emission(tint);
+            if let (Some(source), Some(shader)) = (self.data_source.as_ref(), data.shader) {
+                let icon = world
+                    .record(shader)
+                    .and_then(|record| record.find(soe_esm::Tag::new(b"ICON")))
+                    .and_then(|bytes| bytes.split(|byte| *byte == 0).next())
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .map(|path| path.trim())
+                    .map(str::to_ascii_lowercase);
+                if let Some(texture) = icon
+                    .as_deref()
+                    .and_then(|path| source.effect_shader_texture(path))
+                    .and_then(|texture| image_texture_from(&texture))
+                {
+                    material.set_texture(TextureParam::ALBEDO, &texture);
+                }
+            }
+            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            server.instance_set_transform(rid, transform);
+            server.instance_geometry_set_material_override(rid, material.get_rid());
+            self.visual_effects.insert(
+                request.id,
+                RuntimeVisualEffect {
+                    rid,
+                    mesh,
+                    material,
+                    target: request.target,
+                },
+            );
+        }
+    }
+
+    fn free_visual_effects(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, effect) in std::mem::take(&mut self.visual_effects) {
+            server.free_rid(effect.rid);
+        }
     }
 
     fn free_effect_shaders(&mut self) {
@@ -1553,6 +1664,12 @@ impl CellStreamerNode {
         self.runtime_lights.len() as i32
     }
 
+    /// Number of active RFCT render instances, for host diagnostics.
+    #[func]
+    pub fn visual_effect_render_count(&self) -> i32 {
+        self.visual_effects.len() as i32
+    }
+
     /// Render handles grouped by owning cell, for residency diagnostics.
     #[func]
     pub fn cell_instances(&self) -> VarDictionary {
@@ -2176,6 +2293,7 @@ impl CellStreamerNode {
         self.free_destruction_models();
         self.free_occluders();
         self.free_effect_shaders();
+        self.free_visual_effects();
         self.free_runtime_lights();
         self.exterior_cells.clear();
         self.ref_cache.clear();

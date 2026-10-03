@@ -354,6 +354,7 @@ impl PlayerNode {
                 &detections,
                 delta.max(0.0) as f32,
             );
+            streamer.bind_mut().sync_visual_effects(&world);
         }
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
