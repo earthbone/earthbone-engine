@@ -17,7 +17,9 @@ fn workspace() -> PathBuf {
 }
 
 fn godot_binary() -> Option<PathBuf> {
-    if let Some(binary) = std::env::var_os("SOE_GODOT") {
+    if let Some(binary) =
+        std::env::var_os("SOE_GODOT_BIN").or_else(|| std::env::var_os("SOE_GODOT"))
+    {
         return Some(binary.into());
     }
     Command::new("godot")

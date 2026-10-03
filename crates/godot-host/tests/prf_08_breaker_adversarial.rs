@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 //! Adversarial PRF-08 check for an installed, visibly rendered exterior.
 
@@ -61,10 +61,7 @@ fn windowed_whiterun_radius_one_produces_drawn_work_and_passes_33_ms() {
         .env("SOE_BENCH_WORST_MS", "33")
         .env("SOE_BENCH_SOAK", "0")
         .env("SOE_BENCH_CAPTURE", "")
-        .env(
-            "XDG_DATA_HOME",
-            root.join("target/prf-08-breaker-user"),
-        )
+        .env("XDG_DATA_HOME", root.join("target/prf-08-breaker-user"))
         .output()
         .expect("Godot windowed exterior benchmark starts");
     let log = format!(

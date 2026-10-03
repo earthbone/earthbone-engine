@@ -186,10 +186,11 @@ func _setup_camera() -> void:
 	var camera := Camera3D.new()
 	scene_holder.add_child(camera)
 	var centre := merged.get_center()
-	var radius: float = maxf(merged.size.length() * 0.5, 1.0)
+	var radius: float = maxf(Vector2(merged.size.x, merged.size.z).length() * 0.5, 1.0)
+	var target := Vector3(centre.x, merged.position.y + merged.size.y, centre.z)
 	camera.far = radius * 8.0 + 100.0
-	camera.position = centre + Vector3(0.0, radius * 0.6, radius * 1.4)
-	camera.look_at(centre, Vector3.UP)
+	camera.position = target + Vector3(0.0, radius * 0.6, radius * 1.4)
+	camera.look_at(target, Vector3.UP)
 	camera.make_current()
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-50.0, 30.0, 0.0)
@@ -203,7 +204,7 @@ func _setup_camera() -> void:
 	environment.ambient_light_energy = 0.8
 	env.environment = environment
 	scene_holder.add_child(env)
-	print("godot_scene_extent %.1f m" % merged.size.length())
+	print("godot_scene_extent %.1f m" % (radius * 2.0))
 
 
 func _capture() -> void:
