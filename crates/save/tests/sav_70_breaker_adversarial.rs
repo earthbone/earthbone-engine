@@ -2,7 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_save::{
-    reference::{flags, Initial}, ChangeForm, RefId, Save,
+    reference::{flags, Initial},
+    ChangeForm, RefId, Save,
 };
 use std::path::{Path, PathBuf};
 
@@ -46,19 +47,24 @@ fn pcon_constructed_header_keeps_reference_flags_out_of_prefix() {
     data.push(0xA5);
     reference(0x400900).write(&mut data);
     data.extend([0xFE, 0xFF, 0x7F]);
-    let form = pcon(
-        0x800ABC,
-        flags::FORM | flags::BASE | flags::SCALE,
-        data,
-    );
+    let form = pcon(0x800ABC, flags::FORM | flags::BASE | flags::SCALE, data);
 
     let header = form.reference_header(78).unwrap().unwrap();
-    assert!(matches!(header.initial, Initial::Created { flags: 0xA5, .. }));
+    assert!(matches!(
+        header.initial,
+        Initial::Created { flags: 0xA5, .. }
+    ));
     assert!(!header.carries_reference_data);
     assert_eq!(header.bytes_consumed, 31);
-    assert_eq!(header.data_bytes().unwrap(), form.data[..header.bytes_consumed]);
+    assert_eq!(
+        header.data_bytes().unwrap(),
+        form.data[..header.bytes_consumed]
+    );
     assert_eq!(&form.data[header.bytes_consumed..], &[0xFE, 0xFF, 0x7F]);
-    assert_eq!(header.bytes_consumed + header.remaining_bytes, form.data.len());
+    assert_eq!(
+        header.bytes_consumed + header.remaining_bytes,
+        form.data.len()
+    );
 }
 
 #[test]
@@ -76,10 +82,19 @@ fn pcon_promoted_header_keeps_reference_flags_out_of_prefix() {
     );
 
     let header = form.reference_header(78).unwrap().unwrap();
-    assert!(matches!(header.initial, Initial::Promoted { coordinates: [-2, 7], .. }));
+    assert!(matches!(
+        header.initial,
+        Initial::Promoted {
+            coordinates: [-2, 7],
+            ..
+        }
+    ));
     assert!(!header.carries_reference_data);
     assert_eq!(header.bytes_consumed, 34);
-    assert_eq!(header.data_bytes().unwrap(), form.data[..header.bytes_consumed]);
+    assert_eq!(
+        header.data_bytes().unwrap(),
+        form.data[..header.bytes_consumed]
+    );
     assert_eq!(&form.data[header.bytes_consumed..], &[0xA5, 0x5A]);
 }
 
@@ -102,8 +117,14 @@ fn every_corpus_reference_header_reencodes_and_matches_player_position() {
                 continue;
             };
             let payload = form.payload().unwrap();
-            assert_eq!(header.data_bytes().unwrap(), payload[..header.bytes_consumed]);
-            assert_eq!(header.bytes_consumed + header.remaining_bytes, payload.len());
+            assert_eq!(
+                header.data_bytes().unwrap(),
+                payload[..header.bytes_consumed]
+            );
+            assert_eq!(
+                header.bytes_consumed + header.remaining_bytes,
+                payload.len()
+            );
             if save.resolve(form.form) == Some(0x14) {
                 let placement = header.initial.placement().unwrap();
                 assert_eq!(

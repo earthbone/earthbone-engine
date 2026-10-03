@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_save::{reference::{flags, Initial}, ChangeForm, RefId, Save};
+use soe_save::{
+    reference::{flags, Initial},
+    ChangeForm, RefId, Save,
+};
 use std::path::{Path, PathBuf};
 
 fn reference(raw: u32) -> RefId {
@@ -41,8 +44,14 @@ fn pcon_ignores_reference_flag_payloads_and_keeps_the_tail() {
     assert!(matches!(header.initial, Initial::Moved(_)));
     assert!(!header.carries_reference_data);
     assert_eq!(header.data_bytes().unwrap(), form.data[..27]);
-    assert_eq!(&form.data[header.bytes_consumed..], &[0xA5, 0xFE, 0xFF, 0xFF, 0x7F, 0x11, 0x22]);
-    assert_eq!(header.bytes_consumed + header.remaining_bytes, form.data.len());
+    assert_eq!(
+        &form.data[header.bytes_consumed..],
+        &[0xA5, 0xFE, 0xFF, 0xFF, 0x7F, 0x11, 0x22]
+    );
+    assert_eq!(
+        header.bytes_consumed + header.remaining_bytes,
+        form.data.len()
+    );
 }
 
 #[test]
@@ -112,11 +121,20 @@ fn all_external_reference_headers_reencode_and_player_positions_match() {
                 continue;
             };
             let payload = form.payload().unwrap();
-            assert_eq!(header.data_bytes().unwrap(), payload[..header.bytes_consumed]);
-            assert_eq!(header.bytes_consumed + header.remaining_bytes, payload.len());
+            assert_eq!(
+                header.data_bytes().unwrap(),
+                payload[..header.bytes_consumed]
+            );
+            assert_eq!(
+                header.bytes_consumed + header.remaining_bytes,
+                payload.len()
+            );
             if save.resolve(form.form) == Some(0x14) {
                 let initial = header.initial.placement().unwrap();
-                assert_eq!(initial.position.map(f32::to_bits), player.position.map(f32::to_bits));
+                assert_eq!(
+                    initial.position.map(f32::to_bits),
+                    player.position.map(f32::to_bits)
+                );
             }
             total += 1;
         }
