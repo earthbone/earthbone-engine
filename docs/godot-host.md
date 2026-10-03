@@ -624,7 +624,7 @@ callback calls `commit_gizmo_transform`, which forwards position and rotation to
 `EditorDocument::set_reference_transform`. The record remains the source used for plugin
 output. Undo calls the document edit log and reloads the proxy pose from the winning record.
 The Save plugin button writes the active plugin. This creates one proxy node for the selected
-reference only; ordinary cell rendering remains RID-backed.
+reference only. Ordinary cell rendering remains RID-backed.
 
 Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
 `classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value

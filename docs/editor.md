@@ -368,7 +368,7 @@ opens an `EditorDocument`, adds one proxy Node3D for the supplied FormID, and re
 `EditorNode3DGizmoPlugin` for that proxy. A gizmo handle commit calls the proxy adapter, which
 passes the position and rotation into this operation. The dock's undo action restores the
 document and reloads the proxy transform from the winning record. Saving writes the changed
-active plugin. Bulk cell rendering continues to use RenderingServer instances; only the
+active plugin. Bulk cell rendering continues to use RenderingServer instances. Only the
 currently edited reference has a scene proxy.
 
 The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
