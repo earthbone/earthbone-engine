@@ -251,6 +251,114 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 
 ## Design
 
+### Scripted player input, PLY-01
+
+`player_input::Driver` queues typed commands and executes one per step at
+1/60 second. An empty queue does not tick. Each event retains its step,
+command, gameplay result or error, player cell and pose, and new Papyrus
+traces. Queue and log are transient. World owns all gameplay mutations.
+
+Commands place the player at a reference plus an offset, set XYZ rotation
+in radians, activate, execute an authored melee contact, press or release an
+equipped casting hand, choose a dialogue topic, confirm a menu operation,
+or wait for one step. MoveTo is explicit placement, with optional rotation
+matching and normal cell and trigger events. As the local CK
+`MoveTo_-_ObjectReference.wikitext` documents, rotation remains unchanged when
+the destination cell is unloaded, even when rotation matching is requested.
+Menu operations advance a
+dialogue response, close a latent gift menu, or commit a COBJ transaction.
+Scripted steps advance the simulation independently of host menu presentation.
+Attack uses the existing equipment and damage checks with a supplied contact
+target. It does not generate an animation or a spatial contact query.
+
+Default activation now moves loose inventory references through
+`add_item_notified`, preserving item instance data and delivering inventory
+and container-change events. The input layer rejects disabled or deleted
+references, preserves OnActivate on blocked activation, and begins dialogue
+after a successful actor activation. Invalid transforms are rejected before
+enqueueing. Gameplay rejections are recorded and consume one fixed step.
+
+The local CK `Activate_-_ObjectReference.wikitext`,
+`MoveTo_-_ObjectReference.wikitext`, `SetAngle_-_ObjectReference.wikitext`
+and `OnContainerChanged_-_ObjectReference.wikitext` supply activation,
+placement, compass yaw and pickup event semantics. This is a scripted input
+schedule over existing Game operations, rather than a new format reader.
+`ply_01_` tests exercise timing, interactions, combat and casting, rejection,
+and an installed vanilla load door. Optional `SOE_PLY_01_FIXTURE` exports the
+synthetic plugin, scripts and headless log for the windowed host comparison.
+
+### Headless playthrough routes, PLY-02
+
+`play::Route` parses one authored operation per line. Blank lines and `#`
+comments are ignored. Double quotes preserve spaces in form names. A form
+is an editor ID, `player`, `Plugin.esm:hexObjectID`, or `dynamic:hexObjectID`.
+Plugin names resolve through the live load order rather than a saved slot.
+
+```text
+navigate <reference> <units-per-second> <max-ticks>
+navigate-marker <cell> <x> <y> <z> <units-per-second> <max-ticks>
+activate <reference>
+talk <speaker> <topic>
+wait-stage <quest> <stage> <max-ticks>
+expect-stage <quest> <highest-stage>
+expect-position <cell> <x> <y> <z> <tolerance>
+expect-item <holder> <item> <count>
+expect-no-vm-error
+```
+
+Navigation uses winning NAVM records within the starting interior or worldspace,
+including resolved edge links and deleted meshes. Endpoints must have a walkable
+XY footprint in their named cells and lie within 128 units of the surface.
+They project onto that surface. Closed bound doors block their triangles and
+are refreshed while walking. The runner queries the existing smoothed path at
+each tick and moves toward its next waypoint. It retains waypoint cell ownership,
+delivers cell and trigger events, checks surface samples within 0.25 units,
+and fails on missing paths, interrupted movement or timeout. Load-door crossings
+use activation steps. Navigation adds no collision host or reference nodes.
+The runner does not consume host obstacle shapes or simulate a physics capsule.
+
+Actions use the shared PLY-01 executor and advance 1/60 second, including gameplay
+rejections. Unresolved form names fail before execution. `talk` activates an
+actor, chooses the offered DIAL topic, then advances
+the response through the existing dialogue API. Waits pump the same clock and
+VM until the requested stage is in the quest's done set. A higher stage alone
+does not satisfy that wait. Position assertions check cell identity and Euclidean
+distance. Item assertions use the shared GetItemCount query for base forms,
+original reference instances, form lists and keywords. VM assertions
+reject any `error:` entry in the VM log, including entries preceding the route.
+Speeds must be positive and at most 600 units per second. A time bound is at most
+36,000 ticks. Assertions consume no ticks. The first failure stops execution and
+reports the step number, source line, reason, player pose, sorted inventory,
+loaded quest stages and flags, live VM thread count and execution trace.
+Routes and reports add no saved state or dependencies.
+
+`soe-play <Data-directory> <external-save.ess> <route-file>` reads plugin names
+from the ESS, loads their scripts through the existing archive and loose-file
+overlay, and invokes transactional world/VM restoration before binding scripts.
+It does not run new-game quest startup. A route failure or unsupported save import
+exits with status 1, invalid arguments with status 2, and success with status 0.
+It uses the existing ESS import boundary, including inert queued messages and
+suspended call tables. It does not claim complete vanilla-save resumption.
+
+An explicit fourth argument, `--world-checkpoint`, imports the supported world
+passes without saved VM variables or execution and binds fresh scripts. It
+prints that choice on stderr and never falls back from strict import. This
+allows world assertions and authored input from corpus checkpoints while the
+existing importer rejects their unresolved ReferenceAlias identities. Checkpoint
+startup omits saved timers and queued calls. It does not reproduce a resumed
+quest's script variables. Both modes reject failed world passes. Neither mode
+changes the external save. `load_world_checkpoint` exposes this startup choice
+to callers without a command-line process.
+
+Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
+semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
+and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes
+base-object quantities. Navigation reuses `soe-navmesh`, whose source is local
+Recast/Detour `DetourNavMeshQuery.cpp`, `findStraightPath`. Detour's independent
+mesh representation is not introduced. `ply_02_` tests cover grammar, navigation,
+interaction steps, bounded waits, assertions, diagnostics and external corpus
+startup through the binary.
+
 ### MCM script lifecycle, UI-05
 
 `Game::start` initializes enabled quests without registering MCM scripts.
@@ -1630,13 +1738,14 @@ Creation Engine frame capture or memory budgets.
   for zero maximum and CarryWeight.
 - Actor initialization resolves separate stats and traits template chains.
   Manual attributes use race starting values plus NPC offsets. Manual skills
-  preserve the DNAM cache while race-bonus semantics remain unresolved.
-  Fixed-level auto-calculated skills
-  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
-  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
-  initialized actor values, so reload does not seed bonuses again. Leveled
-  templates return an error pending spawn selection. Missing race DATA
-  retains the synthetic-record fallback. See [actor values](actor-values.md).
+  use their DNAM values and skill offsets without an additional race bonus.
+  UESP's `CLAS.wikitext` race-bonus term is part of the auto-calculated skill
+  formula. Fixed-level auto-calculated skills use class weights, actor level
+  and race boosts. `PC_LEVEL_MULT`, missing class and zero-weight cases keep
+  the authored DNAM skill cache. SOEW saves initialized actor values, so reload
+  does not seed bonuses again. Leveled templates return an error pending spawn
+  selection. Missing race DATA retains the synthetic-record fallback. See
+  [actor values](actor-values.md).
 - `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
   multipliers and offsets. The improve multiplier and offset plus
   `fSkillUseCurve` determine experience needed at each current skill level.
@@ -3085,8 +3194,9 @@ Versions 32 to 36 add assigned hand spells, summoned references, encounter-zone
 visit times, saved list flags and chances, active scene phase state, and BOS
 record flags on instantiated references. Version
 37 persists INFO said-once markers, SMQN last-run float bit patterns, and SCEN
-active markers and opaque active data in record overrides. The
-`World::restore_vanilla_dialogue_scene_changes` path validates all targets
+active markers and exact runtime bytes in record overrides. The save crate
+validates SCEN action widths, counts and field boundaries before this import.
+The `World::restore_vanilla_dialogue_scene_changes` path validates all targets
 before applying them. INFO state updates dialogue history, SCEN state updates
 the playing-scene set, and the record accessors expose the saved values. INFO
 has no saved timestamp, so its said-once marker uses the current game day.
@@ -7292,15 +7402,19 @@ skymp supplies the recursive count-selection pattern, but its missing
 highest-level restriction and chance-global shortcut are not reused. These
 references do not provide a reusable Rust consumer. No dependency was added.
 
-Eleven synthetic tests cover actor-level filtering, nested counts, duplicate
+Synthetic tests cover actor-level filtering, nested counts, duplicate
 weighting, Use All Spells, saved selections and empty outcomes, winning links,
 template inheritance, traversal bounds, malformed inputs and RNG rollback
-after earlier successful draws, plus older saved placeholders. The five-master
-survey executes all 33 winning
-LVSP lists at levels 1, 10 and 50, with 171 concrete spell results over 99
-selections. The survey checks record execution, not comparison against a
-running original game. Live actor leveling and later spell reevaluation retain
-their progression scope.
+after earlier successful draws, plus older saved placeholders. PRG-21 adds
+synthetic cases for flags 0, 1, 4, 5, 6 and 7 at levels 1, 10 and 20, nested
+Use All selection, and chance-none values 0 and 100. These cases exercise the
+engine selector and do not establish original-runtime behavior. xEdit supplies
+the LVSP flag names and values. CommonLib's `TESLeveledList::Flag` supplies the
+same bit names, but its interface does not specify selection precedence. The
+SKYRIM_DATA-gated five-master survey executes winning LVSP lists at levels 1,
+10 and 20 and checks that every result resolves to a SPEL record. The survey
+checks record execution, not comparison against a running original game. Live
+actor leveling and later spell reevaluation retain their progression scope.
 
 ## Concrete inventory reference moves
 
@@ -7469,7 +7583,8 @@ authored HasPerk conditions, this supports retaining lower identities. That
 retention is an inference, without a direct original-runtime purchase
 comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
 byte unused, and the existing NPC reader retains only its FormID. This
-purchase path does not reinterpret it. The full CK Perk page was absent from
+purchase path does not reinterpret it. Entry-point dispatch separately reads
+the rank from an actor base's PRKR entries. The full CK Perk page was absent from
 the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
 not need it since the installed corpus and the sources above settle all four
 bytes. The existing CTDA parser, condition evaluator, actor values and
@@ -7497,12 +7612,14 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order, then each record's
-complex entry sections in file order. It passes the PRKE rank as a one-based
-value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
-for the handler. The dispatcher does not sort by priority. The local sources
-do not establish equal-priority execution order or exact versus cumulative
-effect-rank selection.
+actor's owned winning PERK records in load-order order. NPC actors use the
+rank byte from their base record's PRKR entry. Other actors use the highest
+owned rank in that PERK's NNAM chain. Within each PERK it filters out complex
+entries above that rank, then orders eligible entries by ascending PRKE
+priority. Equal priorities retain their source order. The invocation carries
+the entry's one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
+behavior and cross-perk interleaving still need a vanilla capture. The local
+sources do not establish exact versus cumulative effect-rank selection.
 
 Each PRKC tab evaluates its own CTDA conditions against the matching supplied
 tab subject. Conditions within a tab use the shared evaluator's file-order
@@ -7518,9 +7635,13 @@ to the staged weapon damage, with outgoing effects before incoming effects.
 Their condition tabs are owner/weapon/target and owner/attacker/weapon,
 respectively. Malformed function payloads, unknown actor values, unsupported
 functions and condition errors reject the hit before health or events change.
-This path retains the dispatcher's winning-record and source-section order.
+This path retains winning-record order, followed by ascending priority and
+source order for ties within each PERK. These ordering choices have not been
+compared with the reference runtime.
 It does not claim the unresolved priority-tie, acquisition-order or exact
-versus cumulative rank behavior documented above.
+versus cumulative rank behavior documented above. Source-order ties and
+ascending priority are deterministic engine choices, not captured vanilla
+behavior. Cross-perk ordering also needs a capture.
 
 ## Leveled item entry extras
 

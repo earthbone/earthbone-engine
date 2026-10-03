@@ -273,6 +273,17 @@ pub fn compare(
                 0.0,
             );
         }
+        let authored_load_order = serde_json::to_value(&probe.load_order)?;
+        for (runtime, load_order) in [("engine", &e.load_order), ("observed", &o.load_order)] {
+            diff(
+                &mut report,
+                e,
+                &format!("{runtime}.authored_load_order"),
+                authored_load_order.clone(),
+                serde_json::to_value(load_order)?,
+                0.0,
+            );
+        }
         for (field, tolerance) in [
             ("real_seconds", probe.tolerances.real_seconds),
             ("game_seconds", probe.tolerances.game_seconds),
@@ -331,6 +342,7 @@ fn kind_matches(kind: FormKind, tag: Tag) -> bool {
         FormKind::Spell => tag == Tag(*b"SPEL"),
         FormKind::MagicEffect => tag == Tag(*b"MGEF"),
         FormKind::GlobalVariable => tag == Tag(*b"GLOB"),
+        FormKind::Perk => tag == Tag(*b"PERK"),
         FormKind::Form => true,
     }
 }
@@ -371,7 +383,8 @@ fn run_with_assets(
     let mut game = Game::new(order);
     let mut resolved = BTreeMap::new();
     for (name, form) in probe.all_forms() {
-        let id = if form.kind == FormKind::Player {
+        let player_alias = name == "player" && form.kind == FormKind::Actor;
+        let id = if form.kind == FormKind::Player || player_alias {
             game.world_mut().player()
         } else {
             game.world()
@@ -379,6 +392,7 @@ fn run_with_assets(
                 .ok_or_else(|| Error::Execution(format!("missing form {name}")))?
         };
         if form.kind != FormKind::Player
+            && !player_alias
             && !game
                 .world()
                 .tag_of(id)

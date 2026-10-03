@@ -7,7 +7,8 @@
 //! "Weight Calculations": the class weighted formula for a fixed-level
 //! auto-calculated actor with a resolvable class, RACE starts plus the
 //! ACBS offset (attributes) for a manual actor, and DNAM's own skill cache
-//! because manual-mode race-bonus semantics are unresolved. Other cases use
+//! plus skill offsets for a manual actor. UESP's documented race-bonus term
+//! applies to auto-calculated skill formulas only. Other cases use
 //! DNAM's cache (no class, a class with a zero
 //! weight sum, or `PC_LEVEL_MULT`, whose player-scaled level this store
 //! does not track).
@@ -242,17 +243,22 @@ impl World {
                     }
                 }
             }
-        } else if let Some(race) = attributes {
-            for (index, start, offset) in [
-                (0, race.health, npc.config.health_offset),
-                (1, race.magicka, npc.config.magicka_offset),
-                (2, race.stamina, npc.config.stamina_offset),
-            ] {
-                let value = (f64::from(start) + f64::from(offset)) as f32;
-                if !value.is_finite() {
-                    return Err(Error::Invalid("overflowing NPC attribute".into()));
+        } else {
+            for (i, value) in manual_skill_values(&npc).into_iter().enumerate() {
+                values[3 + i].1 = value;
+            }
+            if let Some(race) = attributes {
+                for (index, start, offset) in [
+                    (0, race.health, npc.config.health_offset),
+                    (1, race.magicka, npc.config.magicka_offset),
+                    (2, race.stamina, npc.config.stamina_offset),
+                ] {
+                    let value = (f64::from(start) + f64::from(offset)) as f32;
+                    if !value.is_finite() {
+                        return Err(Error::Invalid("overflowing NPC attribute".into()));
+                    }
+                    values[index].1 = value;
                 }
-                values[index].1 = value;
             }
         }
         values.push(("speedmult".into(), f32::from(npc.config.speed)));
@@ -294,6 +300,16 @@ fn race_skill_boost(race: &Attributes, local: usize) -> i8 {
         .iter()
         .find_map(|&(full, boost)| (race_skill_index(full) == Some(local)).then_some(boost))
         .unwrap_or(0)
+}
+
+/// Manual NPC skills use their authored DNAM values and skill offsets.
+/// UESP `CLAS.wikitext` includes race bonuses in its auto-calculated formula,
+/// but does not define adding them to manual DNAM skills.
+fn manual_skill_values(npc: &Npc) -> [f32; 18] {
+    let stats = npc.stats.unwrap_or_default();
+    std::array::from_fn(|index| {
+        f32::from(stats.skills[index]) + f32::from(stats.skill_offsets[index])
+    })
 }
 
 /// Skill values from UESP CLAS.wikitext's "Weight Calculations" formula for

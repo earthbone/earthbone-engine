@@ -68,6 +68,7 @@ pub enum FormKind {
     Spell,
     MagicEffect,
     GlobalVariable,
+    Perk,
     Form,
 }
 
@@ -80,6 +81,7 @@ impl FormKind {
             Self::Spell => "Spell",
             Self::MagicEffect => "MagicEffect",
             Self::GlobalVariable => "GlobalVariable",
+            Self::Perk => "Perk",
             Self::Form => "Form",
         }
     }
@@ -190,6 +192,21 @@ pub enum Step {
         actor: String,
         value: String,
     },
+    AddPerk {
+        id: String,
+        actor: String,
+        perk: String,
+    },
+    RemovePerk {
+        id: String,
+        actor: String,
+        perk: String,
+    },
+    HasPerk {
+        id: String,
+        actor: String,
+        perk: String,
+    },
     HasEffect {
         id: String,
         actor: String,
@@ -227,6 +244,9 @@ impl Step {
             | Self::WaitAnimation { id, .. }
             | Self::Cast { id, .. }
             | Self::ActorValue { id, .. }
+            | Self::AddPerk { id, .. }
+            | Self::RemovePerk { id, .. }
+            | Self::HasPerk { id, .. }
             | Self::HasEffect { id, .. }
             | Self::FormProperty { id, .. }
             | Self::Save { id } => id,
@@ -393,6 +413,9 @@ impl Probe {
                     "player must name Skyrim.esm object 0x14 (identity Skyrim.esm:000014)",
                 ));
             }
+            if name == "player" && form.kind != FormKind::Actor {
+                return Err(invalid("player alias must be an actor"));
+            }
         }
         let check = |name: &str, kinds: &[FormKind]| -> Result<(), Error> {
             if forms.get(name).is_some_and(|form| {
@@ -521,6 +544,12 @@ impl Probe {
                     if soe_game::actor_values::actor_value_index(value).is_none() {
                         return Err(invalid("unknown actor value"));
                     }
+                }
+                Step::AddPerk { actor, perk, .. }
+                | Step::RemovePerk { actor, perk, .. }
+                | Step::HasPerk { actor, perk, .. } => {
+                    check(actor, &[FormKind::Actor])?;
+                    check(perk, &[FormKind::Perk])?;
                 }
                 Step::HasEffect { actor, effect, .. } => {
                     check(actor, &[FormKind::Actor, FormKind::Player])?;

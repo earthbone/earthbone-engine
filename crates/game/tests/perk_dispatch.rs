@@ -56,6 +56,14 @@ fn apply_numeric(world: &mut World, invocation: &EntryPointInvocation) {
         .unwrap();
 }
 
+fn append_epfd_value(world: &mut World, invocation: &EntryPointInvocation) {
+    let value = f32::from_le_bytes(invocation.data.as_slice().try_into().unwrap());
+    let current = world.actor_value(invocation.actor, "health");
+    world
+        .set_actor_value(invocation.actor, "health", current * 10.0 + value)
+        .unwrap();
+}
+
 fn context(actor: GlobalFormId) -> EntryPointContext {
     EntryPointContext {
         tabs: vec![actor],
@@ -69,7 +77,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
 }
 
 #[test]
-fn prg_08_dispatches_owned_entries_in_record_order_and_passes_rank() {
+fn prg_08_dispatches_only_entries_at_or_below_actor_rank() {
     let record = Record::new(Tag(*b"PERK"), PERK)
         .sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
         .sub(Tag(*b"PRKE"), [2, 2, 7])
@@ -89,9 +97,44 @@ fn prg_08_dispatches_owned_entries_in_record_order_and_passes_rank() {
 
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
-        Ok(2)
+        Ok(1)
     );
     assert_eq!(game.world_mut().actor_value(actor, "health"), 101.0);
+}
+
+#[test]
+fn prg_08_orders_entries_by_ascending_priority_then_source_order_for_ties() {
+    let record = Record::new(Tag(*b"PERK"), PERK)
+        .sub(Tag(*b"DATA"), [0, 0, 1, 1, 0])
+        .sub(Tag(*b"PRKE"), [2, 0, 20])
+        .sub(Tag(*b"DATA"), [ENTRY, 2, 0])
+        .sub(Tag(*b"EPFT"), [1])
+        .sub(Tag(*b"EPFD"), 20.0f32.to_le_bytes())
+        .sub(Tag(*b"PRKF"), [])
+        .sub(Tag(*b"PRKE"), [2, 0, 2])
+        .sub(Tag(*b"DATA"), [ENTRY, 2, 0])
+        .sub(Tag(*b"EPFT"), [1])
+        .sub(Tag(*b"EPFD"), 2.0f32.to_le_bytes())
+        .sub(Tag(*b"PRKF"), [])
+        .sub(Tag(*b"PRKE"), [2, 0, 2])
+        .sub(Tag(*b"DATA"), [ENTRY, 2, 0])
+        .sub(Tag(*b"EPFT"), [1])
+        .sub(Tag(*b"EPFD"), 3.0f32.to_le_bytes())
+        .sub(Tag(*b"PRKF"), []);
+    let mut game = game(vec![record]);
+    let actor = game.world_mut().player();
+    game.world_mut()
+        .set_actor_value(actor, "health", 0.0)
+        .unwrap();
+    let mut dispatcher = EntryPointDispatcher::default();
+    dispatcher.register(ENTRY, append_epfd_value);
+
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(3)
+    );
+    // The two priority-2 entries retain source order, then priority 20 runs.
+    assert_eq!(game.world_mut().actor_value(actor, "health"), 250.0);
 }
 
 #[test]

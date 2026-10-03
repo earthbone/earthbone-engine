@@ -1,5 +1,36 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Scripted player input, PLY-01
+
+`PlayerNode.queue_player_input(dictionary)` transports commands to the shared
+`soe_game::player_input::Driver`. `step_player_input` executes one queued
+command at 1/60 second, synchronizes the controller and camera from World,
+replaces host resources after a cell change, and presents current dialogue
+choices or responses through the existing menu. `advance` also services a
+queued command before device input. Door presentation reuses the existing
+swing-door nodes.
+`player_input_log` returns the same ordered event representation as headless
+Game. `clear_player_input` clears the transient queue and log.
+
+Every dictionary has an `action` string. Reference commands use integer
+`file` and `object` fields. MoveTo uses `move_to`, a Vector3 `offset` and
+`match_rotation`. Turn uses `turn` and a Vector3 `rotation` in radians.
+Activation uses `activate`. Authored melee contacts use `attack`,
+`weapon_file`, `weapon_object` and `power`. Casting uses `cast`, `hand`
+(`left` or `right`), `held` and `has_target`, plus a reference when targeted.
+Topic choice uses `choose_topic`. `confirm_menu` names `dialogue`, `gift`
+or `craft` in `menu`. Craft names its bench as the reference and its recipe
+in `recipe_file` and `recipe_object`. `wait` advances one step. Invalid
+dictionaries do not enter the queue. Scripted steps use the Game simulation
+clock even while a dialogue menu is visible.
+
+`godot/ply_01_player_input_test.gd` loads the synthetic fixture exported by
+the game test with `SOE_PLY_01_FIXTURE`, drives the same eleven commands
+windowed, compares complete event logs including Papyrus traces, checks the
+controller pose and load-door cell replacement, and verifies a visible
+dialogue response. It captures the viewport as `window.png` in that fixture
+directory and quits with a failing status if any assertion fails.
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples each ordered pair of resident, living actors in the same
@@ -1804,6 +1835,36 @@ Godot's mixer received both voice buffers at the requested speaker positions.
 They do not prove that a physical speaker or headset produced audible output.
 That still needs a windowed run with installed data and a `SoundBank` in the
 tree.
+
+### Physical output check, HST-05
+
+`godot/hst_05_audio_output.gd` lists every output returned by
+`AudioServer.get_output_device_list`, selects the requested device, and plays
+the requested SoundBank effect three times. Its defaults are the system
+`Default` output and the 0.477 second vanilla footstep
+`sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav`, read from the installed
+`Skyrim - Sounds.bsa`. Each successful start prints an `AUDIO_CHECK` line with
+the selected device, sound path and play number. A load or playback failure
+prints its reason and exits with status 1.
+
+Run the script without `--headless` while listening through the selected
+physical output. Pass a device name and sound path after `--`, or omit either
+argument to use its default:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script hst_05_audio_output.gd -- "Default" "sound/fx/fst/dirt/jumpdown/fst_dirt_jumpdown_01.wav"
+```
+
+Record the date, selected device, sound, what the person heard and process
+exit status in [hst-05-audio-observation.md](hst-05-audio-observation.md).
+The listening field stays blank until a person reports what they heard.
+Set `SOE_HST_05_LISTENING_CHECK=1` to validate that field with
+`cargo test -p soe-godot-host --test hst_05_breaker_adversarial` after recording
+the observation. Automated gates skip that human listening check. The
+`hst_05_audio_output` integration test runs the same script with Godot's dummy
+audio driver and installed game data. It checks device listing, selected
+device reporting and all three SoundBank starts. The dummy driver does not
+establish that a physical output made the sound audible.
 Footsteps are driven by the character controller. Dialogue response audio is
 now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build

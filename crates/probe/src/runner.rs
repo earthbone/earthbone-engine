@@ -432,6 +432,35 @@ fn step_function(step: &Step, index: usize) -> Function {
             );
             result_number(&mut fun, "value", "value");
         }
+        Step::AddPerk { actor, perk, .. } => method(
+            &mut fun,
+            &format!("f_{actor}"),
+            "AddPerk",
+            "discard",
+            vec![ident(&format!("f_{perk}"))],
+        ),
+        Step::RemovePerk { actor, perk, .. } => method(
+            &mut fun,
+            &format!("f_{actor}"),
+            "RemovePerk",
+            "discard",
+            vec![ident(&format!("f_{perk}"))],
+        ),
+        Step::HasPerk { actor, perk, .. } => {
+            method(
+                &mut fun,
+                &format!("f_{actor}"),
+                "HasPerk",
+                "flag",
+                vec![ident(&format!("f_{perk}"))],
+            );
+            ins(
+                &mut fun,
+                Opcode::Cast,
+                vec![ident("integer"), ident("flag")],
+            );
+            result_number(&mut fun, "value", "integer");
+        }
         Step::HasEffect { actor, effect, .. } => {
             method(
                 &mut fun,
@@ -488,7 +517,9 @@ pub fn script(probe: &Probe) -> Result<Script, Error> {
         builder = builder.variable(&var, form.kind.papyrus(), none());
         if name == "runner" {
             ins(&mut run, Opcode::Assign, vec![ident(&var), ident("self")]);
-        } else if form.kind == FormKind::Player {
+        } else if form.kind == FormKind::Player
+            || (name == "player" && form.kind == crate::FormKind::Actor)
+        {
             global(&mut run, "Game", "GetPlayer", &var, vec![]);
         } else {
             global(

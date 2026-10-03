@@ -11,6 +11,12 @@ use soe_save::{ChangeForm, RefId, Save};
 const TYPES: [u8; 3] = [7, 36, 37];
 const STATE: u32 = 1 << 31;
 
+fn active_data() -> Vec<u8> {
+    let mut data = vec![0; 25];
+    data[0] = 1;
+    data
+}
+
 fn change(kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
         form: RefId::from_bytes([0x40, 1, 2]),
@@ -55,7 +61,7 @@ fn sav_29_all_types_preserve_each_source_flag_combination() {
                     data.extend(0x8000_0000u32.to_le_bytes());
                     data.extend(0x7FC0_0001u32.to_le_bytes());
                 } else if kind == 37 {
-                    data.extend([0x01, 0xFF, 0x00, 0xA5]);
+                    data.extend(active_data());
                 }
             }
             let form = change(kind, flags, data.clone());
@@ -82,12 +88,12 @@ fn sav_29_named_fields_retain_high_bits_and_state_markers() {
     assert_eq!(node.last_run_times, Some(vec![0x0000_0080]));
     assert_eq!(node.form_flags, None);
 
-    let scene = change(37, STATE, vec![0x01, 0xFF, 0xA5])
+    let scene = change(37, STATE, active_data())
         .scene_change()
         .unwrap()
         .unwrap();
     assert!(scene.active);
-    assert_eq!(scene.active_data, [0x01, 0xFF, 0xA5]);
+    assert_eq!(scene.active_data, active_data());
     assert_eq!(scene.form_flags, None);
 }
 
@@ -100,8 +106,10 @@ fn sav_29_rejects_truncated_defined_fields_and_unowned_bytes() {
                 data.extend(2u32.to_le_bytes());
                 data.extend(0x3F80_0000u32.to_le_bytes());
                 data.extend(0x8000_0000u32.to_le_bytes());
+            } else if kind == 37 && flags & STATE != 0 {
+                data.extend(active_data());
             }
-            let required = if kind == 37 { 6 } else { data.len() };
+            let required = data.len();
             for cut in 0..required {
                 assert!(
                     decoded(&change(kind, flags, data[..cut].to_vec())).is_err(),
@@ -113,11 +121,11 @@ fn sav_29_rejects_truncated_defined_fields_and_unowned_bytes() {
             let mut data = if flags & 1 != 0 { vec![0; 6] } else { vec![] };
             if kind == 36 && flags & STATE != 0 {
                 data.extend(0u32.to_le_bytes());
+            } else if kind == 37 && flags & STATE != 0 {
+                data.extend(active_data());
             }
             data.push(0);
-            if kind != 37 || flags & STATE == 0 {
-                assert!(decoded(&change(kind, flags, data)).is_err());
-            }
+            assert!(decoded(&change(kind, flags, data)).is_err());
         }
     }
 }
@@ -165,7 +173,7 @@ fn sav_29_compressed_payloads_decode_and_reencode_exactly() {
             data.extend(1u32.to_le_bytes());
             data.extend(0x7FC0_0001u32.to_le_bytes());
         } else if kind == 37 {
-            data.extend([0x01, 0xFF, 0xA5]);
+            data.extend(active_data());
         }
         let mut encoder =
             flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
