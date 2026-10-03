@@ -425,6 +425,7 @@ remaining gaps are already assigned to their feature rows above.
 | [hkxpack](https://github.com/Dexesttp/hkxpack) | Lower priority format research. Its stated Havok 2014 target differs from Skyrim's 2010 packfiles. |
 | [Open Papyrus documentation](https://open-papyrus.github.io/docs/Papyrus_Language_Reference/index.html) | Additional language-reference candidate discovered through the compiler's references. Not independently audited here. |
 | [Ormin ScriptConverter](https://github.com/Ormin/skyblivion-ScriptConverter) | Defer unless earlier-game script conversion enters scope. It does not answer the current Skyrim runtime gaps. |
+| [SkyCraft](https://github.com/chasmlol/SkyCraft) | MIT. An SKSE plugin on CommonLibSSE-NG that renders a hidden Minecraft server inside Skyrim, reviewed at `bfcaf17` (2026-10-01). Gameplay ideas only: the terrain material lookup, stagger direction, light flicker and weapon skill use were ported on 2026-10-03, each checked against corpus sources first. Its Address Library IDs and hit pipeline offsets come from the binary, so none of that reaches the engine. |
 
 ## Follow-up work with acceptance checks
 
