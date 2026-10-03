@@ -1368,6 +1368,10 @@ mod shm_12_adversarial;
 mod shm_12_cpp_bridge;
 #[path = "shm_12_live_world.rs"]
 mod shm_12_live_world;
+#[path = "shm_14_breaker_adversarial.rs"]
+mod shm_14_breaker_adversarial;
+#[path = "shm_14_cpp_live_bridge.rs"]
+mod shm_14_cpp_live_bridge;
 #[path = "shm_14_world_contracts.rs"]
 mod shm_14_world_contracts;
 #[path = "shm_15_adversarial.rs"]

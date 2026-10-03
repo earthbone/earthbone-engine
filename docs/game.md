@@ -5,6 +5,10 @@ values in the existing actor component store for actors already built in the
 world. It resolves actor-value indices through the vanilla actor-value name
 table. Its default-object lookup reads DOBJ records through the footstep
 record view and returns the resolved FormID. It does not cache either result.
+SHM-14 adds runtime FormID handles to the `WorldState` player view. Its C++
+contract test queries player identity, position, actor values, death state and
+loaded actor forms from a Rust service borrowing `World`. Player object-reference
+handles contain the runtime FormID.
 
 `ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
 regional sound entry's `RDMO` when the cell has none. It returns eligible
