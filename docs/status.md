@@ -1,6 +1,6 @@
 # Status, per subsystem
 
-## Checkpoint, 2026-10-03, backlog run round 3
+## Checkpoint, 2026-10-03, end of backlog run round 3
 
 The lead refreshes this section after every backlog round. The table comes from
 `.soe-run-tools/status_table.py` over BACKLOG.csv. Open rows carry their
@@ -8,29 +8,29 @@ remaining work in the evidence column, partial rows name the open clause.
 
 | Area | Done | Open | Blocked |
 |---|---:|---:|---:|
-| Papyrus natives (SCR) | 43 | 30 | 0 |
+| Papyrus natives (SCR) | 44 | 29 | 0 |
 | Saves (SAV) | 55 | 3 | 11 |
+| Menus and HUD (UI) | 13 | 11 | 0 |
 | Animation (ANM) | 51 | 8 | 0 |
 | Magic (MAG) | 65 | 5 | 3 |
 | CommonLib shim (SHM) | 15 | 8 | 0 |
+| Test harness (TST) | 10 | 8 | 0 |
 | Playtest bots (PLY) | 0 | 7 | 0 |
-| Test harness (TST) | 10 | 7 | 0 |
 | AI packages, schedules, detection (AI) | 86 | 1 | 4 |
 | Godot host (HST) | 14 | 5 | 0 |
-| Menus and HUD (UI) | 13 | 5 | 0 |
 | Audio (AUD) | 6 | 4 | 0 |
-| Progression, perks, skills, leveled lists (PRG) | 17 | 3 | 1 |
+| Progression (perks, skills, leveled lists) (PRG) | 17 | 3 | 1 |
 | Combat (CMB) | 35 | 2 | 1 |
 | Editor (EDT) | 25 | 3 | 0 |
+| Performance (PRF) | 8 | 3 | 0 |
 | File formats (FMT) | 28 | 2 | 0 |
-| Mod data, SPID, KID, BOS, OAR (MOD) | 8 | 2 | 0 |
-| Performance (PRF) | 8 | 2 | 0 |
+| Mod data (SPID, KID, BOS, OAR) (MOD) | 8 | 2 | 0 |
 | Rendering (RND) | 14 | 1 | 1 |
 | Tools (TOOL) | 3 | 2 | 0 |
 | Crafting (CRF) | 8 | 0 | 0 |
 | Dialogue (DLG) | 21 | 0 | 0 |
 | Inventory (INV) | 8 | 0 | 0 |
-| **All 655 rows** | **533** | **100** | **21** |
+| **All 663 rows** | **534** | **107** | **21** |
 
 ### What runs today
 
