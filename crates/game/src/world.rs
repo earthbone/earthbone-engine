@@ -215,6 +215,8 @@ pub struct RefState {
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
+    /// A door animation in progress. The settled destination is in `opened`.
+    pub open_transition: Option<DoorOpenTransition>,
     pub locked: bool,
     pub lock_level: i32,
     /// Saved key and lock metadata. None keeps the authored key.
@@ -259,7 +261,26 @@ pub struct RefState {
     pub translation: Option<reference_translation::RefTranslation>,
 }
 
+/// The transitional state of an animated door reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorOpenTransition {
+    Opening,
+    Closing,
+}
+
 impl RefState {
+    pub(crate) fn open_state(&self, is_door: bool) -> i32 {
+        if !is_door {
+            return 0;
+        }
+        match self.open_transition {
+            Some(DoorOpenTransition::Opening) => 2,
+            Some(DoorOpenTransition::Closing) => 4,
+            None if self.opened => 1,
+            None => 3,
+        }
+    }
+
     fn new(base: Option<GlobalFormId>) -> Self {
         RefState {
             base,
@@ -273,6 +294,7 @@ impl RefState {
             deleted: false,
             activation_blocked: false,
             opened: false,
+            open_transition: None,
             locked: false,
             lock_level: 0,
             lock_extra: None,

@@ -2716,19 +2716,10 @@ fn function_value(
         136 => boolean(subject == resolve_reference(world, context.owner, raw)?),
         157 => {
             no_parameter(c)?;
-            let (base, opened) = world
-                .reference(subject)
-                .filter(|reference| !reference.deleted)
-                .map(|reference| (reference.base, reference.opened))
-                .ok_or(Error::Form(subject))?;
-            let is_door = base.is_some_and(|base| world.tag_of(base) == Some(Tag(*b"DOOR")));
-            if !is_door {
-                0.0
-            } else if opened {
-                1.0
-            } else {
-                3.0
-            }
+            world
+                .door_open_state(subject)
+                .map(|state| state as f32)
+                .ok_or(Error::Form(subject))?
         }
         161 => {
             if c.parameters[1] != 0 {

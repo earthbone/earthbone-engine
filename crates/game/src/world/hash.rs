@@ -146,6 +146,11 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
+    h.u8(match s.open_transition {
+        None => 0,
+        Some(super::DoorOpenTransition::Opening) => 1,
+        Some(super::DoorOpenTransition::Closing) => 2,
+    });
     h.bool(s.locked);
     h.i32(s.lock_level);
     let mut extras = soe_papyrus::vm::state::Writer::new();
