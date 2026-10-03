@@ -2581,8 +2581,16 @@ direction. The master graph does not expose
 a hit direction through the outer graph's variable table. The gated
 `cmb_27_vanilla_hit_reaction_plays_and_returns_to_locomotion_without_damage`
 test checks the installed master graph plays its authored stagger clip and
-returns to the original active state. Exact hit direction and same-frame
-repeated deadlines are not represented by the current World event state.
+returns to the original active state. Same-frame repeated deadlines are not
+represented by the current World event state.
+
+Since 2026-10-03 `staggerStart` also carries `staggerDirection` from
+`World::stagger_direction_value`. The value is the bearing from the target to
+the stagger source, relative to the target's heading, wrapped into 0 to 1.
+0 means the source stands in front, so the target staggers backwards, and
+0.5 means it stands behind. This is the convention activeragdoll's
+`main.cpp` documents. A stagger with no source leaves the graph's previous
+value in place.
 
 The `cmb_19_` unit tests check bone assignment, frame conversion and the
 death-to-resurrection mode transition. The installed-data gated

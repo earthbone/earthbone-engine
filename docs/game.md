@@ -7669,3 +7669,13 @@ API](https://docs.wasmtime.dev/api/wasmtime/component/index.html) and the
 [Rust component build
 guide](https://component-model.bytecodealliance.org/language-support/creating-runnable-components/rust.html).
 The project decision and acceptance check are in `ENGINE-PLAN.md`, round 4.
+
+## Stagger direction and weapon skill use (2026-10-03)
+
+`World::stagger_direction_value` turns the stored stagger source into the
+behavior graph's `staggerDirection`: the bearing from the target to the
+source, minus the target's heading, as a fraction of a full turn. 0 means
+the source stands in front and the target staggers backwards, 0.5 means it
+stands behind. activeragdoll's `main.cpp` documents the same convention.
+`combat_stagger_adversarial.rs` checks the front, right, back and left
+quarters.

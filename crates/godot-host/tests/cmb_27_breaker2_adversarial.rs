@@ -162,7 +162,7 @@ fn moving_locomotion_returns_after_authored_stagger_stop() {
     let locomotion = vm.active_states();
     assert!(!locomotion.is_empty());
     assert!(soe_godot_host::godot_actor::send_stagger_start(
-        &mut vm, magnitude
+        &mut vm, magnitude, None
     ));
     let played_reaction = (0..90).any(|_| {
         vm.update(1.0 / 60.0);

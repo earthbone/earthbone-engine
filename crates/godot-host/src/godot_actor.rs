@@ -85,9 +85,18 @@ enum StaggerGraphEvent {
     Stop,
 }
 
-/// Send the shared actor's stagger magnitude and start event to its graph.
-pub fn send_stagger_start(vm: &mut Interpreter<'_>, magnitude: f32) -> bool {
+/// Send the shared actor's stagger magnitude, direction and start event to
+/// its graph. `direction` is `World::stagger_direction_value`, the graph
+/// keeps its previous `staggerDirection` when it is `None`.
+pub fn send_stagger_start(
+    vm: &mut Interpreter<'_>,
+    magnitude: f32,
+    direction: Option<f32>,
+) -> bool {
     vm.variables.set_by_name("staggerMagnitude", magnitude);
+    if let Some(direction) = direction {
+        vm.variables.set_by_name("staggerDirection", direction);
+    }
     vm.send_event_named("staggerStart")
 }
 
@@ -408,10 +417,10 @@ impl SkinnedActorNode {
             return;
         };
         match stagger_event {
-            Some((StaggerGraphEvent::Start, magnitude)) => {
-                send_stagger_start(vm, magnitude);
+            Some((StaggerGraphEvent::Start, magnitude, direction)) => {
+                send_stagger_start(vm, magnitude, direction);
             }
-            Some((StaggerGraphEvent::Stop, _)) => {
+            Some((StaggerGraphEvent::Stop, _, _)) => {
                 vm.send_event_named("staggerStop");
             }
             None => {}
@@ -716,7 +725,7 @@ impl SkinnedActorNode {
         }
     }
 
-    fn take_stagger_event(&mut self) -> Option<(StaggerGraphEvent, f32)> {
+    fn take_stagger_event(&mut self) -> Option<(StaggerGraphEvent, f32, Option<f32>)> {
         let Some(binding) = &mut self.appearance else {
             return None;
         };
@@ -728,7 +737,10 @@ impl SkinnedActorNode {
         binding
             .stagger
             .observe(deadline, world.clock.real_seconds)
-            .map(|event| (event, magnitude as f32))
+            .map(|event| {
+                let direction = world.stagger_direction_value(binding.actor);
+                (event, magnitude as f32, direction)
+            })
     }
 
     fn apply_queued_impulses(&mut self) {

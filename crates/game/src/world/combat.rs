@@ -913,6 +913,31 @@ impl World {
         })
     }
 
+    /// The behavior graph's `staggerDirection` for the actor's current
+    /// stagger, the bearing of its source relative to the actor's heading as
+    /// a fraction of a full turn. 0 (or 1) is a source straight ahead, so the
+    /// actor staggers backwards, 0.5 is a source behind it. Heading follows
+    /// the reference Z rotation, clockwise from north. The convention is the
+    /// one `activeragdoll/src/main.cpp` writes into the same graph variable.
+    /// `None` when no source was recorded or either reference has no
+    /// position, which leaves the graph's previous value in place.
+    #[must_use]
+    pub fn stagger_direction_value(&self, id: GlobalFormId) -> Option<f32> {
+        let source = self.actor_ref(id)?.stagger_direction?;
+        let target = self.reference_ref(id)?;
+        let from = self.reference_ref(source)?;
+        let (dx, dy) = (
+            from.position[0] - target.position[0],
+            from.position[1] - target.position[1],
+        );
+        if dx == 0.0 && dy == 0.0 {
+            return None;
+        }
+        let relative = dx.atan2(dy) - target.rotation[2];
+        let turn = relative.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+        turn.is_finite().then_some(turn)
+    }
+
     /// Commit one stagger application with its authored magnitude and source
     /// direction. Callers validate the duration before reaching this point.
     pub(super) fn begin_stagger(
