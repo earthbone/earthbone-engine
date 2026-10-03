@@ -8076,3 +8076,14 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## Deterministic tick work, PRF-14
+
+`Game::last_work_counts` returns the ten operation counters from the last
+`tick` or `tick_menu_mode`. Each tick starts a scoped work window. An enclosing
+scenario or host window includes that tick once. CTDA counts charge each
+attempted predicate, including errors, and exclude predicates skipped by OR
+short circuit. Runtime record overrides and created base records charge one
+lookup, while winning-record fallback charges through `LoadOrder`. Counters
+are transient diagnostics and have no saved fields. Quest-burst and error
+checks live in `tests/prf_14_work.rs`.

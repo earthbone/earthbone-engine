@@ -253,8 +253,9 @@ out-of-range endpoints.
 and `A*` with an independent Dijkstra oracle over generated directed, blocked
 graphs. Each property runs 192 cases. A fixed test requires both point searches
 to prune at least 90 percent of 1,024 separated meshes. Tie handling and cache
-invalidation have explicit tests. This is a mesh-level index, not a triangle
-index or hierarchical pathfinder. See `docs/performance.md` for measurements.
+invalidation have explicit tests. Point queries also use the triangle index
+described under PRF-14 below. This is not a hierarchical pathfinder.
+See `docs/performance.md` for measurements.
 
 ## String pulling validation
 
@@ -369,3 +370,24 @@ planned routes. Those changes must bind the footprint to the specific crossing
 link before runtime lock or door state can close that link and reopening can
 restore it. `NavGraph::door_nodes` only retains the authored association. It
 does not close a link based on runtime state.
+
+## Deterministic query work, PRF-14
+
+`locate` and `contains_point` count point queries, including invalid points.
+Every `height_at` candidate test increments the triangle count. A* counts
+non-stale queue pops, including the goal and unsuccessful search expansions.
+Invalid nodes and rejected path costs consume no expansions. The reachability
+flood also charges each expanded node. Counts are charged only inside a
+`soe_trace::WorkFrame`.
+
+Each mesh lazily builds a triangle bounds tree for point queries, using the
+existing median-split `SpatialIndex` and subtree escape traversal. Bounds
+include the barycentric tolerance used by `height_at`. All overlapping
+candidates remain available for nearest-height and stable NodeId selection.
+Blocked triangles remain indexed and are filtered by current graph state.
+The local `recastnavigation/Detour/Source/DetourNavMeshBuilder.cpp`
+`createBVTree` and `DetourNavMeshQuery.cpp` `queryPolygonsInTile` informed this
+extension of the existing tree. Detour uses quantized polygon bounds and its
+own mesh representation, so this graph retains floating triangle bounds and
+its native NAVM representation. The `prf_14_` tests compare edge and stacked
+floor queries with exhaustive selection and assert operation limits.

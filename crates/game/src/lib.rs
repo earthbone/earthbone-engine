@@ -181,6 +181,7 @@ pub struct Game {
     /// Hands currently held by direct player or scripted cast input.
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
+    last_work_counts: soe_trace::WorkCounts,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -258,6 +259,7 @@ impl Game {
             greeting_range_actors: BTreeSet::new(),
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
+            last_work_counts: soe_trace::WorkCounts::default(),
         }
     }
 
@@ -1334,6 +1336,7 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        let work_frame = soe_trace::WorkFrame::begin();
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
@@ -1410,6 +1413,13 @@ impl Game {
             }
         }
         self.push_tick_hash();
+        self.last_work_counts = work_frame.counts();
+    }
+
+    /// Deterministic operation counts for the last game tick, excluding host work.
+    #[must_use]
+    pub fn last_work_counts(&self) -> soe_trace::WorkCounts {
+        self.last_work_counts.clone()
     }
 
     fn resume_quest_lifecycle_tasks(&mut self) {

@@ -4212,3 +4212,22 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## Deterministic host work, PRF-14
+
+`PlayerNode.work_counts` returns all ten operation counters from the last
+`advance`, including its nested game tick, rays, headless capsule queries and
+host render instance creation. `CellStreamerNode.begin_work_frame` and
+`end_work_frame` bracket synchronous scripted work and return the same counter
+names, including zeros. End a window before awaiting another frame.
+RenderingServer `instance_create2` calls charge one instance, including
+MultiMeshes, actor surfaces, particles, lights and occluders. Host physics ray
+calls charge one query. Counts describe engine submissions, excluding Godot's
+internal renderer and physics work. Data-source workers enter the caller's
+recorder for each ordered chunk.
+
+`godot/prf_14_work_test.gd` loads the installed Bannered Mare, compares actual
+instance creation with the streamed count and verifies empty-window reset.
+It is a headless correctness check. The counter paths add no per-reference
+nodes and no saved state. The row uses the existing RenderingServer and
+PhysicsDirectSpaceState3D APIs described in the local Godot class docs.

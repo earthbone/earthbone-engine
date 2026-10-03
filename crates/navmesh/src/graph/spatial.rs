@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Median-split mesh bounds, following Detour's bounding volume tree in
+//! Median-split mesh and triangle bounds, following Detour's bounding volume tree in
 //! DetourNavMeshBuilder.cpp and DetourNavMeshQuery.cpp. Float bounds retain
 //! this graph's centroid and XY-height query semantics without tile quantization.
 
@@ -31,6 +31,39 @@ pub(super) struct SpatialIndex {
 }
 
 impl SpatialIndex {
+    pub(super) fn triangles(mesh: &Mesh) -> Self {
+        let mut items: Vec<_> = mesh
+            .triangles
+            .iter()
+            .enumerate()
+            .map(|(index, triangle)| {
+                let points = triangle.vertices.map(|v| mesh.vertices[v as usize]);
+                let mut min = [f32::INFINITY; 3];
+                let mut max = [f32::NEG_INFINITY; 3];
+                for point in points {
+                    for axis in 0..3 {
+                        min[axis] = min[axis].min(point[axis]);
+                        max[axis] = max[axis].max(point[axis]);
+                    }
+                }
+                // CONTEXT: height_at accepts barycentric weights down to -1e-4.
+                // Two negative weights can extend a point beyond a vertex bound.
+                for axis in 0..3 {
+                    let margin = (max[axis] - min[axis]) * 2e-4
+                        + min[axis].abs().max(max[axis].abs()).max(1.0) * f32::EPSILON * 4.0;
+                    min[axis] -= margin;
+                    max[axis] += margin;
+                }
+                (index, min, max)
+            })
+            .collect();
+        let mut index = Self::default();
+        if !items.is_empty() {
+            index.split(&mut items);
+        }
+        index
+    }
+
     pub(super) fn build(meshes: &[Mesh]) -> Self {
         let mut items: Vec<_> = meshes
             .iter()

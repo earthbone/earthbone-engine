@@ -56,6 +56,7 @@ pub fn first_contact<S: BuildHasher>(
     let mut state = PhysicsServer3D::singleton()
         .space_get_direct_state(space)
         .ok_or(Error::Unsupported("unavailable physics contact space"))?;
+    soe_trace::count(soe_trace::Operation::Raycasts, 1);
     let result = state.intersect_ray(&query);
     let Some(rid) = result
         .get("rid")
@@ -100,6 +101,7 @@ pub fn first_projectile_contact<S: BuildHasher>(
     let mut state = PhysicsServer3D::singleton()
         .space_get_direct_state(space)
         .ok_or(Error::Unsupported("unavailable projectile contact space"))?;
+    soe_trace::count(soe_trace::Operation::Raycasts, 1);
     let result = state.intersect_ray(&query);
     let Some(rid) = result
         .get("rid")
