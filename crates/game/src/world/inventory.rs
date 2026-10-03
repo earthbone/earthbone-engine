@@ -860,6 +860,21 @@ impl World {
         if moved == 0 {
             return 0;
         }
+        if self
+            .reference(holder)
+            .is_some_and(|reference| reference.inventory.count(item) == 0)
+        {
+            if let Some(actor) = self.actor(holder) {
+                actor.equipped.remove(&item);
+                actor.prevent_equipment_removal.remove(&item);
+                if actor.left_weapon == Some(item) {
+                    actor.left_weapon = None;
+                }
+                if actor.right_weapon == Some(item) {
+                    actor.right_weapon = None;
+                }
+            }
+        }
         let mut plain = moved;
         for stack in bundle.stacks() {
             if let Some(reference) = stack.reference() {

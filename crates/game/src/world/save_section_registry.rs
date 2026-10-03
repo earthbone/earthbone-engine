@@ -88,6 +88,27 @@ fn read_scr_15_actor(
     Ok(())
 }
 
+fn write_scr_74_actor(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.len(actor.prevent_equipment_removal.len());
+    for form in &actor.prevent_equipment_removal {
+        super::save::write_form_id(writer, *form);
+    }
+}
+
+fn read_scr_74_actor(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = reader.len()?;
+    for _ in 0..count {
+        actor
+            .prevent_equipment_removal
+            .insert(super::save::read_form_id(reader)?);
+    }
+    Ok(())
+}
+
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
@@ -365,6 +386,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "AI-64", write: write_movement_flags, read: read_movement_flags },
     Section { name: "AI-15", write: write_package_tree, read: read_package_tree },
     Section { name: "SHM-13", write: write_favorites, read: read_favorites },
+    Section { name: "SCR-74", write: write_scr_74_actor, read: read_scr_74_actor },
 ];
 
 fn write_favorites(actor: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {

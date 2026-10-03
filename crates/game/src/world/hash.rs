@@ -453,6 +453,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for e in &a.equipped {
         form(h, *e);
     }
+    form_set(h, &a.prevent_equipment_removal);
     opt_form(h, a.other_spell);
     opt_form(h, a.instant_spell);
     ai_state(h, &a.ai);

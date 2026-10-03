@@ -811,6 +811,14 @@ impl World {
         item: GlobalFormId,
         alloc: Alloc<'_>,
     ) -> Result<(), crate::combat::Error> {
+        if self
+            .actor(actor)
+            .ok_or(crate::combat::Error::Actor(actor))?
+            .prevent_equipment_removal
+            .contains(&item)
+        {
+            return Ok(());
+        }
         self.unequip_item(actor, item)?;
         let enchantment = self.item_enchantment(item)?;
         let effects: Vec<_> = self
