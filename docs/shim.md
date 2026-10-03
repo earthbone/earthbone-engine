@@ -240,10 +240,13 @@ headers `include/RE/E/ExtraMissingRefIDs.h`,
 `include/RE/E/ExtraPoison.h` and `include/RE/E/ExtraTeleport.h`.
 The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
 absent value. The game adapter reads outfit item, poison and door teleport
-values from shared reference and inventory state. Missing reference IDs and
-north rotation have no runtime backing field and report unsupported. Binary
-hook requests return a diagnostic through `HookRegistry::reject`. Poison
-counts retain CommonLib's unsigned 32-bit range through the Rust and C++ views.
+values from shared reference and inventory state. Missing reference IDs are
+read from the reference's resolved XAPR activation-parent records. North
+rotation reads the interior CELL default of zero, matching CommonLib when no
+extra is present. Exterior worldspace north rotation is not represented by the
+current runtime records and returns no value. Binary hook requests return a
+diagnostic through `HookRegistry::reject`. Poison counts retain CommonLib's
+unsigned 32-bit range through the Rust and C++ views.
 The first event batch adds typed `DisarmedEvent`, `DragonSoulsGained`,
 `LevelIncrease` and `LocationDiscovery` payloads, with one source for each on
 `ScriptEventSourceHolder`. Payload form identities are the load-order file

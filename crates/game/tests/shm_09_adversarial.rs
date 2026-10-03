@@ -27,13 +27,12 @@ fn world_with(reference: Record) -> World {
 }
 
 fn reference() -> Record {
-    Record::new(T(b"REFR"), 0x900)
-        .sub(T(b"NAME"), 0x800_u32.to_le_bytes())
+    Record::new(T(b"REFR"), 0x900).sub(T(b"NAME"), 0x800_u32.to_le_bytes())
 }
 
 #[test]
 fn shm_09_leveled_item_base_rejects_a_resolvable_non_lvli_form() {
-    let mut world = world_with(reference().sub(T(b"XLIB"), 0x800_u32.to_le_bytes()));
+    let world = world_with(reference().sub(T(b"XLIB"), 0x800_u32.to_le_bytes()));
     let view = world.shim_reference_extras(id(0x900)).unwrap();
 
     assert_eq!(
@@ -49,7 +48,7 @@ fn shm_09_light_data_accepts_the_optional_four_byte_tail_only() {
         .into_iter()
         .flat_map(f32::to_le_bytes)
         .collect::<Vec<_>>();
-    let mut short_world = world_with(reference().sub(T(b"XLIG"), short));
+    let short_world = world_with(reference().sub(T(b"XLIG"), short));
     let short_view = short_world.shim_reference_extras(id(0x900)).unwrap();
     assert_eq!(short_view.light_data().unwrap().unknown, 0);
 
@@ -58,11 +57,11 @@ fn shm_09_light_data_accepts_the_optional_four_byte_tail_only() {
         .flat_map(f32::to_le_bytes)
         .chain([0xA5, 0, 0, 0])
         .collect::<Vec<_>>();
-    let mut full_world = world_with(reference().sub(T(b"XLIG"), full));
+    let full_world = world_with(reference().sub(T(b"XLIG"), full));
     let full_view = full_world.shim_reference_extras(id(0x900)).unwrap();
     assert_eq!(full_view.light_data().unwrap().unknown, 0xA5);
 
-    let mut malformed_world = world_with(reference().sub(T(b"XLIG"), [0; 17]));
+    let malformed_world = world_with(reference().sub(T(b"XLIG"), [0; 17]));
     let malformed_view = malformed_world.shim_reference_extras(id(0x900)).unwrap();
     assert_eq!(malformed_view.light_data(), None);
 }
