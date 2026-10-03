@@ -128,6 +128,7 @@ impl DoorFade {
 }
 
 /// The color and visibility written to the shared Godot fade overlay.
+#[cfg(any(feature = "godot", test))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct FadeOverlayPresentation {
     pub(crate) rgba: [f32; 4],
@@ -135,6 +136,7 @@ pub(crate) struct FadeOverlayPresentation {
 }
 
 /// Resolve the game fade and door fallback into the overlay's rendered state.
+#[cfg(any(feature = "godot", test))]
 pub(crate) fn fade_overlay_presentation(
     door: &DoorFade,
     game: &GameFade,

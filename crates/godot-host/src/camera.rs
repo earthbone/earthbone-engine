@@ -175,6 +175,7 @@ impl CameraMode {
 }
 
 /// Apply one of the explicit Game camera mode requests to the live rig.
+#[cfg(any(feature = "godot", test))]
 pub(crate) fn apply_game_camera_request(rig: &mut CameraRig, first_person: bool) {
     rig.mode = if first_person {
         CameraMode::First
