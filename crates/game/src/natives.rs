@@ -3078,58 +3078,81 @@ fn utility(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
-    vm.natives.register_global(
-        "Utility",
-        "GetCurrentBudget",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .map_or_else(|| i(0), |budget| i(budget.1))
-        }),
-    );
-    vm.natives.register_global(
-        "Utility",
-        "OverBudget",
-        Box::new(|call| {
-            let index = call.arg(0).as_int();
-            b(ENGINE_BUDGETS
-                .get(usize::try_from(index).unwrap_or(usize::MAX))
-                .is_some_and(|budget| budget.2))
-        }),
-    );
-    // These queries depend on engine services that are not available in the
-    // shared World. Keep their unsupported state visible to Papyrus instead
-    // of returning the quiet `None` used by the old stub registrations.
-    for (name, arity, reason) in [
-        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
-        ("GetBudgetCount", 0, "memory tracking is unavailable"),
-        ("GetBudgetName", 1, "memory tracking is unavailable"),
-    ] {
-        let reason = reason.to_owned();
-        global!(vm, w, "Utility", name, |_world, call| {
-            if call.args.len() != arity {
-                call.log.push(
-                    call.time,
-                    format!(
-                        "error: Utility.{name} expects {arity} argument(s), got {}",
-                        call.args.len()
-                    ),
-                );
-                return none();
+    global!(vm, w, "Utility", "GetBudgetCount", |_world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetBudgetCount expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        i(ENGINE_BUDGETS.len() as i32)
+    });
+    global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
+        if call.args.len() != 1 {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetBudgetName expects 1 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        let Some(Value::Int(index)) = call.args.first() else {
+            call.log.push(
+                call.time,
+                "error: Utility.GetBudgetName expects an integer budget index",
+            );
+            return none();
+        };
+        let Ok(index) = usize::try_from(*index) else {
+            return none();
+        };
+        ENGINE_BUDGETS.get(index).map_or_else(none, |name| s(name))
+    });
+    global!(vm, w, "Utility", "GetCurrentBudget", |world, call| {
+        let index = call.arg(0).as_int();
+        match usize::try_from(index).ok() {
+            Some(0) => i(world.papyrus_instructions_last_slice as i32),
+            Some(1) => i(world.exterior_cell_loads_last_update as i32),
+            _ => i(0),
+        }
+    });
+    global!(vm, w, "Utility", "OverBudget", |world, call| {
+        let index = call.arg(0).as_int();
+        match usize::try_from(index).ok() {
+            Some(0) => {
+                b(world.papyrus_instructions_last_slice > crate::PAPYRUS_INSTRUCTIONS_PER_SLICE)
             }
-            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
-                call.log.push(
-                    call.time,
-                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
-                );
-                return none();
+            Some(1) => {
+                b(world.exterior_cell_loads_last_update > crate::EXTERIOR_CELL_LOADS_PER_UPDATE)
             }
-            call.log
-                .push(call.time, format!("error: Utility.{name}: {reason}"));
-            none()
-        });
-    }
+            _ => b(false),
+        }
+    });
+    // Memory tracking depends on a process-wide allocator service that is not
+    // available to the shared World.
+    global!(vm, w, "Utility", "GetCurrentMemory", |_world, call| {
+        if !call.args.is_empty() {
+            call.log.push(
+                call.time,
+                format!(
+                    "error: Utility.GetCurrentMemory expects 0 argument(s), got {}",
+                    call.args.len()
+                ),
+            );
+            return none();
+        }
+        call.log.push(
+            call.time,
+            "error: Utility.GetCurrentMemory: memory tracking is unavailable",
+        );
+        none()
+    });
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -3178,17 +3201,9 @@ fn utility(vm: &mut Vm, w: &Shared) {
     });
 }
 
-const ENGINE_BUDGETS: [(&str, i32, bool); 2] = [
-    (
-        "Papyrus instructions per slice",
-        crate::PAPYRUS_INSTRUCTIONS_PER_SLICE as i32,
-        false,
-    ),
-    (
-        "Exterior cell loads per update",
-        crate::EXTERIOR_CELL_LOADS_PER_UPDATE as i32,
-        false,
-    ),
+const ENGINE_BUDGETS: [&str; 2] = [
+    "Papyrus instructions per slice",
+    "Exterior cell loads per update",
 ];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {

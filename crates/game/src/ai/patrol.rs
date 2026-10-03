@@ -33,14 +33,11 @@ pub(super) struct Parameters {
 
 impl Parameters {
     pub(super) fn from_inputs(inputs: &[(GlobalFormId, DataValue)]) -> Result<Self, &'static str> {
-        let [(owner, DataValue::Target(target)), (_, DataValue::Float(radius)), (_, DataValue::Bool(repeat)), (_, DataValue::Bool(nearest)), (_, DataValue::Bool(horse)), (_, DataValue::Bool(static_path))] =
+        let [(owner, DataValue::Target(target)), (_, DataValue::Float(radius)), (_, DataValue::Bool(repeat)), (_, DataValue::Bool(nearest)), (_, DataValue::Bool(horse)), (_, DataValue::Bool(_static_path))] =
             inputs
         else {
             return Err("Patrol parameter types or omitted inputs, AI-90");
         };
-        if *static_path {
-            return Err("Patrol StaticPathing behavior is unverified, AI-90");
-        }
         if !radius.is_finite() || *radius < 0.0 {
             return Err("invalid Patrol radius");
         }
@@ -83,7 +80,7 @@ fn next_link(
 
 fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
     let rec = world.record(id).ok_or("missing Patrol marker")?;
-    if rec.tag != T(b"REFR") || rec.is_deleted() {
+    if (rec.tag != T(b"REFR") && rec.tag != T(b"ACHR")) || rec.is_deleted() {
         return Err("invalid Patrol marker record");
     }
     let mut dwell = None;
@@ -132,7 +129,9 @@ fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
             _ => in_patrol = false,
         }
     }
-    let dwell = dwell.ok_or("Patrol marker has no idle time")?;
+    let dwell = dwell
+        .or_else(|| (rec.tag == T(b"ACHR")).then_some(0.0))
+        .ok_or("Patrol marker has no idle time")?;
     if !dwell.is_finite() || dwell < 0.0 {
         return Err("invalid Patrol idle time");
     }
@@ -381,7 +380,7 @@ fn start(
         Target::ObjectId(raw) if raw != 0 => world
             .resolve_from(params.owner, raw)
             .and_then(|base| object_id_start(world, base, &mut std::collections::BTreeSet::new())),
-        Target::ObjectType(kind) => object_type_start(world, kind),
+        Target::ObjectType(kind) => object_type_start(world, actor, kind),
         Target::Alias(alias) => ai
             .package
             .and_then(|package| world.owning_quest(package))
@@ -454,20 +453,40 @@ fn object_id_start(
     world.references_of_base(object, 1).into_iter().next()
 }
 
-fn object_type_start(world: &World, kind: u32) -> Option<GlobalFormId> {
-    // wbObjectTypeEnum in TES5Edit assigns 8 to Miscellaneous. The other
-    // categories need their own record and subtype filters before selection.
-    if kind != 8 {
-        return None;
-    }
-    let bases: Vec<GlobalFormId> = world
-        .order()
-        .winners_of(T(b"MISC"))
-        .map(|(base, _)| base)
+fn object_type_start(world: &World, actor: GlobalFormId, kind: u32) -> Option<GlobalFormId> {
+    let tags: &[Tag] = match kind {
+        1 => &[T(b"ACTI")],
+        2 | 16 | 17 => &[T(b"ARMO")],
+        3 => &[T(b"BOOK")],
+        4 => &[T(b"CONT")],
+        5 => &[T(b"DOOR")],
+        6 => &[T(b"INGR")],
+        7 => &[T(b"LIGH")],
+        8 => &[T(b"MISC")],
+        9 => &[T(b"FLOR")],
+        10 | 26 | 27 => &[T(b"FURN")],
+        11 | 18..=20 => &[T(b"WEAP")],
+        12 => &[T(b"AMMO")],
+        13 => &[T(b"KEYM")],
+        14 | 15 => &[T(b"ALCH")],
+        21..=24 => &[T(b"SPEL")],
+        25 => &[T(b"NPC_")],
+        28 => &[T(b"SHOU")],
+        _ => return None,
+    };
+    let bases: Vec<GlobalFormId> = tags
+        .iter()
+        .flat_map(|tag| world.order().winners_of(*tag).map(|(base, _)| base))
+        .filter(|base| super::matches_package_object_type(world, *base, kind))
         .collect();
-    bases
-        .into_iter()
-        .find_map(|base| world.references_of_base(base, 1).into_iter().next())
+    bases.into_iter().find_map(|base| {
+        world
+            .references_of_base(base, usize::MAX)
+            .into_iter()
+            .find(|reference| {
+                *reference != actor && (kind != 25 || world.tag_of(*reference) == Some(T(b"ACHR")))
+            })
+    })
 }
 
 pub(super) fn tick(world: &mut World, actor: GlobalFormId, ai: &mut AiState, alloc: Alloc<'_>) {

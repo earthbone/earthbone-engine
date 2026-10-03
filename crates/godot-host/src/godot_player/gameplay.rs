@@ -9,6 +9,8 @@ use super::{
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode::*, Value};
 
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
@@ -39,6 +41,57 @@ fn restored_player_destination(
 }
 
 impl PlayerNode {
+    /// Invoke either main-menu Game native for host integration checks.
+    pub(super) fn invoke_main_menu_native_for_check(
+        &mut self,
+        name: &GString,
+        sequence: &GString,
+    ) -> bool {
+        let name = name.to_string();
+        let native_args = match name.as_str() {
+            "QuitToMainMenu" => Vec::new(),
+            "StartTitleSequence" => vec![ident("sequence")],
+            _ => return false,
+        };
+        let script_name = "SoeUi18MainMenuHostCheck";
+        let mut function = FunctionBuilder::new("Run", "None")
+            .global()
+            .local("result", "None");
+        let mut operands = vec![s("Game"), s(&name), ident("result")];
+        if name == "StartTitleSequence" {
+            function = function.param("sequence", "String");
+        }
+        operands.extend(native_args);
+        let bytes = ScriptBuilder::new(script_name, "Form")
+            .function(function.ins(CallStatic, operands).build())
+            .bytes();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.load_script(&bytes) {
+            godot_error!("PlayerNode: failed to load UI-18 host check script: {error}");
+            return false;
+        }
+        let args = if name == "StartTitleSequence" {
+            vec![Value::string(&sequence.to_string())]
+        } else {
+            Vec::new()
+        };
+        let thread = match game.vm.call_global(script_name, "Run", &args) {
+            Ok(thread) => thread,
+            Err(error) => {
+                godot_error!("PlayerNode: Game.{name} host check failed: {error}");
+                return false;
+            }
+        };
+        if !game.run_until_idle(64) || game.vm.thread_result(thread) != Some(Value::None) {
+            godot_error!("PlayerNode: Game.{name} host check did not complete");
+            return false;
+        }
+        self.apply_host_requests();
+        true
+    }
+
     /// Attach a Game whose vanilla-save restoration has already succeeded.
     /// Installs the restored location and camera, then advances one host frame.
     /// The caller must replace its active Game only after this returns true.
@@ -199,40 +252,11 @@ impl PlayerNode {
                 self.camera_shake = Some((0.0, shake.duration, shake.strength));
                 self.camera_shake_time = 0.0;
             }
-            let (hud_cart_mode, requests) = {
-                let mut world = game.world_mut();
-                (world.hud_cart_mode, world.take_game_ui_requests())
-            };
+            let hud_cart_mode = game.world().hud_cart_mode;
             if hud_cart_mode != self.presented_hud_cart_mode {
                 self.presented_hud_cart_mode = hud_cart_mode;
                 self.base_mut()
                     .emit_signal("hud_cart_mode_changed", &[Variant::from(hud_cart_mode)]);
-            }
-            for request in requests {
-                match request {
-                    soe_game::world::GameUiRequest::ShowRaceMenu => {
-                        self.base_mut().emit_signal("race_menu_requested", &[]);
-                    }
-                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
-                        if let Some(view) = self.hud_view.as_mut() {
-                            view.trigger_screen_blood(value);
-                        }
-                        self.base_mut()
-                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
-                    }
-                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
-                        self.base_mut().emit_signal(
-                            "bink_requested",
-                            &[
-                                Variant::from(GString::from(file_name.as_str())),
-                                Variant::from(options.interruptible),
-                                Variant::from(options.mute_audio),
-                                Variant::from(options.mute_music),
-                                Variant::from(options.letterbox),
-                            ],
-                        );
-                    }
-                }
             }
         }
         self.refresh_image_space();
@@ -269,6 +293,35 @@ impl PlayerNode {
                 soe_game::world::MenuRequest::Training(_) => {}
             }
         }
+        if let Some(game) = &mut self.game {
+            let requests = game.world_mut().take_game_ui_requests();
+            for request in requests {
+                match request {
+                    soe_game::world::GameUiRequest::ShowRaceMenu => {
+                        self.base_mut().emit_signal("race_menu_requested", &[]);
+                    }
+                    soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        if let Some(view) = self.hud_view.as_mut() {
+                            view.trigger_screen_blood(value);
+                        }
+                        self.base_mut()
+                            .emit_signal("screen_blood_requested", &[Variant::from(value)]);
+                    }
+                    soe_game::world::GameUiRequest::PlayBink { file_name, options } => {
+                        self.base_mut().emit_signal(
+                            "bink_requested",
+                            &[
+                                Variant::from(GString::from(file_name.as_str())),
+                                Variant::from(options.interruptible),
+                                Variant::from(options.mute_audio),
+                                Variant::from(options.mute_music),
+                                Variant::from(options.letterbox),
+                            ],
+                        );
+                    }
+                }
+            }
+        }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
             let requests = game.world_mut().take_effect_shader_requests();
             let world = game.world();
@@ -298,9 +351,11 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_camera_controls(&mut self) {
-        let Some(game) = &self.game else {
+        let Some(game) = &mut self.game else {
             return;
         };
+        game.world_mut()
+            .set_player_first_person(self.rig.mode == super::CameraMode::First);
         let controls = game.world().camera_controls;
         self.camera_state.apply(controls);
         self.rig

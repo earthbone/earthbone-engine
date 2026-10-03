@@ -20,6 +20,10 @@ mod actor_templates;
 mod actor_values;
 #[path = "actor_values_live.rs"]
 mod actor_values_live;
+#[path = "ai_04_adversarial.rs"]
+mod ai_04_adversarial;
+#[path = "ai_04_breaker_adversarial.rs"]
+mod ai_04_breaker_adversarial;
 #[path = "ai_04_package_fragments.rs"]
 mod ai_04_package_fragments;
 #[path = "ai_05_breaker_adversarial.rs"]
@@ -40,6 +44,10 @@ mod ai_14_adversarial;
 mod ai_14_breaker_adversarial;
 #[path = "ai_14_breaker_adversarial_2.rs"]
 mod ai_14_breaker_adversarial_2;
+#[path = "ai_14_breaker_breaker_adversarial.rs"]
+mod ai_14_breaker_breaker_adversarial;
+#[path = "ai_14_breaker_breaker_adversarial_2.rs"]
+mod ai_14_breaker_breaker_adversarial_2;
 #[path = "ai_15_adversarial.rs"]
 mod ai_15_adversarial;
 #[path = "ai_16_adversarial.rs"]
@@ -152,6 +160,8 @@ mod ai_45_adversarial;
 mod ai_45_crime_conditions;
 #[path = "ai_46_adversarial.rs"]
 mod ai_46_adversarial;
+#[path = "ai_46_breaker_adversarial.rs"]
+mod ai_46_breaker_adversarial;
 #[path = "ai_46_crime_conditions.rs"]
 mod ai_46_crime_conditions;
 #[path = "ai_47_adversarial.rs"]
@@ -204,6 +214,9 @@ mod ai_59_magic_conditions;
 mod ai_60_adversarial;
 #[path = "ai_60_magic_conditions.rs"]
 mod ai_60_magic_conditions;
+
+#[path = "ai_60_breaker_adversarial.rs"]
+mod ai_60_breaker_adversarial;
 #[path = "ai_61_adversarial.rs"]
 mod ai_61_adversarial;
 #[path = "ai_61_magic_conditions.rs"]
@@ -252,6 +265,8 @@ mod ai_69_adversarial;
 mod ai_69_quest_conditions;
 #[path = "ai_70_adversarial.rs"]
 mod ai_70_adversarial;
+#[path = "ai_70_breaker_adversarial.rs"]
+mod ai_70_breaker_adversarial;
 #[path = "ai_70_reference_state_conditions.rs"]
 mod ai_70_reference_state_conditions;
 #[path = "ai_71_adversarial.rs"]
@@ -326,8 +341,14 @@ mod ai_89_adversarial;
 mod ai_89_mounted_patrol;
 #[path = "ai_90_adversarial.rs"]
 mod ai_90_adversarial;
+#[path = "ai_90_breaker_adversarial.rs"]
+mod ai_90_breaker_adversarial;
 #[path = "ai_91_adversarial.rs"]
 mod ai_91_adversarial;
+#[path = "ai_91_breaker_adversarial.rs"]
+mod ai_91_breaker_adversarial;
+#[path = "ai_91_breaker_breaker_adversarial.rs"]
+mod ai_91_breaker_breaker_adversarial;
 #[path = "anm_09_adversarial.rs"]
 mod anm_09_adversarial;
 #[path = "anm_09_oar_runtime.rs"]
@@ -340,6 +361,8 @@ mod anm_58_adversarial;
 mod anm_58_breaker2_adversarial;
 #[path = "anm_58_breaker_adversarial.rs"]
 mod anm_58_breaker_adversarial;
+#[path = "anm_59_breaker_adversarial.rs"]
+mod anm_59_breaker_adversarial;
 #[path = "anm_59_expression.rs"]
 mod anm_59_expression;
 #[path = "atomic_save.rs"]
@@ -632,8 +655,12 @@ mod hst_16_translation;
 mod hst_17_camera_controls;
 #[path = "hst_18_adversarial.rs"]
 mod hst_18_adversarial;
+#[path = "hst_18_breaker2_adversarial.rs"]
+mod hst_18_breaker2_adversarial;
 #[path = "hst_19_adversarial.rs"]
 mod hst_19_adversarial;
+#[path = "hst_19_breaker2_adversarial.rs"]
+mod hst_19_breaker2_adversarial;
 #[path = "hst_19_screenshot_request.rs"]
 mod hst_19_screenshot_request;
 #[path = "image_space.rs"]
@@ -824,6 +851,8 @@ mod mag_63_adversarial;
 mod mag_64_adversarial;
 #[path = "mag_65_adversarial.rs"]
 mod mag_65_adversarial;
+#[path = "mag_65_breaker_adversarial.rs"]
+mod mag_65_breaker_adversarial;
 #[path = "mag_66_breaker_adversarial.rs"]
 mod mag_66_breaker_adversarial;
 #[path = "mag_66_breaker_breaker_adversarial.rs"]
@@ -913,6 +942,10 @@ mod prf_09_adversarial;
 mod prf_09_profiling;
 #[path = "prf_10_adversarial.rs"]
 mod prf_10_adversarial;
+#[path = "prf_10_breaker2_adversarial.rs"]
+mod prf_10_breaker2_adversarial;
+#[path = "prf_10_breaker_adversarial.rs"]
+mod prf_10_breaker_adversarial;
 #[path = "prf_10_budgets.rs"]
 mod prf_10_budgets;
 #[path = "prg_01_adversarial.rs"]

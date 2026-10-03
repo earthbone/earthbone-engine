@@ -172,7 +172,12 @@ fn cmb_37_vanilla_destructible_accepts_damage_and_saves_its_stage() {
     assert!(
         model.is_some(),
         "vanilla base {base} selected no stage model, indices={model_indices:?}, model_count={model_count}, layout={:?}",
-        record.subrecords.iter().filter(|sub| sub.tag == T(b"DSTD") || sub.tag == T(b"DMDL") || sub.tag == T(b"DSTF")).map(|sub| (sub.tag, sub.data.clone())).collect::<Vec<_>>()
+        record
+            .subrecords
+            .iter()
+            .filter(|sub| sub.tag == T(b"DSTD") || sub.tag == T(b"DMDL") || sub.tag == T(b"DSTF"))
+            .map(|sub| (sub.tag, sub.data.clone()))
+            .collect::<Vec<_>>()
     );
     drop(world);
     let save = game.world().save_state();

@@ -177,7 +177,7 @@ fn run_godot_audio_test(voices: Option<(Vec<u8>, Vec<u8>)>, headless: bool) {
     let script = project.join("dlg_11_audio_test.gd");
     let mut command = Command::new(godot);
     if headless {
-        command.arg("--headless");
+        command.args(["--headless", "--quit-after", "3600"]);
     }
     let output = command
         .args(["--path"])

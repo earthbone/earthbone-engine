@@ -485,6 +485,7 @@ impl PlayerNode {
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
             let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
         }
+        self.release_host_telekinesis();
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -529,6 +530,13 @@ impl PlayerNode {
         self.main_menu
             .title_sequence()
             .map_or_else(GString::new, GString::from)
+    }
+
+    /// Invoke a main-menu Game native for host integration checks.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn debug_invoke_main_menu_native(&mut self, name: GString, sequence: GString) -> bool {
+        self.invoke_main_menu_native_for_check(&name, &sequence)
     }
 
     /// Connect an already loaded character rig to this gameplay world's live
@@ -1295,6 +1303,34 @@ impl PlayerNode {
             row.set("far_file", i64::from(far.file));
             row.set("far_object", i64::from(far.object));
             row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Creation benches in the current logical cell, for gameplay tools.
+    #[func]
+    pub fn gameplay_creation_benches(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut references = game.world_mut().cell_references(cell);
+        references.sort_unstable();
+        let mut result = Array::new();
+        for id in references {
+            if !crate::crafting_menu::is_creation_bench(game, id) {
+                continue;
+            }
+            let active = game
+                .world_mut()
+                .reference(id)
+                .is_some_and(|reference| reference.enabled && !reference.deleted);
+            if !active {
+                continue;
+            }
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
             result.push(&row);
         }
         result

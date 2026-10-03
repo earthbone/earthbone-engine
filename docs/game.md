@@ -464,6 +464,17 @@ function diagnostic because the local CK corpus provides no usable condition
 semantics and the required alias keyword, package or actor-process state is
 not represented. The reference conditions are covered by
 `ai_73_reference_conditions.rs` and `ai_77_reference_conditions.rs`.
+`ai_70_reference_state_conditions.rs` covers condition 27 `GetLineOfSight` by
+reading the latest successful actor perception step, condition 36 `MenuMode`
+from the host's generic menu-mode flag for parameter 0, and condition 39
+`GetDisease` by checking active effects for the winning `MagicDisease` keyword.
+xEdit supplies function names and parameter types. The local CK corpus has no
+CTDA pages for these functions. The LOS behavior follows the CK `Actor.HasLOS`
+description, menu state follows `Utility.IsInMenuMode`, and disease matching
+follows the CK `HasMagicEffectWithKeyword` disease example. The runtime does
+not retain menu identities, so nonzero menu IDs return an explicit diagnostic.
+`World::evaluate_detection` replaces the transient LOS pairs only after the
+whole observation batch succeeds. LOS and menu state are not saved.
 `ai_79_relationship_conditions.rs` covers condition functions 42 `SameFaction`,
 43 `SameRace`, 44 `SameSex`, 60 `GetFactionRankDifference`, 68 `GetIsClass`,
 129 `GetPCIsClass` and 130 `GetPCIsRace`. These read actor factions, race,
@@ -646,9 +657,10 @@ CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 shim exposes source-level C++ declarations only, without an FFI bridge.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
-and their chargen TRI files before processing later race menu requests. The
-clear request drops those retained file buffers. These requests add no saved
-state.
+and their chargen TRI files before processing later race menu requests. It
+processes these host requests before emitting the race menu presentation
+signal. The clear request drops those retained file buffers and resets their
+residency and byte accounting. These requests add no saved state.
 
 `Game.ShowTrainingMenu(actor)` queues a training-menu request containing the
 actor form when the argument resolves to an actor reference. Invalid or missing
@@ -820,8 +832,8 @@ actor. `ClearExpressionOverride` removes it. `World::facial_expression`
 returns the active override, or maps the actor's record-backed AIDT mood to
 the corresponding mood expression at full strength after clearing. The
 override is an actor save section named `ANM-59` and participates in the
-determinism hash. The host maps expression ids to head blend shape names.
-Loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
+determinism hash. The host maps expression ids to head blend shape names and
+loads matching expression deltas from the head's companion `.tri` file.
 
 **Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
 instance, one selected soul gem stack, an ENCH form and the caller's learned
@@ -841,8 +853,19 @@ keywords. Function 579 compares the equipped shout, and 632 reports a held
 concentration cast. Casting source values outside Left, Right, Voice and
 Instant return a parameter error. Voice and Instant have no selected spell in
 this runtime, so spell comparisons return false and casting type returns zero.
-Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
-state, dual-cast animation state and active voice variation are not tracked.
+Functions 602, 627 and 676 read host-reported actor state. Function 602
+compares the supplied ward state against xEdit's None, Absorb and Break values.
+Function 627 returns the host's dual-casting flag, and 676 returns the current
+shout voice variation as an integer-valued condition result. `World` setters
+signal these values, and unset state returns an unavailable-state diagnostic.
+These host signals are transient and reset when an actor is rebuilt after load.
+They participate in the determinism hash while present.
+The condition ids and parameter types follow local xEdit
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The ward enum is also defined there.
+CommonLibSSE-NG's `Actor::IsDualCasting` reads the high-process flag, which
+supports treating this as animation/process state. The local CK dump has no
+condition pages for these three natives, so shout variation's numeric value is
+passed through as reported by the host without interpreting its range.
 
 **Follower services.** `World::recruit_follower` validates the actor,
 service faction and follow package. It enables teammate status and the
@@ -1098,10 +1121,10 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
 | `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
 | `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetName` | CK reports a budget name by index. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Quiet stub, owned by SCR-50. |
-| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Quiet stub, owned by SCR-51. |
+| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Returns the two engine budget categories documented below. |
+| `Utility.GetBudgetName` | CK reports a budget name by index. Returns the engine category name, or `None` for an invalid index. |
+| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Returns the measured Papyrus instructions or exterior cell loads for the latest update. |
+| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Compares the measured count with its configured cap. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 | `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 
@@ -1224,14 +1247,15 @@ derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine limits: `Papyrus instructions per slice`
-  and `Exterior cell loads per update`. `GetCurrentBudget` returns the matching
-  limit from `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
-  `EXTERIOR_CELL_LOADS_PER_UPDATE`. `OverBudget` returns false because these
-  limits are scheduling caps and the runtime does not expose usage counters.
-  Invalid indices return an empty name, zero and false. The CK Utility page
-  documents these global signatures, and SKSE's vanilla `Utility.psc` declares
-  them as global natives.
+- `GetBudgetCount` reports two engine categories: `Papyrus instructions per
+  slice` and `Exterior cell loads per update`. `GetCurrentBudget` returns the
+  measured instruction count from the most recent VM slice or exterior cell
+  load count from the most recent host streaming update. `OverBudget` compares
+  that measurement with `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid indices return `None`, zero and
+  false for name, integer and boolean queries. The CK Utility page documents
+  these global signatures, and SKSE's vanilla `Utility.psc` declares them as
+  global natives.
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 remains unsupported because the actor
 state has no search state. `Actor.GetSleepState`
@@ -1269,17 +1293,19 @@ Their CK contracts are described by
 
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
 Without available capture data, they return `None` and log that beta capture is
-unavailable. `GetCurrentMemory`,
-`GetBudgetCount` and `GetBudgetName` require memory tracking, and no game or
-host memory-tracking provider exists. Calls return `None` and add an explicit
-error to the Papyrus log. `GetBudgetName` also requires exactly one integer
-index. The capture lifecycle and average query remain available. The scheduler
-budget methods `GetCurrentBudget` and `OverBudget` report two engine limits:
-`Papyrus instructions per slice` and `Exterior cell loads per update`.
-`GetCurrentBudget` returns each configured limit, and `OverBudget` is false
-because these are scheduling caps, not measured usage counters. The CK Utility
-page documents these signatures, and SKSE's vanilla `Utility.psc` declares
-them as global natives.
+unavailable. `GetCurrentMemory` requires a memory-tracking provider, which the
+game and host do not have, so it returns `None` and logs an error. The capture
+lifecycle and average query remain available.
+`GetBudgetCount` returns two engine categories, `Papyrus instructions per slice`
+and `Exterior cell loads per update`. `GetBudgetName` returns those names by
+index. `GetCurrentBudget` reads the instruction count returned by the most
+recent VM scheduler slice or the number of exterior cells committed by the
+most recent host streaming update. Before a measurement, each value is zero.
+`OverBudget` compares the measured value with that category's configured cap.
+Invalid indices return zero, false or `None` for integer, boolean and name
+queries. `GetCurrentMemory` remains unavailable and is not needed to read these
+engine-owned counters. The CK Utility page documents the signatures, and
+SKSE's vanilla `Utility.psc` declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
@@ -2492,15 +2518,21 @@ actor's first link or the link matching the authored keyword. These selectors
 still require the selected reference to pass the search eligibility checks.
 Object Type values 1 to 15 match their corresponding base record types. Values
 14 and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
-Unknown Object Type values and other target selectors are unsupported. A
-negative authored radius is unsupported. The search uses the
+Values 16 and 17 match combat wearable armor and any armor. Combat wearable
+uses the `ARMO.BOD2` or `BODT` armor type, where 0 is Light, 1 is Heavy, and 2
+is Clothing. Values 18 to 20 select unarmed, melee, and ranged weapons by
+`WEAP.DNAM`. Values 21 to 24 select spells by delivery, 25 selects placed
+actors, 26 and 27 select beds and chairs by furniture animation, and 28
+selects shouts. Unknown Object Type values and other target selectors are
+unsupported. A negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
 or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
 authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
 Find procedure page. Target kinds and Object Type labels follow xEdit's
-`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. The UESP
+`wbDefinitionsTES5.pas` `PTDA` and `wbObjectTypeEnum` definitions. Its `ARMO`
+`BOD2` and `BODT` definitions supply the armor subtype offsets and enum. The UESP
 PACK page documents value 11 as any weapon, and xEdit's `wbRecord(ALCH)`
 defines the Food Item flag. Package alias resolution uses the actor's selected
 quest alias or the package owner quest. Linked references use the actor's
@@ -2592,11 +2624,16 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
+AI-14 evaluates eligible simultaneous children in tree order. Wait children
+share one real-time deadline, using the longest active Wait unless a child
+marked to complete the package supplies an earlier deadline. UseMagic children
+cast through the actor's assigned spell path while that Wait group runs. A
+UseMagic child marked to complete the package ends the group after its cast.
+Async procedure children remain unsupported.
+
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
-calling the `On Begin`, `On End` and `On Change` package fragments at
-package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
-driver does not yet call them, AI-04), idles and topics, once per day for
+idles and topics, once per day for
 packages that end without arriving, `Must Complete`, interrupt flags, combat
 interrupt overrides, door unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
@@ -3578,15 +3615,19 @@ batch.
 resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
 deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
 with a resolved VTYP. `GetIsObjectType` compares the subject base record's
-CommonLib form-type code. First-person camera state, shared combat-group counts
-and the grabbed reference are unavailable runtime contexts, so functions 391,
-415, 416 and 463 return explicit condition errors. They do not silently match
-either boolean result. Local xEdit `wbDefinitionsTES5.pas` and UESP
+CommonLib form-type code. `IsPC1stPerson` reads the host POV state, while
+`IsPlayerGrabbedRef` compares its resolved REFR parameter with the grabbed
+reference. Group member and target counts walk live actor combat-target links:
+actors are grouped when they target the same combatant or target another member.
+An actor without a combat target has zero group counts. These transient values
+are not saved. Local xEdit `wbDefinitionsTES5.pas` and UESP
 `Raw_Function_Data.wikitext` supply the function indices and parameter types.
 Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
-VTYP and form-type links. The CK corpus does not document the four unavailable
-runtime states, and CMB-17 currently stores actor combat targets without a
-shared combat-group identity.
+VTYP and form-type links. The CK corpus has no individual condition pages for
+these functions. UESP describes 391 as the active player POV query. CK's
+`OnGrab_-_ObjectReference.wikitext` describes the player-grab event, but not
+the condition result. The runtime reads its POV and grab state and derives
+group counts from shared combat-target state.
 
 AI-44 implements crime CTDA functions 193, 375, 376 and 402. `GetPCExpelled`
 reads the referenced faction's player-expelled flag. The crime-gold functions
@@ -4049,19 +4090,26 @@ state sets LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads
 false until
 a bribe or intimidate native writes it.
 
-AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
-parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
-value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
-Arrested state reads the subject actor's `arrested` field, matching CK's
-`IsArrested`. Nonzero unused parameter slots and subjects without actor state
-return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
-`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
-has no arresting-target state to evaluate. Its condition is reported as
-`Error::Function(657)` instead of guessing from combat or alert state. The
-function names and parameter counts follow local xEdit
+AI-46 covers parameterless functions `GetBribeSuccess` (654),
+`GetIntimidateSuccess` (655), `GetArrestedState` (656) and
+`GetArrestingActor` (657). Bribe success reads the subject's
+`LastBribedIntimidated` actor
+value, consistent with CK's `SetBribed` status contract and the paired
+intimidation status functions `SetIntimidated` and `IsIntimidated`. Arrested
+state reads the subject actor's `arrested` field, matching CK's `IsArrested`.
+`GetIntimidateSuccess` (655) reports an unavailable result when the subject
+has the required actor state, because CK's `WillIntimidateSucceed` points to
+the unimplemented "Mod Player Intimidation" perk entry point. Subjects without
+the required confidence value return `Error::StateContract(655)`. Nonzero
+unused parameter slots and subjects without actor state return explicit
+errors for implemented predicates. `GetArrestingActor` (657) follows CK's
+`IsArrestingTarget`: it returns false for non-guards and non-alerted guards.
+The runtime does not track an alerted guard's active arrest interaction, so
+that context returns `Error::Unavailable(657)`. Function IDs and parameter
+counts follow local xEdit
 `wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`. The actor
-contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
-`IsArrestingTarget` pages.
+contracts follow the local CK `SetBribed`, `SetIntimidated`, `IsIntimidated`,
+`IsArrested`, `IsArrestingTarget` and `WillIntimidateSucceed` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
@@ -6410,8 +6458,12 @@ Its six ordered parameters are PathStart, PointRadius, Repeatable,
 StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
 Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
 vanilla Patrol template. Some branches omit optional inputs using index 255.
-Their defaults are not established, so those branches report Unsupported.
-Public parameter names do not determine execution.
+Omitted Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
+inputs default to false. Missing PathStart or PointRadius remains unsupported.
+The CK procedure-tree tutorial authors Static Pathing as a boolean input but
+does not describe a separate movement result. This runtime accepts either
+value and follows the same cached navmesh segment route for both. It does not
+model a separate static-path request or dynamic-obstacle replanning.
 
 PathStart currently supports a specific reference or the actor's keyword-free
 linked reference. Template overrides retain their defining plugin namespace.
@@ -6448,8 +6500,13 @@ accepts null topic placeholders. The primary author's
 [Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
 linked order, nearest entry, reversal and circular traversal. The
 [procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
-describes the parameter types. These sources provide no reusable runtime
-walker, so this implementation extends the existing actor driver.
+describes the parameter types and authors Static Pathing as an assigned input,
+without documenting a distinct path result. CommonLib names a
+`MovementMessageSetStaticPath` type, but its available declarations do not
+expose a Patrol-specific behavior contract. The runtime comparison fixture
+therefore establishes only that both values use the current cached navmesh
+segment walker. These sources provide no reusable runtime walker, so this
+implementation extends the existing actor driver.
 
 The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
@@ -6458,23 +6515,33 @@ PTDA alias through the package's owning quest and selects the alias's reference
 as the route start. That resolved global form identity is saved with Patrol
 progress, so an alias into an overriding plugin retains its namespace after
 reload. Object ID targets resolve in the package's defining plugin. A target
-that names a FormList searches its entries in authored order. Object Type 8,
-Miscellaneous, searches winning MISC bases in load-order order. Both paths save
-the selected reference identity with Patrol progress. Other Object Type values
-and Find-derived starts remain unsupported. AI-33's Find procedure owns its
-selected-reference result in the `AI-21` actor section.
+that names a FormList searches its entries in authored order. Object Type
+targets search matching winning base records in load-order order, then use the
+first placed reference of that base. The xEdit Object Type enum values 1
+through 28 map to their record categories. Food versus alchemy, combat armor,
+weapon classes, spell delivery, and bed versus chair furniture use their
+authored subtype fields. Object Type 8, Miscellaneous, searches winning MISC
+bases in load-order order. Actor targets require a placed actor reference, and
+an actor used as a route marker defaults to zero dwell if it has no XPRD.
+Both FormList and Object Type paths save the selected global reference
+identity with Patrol progress. AI-33's Find procedure owns a separate
+selected-reference result and is not present in this worktree.
 
-xEdit `wbDefinitionsTES5.pas` defines Object Type 8 as Miscellaneous and PTDA
-Object ID as a form link. The UESP PACK description confirms the target and
-count fields. The CK package target pages were not present in the local corpus.
+xEdit `wbDefinitionsTES5.pas` defines the Object Type categories, their
+subtypes, and PTDA Object ID as a form link. The UESP PACK description
+confirms the target and count fields. The CK package target pages were not
+present in the local corpus.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
 field contexts, invalid state, and
-`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`. The
-adversarial AI-91 tests check Object ID, FormList, and Object Type 8 selection
-and save/load of each selected start.
+`ai_91_alias_route_start_keeps_winning_namespace_and_saved_target`,
+`ai_91_form_list_route_start_saves_the_authored_first_reference` and
+`ai_91_object_type_route_starts_save_the_selected_reference`, and
+`ai_91_search_route_start_keeps_the_winning_namespace_and_saved_target`. The
+Object Type test covers each selectable enum category and saves and reloads its
+selected start.
 These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.

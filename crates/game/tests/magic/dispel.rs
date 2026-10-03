@@ -413,5 +413,9 @@ fn installed_dispel_archetype_survey_records_the_direct_cast_boundary() {
             }
         }
     }
-    eprintln!("Dispel survey: {effect_count} MGEF, {spell_count} SPEL, {} Dispel effects, {} linked spells, {accepted} accepted, {rejected:?}", dispels.len(), spells.len());
+    eprintln!(
+        "Dispel survey: {effect_count} MGEF, {spell_count} SPEL, {} Dispel effects, {} linked spells, {accepted} accepted, {rejected:?}",
+        dispels.len(),
+        spells.len()
+    );
 }

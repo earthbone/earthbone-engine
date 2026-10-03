@@ -60,7 +60,9 @@ fn installed_lock_byte_mapping_matches_authored_levels() {
             }
         }
     }
-    eprintln!("lock schema survey: {locks} locks, {authored} authored, {matched} level matches, byte pairs {bytes:?}");
+    eprintln!(
+        "lock schema survey: {locks} locks, {authored} authored, {matched} level matches, byte pairs {bytes:?}"
+    );
     assert!(locks >= 1000);
     assert!(authored >= 1000);
     assert!(
@@ -475,7 +477,10 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
             assert_eq!(world.key(id), loaded.key(id));
         }
     }
-    eprintln!("reference extras survey: {} saves, {references} references, {owners} ownership changes, {locks} locks, {leveled} leveled locks", paths.len());
+    eprintln!(
+        "reference extras survey: {} saves, {references} references, {owners} ownership changes, {locks} locks, {leveled} leveled locks",
+        paths.len()
+    );
     assert!(references >= 1000);
     assert!(owners >= 100);
     assert!(locks >= 1000);

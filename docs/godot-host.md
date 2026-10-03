@@ -96,6 +96,10 @@ Releasing Activate returns its body to rigid mode. The grabbed reference is
 cleared when the cell is replaced. These values are transient and are not
 saved.
 
+The host also sends the active first-person POV to Game each camera-control
+sync. CTDA function 391 reads this value, and function 463 compares its REFR
+parameter with the current grabbed reference.
+
 The grab path currently uses references with static collision bodies loaded
 for the active cell. Movable-reference body creation and synchronizing their
 physics pose into the shared world remain HST-12 work.
@@ -146,11 +150,12 @@ morph values.
 
 `Game.PrecacheCharGen` asks the host to read model files for playable race
 head-part choices and the TRI files tagged as chargen morphs on those parts.
-The streamer retains each available path once and reports retained file count,
-NIF count, TRI count, byte total and paths missing from the active data VFS.
-`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
-counts. The asset buffers are CPU-side file data. This does not upload preview
-meshes or apply morphs to a rendered actor.
+The host processes this request before the race menu request from the same
+Papyrus call sequence. The streamer retains each available path once and
+reports retained file count, NIF count, TRI count, byte total and paths missing
+from the active data VFS. `Game.PrecacheCharGenClear` drops the buffers and
+resets residency and byte counts. The asset buffers are CPU-side file data.
+This does not upload preview meshes or apply morphs to a rendered actor.
 
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
@@ -288,7 +293,16 @@ units of the eye ray and within the 180-unit reach. It confirms the World grab
 before changing the host body, moves the body to a
 fixed eye-relative distance on each physics step, and releases it when World
 clears the grab. A successful grab and release queue the reference's
-`OnGrab` and `OnRelease` events.
+`OnGrab` and `OnRelease` events. Losing input focus ends both hand casts and
+immediately releases any host body held by Telekinesis.
+
+`CellStreamerNode` exposes `telekinesis_grab_reference`,
+`telekinesis_move_reference` and `telekinesis_release_reference` for host
+integration checks. The move call accepts a position in Skyrim units. The
+release call restores rigid simulation at the body's current pose.
+`godot/mag_41_telekinesis_host_test.gd` uses the Bannered Mare's installed
+movable-reference body to check host movement and resumed rigid simulation
+after the release path.
 
 ### Grab Actor, MAG-66
 
@@ -376,6 +390,16 @@ draw them in Godot. It creates no per-actor scene nodes. Its contract is checked
 passes the changed geometry through the same axis conversion, bounds and surface validation
 as streamed meshes. Normals are generated from the changed geometry. The caller resolves
 the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+
+### Actor expression targets, ANM-59
+
+Animated actor head surfaces load a companion `.tri` file when its vertex count matches the
+head NIF surface. CK expression names in that file become Godot relative blend shapes
+with converted vertex and normal deltas. Each actor update reads the effective expression
+from the shared game world and sets the matching blend-shape weight to its strength divided
+by 100, clearing the other expression targets. Clearing a Papyrus override therefore lets
+the actor's current record mood drive the same head targets again. Other TRI morph names and
+head surfaces without a matching TRI remain unchanged.
 
 ## FaceGen tint textures, EDT-23
 
@@ -550,9 +574,10 @@ the cell view only after the author enters a valid `Data` directory or launches 
 with `SKYRIM_DATA` set.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
-per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`
-budget category through `Utility.GetBudgetCount`, `GetBudgetName`, `GetCurrentBudget` and
-`OverBudget`.
+per update. After a successful streaming update, it records the number of committed
+exterior cell loads in the shared game world. Papyrus exposes this measured count as the
+`Exterior cell loads per update` category through `Utility.GetCurrentBudget`.
+`OverBudget` compares it with the same configured cap.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
@@ -1552,6 +1577,9 @@ windowed Godot process at 640 by 360. The Rust test runs when `SOE_GODOT_BIN`
 names a Godot 4.4 or newer executable and the release extension exists at
 `target/release/libsoe_godot_host.so`. Otherwise it reports a skip. Build the
 extension with `cargo build -p soe-godot-host --release` before running it.
+The script rejects an extension missing the voice methods before playback.
+The automated launch quits after 3,600 frames, so a script error cannot leave
+the gate waiting indefinitely. A missing completion marker fails the test.
 The script explicitly loads `soe.gdextension` when needed, so a fresh checkout
 does not require an editor import or a cached extension list. This uses
 `GDExtensionManager.load_extension` from the local
@@ -1697,6 +1725,11 @@ the player, the geometry flag controls its RenderingServer instances in first
 person. Third-person view keeps the player appearance visible. The
 `hst_17_camera_controls.rs` test exercises the state readbacks and verifies
 the third-person camera yaw and position respond to the sitting offset.
+`SkinnedActorNode.set_first_person_geometry_visible` applies the same visibility
+change to every shape instance in its rig. The windowed
+`godot/hst_17_geometry_visibility_test.gd` check loads the installed vanilla
+body, hides its shape instances, then shows them and compares rendered pixel
+counts.
 
 ### Mouse and gamepad bindings
 
@@ -2943,11 +2976,15 @@ documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
 
 The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
-It lists positive inventory totals after applying the optional form or keyword
-filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+It lists positive inventory totals after applying the optional FormList's form
+and keyword matches. Stolen stacks are hidden unless the request asks to show
+them. Selecting a row transfers one item through `Game::gift_menu_transfer`
 and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
 with the accumulated nonnegative gift value. Both giving and taking use the
-same source and target transaction path.
+same source and target transaction path. The `ui_15_gift_menu_lists_only_filtered_forms_and_keywords`
+test checks that a direct form match and a keyword match appear while an
+unmatched inventory item does not. A second UI-15 test checks that a stolen
+row is hidden by default and shown when requested.
 
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
@@ -2992,6 +3029,19 @@ state to the host.
 Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
 native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
 crafting menu's recipe list and selected-recipe confirmation flow.
+
+`PlayerNode::gameplay_creation_benches` exposes enabled creation bench
+references in the loaded logical cell for runtime tools. The CRF-06 installed
+runtime check activates these references through `activate_reference`, then
+checks the recipe Control buttons and their confirmation callback in Godot.
+With the fresh live player inventory, the test exercises the insufficient
+ingredient rejection. The Rust presenter tests cover successful transaction
+confirmation.
+It runs with `SKYRIM_DATA` and the host extension loaded:
+
+```text
+SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --resolution 640x360 --script crf_06_crafting_menu_test.gd
+```
 
 `Game.ShowTrainingMenu(actor)` requests this presenter through a transient
 World request. The presenter shows the trainer's skill, current value, tier
@@ -3845,10 +3895,25 @@ sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
 returns that name or an empty string when none is active. A plain return clears
 any active sequence. Starting a new game leaves the main menu state.
 
-The SCR-31 host tests call both globals through Papyrus, check their transient
-requests, and apply those requests to the same menu state used by the host.
-`QuitToMainMenu` clears a current sequence, while `StartTitleSequence`
-preserves the requested sequence name.
+The Creation Kit `engine-refs/ck-wiki/Game_Script.wikitext` says
+`QuitToMainMenu` forces the game back to the main menu and
+`StartTitleSequence` plays the specified sequence in the title menu. The
+SCR-31 host tests call both globals through Papyrus and check their transient
+requests. `QuitToMainMenu` clears a current sequence, while
+`StartTitleSequence` preserves the requested sequence name.
+
+`PlayerNode.debug_invoke_main_menu_native` invokes either of those two Game
+globals through the active VM and consumes the resulting host request. The
+host emits `title_sequence_started(name)` for the menu presenter and exposes
+the active name through `active_title_sequence`. The Godot check
+`godot/ui_18_main_menu_test.gd` starts a live runtime, verifies the title
+sequence signal and menu state, reattaches the data source, and verifies that
+quitting closes gameplay and clears the sequence. Run it with installed game
+data and the built extension:
+
+```text
+SOE_GODOT_BIN --path godot --script ui_18_main_menu_test.gd --resolution 640x360
+```
 
 Open gaps, none closed by this row:
 

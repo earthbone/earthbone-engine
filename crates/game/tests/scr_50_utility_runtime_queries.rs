@@ -46,13 +46,16 @@ fn scr_50_beta_frame_rate_queries_report_missing_capture_provider() {
 #[test]
 fn scr_50_memory_queries_report_missing_tracking_provider() {
     let mut game = Game::new(LoadOrder::new());
-    for name in ["GetCurrentMemory", "GetBudgetCount"] {
-        assert_eq!(call(&mut game, name, &[]), Value::None);
-        assert!(game
-            .vm
-            .log
-            .contains(&format!("Utility.{name}: memory tracking is unavailable")));
-    }
+    assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetCurrentMemory: memory tracking is unavailable"));
+    assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::Int(2));
+    assert!(!game
+        .vm
+        .log
+        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
 }
 
 #[test]
@@ -69,9 +72,9 @@ fn scr_50_budget_name_validates_index_and_reports_missing_tracking() {
 
     assert_eq!(
         call(&mut game, "GetBudgetName", &[Value::Int(0)]),
-        Value::None
+        Value::string("Papyrus instructions per slice")
     );
-    assert!(game
+    assert!(!game
         .vm
         .log
         .contains("Utility.GetBudgetName: memory tracking is unavailable"));

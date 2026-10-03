@@ -30,8 +30,5 @@ fn scr_50_negative_budget_index_is_diagnosed_without_panicking() {
             .unwrap();
     assert!(g.run_until_idle(32));
     assert_eq!(g.vm.thread_result(t), Some(Value::None));
-    assert!(g
-        .traces()
-        .iter()
-        .any(|x| x.contains("GetBudgetName: memory tracking is unavailable")));
+    assert!(g.traces().is_empty());
 }

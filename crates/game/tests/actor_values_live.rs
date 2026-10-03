@@ -102,7 +102,9 @@ fn installed_actor_value_sources() {
         }
         examples.push((name, id, values));
     }
-    eprintln!("races={races}, DATA sizes={sizes:?}, NPCs={npcs}, resolved={resolved}, cached autocalc={cached}, unresolved={errors:?}");
+    eprintln!(
+        "races={races}, DATA sizes={sizes:?}, NPCs={npcs}, resolved={resolved}, cached autocalc={cached}, unresolved={errors:?}"
+    );
     drop(world);
     let mut world = game.world_mut();
     let player = world.player();

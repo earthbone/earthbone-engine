@@ -694,6 +694,13 @@ fn installed_quests_restore_stages_objectives_aliases_and_all_journal_instances(
         .iter()
         .filter(|id| id.file != DYNAMIC_FILE)
         .collect();
-    eprintln!("Unresolved identities across corpus: {dynamic} unique created forms, {} plugin forms: {:?}", statics.len(), &statics[..statics.len().min(12)]);
-    eprintln!("{} saves: {total} live quests, {unresolved} unresolved world identities, {waiting} stage-wait quests", paths.len());
+    eprintln!(
+        "Unresolved identities across corpus: {dynamic} unique created forms, {} plugin forms: {:?}",
+        statics.len(),
+        &statics[..statics.len().min(12)]
+    );
+    eprintln!(
+        "{} saves: {total} live quests, {unresolved} unresolved world identities, {waiting} stage-wait quests",
+        paths.len()
+    );
 }
