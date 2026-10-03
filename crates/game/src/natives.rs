@@ -269,7 +269,7 @@ pub(crate) fn register_with_budget_usage(
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 388;
+pub const NATIVE_COUNT: usize = 389;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1155,10 +1155,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "ObjectReference", "AddToMap", |world, call, me| {
         let fast_travel = call.arg(0).as_bool();
-        if let Some(r) = world.reference(me) {
-            r.on_map = true;
-            r.fast_travel = fast_travel;
-        }
+        world.add_to_map(me, fast_travel);
         none()
     });
     method!(
@@ -1657,7 +1654,11 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 );
                 return b(false);
             }
-            match crate::conditions::will_intimidate_succeed(world, me) {
+            match crate::conditions::will_intimidate_succeed(
+                world,
+                &|object, name| call.conditional_vars(object, &name),
+                me,
+            ) {
                 Ok(succeeds) => b(succeeds),
                 Err(error) => {
                     call.log
@@ -1688,6 +1689,21 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
         }
         none()
+    });
+    method!(vm, w, "Actor", "GetWarmthRating", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.GetWarmthRating expects no arguments");
+            return f(0.0);
+        }
+        match world.actor_warmth_rating(me) {
+            Ok(rating) => f(rating),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetWarmthRating: {error}"));
+                f(0.0)
+            }
+        }
     });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
         let package = world.current_package(me);
@@ -3037,14 +3053,21 @@ fn debug(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Debug", "PlayerMoveToAndWait", |world, call| {
         let target = world.form(&text(&call.arg(0)));
-        let success = target.is_some_and(|target| world.debug_player_move_to_reference(target));
-        if !success {
+        let Some(target) = target.filter(|target| world.reference(*target).is_some()) else {
             call.log.push(
                 call.time,
                 "Debug.PlayerMoveToAndWait: destination reference not found",
             );
-        }
-        f(if success { 1.0 } else { 0.0 })
+            return f(0.0);
+        };
+        let latent = call.defer();
+        world
+            .debug_host_requests
+            .push(DebugHostRequest::MovePlayerToReference {
+                reference: target,
+                latent,
+            });
+        NativeReturn::Latent(latent)
     });
     global!(vm, w, "Debug", "MoveToCell", |world, call| {
         if !world.debug_player_move_to_cell(&text(&call.arg(0))) {
@@ -4394,6 +4417,23 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Actor", "StartCannibal", |world, call, me| {
+        if world
+            .form_arg(&call.arg(0))
+            .and_then(|target| world.actor(target))
+            .is_some_and(|target| target.dead)
+        {
+            world.request_animation(me, "CannibalStart");
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ClearExtraArrows", |_world, call, _me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.ClearExtraArrows expects no arguments");
+        }
+        none()
+    });
     self_method!(
         vm,
         w,
@@ -5120,9 +5160,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
-        ("Actor", "StartCannibal"),
-        // Attached-arrow state is owned by the host renderer.
-        ("Actor", "ClearExtraArrows"),
         // Music and particle systems are not implemented yet.
     ];
     for (class, name) in methods_none {
@@ -5146,9 +5183,8 @@ fn stubs(vm: &mut Vm) -> usize {
         );
         n += 1;
     }
-    // No warmth system (the survival plugin is not loaded) and no sun to
-    // take a position from.
-    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
+    // No sun to take a position from.
+    let floats: &[(&str, &str, f32)] = &[];
     for (class, name, value) in floats {
         let global = *class == "Game";
         let v = *value;
@@ -5341,13 +5377,19 @@ mod tests {
 
     #[test]
     fn hst_18_world_exposes_current_crosshair_and_grabbed_references() {
-        let mut world = World::new(LoadOrder::new());
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        for object in [0x123, 0x456] {
+            plugin.push_top(soe_esm::Record::new(soe_esm::Tag(*b"REFR"), object));
+        }
+        let mut order = LoadOrder::new();
+        order.add("HostRefs.esm", plugin).unwrap();
+        let mut world = World::new(order);
         let crosshair = GlobalFormId {
-            file: 1,
+            file: 0,
             object: 0x123,
         };
         let grabbed = GlobalFormId {
-            file: 2,
+            file: 0,
             object: 0x456,
         };
         world.set_crosshair_reference(Some(crosshair));

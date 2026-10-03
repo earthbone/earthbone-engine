@@ -50,6 +50,7 @@ mod calendar;
 mod combat;
 pub mod commonlib;
 mod commonlib_events;
+pub mod commonlib_magic;
 mod contact;
 mod crime;
 mod death;
@@ -199,6 +200,10 @@ pub enum DebugHostRequest {
         cell: GlobalFormId,
         latent: Option<LatentId>,
     },
+    MovePlayerToReference {
+        reference: GlobalFormId,
+        latent: LatentId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -281,7 +286,7 @@ impl RefState {
         }
     }
 
-    fn new(base: Option<GlobalFormId>) -> Self {
+    pub(crate) fn new(base: Option<GlobalFormId>) -> Self {
         RefState {
             base,
             cell: None,
@@ -349,6 +354,8 @@ pub struct ActorState {
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
+    /// Forms the actor has marked in the magic favorites list.
+    pub favorites: BTreeSet<GlobalFormId>,
     /// CK knowable forms whose `Known` flag is set for the player.
     pub known_forms: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,

@@ -42,4 +42,8 @@ impl WorldState for World {
     fn actor_is_dead(&mut self, form: FormKey) -> Option<bool> {
         Some(self.actor(id(form))?.dead)
     }
+
+    fn runtime_form_id(&mut self, form: FormKey) -> Option<u32> {
+        self.exists(id(form)).then(|| self.runtime_id(id(form)))
+    }
 }

@@ -16,7 +16,7 @@ impl EventState for EmptyState {
     fn is_dead(&self, _: ActorHandle) -> Option<bool> {
         None
     }
-    fn is_in_bleedout(&self, _: ActorHandle) -> Option<bool> {
+    fn is_in_bleedout(&mut self, _: ActorHandle) -> Option<bool> {
         None
     }
     fn is_form_deleted(&self, _: FormId) -> Option<bool> {
@@ -29,7 +29,7 @@ impl EventState for EmptyState {
 
 #[test]
 fn unavailable_records_remain_unknown_instead_of_becoming_false_state() {
-    let state = EmptyState;
+    let mut state = EmptyState;
     assert_eq!(state.inventory_count(FormId(1), FormId(2)), None);
     assert_eq!(state.is_dead(ActorHandle(3)), None);
     assert_eq!(state.is_in_bleedout(ActorHandle(4)), None);
