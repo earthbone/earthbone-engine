@@ -16,7 +16,7 @@ func _weights(bank: Node) -> PackedFloat32Array:
 
 func _run() -> void:
 	var extension_status := GDExtensionManager.load_extension("res://soe.gdextension")
-	if extension_status != GDExtensionManager.LOAD_STATUS_OK:
+	if extension_status != GDExtensionManager.LOAD_STATUS_OK and extension_status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
 		printerr("FAIL: could not load res://soe.gdextension, status ", extension_status)
 		quit(1)
 		return

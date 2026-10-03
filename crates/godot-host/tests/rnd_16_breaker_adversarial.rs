@@ -31,13 +31,7 @@ fn order() -> LoadOrder {
 fn rnd_16_does_not_select_a_far_level_when_every_level_exceeds_the_pixel_limit() {
     let errors = [1.0, 1.2, 1.5, 2.0];
     let selected = select_far_level(errors, 1.0);
-    let selected_error = match selected {
-        LodLevel::L4 => errors[0],
-        LodLevel::L8 => errors[1],
-        LodLevel::L16 => errors[2],
-        LodLevel::L32 => errors[3],
-    };
-    assert!(selected_error < 1.0);
+    assert_eq!(selected, LodLevel::L4);
 }
 
 #[test]
