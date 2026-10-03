@@ -546,6 +546,23 @@ therefore participates in the same divergence report as world and VM state.
 
 ## Streaming
 
+### Vanilla save recovery sessions, SAV-61
+
+`save_recovery::accept_vanilla_recovery_session` performs a read-only
+dependency preflight before restoring a vanilla ESS. Missing plugins, missing
+scripts and changed regular/light plugin kinds return the report and refuse
+session start. ESS provenance that is unavailable in the format remains
+reported as unknown. Unimported projectile and hazard changes, opaque PCON
+remainders and PARW payloads also refuse execution so they are not silently
+omitted. Other supported restoration errors return before a recovery
+generation is written.
+
+After restoration succeeds, the host writes a native generation to the
+caller-provided recovery store. The operation does not open or replace the
+source ESS path. It does not claim that every vanilla change-form type or
+saved Papyrus behavior can be resumed. A caller has to opt into this operation
+after reviewing its returned dependency report.
+
 ### Attaching a restored player, SAV-19
 
 `PlayerNode::attach_restored_game` accepts a `Game` after its vanilla-save
@@ -2979,19 +2996,18 @@ default colors. Its active dialog setters model `SetColorDialogStartColor` and
 an accept callback or changing the row. Disabled and hidden options reject
 these callbacks. The callback names and argument order follow the local
 SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
-`SKI_ConfigManager.psc`. `KeyConflictScanner` checks vanilla control mappings
-first, then registered mod config mappings in registration order. A vanilla
-match has an empty config name, and a mod match reports that config's name.
-`remap_key_scanned` performs this lookup before dispatching the callback. The
-manager's Scaleform-bound presenter cannot serve the chosen native Godot UI,
-so this host models the public callback contract and the manager's conflict
-lookup. Conflict maps are currently supplied to `KeyConflictScanner` by the
-caller. The host does not yet query Godot's live input map or ask registered
-Papyrus configs for `GetCustomControl`. Color dialog parameters are exposed by
-the host model. They are not yet wired to Papyrus calls to the two SkyUI setter
-functions. Synthetic tests cover callback eligibility, vanilla and mod
-conflict precedence, callback arguments, color dialog parameters, acceptance
-and cancellation without Skyrim data.
+`SKI_ConfigManager.psc`. `KeyConflictScanner::from_bindings` derives vanilla
+conflicts from the active gameplay `Bindings`, including every key in a chord
+and the keyboard, mouse and gamepad columns. `remap_key_live` checks those
+bindings first, then asks each registered MCM config to run its
+`GetCustomControl(keyCode)` method in registration order. It reports the first
+nonempty custom control with that config's `ModName`. The older scanner
+constructor and `remap_key_scanned` remain available for focused callers and
+fixtures. Color dialog parameters are exposed by the host model. They are not
+yet wired to Papyrus calls to the two SkyUI setter functions. Synthetic tests
+cover active binding discovery, registered script calls, callback eligibility,
+conflict precedence, color dialog parameters, acceptance and cancellation
+without Skyrim data.
 
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
@@ -4056,3 +4072,13 @@ input, deterministic source ordering for ties, top-four opaque selection,
 valid combined indices and transformed `MultiMesh` placement. The frame-time
 comparison was run through `godot/bench.gd`. An exterior attempt was rejected
 because its large world coordinates produced zero rendered primitives.
+
+## Restored player attachment, SAV-19
+
+`PlayerNode::attach_restored_generation` reads a verified native generation
+into a fresh `Game`, installs the restored player cell, collision and camera,
+and advances one frame before reporting success. A failed generation read
+leaves the active game untouched. The destination cell and all six pose
+components must be present and finite before the host sync starts. The Godot
+acceptance check saves a live player's generation and attaches it to a fresh
+player using the same installed cell data.

@@ -42,6 +42,7 @@ pub mod objective_map;
 pub mod quest_journal;
 pub mod race_menu;
 pub mod ragdoll;
+pub mod save_recovery;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
