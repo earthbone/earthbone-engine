@@ -53,11 +53,12 @@ fn shm_09_reference_values_read_records_and_current_world_state() {
     state.fast_travel = true;
     state.display_name = Some("Renamed".into());
     let view = world.shim_reference_extras(id(0x900)).unwrap();
+    let extras: &dyn ReferenceExtraData = &view;
     assert_eq!(
-        view.leveled_item_base().unwrap().leveled_item,
+        extras.leveled_item_base().unwrap().leveled_item,
         FormId(0x801)
     );
-    let light = view.light_data().unwrap();
+    let light = extras.light_data().unwrap();
     assert_eq!(
         (
             light.fov,
@@ -68,20 +69,20 @@ fn shm_09_reference_values_read_records_and_current_world_state() {
         ),
         (10.0, 2.0, 300.0, 0.25, 7)
     );
-    let marker = view.map_marker().unwrap();
+    let marker = extras.map_marker().unwrap();
     assert_eq!(
         (marker.name.as_str(), marker.flags, marker.marker_type),
         ("Renamed", 7, 39)
     );
     assert_eq!(
-        view.linked_ref_children(),
+        extras.linked_ref_children(),
         &[LinkedRefChild {
             keyword: FormId(0x802),
             reference: ObjectRefHandle(0x901),
         }]
     );
     assert_eq!(
-        view.missing_linked_ref_ids(),
+        extras.missing_linked_ref_ids(),
         &[MissingLinkedRefId {
             keyword: FormId(0),
             linked_reference: FormId(0x999),
@@ -93,9 +94,10 @@ fn shm_09_reference_values_read_records_and_current_world_state() {
     state.linked.clear();
     state.display_name = None;
     let view = world.shim_reference_extras(id(0x900)).unwrap();
-    assert!(view.linked_ref_children().is_empty());
-    assert!(view.missing_linked_ref_ids().is_empty());
-    assert_eq!(view.map_marker().unwrap().name, "Marker");
+    let extras: &dyn ReferenceExtraData = &view;
+    assert!(extras.linked_ref_children().is_empty());
+    assert!(extras.missing_linked_ref_ids().is_empty());
+    assert_eq!(extras.map_marker().unwrap().name, "Marker");
 }
 
 #[test]

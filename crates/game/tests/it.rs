@@ -1352,6 +1352,8 @@ mod shm_06_world;
 mod shm_07_bindings;
 #[path = "shm_08_live_extra_data.rs"]
 mod shm_08_live_extra_data;
+#[path = "shm_09_adversarial.rs"]
+mod shm_09_adversarial;
 #[path = "shm_09_live_extras.rs"]
 mod shm_09_live_extras;
 #[path = "shm_11_adversarial.rs"]

@@ -214,10 +214,12 @@ The declarations follow `CommonLibSSE-NG-alandtse/include/RE/E/ExtraDataList.h`,
 equality includes its runtime removal flag and hotkey's unbound value is -1.
 The reference-extra API names `ExtraLeveledItemBase`, `ExtraLightData`,
 `ExtraLinkedRefChildren`, `ExtraMapMarker` and `ExtraMissingLinkedRefIDs` with
-read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
-implements for those values. Missing optional values mean the reference has no
-such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
-supported by this engine.
+read-only value views. `ReferenceExtraData` is the MIT boundary implemented by
+the game adapter. Missing optional values mean the reference has no such
+extra. The game test dispatches through this trait object after constructing a
+view from live `World` records and state. The C++ fixture checks the matching
+source-level declarations and unsupported-hook metadata. `EXTRA_DATA_HOOKS`
+reports that executable vtable hooks are not supported by this engine.
 `World::shim_reference_extras` supplies the game adapter for those five views.
 It borrows the world, reads XLIB, XLIG and map-marker fields through current
 records, and includes live marker names and visibility flags. Incoming links
