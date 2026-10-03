@@ -57,8 +57,24 @@ fn noop(_: &mut World, _: &EntryPointInvocation) {}
 
 #[test]
 fn prg_17_raw_rank_and_priority_accept_full_byte_range() {
-    let game = game(entry(u8::MAX, u8::MAX));
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(entry(u8::MAX, u8::MAX).sub(Tag(*b"NNAM"), (PERK + 1).to_le_bytes()));
+    for offset in 1..=u32::from(u8::MAX) {
+        let mut record = Record::new(Tag(*b"PERK"), PERK + offset);
+        if offset < u32::from(u8::MAX) {
+            record = record.sub(Tag(*b"NNAM"), (PERK + offset + 1).to_le_bytes());
+        }
+        plugin.push_top(record);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Prg17.esm", plugin).unwrap();
+    let game = Game::new(order);
     let actor = game.world_mut().player();
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .extend([id(PERK), id(PERK + u32::from(u8::MAX))]);
     let invocations = soe_game::perks::entry_point_invocations(
         &mut game.world_mut(),
         &game.vm,

@@ -96,7 +96,10 @@ fn ply_01_missing_move_target_rejects_without_changing_player_pose() {
 
 #[test]
 fn ply_01_export_shared_sequence_for_windowed_godot_comparison() {
-    let path = std::env::var_os("SOE_PLY_01_FIXTURE").expect("fixture output path is required");
+    let Some(path) = std::env::var_os("SOE_PLY_01_FIXTURE") else {
+        eprintln!("SOE_PLY_01_FIXTURE not set, skipping windowed fixture export");
+        return;
+    };
     let path = std::path::PathBuf::from(path);
     super::ply_01_player_input::export_window_fixture(&path);
     assert!(path.join("expected.log").is_file());

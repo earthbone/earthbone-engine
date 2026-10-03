@@ -1857,7 +1857,10 @@ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script h
 
 Record the date, selected device, sound, what the person heard and process
 exit status in [hst-05-audio-observation.md](hst-05-audio-observation.md).
-The record stays blank until the windowed run is observed. The
+The listening field stays blank until a person reports what they heard.
+Set `SOE_HST_05_LISTENING_CHECK=1` to validate that field with
+`cargo test -p soe-godot-host --test hst_05_breaker_adversarial` after recording
+the observation. Automated gates skip that human listening check. The
 `hst_05_audio_output` integration test runs the same script with Godot's dummy
 audio driver and installed game data. It checks device listing, selected
 device reporting and all three SoundBank starts. The dummy driver does not

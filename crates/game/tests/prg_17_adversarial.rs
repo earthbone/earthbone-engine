@@ -81,7 +81,10 @@ fn noop(_: &mut World, _: &EntryPointInvocation) {}
 #[test]
 fn prg_17_prke_raw_rank_zero_and_one_are_one_based_and_priority_is_retained() {
     const PERK_TWO: u32 = 0x802;
-    let mut game = game(vec![entry(PERK, 0, 17, None), entry(PERK_TWO, 1, 4, None)]);
+    let mut game = game(vec![
+        entry(PERK, 0, 17, None).sub(Tag(*b"NNAM"), PERK_TWO.to_le_bytes()),
+        entry(PERK_TWO, 1, 4, None),
+    ]);
     let actor = game.world_mut().player();
     game.world_mut()
         .actor(actor)

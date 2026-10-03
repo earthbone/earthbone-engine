@@ -65,7 +65,9 @@ again. `prg_09_race_skill_initialization.rs` checks manual and auto-calculated
 spawns, installed manual records, and reload behavior.
 
 The 60-save corpus was checked for saved NPC_ skill overrides on manual NPCs
-with nonzero race skill boosts. These overrides are DNAM data, not an
+with nonzero race skill boosts. None met the probe's filters, so the survey
+reports zero comparisons rather than requiring an example the corpus lacks.
+These overrides are DNAM data, not an
 individual met actor's current skill value. The save reader does not yet decode
 the remaining ACHR actor-value payload, so it cannot establish whether a
 manual skill in a live game is already racially adjusted. To settle that
