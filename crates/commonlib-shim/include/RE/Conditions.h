@@ -4,6 +4,10 @@
 #include "RE/Reference.h"
 #include <cstddef>
 #include <cstdint>
+#include <iomanip>
+#include <istream>
+#include <limits>
+#include <ostream>
 #include <vector>
 
 namespace RE {
@@ -45,6 +49,39 @@ public:
     virtual ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
                                          const ConditionContext& context,
                                          bool& result) = 0;
+};
+class ConditionRuntimeBridge final : public ConditionRuntime {
+public:
+    ConditionRuntimeBridge(std::istream& input, std::ostream& output) :
+        input_(input), output_(output) {}
+    ConditionError evaluate_item(const CONDITION_ITEM_DATA& item,
+                                 const ConditionContext& context,
+                                 bool& result) override {
+        const auto precision = output_.precision();
+        output_ << std::setprecision(std::numeric_limits<float>::max_digits10);
+        output_ << static_cast<unsigned>(item.flags) << ' '
+                << static_cast<unsigned>(item.comparison.is_global) << ' '
+                << item.comparison.number << ' ' << item.comparison.global.value << ' '
+                << item.function << ' ' << item.parameters[0] << ' ' << item.parameters[1] << ' '
+                << item.run_on << ' ' << item.reference.value << ' ' << item.parameter_3 << ' '
+                << static_cast<unsigned>(item.object) << ' ' << context.owner.value << ' '
+                << context.subject.value << ' ' << context.target.value << ' '
+                << static_cast<unsigned>(context.has_target) << ' ' << context.quest.value << ' '
+                << static_cast<unsigned>(context.has_quest) << '\n' << std::flush;
+        output_.precision(precision);
+        unsigned code = 0;
+        std::uint32_t detail = 0;
+        if (!(input_ >> code >> detail >> result)) {
+            return {ConditionErrorCode::UnavailableState, 0};
+        }
+        if (code > static_cast<unsigned>(ConditionErrorCode::InvalidCondition)) {
+            return {ConditionErrorCode::InvalidCondition, code};
+        }
+        return {static_cast<ConditionErrorCode>(code), detail};
+    }
+private:
+    std::istream& input_;
+    std::ostream& output_;
 };
 struct TESConditionItem {
     CONDITION_ITEM_DATA data;

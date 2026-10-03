@@ -79,9 +79,15 @@ carry resolved form ids, actor handles or actor values so a sink can resolve
 the event against the same engine state used by the other shim interfaces.
 The payload layouts follow alandtse CommonLibSSE-NG's
 `include/RE/S/ShoutAttack.h`, `SkillIncrease.h`, `SoulsTrapped.h`,
-`SpellsLearned.h` and `include/RE/T/TESCellFullyLoadedEvent.h`. The source-level
-headers do not connect these channels to runtime producers. The game must
-raise them when those mechanics are implemented.
+`SpellsLearned.h` and `include/RE/T/TESCellFullyLoadedEvent.h`. The MIT event
+holder exposes one source per payload. The game emits shout
+attacks after successful casts, player skill increases after a skill rank is
+gained, soul traps after a soul gem is filled, learned player spells when
+newly added, and fully loaded cells when streamed into the world. Binary hooks
+remain unsupported. The SHM-20 game integration test streams all five live
+payloads to the generated C++ event sources, whose sinks check the fields and
+the unsupported hook result. This test transport does not add a C++ to Rust
+ABI.
 
 SHM-04 adds `ActorPtr` as an optional actor handle and `ActorState` as a
 read-only snapshot of the states the runtime currently tracks. The
@@ -117,14 +123,28 @@ but does not provide engine interfaces. It declares the `SKSEPlugin_Query`, `SKS
 calls query and then load, and reports failures from either entry point. It supplies a non-null
 runtime descriptor to both entry points, but its interface query callback returns no services and
 does not bind to a running engine.
-Condition methods delegate to `ConditionRuntime`. The game implementation evaluates against the
-current world and VM. Native condition copying reports `UnsupportedHook`.
+Condition methods delegate to `ConditionRuntime`. `ConditionRuntimeBridge` forwards condition
+items and caller context over request/reply streams. The game evaluates each request against its
+current world and VM. Native condition copying reports `UnsupportedHook`. The SHM-17 integration
+fixture calls this bridge from compiled C++ and serves it from a live `Game` instance. The bridge
+is a condition-call transport for integration and is not a general plugin loader interface.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword. `RE::TESQuestStartStopEvent` matches CommonLib's 8-byte form id, started flag, failed
 flag and two-byte padding layout. The Rust shim event carries the resolved runtime form id and
 the quest's failed state. `soe-game` emits it after successful start and stop transitions through
 the MIT event sink API.
+The SHM-23 game integration test streams those emitted payloads to a compiled C++ event sink.
+The C++ sink checks successful start and failed-stop fields, plus the unsupported trampoline
+diagnostic. This test transport connects the live Rust world to the source-level C++ contract
+without adding a C ABI.
+
+The SHM-15 `RuntimeStateCallbacks` table defines the C++ callback boundary for the supported
+`TES` world view. `RE::CallbackTES` converts those callbacks into C++ `Setting`, `Sky` and
+`ReanimateEffect` values. Unsupported sit or sleep animation state and binary hooks return named
+diagnostics. The game fixture calls the C++ adapter, and its callback requests are answered by
+the test host through a pipe using the live `World` on each request. The MIT shim remains free
+of game crate dependencies. This callback table is not a Skyrim executable ABI.
 
 The SHM-02 fixture models Papyrus Extender's startup shape cited from
 `engine-refs/PapyrusExtenderSSE/src/main.cpp`: it defines the standard SKSE query, load and version
@@ -144,6 +164,29 @@ unsupported-state error, so a missing actor cannot appear as the default stage.
 
 `Actor::actor_ptr` requires each provider to return its optional handle. A
 stale actor handle can therefore be represented as an empty pointer result.
+
+## SHM-13 magic and equipment contracts
+
+`CommonLibMagic` in `soe-game` implements the MIT `MagicWorldState` provider
+over the current `World`. Favorite membership is a separate actor-owned set
+and is saved in the named `SHM-13` actor section. Casting checks report an
+active cast, exhausted power recovery and insufficient magicka where those
+states are represented, and return a typed unsupported-state error when the
+spell cost or record cannot be evaluated. Magic-target queries read the
+target's active applications, and spell dispel uses the existing world magic
+path.
+
+Map-marker visibility and fast-travel flags read and write the placed
+reference's `on_map` and `fast_travel` fields. `ShowAllHidden` has no runtime
+field and is rejected. Equip requests use the shared inventory equipment
+operation when parameters match the supported default. Extra-data, slot,
+force, message, sound and count variants return an unsupported-state error.
+The local alandtse CommonLib sources read for this mapping were
+`include/RE/M/MagicFavorites.h`, `MagicSystem.h`, `MagicTarget.h`,
+`include/RE/E/ExtraMapMarker.h` and
+`include/RE/M/MiddleHighProcessData.h`. The MIT Rust provider is the engine
+boundary. The generated C++ headers remain declarations and do not create a
+C ABI or executable singleton access.
 
 ## SHM-05 world contracts
 
@@ -179,9 +222,12 @@ runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
 values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
 source-level API. The C++ save fixture also changes live payload state, loads
-the saved bytes, and verifies the payload is restored. The shim has no C ABI,
-so C++ declarations alone cannot call into the Rust engine from a compiled
-binary.
+the saved bytes, and verifies the payload is restored. C++ declarations alone
+do not call into the Rust engine. The SHM-15 callback table supplies the
+selected world view.
+Other generated C++ declarations remain source-level contracts. The condition
+request/reply bridge is the current C++ to Rust runtime call path used by
+integration tests.
 
 ## SHM-07 world contracts
 
@@ -266,12 +312,36 @@ published field meaning and event source names informed this API. The Rust
 surface uses engine independent form identities and owns its own event source
 implementation.
 
+## SHM-22 event contracts
+
+`ScriptEventSourceHolder` also exposes the `TESGrabReleaseEvent`,
+`TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
+`TESQuestStageEvent` channels. Payload fields follow the local alandtse
+CommonLib headers `RE/T/TESGrabReleaseEvent.h`, `RE/I/ItemHarvested.h`,
+`RE/T/TESHitEvent.h`, `RE/T/TESObjectLoadedEvent.h`,
+`RE/T/TESQuestStageEvent.h` and `RE/S/ScriptEventSourceHolder.h`. Runtime
+references and actors use resolved runtime handles. Hit flags retain the four
+published low bits. The executable callback pointer in the quest stage event
+is not exposed.
+
+The game emits grab and release events when its held-reference state changes,
+harvest events after produce has been added to an actor inventory, and hit
+events after a melee contact commits. Reference loaded events follow 3D
+resource residency changes. Quest stage events follow successful defined
+stage changes and use item index zero because this runtime does not execute
+individual quest log callbacks. These channels have in-process Rust producers
+and generated source-level C++ declarations. They do not install executable
+hooks or connect an independently loaded binary plugin to the game.
+
 The event batch declares `TESContainerChangedEvent`, `TESDeathEvent`,
 `TESEnterBleedoutEvent`, `TESFormDeleteEvent` and `TESFurnitureEvent` payloads. `EventState`
-defines queries for current inventory count, death, bleedout, deletion and furniture occupancy
-for an engine binding to implement against live world state. Missing objects return
-`std::nullopt`. Vtable and call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK`
-description because those addresses have no meaning in this runtime.
+defines queries for current inventory count, death, bleedout, deletion and furniture occupancy.
+The game implements these queries on `World`: inventory reads an instantiated reference's item
+count, actor reads use current actor state, deletion reads reference flags and winning-record
+deletion flags, and furniture occupancy reads the actor's reserved seat. Unknown or uninstantiated
+objects return `std::nullopt`. The adapter reports an occupied seat as an Enter event. Vtable and
+call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK` description because those addresses
+have no meaning in this runtime.
 
 The event API includes payloads for `TESGrabReleaseEvent`,
 `TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
@@ -292,9 +362,11 @@ and omission of executable callback state follow this shim's source-level
 boundary rather than copying CommonLib's pointer representation.
 SHM-11 adds `RE/WorldTypes.h`. Its `WorldTypes` interface groups the five planned concepts behind
 one caller-owned adapter, while `GameSettingCollection` exposes a read-only setting query.
-Unsupported executable hooks return a named `UnsupportedHookInfo` with a reason. C++ fixtures execute
-against a contract fixture, and game tests exercise the Rust adapter against `World` state. A C++
-plugin cannot directly call the Rust adapter until a native bridge is added.
+Unsupported executable hooks return a named `UnsupportedHookInfo` with a reason. The C++ fixture
+checks the source-level contract using a fixture adapter. Game tests exercise the Rust adapter
+against live `World` settings, inventory markers, placed hazards, actor combat state and resolved
+melee results. There is no C++ to Rust bridge, so separately compiled C++ plugins cannot call these
+live adapters. The API is source-level and carries no C++ runtime layout.
 The public alandtse CommonLib headers read for this batch were
 `include/RE/E/ExtraWorn.h`, `include/RE/G/GameSettingCollection.h`,
 `include/RE/H/Hazard.h`, `include/RE/H/HighProcessData.h` and
@@ -313,8 +385,10 @@ is a menu-neutral copy of those rows. Selection and update report `ItemSelection
 `LookupReferenceByHandle` resolves a source-level handle represented by the reference's runtime
 FormID and reports whether the reference is an actor.
 
-The C++ fixture compiles and calls these declarations, including all unsupported results. The
-Rust game fixture exercises the same views against loaded records and live `World` state. The
+The C++ fixture compiles and calls these declarations, including all unsupported results. A
+second C++ fixture exchanges factory, inventory and handle requests with the Rust game test
+process, which answers through `commonlib` using live `World` state. The Rust game fixture also
+exercises the views directly. The
 CommonLibSSE-NG `IFormFactory.h`, `InventoryChanges.h`, `InventoryEntryData.h`, `ItemList.h`,
 `Misc.h` and `Misc.cpp` supplied the source-level names and signatures. The shim declarations
 are original MIT code and do not copy upstream implementation code. These views are not binary
@@ -341,8 +415,10 @@ animation transition states are available in the contract but not produced by th
 
 The runtime does not implement `TESObjectREFR::SetBaseObject` for an existing reference. Its
 MIT trait returns an `Unsupported` value naming that operation, leaving the current base intact.
-The C++ fixture compiles and calls the exported contracts, while game tests query the live
-`World` adapter. These are source-level contracts, not a compiled SKSE plugin or binary ABI.
+The C++ fixture compiles and calls the source-level contracts. The game test samples populated
+views from `World` and passes those values to a compiled C++ consumer, which checks the contract
+results and unsupported-hook values. The C++ contract objects remain fixture implementations,
+and this does not provide a C++ to Rust ABI or a compiled SKSE plugin.
 The declarations were checked against alandtse CommonLib's `TESDataHandler.h`, `TESFile.h`,
 `TESObjectREFR.h` and `ActorState.h`.
 The existing `SKSE::TRAMPOLINE` declaration continues to identify machine-code patching as
@@ -359,13 +435,18 @@ The SHM-03 test compiles the generated headers, and its game-side test calls the
 actor and AI state. SHM-10 compiles an extra-data C++ fixture and checks live game reads in Rust.
 SHM-11 C++ fixtures check the world type contract, and game tests exercise its Rust adapter against
 `World`. SHM-13 checks magic contracts with test doubles, not live game state. SHM-14 exercises
-player and process-list reads against synthetic `World` state. SHM-20 compiles the five typed event
-payload contracts and checks sink dispatch against synthetic state fixtures. SHM-22 checks the
+player and process-list reads against synthetic `World` state and through C++ callbacks that query
+a live Rust `World`. SHM-20 compiles the five typed event payload contracts and checks sink dispatch
+against synthetic state fixtures, as well as streaming events from live game producers to generated C++
+event sources. SHM-21 implements five event-state queries on `World` and checks live inventory, actor,
+deletion and furniture state plus unsupported-hook errors. SHM-22 checks the
 additional payload contracts, live-state receiver calls and unsupported hook results in Rust and
 C++ fixtures. SHM-23 compiles and runs the quest event payload and verifies the explicit trampoline
-rejection marker. A game integration test checks that live quest start and failed-stop transitions
-reach the MIT sink with current state. No surveyed plugin has been compiled against the headers or
-loaded, and the generated declarations are not linked to engine behavior or a C++ to Rust ABI.
+rejection marker. A game integration test streams live quest start and failed-stop events through the
+MIT sink into a compiled C++ consumer, which checks their payload fields. This test transport does
+not add a C++ to Rust ABI. No surveyed plugin has been compiled against the headers or loaded, and
+the generated declarations are not generally linked to engine behavior. The SHM-14 callback table
+is a source-level provider path, not a binary-compatible CommonLib ABI for existing Skyrim plugins.
 The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
@@ -377,11 +458,14 @@ SHM-14 adds `RE/World.h` and the matching MIT Rust boundary in `world.rs`.
 world provider. `ProcessLists` lists actor forms whose runtime actor state is
 built. The game crate implements that provider against its `World` form table.
 `ObjectRefHandle` and `ProjectileHandle` retain their 32-bit CommonLib-shaped
-representation. The current interface addresses live references by `FormKey`
-so file and object identity remain distinct. Projectile runtime access returns
+representation. C++ consumers can use `CallbackPlayerWorldState`, a callback-table
+adapter over the MIT `PlayerWorldState` contract. The game's Rust adapter resolves
+player handles to runtime FormIDs and reads player state and actor lists from
+the existing `World`. Its C++ integration fixture sends callback queries over
+private pipes to the live Rust world service. Projectile runtime access returns
 the typed `ProjectileRuntime` unsupported-hook result. Binary patch hooks are
-also identified as unsupported. These declarations remain a source-level API,
-with no C++ to Rust ABI or binary hook mechanism.
+also identified as unsupported. The callback table is an explicit source-level
+bridge and does not make existing Skyrim binary plugins compatible.
 
 The contracts follow the local alandtse CommonLibSSE-NG declarations in
 `include/RE/B/BSPointerHandle.h`, `include/RE/P/PlayerCharacter.h`,
@@ -392,9 +476,10 @@ type while adapting reads to engine-owned state.
 ## Untested SHM-14 contracts and survey limits
 
 The SHM-01 and SHM-14 tests compile generated umbrella headers with a C++20 compiler and check
-C++ signatures for the Rust methods they project. SHM-14 also exercises player and process-list
-reads against a synthetic live `World`. No sample plugin has been compiled against the headers,
-and the declarations have no C++ to Rust ABI. The counts are token counts,
+C++ signatures for the Rust methods they project. SHM-14's game test sends callback requests from
+C++ to a Rust service borrowing the live `World`. It checks reference handles, player state, process
+lists and the unsupported projectile result. The bridge is exercised in the integration fixture,
+not yet in the plugin loader. No sample plugin has been compiled against the headers. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
@@ -422,6 +507,27 @@ The event type declarations follow CommonLibSSE-NG-alandtse
 `include/RE/A/ActorKill.h`, `include/RE/C/CriticalHit.h` and
 `include/RE/B/BSTEvent.h`. The C++ contract fixture checks payload fields,
 sizes, notify-control values, dispatch and the unsupported hook result.
+The game integration fixture forwards events raised by its live `World` to a
+compiled C++ sink process and checks the payloads and sink results returned by
+that process. The pipe is test transport, not a plugin ABI. The shim still has
+no C ABI, and C++ declarations do not expose a running engine to a separately
+compiled plugin.
+
+## Event binding batch SHM-19
+
+The MIT event API also projects `DisarmedEvent`, `DragonSoulsGained`,
+`LevelIncrease` and `LocationDiscovery` through `ScriptEventSourceHolder`.
+Their source-level payloads carry actor identities, awarded soul count,
+player identity and level, and map-marker identity with an optional
+worldspace identity. The C++ contract fixture checks these source methods,
+constructs and dispatches each payload, and verifies that hook installation
+returns an unsupported result with the requested hook name.
+
+The payloads follow CommonLibSSE-NG-alandtse `include/RE/D/DisarmedEvent.h`,
+`include/RE/D/DragonSoulsGained.h`, `include/RE/L/LevelIncrease.h`,
+`include/RE/L/LocationDiscovery.h` and
+`include/RE/S/ScriptEventSourceHolder.h`. The source-level declarations do
+not reproduce CommonLib pointer layouts or connect directly to a runtime.
 
 ## Appendix: the 349 names by group
 

@@ -17,6 +17,19 @@ fn edt_14_gizmo_bridge_edits_record_undoes_proxy_and_saves_restored_pose() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("Base.esm");
     let patch = fixture.path().join("Patch.esp");
@@ -51,6 +64,12 @@ func _check(value: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 func _initialize() -> void:
+	# CONTEXT: A fresh checkout has no cached extension list.
+	var status := GDExtensionManager.load_extension("res://soe.gdextension")
+	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
+		printerr("FAIL: extension did not load: ", status)
+		quit(1)
+		return
 	var paths := PackedStringArray([OS.get_environment("EDT14_BASE"), OS.get_environment("EDT14_PATCH")])
 	var editor = ClassDB.instantiate("SoeReferenceTransformEditor")
 	if editor == null:

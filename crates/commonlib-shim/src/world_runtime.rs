@@ -23,6 +23,8 @@ pub trait WorldState {
     fn reference_position(&mut self, form: FormKey) -> Option<[f32; 3]>;
     fn actor_value(&mut self, form: FormKey, name: &str) -> Option<f32>;
     fn actor_is_dead(&mut self, form: FormKey) -> Option<bool>;
+    /// Resolve a stable world form key to the runtime handle value.
+    fn runtime_form_id(&mut self, form: FormKey) -> Option<u32>;
 }
 
 /// An operation the Rust runtime cannot provide with the same contract.
@@ -211,6 +213,15 @@ impl<'a, W: WorldState> PlayerCharacter<'a, W> {
         self.world.player()
     }
 
+    /// Return the player's reference handle in the runtime's resolved FormID space.
+    pub fn handle(&mut self) -> Option<ObjectRefHandle> {
+        let player = self.world.player()?;
+        self.world
+            .runtime_form_id(player)
+            .filter(|runtime_id| *runtime_id != 0)
+            .map(ObjectRefHandle)
+    }
+
     pub fn actor_value(&mut self, name: &str) -> Option<f32> {
         let player = self.world.player()?;
         self.world.actor_value(player, name)
@@ -307,4 +318,75 @@ pub trait RuntimeState {
 pub struct UnsupportedWorldHook {
     pub name: &'static str,
     pub reason: &'static str,
+}
+
+/// C-compatible values used by a host to expose [`RuntimeState`] to C++.
+///
+/// The callback table owns no runtime state. Its context pointer is borrowed
+/// for the duration of each call, and implementations must return false when
+/// the requested value is unavailable.
+#[repr(C)]
+pub struct RuntimeStateCallbacks {
+    /// Read a setting into the tagged output record.
+    pub setting: unsafe extern "C" fn(
+        *mut std::ffi::c_void,
+        *const std::ffi::c_char,
+        *mut RuntimeSettingRecord,
+    ) -> bool,
+    /// Read the current calendar hour.
+    pub sky_hour: unsafe extern "C" fn(*mut std::ffi::c_void) -> f32,
+    /// Read an active reanimation effect into the output record.
+    pub reanimate_effect:
+        unsafe extern "C" fn(*mut std::ffi::c_void, u64, *mut RuntimeReanimateRecord) -> bool,
+    /// Return the unsupported sit or sleep state diagnostic.
+    pub sit_sleep_state: unsafe extern "C" fn(*mut std::ffi::c_void, u32, *mut RuntimeErrorRecord),
+    /// Return the unsupported hook diagnostic.
+    pub hook: unsafe extern "C" fn(
+        *mut std::ffi::c_void,
+        *const std::ffi::c_char,
+        *mut RuntimeErrorRecord,
+    ),
+}
+
+/// Fixed-layout setting payload for [`RuntimeStateCallbacks`].
+#[repr(C)]
+pub struct RuntimeSettingRecord {
+    /// 0 bool, 1 integer, 2 float, 3 string.
+    pub kind: u32,
+    /// Bool or integer value.
+    pub integer: i64,
+    /// Floating point value.
+    pub float: f64,
+    /// NUL-terminated UTF-8 string value.
+    pub string_value: [std::ffi::c_char; 256],
+}
+
+/// Fixed-layout reanimation payload for [`RuntimeStateCallbacks`].
+#[repr(C)]
+pub struct RuntimeReanimateRecord {
+    /// Runtime effect id.
+    pub id: u64,
+    /// Packed spell form id.
+    pub spell: u32,
+    /// Packed magic effect form id.
+    pub effect: u32,
+    /// Packed target form id.
+    pub target: u32,
+    /// Effect magnitude.
+    pub magnitude: f32,
+    /// Elapsed game seconds.
+    pub elapsed: f64,
+    /// Whether duration is present.
+    pub has_duration: bool,
+    /// Duration when present.
+    pub duration: f64,
+}
+
+/// Fixed-layout diagnostic payload for [`RuntimeStateCallbacks`].
+#[repr(C)]
+pub struct RuntimeErrorRecord {
+    /// NUL-terminated diagnostic name.
+    pub name: [std::ffi::c_char; 64],
+    /// NUL-terminated diagnostic reason.
+    pub reason: [std::ffi::c_char; 256],
 }

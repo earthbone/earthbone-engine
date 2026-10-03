@@ -17,6 +17,19 @@ fn edt_15_drop_requires_a_collision_and_keeps_successful_edit_undoable() {
     };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("Base.esm");
     let patch = fixture.path().join("Patch.esp");
@@ -52,8 +65,18 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	# CONTEXT: A fresh checkout has no cached extension list.
+	var status := GDExtensionManager.load_extension("res://soe.gdextension")
+	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
+		printerr("FAIL: extension did not load: ", status)
+		quit(1)
+		return
 	var paths := PackedStringArray([OS.get_environment("EDT15_BASE"), OS.get_environment("EDT15_PATCH")])
-	var table := SoeFormTable.new()
+	var table = ClassDB.instantiate("SoeFormTable")
+	if table == null:
+		printerr("FAIL: forms class is unavailable")
+		quit(1)
+		return
 	_check(table.open(paths, "Patch.esp"), "synthetic load order opens")
 	var stage := Node3D.new()
 	root.add_child(stage)

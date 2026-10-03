@@ -322,6 +322,51 @@ impl Inventory {
         Some((item, bundle))
     }
 
+    /// Remove stacks selected by metadata while leaving undescribed quantity
+    /// and all other stacks in this inventory.
+    pub(crate) fn take_stacks_where(
+        &mut self,
+        item: GlobalFormId,
+        mut predicate: impl FnMut(&Stack) -> bool,
+    ) -> Bundle {
+        let Some(entry) = self.entries.get_mut(&item) else {
+            return Bundle::default();
+        };
+        let represented: i64 = entry
+            .stacks
+            .iter()
+            .map(|stack| i64::from(stack.count.max(0)))
+            .sum();
+        if represented > i64::from(entry.total) {
+            return Bundle::default();
+        }
+        let mut selected = Vec::new();
+        let mut remaining = Vec::new();
+        for stack in std::mem::take(&mut entry.stacks) {
+            if stack.count > 0 && predicate(&stack) {
+                selected.push(stack);
+            } else {
+                remaining.push(stack);
+            }
+        }
+        let total = selected
+            .iter()
+            .fold(0_i32, |count, stack| count.saturating_add(stack.count));
+        entry.total -= total;
+        entry.stacks = remaining;
+        if entry.total == 0 && entry.stacks.is_empty() {
+            self.entries.remove(&item);
+        }
+        if total == 0 {
+            return Bundle::default();
+        }
+        self.revision = Arc::new(());
+        Bundle {
+            total,
+            stacks: selected,
+        }
+    }
+
     pub fn stacks(&self, item: GlobalFormId) -> &[Stack] {
         self.entries.get(&item).map_or(&[], |entry| &entry.stacks)
     }
