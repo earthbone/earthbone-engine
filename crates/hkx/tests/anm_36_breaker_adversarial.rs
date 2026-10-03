@@ -117,3 +117,21 @@ fn anm_36_sampler_publishes_authored_zero_without_a_goal_binding() {
     let output = vm.variables.real(vm.variables.index("speedOut").unwrap());
     assert_eq!(output, Some(0.0));
 }
+
+#[test]
+fn anm_36_state_binding_accepts_int32_extremes() {
+    let bytes = graph(true, 5.0);
+    let (graph, clips, pose) = interpreter(&bytes);
+    assert_eq!(
+        graph.data.variable_infos[0].ty,
+        soe_hkx::behavior::VariableType::Int32
+    );
+
+    let mut vm = Interpreter::new(&graph, &clips, pose);
+    assert!(vm.unsupported().unbound.is_empty());
+    let state = vm.variables.index("state").unwrap();
+    for value in [i32::MIN, i32::MAX] {
+        assert!(vm.variables.set_word(state, value));
+        assert_eq!(vm.variables.word(state), Some(value));
+    }
+}
