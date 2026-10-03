@@ -84,8 +84,25 @@ fn fixture(data: &Path) {
 
 #[test]
 fn aud_05_completed_interrupted_fade_leaves_only_latest_track_playing() {
-    let godot = PathBuf::from(std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN set"));
-    let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../godot");
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
+        return;
+    };
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = workspace.join("godot");
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
     let extension = project.join("soe.gdextension");
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().join("Data");
@@ -103,7 +120,11 @@ func _initialize() -> void:
     call_deferred("run")
 func run() -> void:
     if not ClassDB.class_exists("SoundBank"):
-        GDExtensionManager.load_extension("res://soe.gdextension")
+        GDExtensionManager.load_extension(OS.get_environment("AUD_05_EXTENSION"))
+    if not ClassDB.class_exists("SoundBank"):
+        printerr("FAIL: SoundBank extension failed to load")
+        quit(1)
+        return
     var bank := ClassDB.instantiate("SoundBank") as Node3D
     root.add_child(bank)
     await process_frame
