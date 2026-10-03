@@ -1437,6 +1437,8 @@ mod shm_10_breaker_adversarial;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 
+#[path = "prf_11.rs"]
+mod prf_11;
 #[path = "shm_11_breaker_adversarial.rs"]
 mod shm_11_breaker_adversarial;
 #[path = "shm_12_adversarial.rs"]

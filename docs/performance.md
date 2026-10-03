@@ -16,6 +16,25 @@ measurements below remain tied to their recorded revisions.
 - NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4, Godot 4.4.1 Forward+
 - Fedora Atomic, release build, the installed Skyrim SE under Steam
 
+## PRF-11 navigation baseline, 2026-10-03
+
+Before changing navigation, `prf_11_installed_bannered_mare_and_whiterun_path_timings`
+loaded the five installed masters and queried the first and last triangle
+centroids of the largest mesh in each graph. These are single release queries,
+with a first query followed by a warm query, rather than frame measurements.
+
+| Graph | Meshes | Triangles | Route nodes | First | Warm |
+|---|---:|---:|---:|---:|---:|
+| WhiterunBanneredMare | 1 | 318 | 30 | 38.102 us | 28.423 us |
+| WhiterunWorld | 44 | 4,705 | 55 | 102.924 us | 68.509 us |
+
+Bannered Mare endpoints were `[-250.43564, 477.0016, 70.85016]` and
+`[580.056, -261.84796, 67.956154]`, cost 1914.888. WhiterunWorld endpoints
+were `[20497.994, -7813.914, -3635.1064]` and
+`[21203.918, -4165.7085, -2998.261]`, cost 2723.3533.
+`find_path_between` resolves each endpoint once. Its A* expansion loop does
+not call `locate`. The package driver can issue repeated path requests.
+
 ## TST-16 game integration test binary, 2026-10-01
 
 The change recorded 440 `soe-game` integration test executables before
@@ -602,3 +621,22 @@ The separate headless Godot gameplay acceptance measured 367.029 ms of cold
 outbound preparation and activated the overlay. Warm return and input
 crossings each measured 0 ms and left it inactive. The process exited zero
 after 46.0 seconds, with a peak RSS of 15,273,864 KiB.
+
+### PRF-11 after triangle indexing and sliced A*
+
+The same installed graphs and endpoints measured 40.387 us first and 25.539 us
+warm for Bannered Mare, and 93.216 us first and 60.665 us warm for WhiterunWorld.
+The route node counts and costs remained 30 / 1914.888 and 55 / 2723.3533.
+The warm before/after pairs are 28.423 / 25.539 us and 68.509 / 60.665 us.
+These single-query timings do not establish a general speedup. The frame
+scheduler bounds work independently: 64 nodes per request and 512 across
+requests per frame. Pending requests retain their heap and predecessor state.
+
+An intermediate Godot 4.4.1 headless run, with triangle indexing and sliced A*
+but before the closed-door lookup index, completed 3,600 frames and failed
+all 3,600 against the fixed 8 ms limit. Seven contact NPCs were present.
+It reported 53,030 package evaluations and a worst AI tick of 154.985 ms.
+A three-frame diagnostic then measured 1.235 ms of door refresh within a
+43.023 ms first AI tick, with 64 instantiated actors. This evidence led to
+indexing closed-door blocking by triangle, reusing the existing cell reference
+index and narrowing combat candidates through the existing awareness table.

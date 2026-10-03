@@ -4212,3 +4212,21 @@ leaves the active game untouched. The destination cell and all six pose
 components must be present and finite before the host sync starts. The Godot
 acceptance check saves a live player's generation and attaches it to a fresh
 player using the same installed cell data.
+
+## AI planning measurement, PRF-11
+
+`PlayerNode.prepare_ai_planning_check` prepares the active world's NAVM graph
+and query caches. `ai_planning_microseconds` reports the last shared AI driver
+tick, including door refresh, package evaluation, navigation slices and movement.
+`ai_package_evaluations` reports the active world's evaluation count.
+`ai_planning_details` reports door refresh time, automatic package evaluation
+time and instantiated actor count.
+These measurement hooks add no actor scene nodes or saved fields.
+
+`godot/prf_11_ai_planning_check.gd` starts the installed Bannered Mare through
+the normal gameplay entry point and manually advances 3,600 frames at 60 Hz.
+It requires at least five contact actors and executed package evaluations,
+and rejects any AI driver tick above 8 ms. Graph preparation and gameplay
+startup occur before the 60 simulated seconds of measurement. The script
+frees its host nodes and quits with its check result. It skips when
+`SKYRIM_DATA` is unset.

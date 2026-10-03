@@ -8064,3 +8064,50 @@ use the existing reference flags. `ShowAllHidden`, unsupported cast checks
 and non-default equip parameters return explicit unsupported-state errors.
 Supported equipment requests use `World::equip_item`, and dispel requests use
 the shared active-effect removal path.
+
+## AI planning slices, PRF-11
+
+The package driver submits navigation requests through a transient per-world
+planner keyed by resolved actor FormID. Each request processes at most 64
+nodes per frame, and all requests share a 512-node frame budget. Pending actors
+retain their current package step and position until the result is ready.
+The scheduler rotates its starting actor when the frame budget is exhausted,
+so later FormIDs continue making progress. Requests are cancelled when their
+goal or start position changes, the package switches, navigation is invalidated,
+or the actor unloads, dies or becomes unconscious. Explicit package reevaluation
+also cancels a pending request. Forced fleeing retains the request while its
+effect remains active.
+
+Package travel, combat pursuit, forced fleeing and Orbit connectivity checks
+use sliced A*. Flee destination selection also budgets its reachability flood
+and candidate queries. Its heap orders candidates by decreasing threat distance,
+then increasing NodeId, preserving the previous destination selection.
+Normal package movement retains its empty-route result for disconnected
+on-mesh endpoints and its straight-line fallback for off-mesh endpoints.
+Combat queries keep their no-route result without that fallback.
+Door states refresh once per driver tick, rather than once per actor request.
+Graph query caches are prepared when the world builds its NAVM graph.
+
+Requests and the last tick's measured `AiWorld::planning_time` are runtime
+caches and are not serialized. Existing actor destinations, paths and package
+state keep their saved layout. The design follows the local
+`recastnavigation/Detour/Source/DetourNavMeshQuery.cpp` sliced-query contract,
+implemented on the engine's authored NAVM graph through `soe-navmesh`.
+
+Cell reference lookup reuses the load order's cell index already prepared by
+cell loading, filters to winning REFR and ACHR identities, and returns them
+in FormID order. It does not build a second world-sized index inside sandbox
+planning. Combat acquisition starts from Combat-awareness entries in the
+existing detection pools and retains its loaded-actor eligibility, nearest
+position and FormID tie rules. Unobserved actors are rejected before actor
+record queries. The last tick's `door_refresh_time` exposes the refresh portion
+of the full AI timing for measurement.
+
+Automatic package evaluation runs at most four actors per frame and at most
+once per actor in that frame. Explicit reevaluation requests take priority,
+then the oldest existing `last_evaluation` timestamp, then FormID. Actors
+waiting for an evaluation slot continue their existing step. Movement retains
+its FormID iteration order. Explicit `EvaluatePackage` calls still evaluate
+immediately. `evaluation_time` measures automatic evaluations within the full
+AI tick. Evaluation scheduling uses existing actor fields and adds no saved
+state.
