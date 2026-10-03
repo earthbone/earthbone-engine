@@ -22,6 +22,17 @@ pub struct ExtraData {
 }
 
 impl ExtraData {
+    /// Rebuild this extra list alone, retaining its count width and field bits.
+    /// Inventory and actor suffixes are not part of these bytes.
+    ///
+    /// # Errors
+    /// An edited list or nested array no longer matches its saved count.
+    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+        let mut out = vec![];
+        self.write(&mut out)?;
+        Ok(out)
+    }
+
     pub(super) fn read(r: &mut Cursor<'_>) -> Result<Self> {
         let count = r.vsval()?;
         if count.value() as usize > r.remaining() {

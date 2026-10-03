@@ -186,7 +186,10 @@ impl PlayerNode {
             return failed("cell streamer data has not been shared");
         }
 
-        let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        let mut game = match source.localized_game() {
+            Ok(game) => game,
+            Err(error) => return failed(&error.to_string()),
+        };
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             return failed(&format!(

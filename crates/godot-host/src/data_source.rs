@@ -38,6 +38,8 @@ use soe_bsa::{Archive, Vfs};
 use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
+#[cfg(any(feature = "godot", test))]
+use soe_esm::{Record, Tag};
 use soe_nif::{Mat33, Mesh as NifMesh, NifFile, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
@@ -61,6 +63,8 @@ mod workers;
 mod destruction_tests;
 #[cfg(test)]
 mod marker_survey_tests;
+#[cfg(test)]
+mod ui_25_tests;
 
 #[cfg(feature = "godot")]
 pub(crate) use chargen::ChargenCache;
@@ -110,6 +114,8 @@ pub enum DataSourceError {
     },
     #[error("{0}")]
     Esm(#[from] soe_esm::Error),
+    #[error("localized text: {0}")]
+    Localization(String),
     #[error("{0}")]
     Bsa(#[from] soe_bsa::Error),
     #[error("{0}")]
@@ -300,6 +306,7 @@ pub struct DataSource {
     textures: TextureCache,
     profile_settings: soe_profile::Settings,
     profile_ini_dir: Option<PathBuf>,
+    language: String,
 }
 
 /// A winning cell record prepared for the editor's worldspace and cell tree.
@@ -402,6 +409,7 @@ impl DataSource {
             textures: TextureCache::default(),
             profile_settings: self.profile_settings.clone(),
             profile_ini_dir: self.profile_ini_dir.clone(),
+            language: self.language.clone(),
         }
     }
 
@@ -511,6 +519,11 @@ impl DataSource {
             textures: TextureCache::default(),
             profile_settings: loadout.settings.clone(),
             profile_ini_dir: loadout.ini_dir.clone(),
+            language: loadout
+                .settings
+                .get("General", "sLanguage")
+                .unwrap_or("english")
+                .to_ascii_lowercase(),
         })
     }
 
@@ -523,6 +536,35 @@ impl DataSource {
     /// The archive and loose file view, same reason.
     pub(crate) fn vfs(&self) -> &Vfs {
         &self.vfs
+    }
+
+    /// Create the menu and gameplay world with the profile's localized tables.
+    ///
+    /// # Errors
+    /// Reports unreadable or malformed selected-language string tables.
+    pub fn localized_game(&self) -> Result<soe_game::Game, DataSourceError> {
+        let game = soe_game::Game::from_shared_order(self.shared_order());
+        game.world_mut()
+            .load_localized_strings(&self.vfs, &self.language)
+            .map_err(|error| DataSourceError::Localization(error.to_string()))?;
+        Ok(game)
+    }
+
+    /// Build an inventory ground model at the origin through the world mesh pipeline.
+    ///
+    /// # Errors
+    /// Reports missing assets, malformed NIFs, or invalid surfaces.
+    #[cfg(any(feature = "godot", test))]
+    pub(crate) fn item_preview_surfaces(
+        &self,
+        model: &str,
+    ) -> Result<Vec<(SurfaceArrays, SurfaceTextures)>, DataSourceError> {
+        let reference = Refr::from_record(
+            &Record::new(tag::REFR, 0).sub(Tag::new(b"NAME"), 0_u32.to_le_bytes()),
+        )?;
+        let LoadedStatic::Surfaces { built, .. } =
+            self.load_static_surfaces(model, &reference, false)?;
+        Ok(built)
     }
 
     /// The cell index built at open, for callers that walk cells by grid
