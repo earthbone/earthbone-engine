@@ -213,7 +213,7 @@ values. Change-map queries and filename-based save catalog operations also
 return named unsupported-hook results. The generated headers and fixtures check this
 source-level API. The C++ save fixture also changes live payload state, loads
 the saved bytes, and verifies the payload is restored. C++ declarations alone
-do not call into the Rust engine; the SHM-15 callback table supplies the
+do not call into the Rust engine. The SHM-15 callback table supplies the
 selected world view.
 Other generated C++ declarations remain source-level contracts. The condition
 request/reply bridge is the current C++ to Rust runtime call path used by
