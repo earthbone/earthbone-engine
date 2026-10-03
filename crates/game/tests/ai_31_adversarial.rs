@@ -151,6 +151,47 @@ fn ai_31_hover_tracks_authored_location_and_height_then_holds_in_flight() {
 }
 
 #[test]
+fn ai_65_hover_movement_path_signals_get_is_flying() {
+    let mut game = game(HEIGHT);
+    let flying = soe_esm::records::gameplay::Condition {
+        flags: 0,
+        comparison: soe_esm::records::gameplay::Comparison::Number(1.0),
+        function: 594,
+        parameters: [0, 0],
+        run_on: 0,
+        reference: 0,
+        parameter_3: -1,
+        strings: [None, None],
+    };
+    let context = soe_game::conditions::Context {
+        owner: id(PACK),
+        subject: id(ACTOR),
+        target: None,
+        quest: None,
+        tempering_enchanted: None,
+        tempering_item: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
+        magic_item: None,
+        dual_cast: None,
+        skill_use: None,
+        light_level: None,
+    };
+    assert_eq!(
+        soe_game::conditions::evaluate_one(&mut game.world_mut(), &game.vm, context, &flying,),
+        Ok(true)
+    );
+
+    game.world_mut().set_global(id(ENABLED), 0.0);
+    game.world_mut().actor(id(ACTOR)).unwrap().ai.reevaluate = true;
+    game.tick(0.0);
+    assert_eq!(
+        soe_game::conditions::evaluate_one(&mut game.world_mut(), &game.vm, context, &flying,),
+        Ok(false)
+    );
+}
+
+#[test]
 fn ai_31_hover_cancellation_clears_flight_target_and_height() {
     let mut game = game(HEIGHT);
     game.world_mut().set_global(id(ENABLED), 0.0);

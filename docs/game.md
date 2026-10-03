@@ -3713,6 +3713,12 @@ flying, but no usable behavior contract for the other five functions. Tests
 exercise graph float, sprint and flight comparisons, malformed parameters,
 missing graph variables, invalid actor subjects and explicit diagnostics.
 
+The AI driver's `Hover` procedure signals the actor's transient flying flag
+while it moves to and holds its authored elevated location. Ending Hover or
+stopping actor movement clears the flag. CTDA 594 reads this movement state;
+`allow_flying` remains a separate permission flag. Other actor flight modes
+and host-controlled flight are not represented by this path.
+
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,
 conditional quest variables, alias filters and script callbacks. Two Papyrus
