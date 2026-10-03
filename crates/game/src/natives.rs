@@ -3804,12 +3804,14 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         world.reset_help_message(&text(&call.arg(0)));
         none()
     });
-    for name in ["Start", "ForceStart"] {
-        method!(vm, w, "Scene", name, |world, call, me| {
-            world.start_scene(me, alloc!(call));
-            none()
-        });
-    }
+    method!(vm, w, "Scene", "Start", |world, call, me| {
+        world.start_scene(me, alloc!(call));
+        none()
+    });
+    method!(vm, w, "Scene", "ForceStart", |world, call, me| {
+        world.force_start_scene(me, alloc!(call));
+        none()
+    });
     method!(vm, w, "Scene", "Stop", |world, call, me| {
         world.stop_scene(me, alloc!(call));
         none()
