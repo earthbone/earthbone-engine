@@ -1531,6 +1531,16 @@ mod shm_10_breaker_adversarial;
 #[path = "shm_11_adversarial.rs"]
 mod shm_11_adversarial;
 
+#[path = "prf_11.rs"]
+mod prf_11;
+#[path = "prf_11_adversarial.rs"]
+mod prf_11_adversarial;
+#[path = "prf_11_breaker2_adversarial.rs"]
+mod prf_11_breaker2_adversarial;
+#[path = "prf_11_breaker3_adversarial.rs"]
+mod prf_11_breaker3_adversarial;
+#[path = "prf_11_breaker_adversarial.rs"]
+mod prf_11_breaker_adversarial;
 #[path = "shm_11_breaker_adversarial.rs"]
 mod shm_11_breaker_adversarial;
 #[path = "shm_12_adversarial.rs"]
@@ -1688,3 +1698,13 @@ mod ui_25_initial_inventory;
 mod vanilla_save;
 #[path = "visual_effects.rs"]
 mod visual_effects;
+
+#[path = "prf_12_frame.rs"]
+mod prf_12_frame;
+
+#[path = "prf_14_work.rs"]
+mod prf_14_work;
+#[path = "prf_17_workers.rs"]
+mod prf_17_workers;
+#[path = "prf_17_adversarial.rs"]
+mod prf_17_adversarial;

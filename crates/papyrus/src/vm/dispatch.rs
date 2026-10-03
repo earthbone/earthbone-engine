@@ -268,6 +268,7 @@ impl Vm {
         let Some(f) = table.get_mut(&key) else {
             return false;
         };
+        soe_trace::count(soe_trace::Operation::NativeCalls, 1);
         *self
             .natives
             .calls
@@ -323,6 +324,7 @@ impl Vm {
         }
         let lname = name.to_ascii_lowercase();
         if lname == "wait" || lname == "waitmenumode" || lname == "waitgametime" {
+            soe_trace::count(soe_trace::Operation::NativeCalls, 1);
             let secs = args.first().map(|v| v.as_float()).unwrap_or(0.0);
             let thread = &mut self.threads[t];
             let frame = thread.frames.last_mut().unwrap();
@@ -364,6 +366,7 @@ impl Vm {
         };
         match lname.as_str() {
             "gotostate" => {
+                soe_trace::count(soe_trace::Operation::NativeCalls, 1);
                 let new_state = args.first().map(|v| v.to_string()).unwrap_or_default();
                 let old = std::mem::replace(&mut self.instances[iid.0].state, new_state.clone());
                 self.send_event(object, "OnEndState", &[]);
@@ -376,6 +379,7 @@ impl Vm {
                 true
             }
             "getstate" => {
+                soe_trace::count(soe_trace::Operation::NativeCalls, 1);
                 let s = Value::string(&self.instances[iid.0].state);
                 if let Some(d) = dest {
                     let frame = self.threads[t].frames.last_mut().unwrap();

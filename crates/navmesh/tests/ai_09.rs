@@ -110,8 +110,8 @@ fn ai_09_ignores_unresolved_door_references_and_invalid_triangles() {
     );
     let (graph, _) = builder.build();
 
-    assert!(graph.door_nodes(0x200).is_empty());
-    assert!(graph.door_nodes(0x201).is_empty());
+    assert_eq!(graph.door_nodes(0x200), []);
+    assert_eq!(graph.door_nodes(0x201), []);
 }
 
 #[test]

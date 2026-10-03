@@ -49,6 +49,7 @@ fn prf_08_loading_reporting_and_repetition_contracts_in_stock_godot() {
         "bench_runs.gd",
         "prf_08_test.gd",
         "bench.gd",
+        "system_overlay.gd",
         "walkthrough.gd",
     ] {
         std::fs::copy(root.join("godot").join(script), project.path().join(script)).unwrap();

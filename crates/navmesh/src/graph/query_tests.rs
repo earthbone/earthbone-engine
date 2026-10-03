@@ -228,3 +228,79 @@ fn invalid_path_costs_return_none() {
         assert!(graph.find_path_with_costs(a, b, costs).is_none());
     }
 }
+
+#[test]
+fn prf_14_triangle_index_matches_exhaustive_edges_floors_and_failed_queries() {
+    use soe_trace::{Operation, WorkCounts, WorkFrame};
+
+    let mut graph = NavGraph::new();
+    let mut vertices = Vec::new();
+    let mut triangles = Vec::new();
+    for n in 0..4096 {
+        let x = (n % 64) as f32 * 10.0;
+        let y = (n / 64) as f32 * 10.0;
+        let base = vertices.len() as u32;
+        vertices.extend([[x, y, 0.0], [x + 8.0, y, 0.0], [x, y + 8.0, 0.0]]);
+        triangles.push([base, base + 1, base + 2]);
+    }
+    graph.add_mesh_with_adjacency(vertices, &triangles);
+    graph.add_mesh_with_adjacency(
+        vec![
+            [320.0, 320.0, 20.0],
+            [328.0, 320.0, 20.0],
+            [320.0, 328.0, 20.0],
+        ],
+        &[[0, 1, 2]],
+    );
+    for point in [
+        [321.0, 321.0, 0.0],
+        [321.0, 321.0, 19.0],
+        [320.0, 320.0, 10.0],
+        [319.9995, 321.0, 0.0],
+        [328.0005, 320.0, 0.0],
+        [639.0, 639.0, 0.0],
+    ] {
+        let expected = exhaustive(&graph, point, true);
+        let frame = WorkFrame::begin();
+        assert_eq!(graph.locate(point), expected);
+        assert_eq!(graph.contains_point(point), expected.is_some());
+        assert_eq!(
+            frame
+                .counts()
+                .check(&WorkCounts([2, 4, 0, 0, 0, 0, 0, 0, 0, 0])),
+            Ok(())
+        );
+    }
+    let frame = WorkFrame::begin();
+    assert!(graph.locate([f32::NAN, 0.0, 0.0]).is_none());
+    assert_eq!(frame.counts().get(Operation::NavmeshLocate), 1);
+    assert_eq!(frame.counts().get(Operation::NavmeshTriangles), 0);
+}
+
+#[test]
+fn prf_14_path_counts_expanded_nodes_and_rejects_invalid_requests_before_search() {
+    use soe_trace::{Operation, WorkFrame};
+
+    let mut graph = NavGraph::new();
+    let a = NodeId::new(add_triangle(&mut graph, 0.0, 0.0, 0.0), 0);
+    let b = NodeId::new(add_triangle(&mut graph, 5.0, 0.0, 0.0), 0);
+    let c = NodeId::new(add_triangle(&mut graph, 10.0, 0.0, 0.0), 0);
+    graph.link(a, 0, b);
+    graph.link(b, 0, c);
+    {
+        let frame = WorkFrame::begin();
+        assert_eq!(graph.reachable(a).len(), 3);
+        assert_eq!(frame.counts().get(Operation::PathNodes), 3);
+    }
+    {
+        let frame = WorkFrame::begin();
+        assert_eq!(graph.find_path(a, c).unwrap().nodes, [a, b, c]);
+        assert_eq!(frame.counts().get(Operation::PathNodes), 3);
+    }
+    let frame = WorkFrame::begin();
+    assert!(graph.find_path(a, NodeId::new(99, 0)).is_none());
+    assert_eq!(frame.counts().get(Operation::PathNodes), 0);
+    graph.set_blocked(b, true);
+    assert!(graph.find_path(a, c).is_none());
+    assert_eq!(frame.counts().get(Operation::PathNodes), 1);
+}

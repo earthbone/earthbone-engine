@@ -69,6 +69,10 @@ fn placed(tag: [u8; 4], id: u32, base: u32, position: [f32; 3]) -> Record {
 }
 
 fn build_game(inner: f32, outer: f32, target: u32) -> Game {
+    build_game_on_mesh(inner, outer, target, &square(CELL))
+}
+
+fn build_game_on_mesh(inner: f32, outer: f32, target: u32, geometry: &Geometry) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let template = package::close_header(package::build_template(TEMPLATE, "OrbitTemplate"), None);
     let template = package::with_location_input(template, 0, Location::NearReference(target), 0);
@@ -99,7 +103,7 @@ fn build_game(inner: f32, outer: f32, target: u32) -> Game {
     for record in [
         placed(*b"ACHR", ACTOR, BASE, [270.0, 200.0, 0.0]),
         placed(*b"REFR", TARGET, BASE, [200.0, 200.0, 0.0]),
-        Record::new(T(b"NAVM"), NAV).sub(T(b"NVNM"), square(CELL).to_bytes()),
+        Record::new(T(b"NAVM"), NAV).sub(T(b"NVNM"), geometry.to_bytes()),
     ] {
         let index = plugin.push_record(record);
         temporary.entries.push(Entry::Record(index));
@@ -127,6 +131,57 @@ fn build_game(inner: f32, outer: f32, target: u32) -> Game {
 
 fn id(object: u32) -> soe_esm::GlobalFormId {
     soe_esm::GlobalFormId { file: 0, object }
+}
+
+fn dense_square() -> Geometry {
+    let mut graph = soe_navmesh::NavGraph::new();
+    let vertices = (0..=64)
+        .flat_map(|y| (0..=64).map(move |x| [x as f32 * 6.25, y as f32 * 6.25, 0.0]))
+        .collect();
+    let triangles: Vec<_> = (0..64)
+        .flat_map(|y| {
+            (0..64).flat_map(move |x| {
+                let a = y * 65 + x;
+                [[a, a + 1, a + 66], [a, a + 66, a + 65]]
+            })
+        })
+        .collect();
+    graph.add_mesh_with_adjacency(vertices, &triangles);
+    let mesh = graph.mesh(0);
+    let mut geometry = square(CELL);
+    geometry.vertices.clone_from(&mesh.vertices);
+    geometry.triangles = mesh
+        .triangles
+        .iter()
+        .map(|triangle| Triangle {
+            vertices: triangle.vertices.map(|v| v as u16),
+            edges: triangle
+                .neighbors
+                .map(|n| n.map_or(-1, |n| n.triangle as i16)),
+            flags: 0,
+            cover_flags: 0,
+        })
+        .collect();
+    geometry.grid.cells = vec![(0..8192).collect()];
+    geometry
+}
+
+#[test]
+fn prf_14_orbit_on_vanilla_sized_mesh_bounds_triangle_work_per_frame() {
+    let mut game = build_game_on_mesh(40.0, 80.0, TARGET, &dense_square());
+    let limits = soe_trace::WorkCounts([2_000, 8_000, 256, 0, 0, 0, 0, 0, 2_048, 0]);
+    for _ in 0..60 {
+        game.tick(0.1);
+        let counts = game.last_work_counts();
+        assert_eq!(counts.check(&limits), Ok(()), "orbit work {counts:?}");
+        assert!(counts.get(soe_trace::Operation::NavmeshLocate) > 100);
+        assert!(counts.get(soe_trace::Operation::NavmeshTriangles) > 0);
+        let world = game.world();
+        let position = world.reference_ref(id(ACTOR)).unwrap().position;
+        let radius = (position[0] - 200.0).hypot(position[1] - 200.0);
+        assert!((40.0..=80.0).contains(&radius));
+        assert_eq!(position[2], 25.0);
+    }
 }
 
 #[test]

@@ -281,6 +281,7 @@ impl World {
         incoming_perks: Vec<crate::perks::EntryPointInvocation>,
         alloc: Alloc<'_>,
     ) -> Result<HitResult, Error> {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Combat);
         if hit.attacker == hit.target {
             return Err(Error::Actor(hit.target));
         }

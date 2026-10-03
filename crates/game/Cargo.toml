@@ -20,6 +20,7 @@ save-fault-tests = ["soe-save/fault-injection"]
 [dependencies]
 thiserror = "2.0"
 crc32fast = "1"
+rayon = "1.11"
 soe-trace = { path = "../trace" }
 soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }

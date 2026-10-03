@@ -1,0 +1,22 @@
+{
+  "data_mode": "installed",
+  "format": 1,
+  "machine": {
+    "architecture": "x86_64",
+    "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+    "host": "main"
+  },
+  "operations": {
+    "bsa_file_read": 539,
+    "dds_bc7_decode": 83240,
+    "form_lookup": 6,
+    "installed_bsa_file_read": 238500,
+    "installed_nif_parse": 190700,
+    "navmesh_find_path": 431,
+    "navmesh_locate": 12,
+    "nif_parse": 234,
+    "papyrus_call": 421,
+    "papyrus_native_call": 831,
+    "winning_override_resolve": 9
+  }
+}
