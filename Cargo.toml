@@ -17,6 +17,7 @@ members = [
     "crates/papyrus",
     "crates/physics",
     "crates/profile",
+    "crates/probe",
     "crates/save",
     "crates/trace",
 ]
