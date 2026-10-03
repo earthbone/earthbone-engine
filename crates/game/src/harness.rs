@@ -318,7 +318,7 @@ pub fn papyrus_log_traces(text: &str) -> Vec<String> {
     text.lines()
         .filter_map(|l| {
             let body = vanilla_trace_payload(l).unwrap_or(l);
-            if body.is_empty() {
+            if body.trim().is_empty() {
                 return None;
             }
             Some(body.to_string())
