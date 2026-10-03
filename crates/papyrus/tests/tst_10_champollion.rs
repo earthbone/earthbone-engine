@@ -287,6 +287,97 @@ fn tst_10_champollion_reports_unmatched_loaded_functions() {
 }
 
 #[test]
+fn tst_10_champollion_equal_function_inventories_have_no_differences() {
+    let loaded = BTreeMap::from([(
+        (
+            "example".into(),
+            String::new(),
+            "tick".into(),
+            String::new(),
+        ),
+        FunctionShape {
+            params: vec!["int".into()],
+            instructions: 2,
+        },
+    )]);
+
+    assert!(
+        differences(&loaded, &loaded).is_empty(),
+        "matching function inventories produce an empty report"
+    );
+}
+
+#[test]
+fn tst_10_champollion_instruction_inventory_skips_labels_and_debug_comments() {
+    let assembly = ".object Example\n.state\n.function Tick\n.param value Int\n.code\n; line 12\nJMP _label0\n_label0:\nRETURN value\n.endCode\n.endFunction ;Tick\n.endState\n.endObject\n";
+    let functions = champollion_functions(assembly);
+    assert_eq!(
+        functions.get(&(
+            "example".into(),
+            String::new(),
+            "tick".into(),
+            String::new(),
+        )),
+        Some(&FunctionShape {
+            params: vec!["int".into()],
+            instructions: 2,
+        }),
+        "labels and debug comments are not instructions"
+    );
+}
+
+#[test]
+fn tst_10_champollion_report_differences_include_missing_and_changed_functions() {
+    let source = BTreeMap::from([
+        (
+            (
+                "example".into(),
+                "running".into(),
+                "tick".into(),
+                String::new(),
+            ),
+            FunctionShape {
+                params: vec!["int".into()],
+                instructions: 2,
+            },
+        ),
+        (
+            (
+                "example".into(),
+                String::new(),
+                "get".into(),
+                "health".into(),
+            ),
+            FunctionShape {
+                params: Vec::new(),
+                instructions: 1,
+            },
+        ),
+    ]);
+    let champollion = BTreeMap::from([(
+        (
+            "example".into(),
+            "running".into(),
+            "tick".into(),
+            String::new(),
+        ),
+        FunctionShape {
+            params: vec!["string".into()],
+            instructions: 3,
+        },
+    )]);
+
+    assert_eq!(
+        differences(&source, &champollion),
+        vec![
+            "example::::get::health PEX=Some(FunctionShape { params: [], instructions: 1 }) Champollion=None".to_owned(),
+            "example::running::tick:: PEX=Some(FunctionShape { params: [\"int\"], instructions: 2 }) Champollion=Some(FunctionShape { params: [\"string\"], instructions: 3 })".to_owned(),
+        ],
+        "the report includes missing functions and signature or instruction differences"
+    );
+}
+
+#[test]
 fn tst_10_champollion_matches_all_shipped_scripts_or_writes_differences() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("skipping TST-10: SKYRIM_DATA is not set");
