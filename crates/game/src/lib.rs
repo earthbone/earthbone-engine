@@ -183,6 +183,7 @@ pub struct Game {
     active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
     wasm_mods: WasmMods,
     frame_history: soe_trace::FrameHistory,
+    last_work_counts: soe_trace::WorkCounts,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -266,6 +267,7 @@ impl Game {
             active_hand_casts: BTreeSet::new(),
             wasm_mods: WasmMods::new(),
             frame_history: soe_trace::FrameHistory::default(),
+            last_work_counts: soe_trace::WorkCounts::default(),
         }
     }
 
@@ -1345,6 +1347,7 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let frame = soe_trace::FrameSnapshot::when_recording();
         let tick_scope = soe_trace::SystemScope::new(soe_trace::System::Other);
+        let work_frame = soe_trace::WorkFrame::begin();
         {
             let mut world = self.world.borrow_mut();
             world.menu_mode = menu_mode;
@@ -1439,6 +1442,7 @@ impl Game {
         if let Some(frame) = frame {
             self.frame_history.record(frame.finish());
         }
+        self.last_work_counts = work_frame.counts();
     }
 
     /// Last tick's exclusive system durations and rolling 240-frame statistics.
@@ -1446,6 +1450,12 @@ impl Game {
     #[must_use]
     pub fn frame_history(&self) -> &soe_trace::FrameHistory {
         &self.frame_history
+    }
+
+    /// Deterministic operation counts for the last game tick, excluding host work.
+    #[must_use]
+    pub fn last_work_counts(&self) -> soe_trace::WorkCounts {
+        self.last_work_counts.clone()
     }
 
     fn resume_quest_lifecycle_tasks(&mut self) {

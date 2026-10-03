@@ -229,7 +229,10 @@ impl LoadOrder {
 
     /// The winning record, the last one in load order.
     pub fn winner(&self, id: GlobalFormId) -> Option<&Record> {
-        self.overrides(id).last().map(|r| self.record(*r))
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
+        self.overrides(id)
+            .last()
+            .map(|r| &self.files[r.file].plugin.records[r.record])
     }
 
     pub fn winner_ref(&self, id: GlobalFormId) -> Option<RecordRef> {
@@ -237,6 +240,7 @@ impl LoadOrder {
     }
 
     pub fn record(&self, r: RecordRef) -> &Record {
+        soe_trace::count(soe_trace::Operation::RecordLookups, 1);
         &self.files[r.file].plugin.records[r.record]
     }
 

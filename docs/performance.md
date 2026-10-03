@@ -637,3 +637,40 @@ The separate headless Godot gameplay acceptance measured 367.029 ms of cold
 outbound preparation and activated the overlay. Warm return and input
 crossings each measured 0 ms and left it inactive. The process exited zero
 after 46.0 seconds, with a peak RSS of 15,273,864 KiB.
+
+## Deterministic operation budgets, PRF-14
+
+`soe_trace::WorkFrame` captures operation counts without using elapsed time.
+Game ticks retain their last counts through `Game::last_work_counts`.
+`PlayerNode.work_counts` includes its enclosing host advance. Explicit work
+windows cover setup or queued work outside a tick. Nested ticks contribute
+once to their enclosing window. Data-source workers enter the caller's
+recorder before processing a chunk and join before the snapshot.
+
+Every fixed test compares all ten counters, including zero limits. These
+limits are fixed before running the scenarios:
+
+| Scenario | Locate | Triangles | Path nodes | Instructions | Natives | Conditions | Rays | Shapes | Records | Instances |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AI-25 orbit, 8,192 triangles, each of 60 ticks at 0.1 s | 2,000 | 8,000 | 256 | 0 | 0 | 0 | 0 | 0 | 2,048 | 0 |
+| PRF-07, 1,000 actors, ten warm-up ticks then 120 ticks at 60 Hz | 8,000 | 16,000 | 4,000 | 0 | 0 | 0 | 0 | 0 | 200,000 | 0 |
+| Mixed stress, 16 actors, scripts and paths, each of five ticks | 128 | 256 | 8,192 | 544 | 0 | 0 | 0 | 0 | 10,000 | 0 |
+| Burst of 32 quest stages, fragments and OR conditions | 0 | 0 | 0 | 96 | 32 | 32 | 0 | 0 | 8,192 | 0 |
+| One installed Bannered Mare NAVM point query | 1 | 256 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The orbit fixture keeps AI-25's authored bounds, height, arc samples and
+movement. Triangle candidates use the graph's bounds tree at triangle level.
+A full scan of its 8,192 triangles for every orbit sample exceeds its
+triangle limit by hundreds of times. The gate checks work rather than CPU
+speed. A* remains synchronous, with no scheduling or path-budget change.
+
+The stress CLI prints `work_peak_<operation> <count> count` after each
+measurement window. These are per-counter maxima across measured ticks,
+excluding setup, warm-up and report work. Scope instrumentation is independent
+of the global timing trace switch. Counter definitions and worker scope
+behavior are in [trace.md](trace.md). The fixed tests are in
+`game/tests/ai_25_orbit.rs`, `game/tests/prf_14_work.rs` and
+`bench/src/stress/mod.rs`. The installed NAVM case uses all five masters.
+The Godot correctness test loads the Bannered Mare, checks actual RID creation
+counts against streamed instances, and verifies a new empty window is zero.
+It does not measure renderer throughput.

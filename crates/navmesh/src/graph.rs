@@ -78,6 +78,7 @@ pub struct Mesh {
     pub triangles: Vec<Triangle>,
     min: [f32; 3],
     max: [f32; 3],
+    spatial: OnceLock<SpatialIndex>,
 }
 
 impl Mesh {
@@ -125,6 +126,7 @@ impl Mesh {
     /// Height of the triangle's plane at an XY position, or `None` when the
     /// XY position is outside the triangle.
     fn height_at(&self, triangle: u32, x: f32, y: f32) -> Option<f32> {
+        soe_trace::count(soe_trace::Operation::NavmeshTriangles, 1);
         let t = &self.triangles[triangle as usize];
         let [a, b, c] = t.vertices.map(|v| self.vertices[v as usize]);
         let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
@@ -368,6 +370,7 @@ impl NavGraph {
             triangles,
             min: [0.0; 3],
             max: [0.0; 3],
+            spatial: OnceLock::new(),
         };
         mesh.recompute_bounds();
         self.spatial.take();
@@ -597,6 +600,7 @@ impl NavGraph {
     /// the one whose surface is nearest in Z. Meshes whose bounds exclude
     /// the point are skipped, so this is cheap on a world-sized graph.
     pub fn locate(&self, point: [f32; 3]) -> Option<NodeId> {
+        soe_trace::count(soe_trace::Operation::NavmeshLocate, 1);
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -612,14 +616,19 @@ impl NavGraph {
                 {
                     return;
                 }
-                for ti in 0..mesh.triangles.len() {
-                    if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
-                        let candidate = ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
-                        if !self.is_blocked(candidate.1) && best.is_none_or(|old| candidate < old) {
-                            best = Some(candidate);
+                mesh.spatial
+                    .get_or_init(|| SpatialIndex::triangles(mesh))
+                    .visit_xy(point, |ti| {
+                        if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
+                            let candidate =
+                                ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
+                            if !self.is_blocked(candidate.1)
+                                && best.is_none_or(|old| candidate < old)
+                            {
+                                best = Some(candidate);
+                            }
                         }
-                    }
-                }
+                    });
             });
         best.map(|(_, n)| n)
     }
@@ -632,6 +641,7 @@ impl NavGraph {
     /// # Panics
     /// This function does not panic.
     pub fn contains_point(&self, point: [f32; 3]) -> bool {
+        soe_trace::count(soe_trace::Operation::NavmeshLocate, 1);
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
@@ -647,11 +657,13 @@ impl NavGraph {
                 {
                     return;
                 }
-                found |= mesh
-                    .triangles
-                    .iter()
-                    .enumerate()
-                    .any(|(ti, _)| mesh.height_at(ti as u32, point[0], point[1]).is_some());
+                mesh.spatial
+                    .get_or_init(|| SpatialIndex::triangles(mesh))
+                    .visit_xy(point, |ti| {
+                        if !found {
+                            found = mesh.height_at(ti as u32, point[0], point[1]).is_some();
+                        }
+                    });
             });
         found
     }
@@ -787,6 +799,7 @@ impl NavGraph {
             if queued > g[&node] {
                 continue;
             }
+            soe_trace::count(soe_trace::Operation::PathNodes, 1);
             if node == to {
                 return Some(self.assemble(from, to, &came, g[&to], endpoints));
             }
@@ -867,6 +880,7 @@ impl NavGraph {
             if self.node_blocked(n) {
                 continue;
             }
+            soe_trace::count(soe_trace::Operation::PathNodes, 1);
             out.push(n);
             for next in self.triangle(n).neighbors.iter().flatten() {
                 if self

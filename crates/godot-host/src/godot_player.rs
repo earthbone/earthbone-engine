@@ -144,6 +144,7 @@ pub struct PlayerNode {
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     swing_doors: HashMap<GlobalFormId, Gd<crate::godot_animated_static::AnimatedStaticNode>>,
     loaded_cell: Option<GlobalFormId>,
+    last_work_counts: soe_trace::WorkCounts,
     door_fade: DoorFade,
     game_fade: GameFade,
     door_fade_view: Option<DoorFadeView>,
@@ -243,6 +244,7 @@ impl INode3D for PlayerNode {
             game_streamer: None,
             swing_doors: HashMap::new(),
             loaded_cell: None,
+            last_work_counts: soe_trace::WorkCounts::default(),
             door_fade: DoorFade::default(),
             game_fade: GameFade::default(),
             door_fade_view: None,
@@ -861,6 +863,18 @@ impl PlayerNode {
     #[func]
     pub fn advance(&mut self, delta: f64) {
         let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
+        let frame = soe_trace::WorkFrame::begin();
+        self.advance_measured(delta);
+        self.last_work_counts = frame.counts();
+    }
+
+    /// Operation counts from the last advance, including game and host queries.
+    #[func]
+    pub fn work_counts(&self) -> VarDictionary {
+        crate::godot_layer::work_dictionary(&self.last_work_counts)
+    }
+
+    fn advance_measured(&mut self, delta: f64) {
         if !self.menu.is_open()
             && self
                 .game
