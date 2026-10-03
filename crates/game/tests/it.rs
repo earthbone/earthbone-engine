@@ -1046,6 +1046,10 @@ mod prg_15_actor_skills;
 mod prg_16_data_length_adversarial;
 #[path = "prg_16_purchase_data_semantics.rs"]
 mod prg_16_purchase_data_semantics;
+#[path = "prg_21_adversarial.rs"]
+mod prg_21_adversarial;
+#[path = "prg_21_breaker_adversarial.rs"]
+mod prg_21_breaker_adversarial;
 #[path = "quest_flow.rs"]
 mod quest_flow;
 #[path = "real_crafting.rs"]

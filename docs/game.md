@@ -7293,15 +7293,19 @@ skymp supplies the recursive count-selection pattern, but its missing
 highest-level restriction and chance-global shortcut are not reused. These
 references do not provide a reusable Rust consumer. No dependency was added.
 
-Eleven synthetic tests cover actor-level filtering, nested counts, duplicate
+Synthetic tests cover actor-level filtering, nested counts, duplicate
 weighting, Use All Spells, saved selections and empty outcomes, winning links,
 template inheritance, traversal bounds, malformed inputs and RNG rollback
-after earlier successful draws, plus older saved placeholders. The five-master
-survey executes all 33 winning
-LVSP lists at levels 1, 10 and 50, with 171 concrete spell results over 99
-selections. The survey checks record execution, not comparison against a
-running original game. Live actor leveling and later spell reevaluation retain
-their progression scope.
+after earlier successful draws, plus older saved placeholders. PRG-21 adds
+synthetic cases for flags 0, 1, 4, 5, 6 and 7 at levels 1, 10 and 20, nested
+Use All selection, and chance-none values 0 and 100. These cases exercise the
+engine selector and do not establish original-runtime behavior. xEdit supplies
+the LVSP flag names and values. CommonLib's `TESLeveledList::Flag` supplies the
+same bit names, but its interface does not specify selection precedence. The
+SKYRIM_DATA-gated five-master survey executes winning LVSP lists at levels 1,
+10 and 20 and checks that every result resolves to a SPEL record. The survey
+checks record execution, not comparison against a running original game. Live
+actor leveling and later spell reevaluation retain their progression scope.
 
 ## Concrete inventory reference moves
 
