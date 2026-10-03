@@ -50,19 +50,16 @@ impl PlayerNode {
         content.add_child(&scroll);
         if let Some(entry) = entry {
             let mut heading = Label::new_alloc();
-            heading.set_text(&format!(
-                "{}: {:.0} / {:.0} ({} sessions left)",
-                entry.skill, entry.current, entry.cap, entry.sessions_remaining
-            ));
+            heading.set_text(&training_menu::heading(&entry));
             rows.add_child(&heading);
             let mut buy = Button::new_alloc();
-            buy.set_text(&format!("Train for {} gold", entry.cost));
+            buy.set_text(&training_menu::purchase_label(&entry));
             buy.set_disabled(!can_pay);
             buy.connect("pressed", &base.callable("purchase_training_menu"));
             rows.add_child(&buy);
         } else {
             let mut unavailable = Label::new_alloc();
-            unavailable.set_text("Training is unavailable.");
+            unavailable.set_text(training_menu::UNAVAILABLE_LABEL);
             rows.add_child(&unavailable);
         }
         true

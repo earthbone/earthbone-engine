@@ -1087,6 +1087,7 @@ impl World {
         crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_cloaks(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_sun_gaze_modifier(&mut magic);
         self.write_weather_image_space(&mut magic);
         self.write_effect_shaders(&mut magic);
         h.bytes(&magic.out);

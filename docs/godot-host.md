@@ -162,6 +162,14 @@ from the active data VFS. `Game.PrecacheCharGenClear` drops the buffers and
 resets residency and byte counts. The asset buffers are CPU-side file data.
 This does not upload preview meshes or apply morphs to a rendered actor.
 
+The SCR-30 cache tests check retained file and byte counts, clear every cache
+counter after a cache load, and load installed head-part models and
+morph files when `SKYRIM_DATA` is set. The training presentation test checks
+the offer values used for the trainer heading and purchase button, including
+an unavailable trainer. The camera visibility test checks the value passed to
+the rendered actor instances for first and third person. These Rust checks do
+not inspect pixels from a live player appearance.
+
 The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
 clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
 model field and the NAM0 chargen TRI path.
@@ -176,8 +184,12 @@ initialization, and the resulting player actor state.
 `Game.ShowTrainingMenu(actor)` reaches the host as a typed menu request with
 the actor form. Valid trainers also reach the UI-16 presenter through its
 pending request. The host opens the training menu once and consumes the typed
-request without presenting it again. Camera-target and first-person geometry
-requests are applied through the transient camera controls.
+request without presenting it again. The menu heading and purchase label are
+built from the current offer returned by `training_menu::entry`, while an
+invalid offer displays the unavailable label. Camera-target and first-person
+geometry requests are applied through transient camera controls. The first-
+person visibility flag reaches each player appearance RenderingServer
+instance only in first-person view.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
@@ -350,6 +362,10 @@ transition, and pass the new placement through `sync_game_pose` so the shared
 streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
+
+`Game.ShakeController` queues a transient controller-shake request. The
+player adapter sends its left and right strengths and duration to every
+connected joypad through Godot's `Input.start_joy_vibration`.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -2897,6 +2913,10 @@ and `Game.ForceThirdPerson` set the live player rig and refresh the camera.
 delay and duration, and chooses black or white from its black-fade flag.
 Negative or non-finite timing values are rejected by the Game native and
 logged. These operations run after the VM tick that enqueued them.
+Camera requests share the rig mode helper used by the camera tests. The fade
+overlay uses one presentation value for its color, opacity and visibility,
+including when a door fallback fade overlaps a Papyrus fade. Save requests use
+the same generation writer as explicit host saves.
 
 ## Native menu framework
 
@@ -3277,6 +3297,13 @@ snapshot after gameplay startup and each gameplay tick, clears it when the
 data source changes, and exposes `gameplay_effect_shaders` as a diagnostic
 array. It allocates no scene node or server resource. The host does not yet
 render EFSH authored textures, color keys or particles on reference geometry.
+An opt-in `scr-24-test` build adds a synthetic request driver to
+`CellStreamerNode`. `godot/scr_24_effect_shader_test.gd` drives the actual
+RenderingServer path and checks keyed refresh, Stop, finite expiry, clear and
+tree-exit cleanup. Build with
+`cargo build -p soe-godot-host --release --features scr-24-test`, then run
+`godot --path godot --script scr_24_effect_shader_test.gd`. The regression
+checks temporary server-instance ownership, not authored EFSH appearance.
 See [game.md](game.md#effect-shader-playback-scr-24) for the Papyrus contract.
 
 ## Image-space modifier rendering, MAG-71

@@ -157,6 +157,8 @@ pub enum Error {
     NoCrimeFaction(GlobalFormId),
     #[error("faction {0} does not track crime")]
     NotTracked(GlobalFormId),
+    #[error("faction {0} has no resident actor for an assault alarm")]
+    NoAssaultWitness(GlobalFormId),
     #[error("the tracked crime faction does not permit arrest")]
     ArrestDisabled,
     #[error("the player has no bounty to resolve")]
