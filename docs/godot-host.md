@@ -218,12 +218,12 @@ record identity and winner metadata. The wrapper remains a view and does not edi
 Typed record editing is provided by the editor document API. The inspector addition does not
 provide a custom field editor for record editing.
 
-`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the windowed editor with a
-synthetic load order. It checks that the visible tree shows the case-insensitive `STAT`
+`crates/godot-host/tests/edt_02_godot_forms_dock.rs` launches the headless editor with a
+synthetic load order. It checks that the dock tree shows the case-insensitive `STAT`
 matches from the winning records, that searching created zero `SoeFormResource` values, and
 that selecting one row creates one resource. Run it after building the release extension
-with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner uses a 640 by 360 editor window
-and the plugin exits the editor when the check finishes.
+with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
+rendering pixels, and the plugin exits the editor when the check finishes.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
