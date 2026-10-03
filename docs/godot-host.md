@@ -2226,6 +2226,15 @@ with selection limits described in [game.md](game.md). Animation timing,
 landing/scuff sounds and NPC footstep delivery remain pending. The current
 controller does not supply submerged state to audio.
 
+LAND collision carries no Havok material, so footsteps on terrain used to
+fall back to the `DLMT` default object. Since 2026-10-03 a hit on a LAND body
+resolves `DataSource::terrain_material`, the counterpart of CommonLib's
+`TES::GetLandMaterialType`. It takes the cell's winning LAND (or the parent
+worldspace's), the dominant texture at that point (`Land::dominant_texture`
+in [esm.md](esm.md)) and that LTEX's `MNAM` MATT. A missing link still falls
+back to `DLMT`. The gated `real_terrain_material` test resolves 3957 of 4096
+samples around Whiterun to MATT records, five distinct materials.
+
 ## Dialogue voice playback
 
 When a selected INFO response starts, the dialogue menu resolves its voice

@@ -88,6 +88,18 @@ impl PlayerNode {
         };
         let order = source.shared_order();
         let steps = Footsteps::new(&order);
+        // LAND collision has no Havok material, so a step on terrain reads
+        // the material painted at the contact point instead.
+        let on_land = self
+            .collision_references
+            .get(&hit.body)
+            .and_then(|reference| order.winner_ref(*reference))
+            .is_some_and(|land| order.record(land).tag == soe_esm::tag::LAND);
+        let terrain = self
+            .exterior
+            .as_ref()
+            .filter(|_| on_land && hit.material.is_none())
+            .and_then(|exterior| source.terrain_material(exterior.world, hit.point.x, hit.point.y));
         let event = match (gait, right) {
             (Gait::Sprint, false) => "FootSprintLeft",
             (Gait::Sprint, true) => "FootSprintRight",
@@ -102,7 +114,10 @@ impl PlayerNode {
             let sets = game.world_mut().footstep_sets(player)?;
             let material = match hit.material {
                 Some(hash) => steps.material(hash)?,
-                None => steps.default_object(*b"DLMT")?,
+                None => match terrain {
+                    Some(material) => Some(material),
+                    None => steps.default_object(*b"DLMT")?,
+                },
             };
             let Some(material) = material else {
                 return Ok(Vec::new());

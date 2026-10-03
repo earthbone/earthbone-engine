@@ -265,6 +265,42 @@ impl DataSource {
         Some(self.order.resolve(rref.file, parent))
     }
 
+    /// The MATT material painted on exterior terrain at a world position.
+    /// LAND collision carries no Havok material, so footsteps on terrain read
+    /// it here: the winning LAND of the cell, from the parent worldspace when
+    /// the child uses parent land data, its dominant texture at that point,
+    /// and the MNAM of that LTEX. None when any link is missing, and the
+    /// caller then falls back to the default land material.
+    pub fn terrain_material(&self, world: GlobalFormId, x: f32, y: f32) -> Option<GlobalFormId> {
+        let cell_x = (x / crate::units::CELL_UNITS).floor();
+        let cell_y = (y / crate::units::CELL_UNITS).floor();
+        let grid_land = |world: GlobalFormId| {
+            let cell = self
+                .cell_index()
+                .exterior_cell(world, cell_x as i32, cell_y as i32)?;
+            self.cell_index().land(cell)
+        };
+        let land_id = grid_land(world).or_else(|| grid_land(self.land_parent_of(world)?))?;
+        let land_ref = self.order.winner_ref(land_id)?;
+        let land = Land::from_record(self.order.record(land_ref)).ok()?;
+        let raw = land.dominant_texture(
+            x - cell_x * crate::units::CELL_UNITS,
+            y - cell_y * crate::units::CELL_UNITS,
+        );
+        if raw == 0 {
+            return None;
+        }
+        let ltex_ref = self
+            .order
+            .winner_ref(self.order.resolve(land_ref.file, raw))?;
+        let record = self.order.record(ltex_ref);
+        if record.tag != tag::LTEX {
+            return None;
+        }
+        let material = LandTexture::from_record(record).ok()?.material?;
+        Some(self.order.resolve(ltex_ref.file, material))
+    }
+
     /// The winning `LAND` record of each cell in `cells`, one pass over the
     /// `LAND` winners. A cell without one (the worldspace's border, a city
     /// worldspace's unused squares) is simply absent from the result.
