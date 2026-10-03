@@ -6,6 +6,9 @@
 //! winning FormIDs. A Godot Resource is created only when the dock selects an
 //! ID, following Godot's EditorPlugin and EditorInspectorPlugin APIs.
 
+// CONTEXT: gdext's class(init) expansion emits explicit field names.
+#![allow(clippy::redundant_field_names)]
+
 use std::path::PathBuf;
 
 use godot::classes::RefCounted;

@@ -620,7 +620,7 @@ mod tests {
         let mut s = TerrainLodStreamer::with_anchor(config(0), anchor)
             .unwrap_or_else(|e| panic!("with_anchor: {e}"));
         let plan = s.settle(CellCoord::new(3, 3));
-        assert!(!plan.load.is_empty());
+        assert_ne!(plan.load.len(), 0);
         for b in &plan.load {
             assert_eq!((b.x - anchor.x).rem_euclid(4), 0, "{b:?}");
             assert_eq!((b.y - anchor.y).rem_euclid(4), 0, "{b:?}");
@@ -651,19 +651,19 @@ mod tests {
         let mut s = TerrainLodStreamer::new(config(25)).unwrap_or_else(|e| panic!("new: {e}"));
         let focus = CellCoord::new(0, 0);
         let first = s.step(focus, true, |_| Ok::<_, String>(Some(10)));
-        assert!(!first.evicted.is_empty());
+        assert_ne!(first.evicted.len(), 0);
         assert!(s.usage_bytes() <= 25);
         let again = s.step(focus, false, |_| Ok::<_, String>(Some(10)));
         assert!(again.loaded.is_empty(), "{again:?}");
         let moved = s.step(CellCoord::new(1, 0), false, |_| Ok::<_, String>(Some(10)));
-        assert!(!moved.loaded.is_empty());
+        assert_ne!(moved.loaded.len(), 0);
     }
 
     #[test]
     fn a_failed_read_is_reported_and_not_resident() {
         let mut s = TerrainLodStreamer::new(config(0)).unwrap_or_else(|e| panic!("new: {e}"));
         let step = s.step(CellCoord::new(0, 0), true, |_| Err("bad block"));
-        assert!(!step.failed.is_empty());
+        assert_ne!(step.failed.len(), 0);
         assert_eq!(s.resident_count(), 0);
         assert_eq!(s.absent_count(), 0);
     }

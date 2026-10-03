@@ -352,7 +352,7 @@ mod tests {
             favor_points: 0,
         };
 
-        assert!(gift_entries(&game, &request).is_empty());
+        assert_eq!(gift_entries(&game, &request).len(), 0);
 
         request.show_stolen = true;
         assert_eq!(gift_entries(&game, &request)[0].item, id(0x100));
