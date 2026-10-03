@@ -1112,8 +1112,8 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the active capture minimum. It returns `None` and logs when no frames have been captured. |
 | `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the active capture maximum. It returns `None` and logs when no frames have been captured. |
 | `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
-| `Utility.GetBudgetCount` | Returns the count of engine budget categories. |
-| `Utility.GetBudgetName` | Returns a category name for a valid integer index, or an empty string for an invalid index. |
+| `Utility.GetBudgetCount` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetName` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so valid indices log an explicit error and return an empty string. |
 | `Utility.GetCurrentBudget` | Returns measured Papyrus instructions or exterior cell loads for the latest update. |
 | `Utility.OverBudget` | Compares the measured count with its configured cap. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
@@ -1238,15 +1238,14 @@ derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine categories: `Papyrus instructions per
-  slice` and `Exterior cell loads per update`. `GetCurrentBudget` returns the
-  measured instruction count from the most recent VM slice or exterior cell
+- `GetCurrentBudget` returns the measured instruction count from the most
+  recent VM slice or exterior cell
   load count from the most recent host streaming update. `OverBudget` compares
   that measurement with `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
-  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid indices return `None`, zero and
-  false for name, integer and boolean queries. The CK Utility page documents
-  these global signatures, and SKSE's vanilla `Utility.psc` declares them as
-  global natives.
+  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid scheduler indices return zero and
+  false for integer and boolean queries. These are runtime scheduler limits,
+  not the CK memory budget metadata returned by `GetBudgetCount` and
+  `GetBudgetName`.
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
 and 0 otherwise. Searching state 2 is not represented by the combat system.
 `Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
@@ -1285,14 +1284,15 @@ Their CK contracts are described by
 
 `GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
 by `Game::tick`. Without captured frames, they return `None` and log that beta
-capture data is unavailable. `GetCurrentMemory` has no game-owned memory
-tracker, so it returns `None` and logs an explicit error. `GetBudgetCount` and
-`GetBudgetName` read the engine's two categories: `Papyrus instructions per
-slice` and `Exterior cell loads per update`. The name query requires exactly
-one integer index and returns an empty string for an invalid index. The
-scheduler budget methods `GetCurrentBudget` and `OverBudget` read those same
-categories. `GetCurrentBudget` reads the instruction count returned by the
-most recent VM scheduler slice or the number of exterior cells committed by
+capture data is unavailable. `GetCurrentMemory`, `GetBudgetCount`, and
+`GetBudgetName` are available only when memory tracking is enabled. This
+runtime has no game-owned memory tracker, so `GetCurrentMemory` and
+`GetBudgetCount` return `None` and log an explicit error. `GetBudgetName`
+requires exactly one integer index. It returns an empty string for an invalid
+index, or logs an explicit error and returns an empty string when tracking is
+unavailable. The scheduler budget methods `GetCurrentBudget` and `OverBudget`
+read separate runtime counters. `GetCurrentBudget` reads the instruction count
+returned by the most recent VM scheduler slice or the number of exterior cells committed by
 the most recent host streaming update. Before a measurement, each value is
 zero. `OverBudget` compares that measured value with its configured cap. The
 CK Utility page documents these signatures, and SKSE's vanilla `Utility.psc`
@@ -1307,8 +1307,9 @@ Creation Engine frame capture or memory budgets.
   and returns true when any referenced MGEF has its hostile flag. Missing or
   malformed spell/effect records are logged and return false. `Spell.Cast` and
   `RemoteCast` use the direct-cast path described below. `Spell.Preload` and
-  `Spell.Unload` validate the spell record and report that art resource
-  loading is unsupported. `Topic.Add` validates and records known topics.
+  `Spell.Unload` validate the spell record and queue typed art requests. The
+  Godot host does not consume them yet. `Topic.Add` validates and records known
+  topics.
 - The shipped `Topic.psc` declares `Topic.Add()` only. There is no
   `Topic.Remove` native or Spell/Topic global native in the local vanilla
   Papyrus sources.
@@ -1368,11 +1369,10 @@ Creation Engine frame capture or memory budgets.
   `FunctionsDump.txt` entry for `MusicType`.
 
 - `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
-  SPEL reader, then report that spell art resource loading is unsupported. They
-  do not change cast or active-effect state. The shipped `Spell.psc` describes
-  these as art-resource operations and warns against misuse. The game crate has
-  no art resource loader, so implementing their load and unload effects requires
-  a separate resource-system prerequisite.
+  SPEL reader and queue typed art requests. The Godot host does not consume
+  these requests yet, so art is not loaded or released. The shipped `Spell.psc`
+  describes these as art-resource operations and warns against misuse. A host
+  art resource provider remains a prerequisite for the observable effects.
 - `VisualEffect.Play` adds a transient effect instance for the RFCT form and
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing

@@ -3,9 +3,9 @@
 
 use soe_esm::LoadOrder;
 use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallStatic, Return};
 use soe_papyrus::Value;
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 
 fn call(game: &mut Game, name: &str, args: &[Value]) -> Value {
     let script_name = format!("Scr50Breaker{}", game.vm.time().to_bits());
@@ -38,11 +38,10 @@ fn scr_50_memory_budget_count_is_unavailable_without_memory_tracking() {
 
     assert_eq!(call(&mut game, "GetCurrentMemory", &[]), Value::None);
     assert_eq!(call(&mut game, "GetBudgetCount", &[]), Value::None);
-    assert!(
-        game.vm
-            .log
-            .contains("Utility.GetBudgetCount: memory tracking is unavailable")
-    );
+    assert!(game
+        .vm
+        .log
+        .contains("Utility.GetBudgetCount: memory tracking is unavailable"));
 }
 
 #[test]

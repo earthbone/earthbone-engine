@@ -3048,9 +3048,13 @@ fn utility(vm: &mut Vm, w: &Shared) {
                     call.args.len()
                 ),
             );
-            return i(0);
+            return none();
         }
-        i(ENGINE_BUDGETS.len() as i32)
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetCount: memory tracking is unavailable",
+        );
+        none()
     });
     global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
         if call.args.len() != 1 {
@@ -3070,12 +3074,14 @@ fn utility(vm: &mut Vm, w: &Shared) {
             );
             return s("");
         };
-        let Ok(index) = usize::try_from(*index) else {
+        if usize::try_from(*index).is_err() {
             return s("");
-        };
-        ENGINE_BUDGETS
-            .get(index)
-            .map_or_else(|| s(""), |name| s(name))
+        }
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetName: memory tracking is unavailable",
+        );
+        s("")
     });
     global!(vm, w, "Utility", "GetCurrentBudget", |world, call| {
         let index = call.arg(0).as_int();
@@ -3163,11 +3169,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
             .map_or("", String::as_str))
     });
 }
-
-const ENGINE_BUDGETS: [&str; 2] = [
-    "Papyrus instructions per slice",
-    "Exterior cell loads per update",
-];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "GlobalVariable", "GetValue", |world, call, me| f(

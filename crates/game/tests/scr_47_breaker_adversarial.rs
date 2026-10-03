@@ -6,7 +6,10 @@ use soe_game::world::{SpellArtAction, SpellArtRequest};
 use soe_game::Game;
 
 fn id() -> GlobalFormId {
-    GlobalFormId { file: 0, object: 0x800 }
+    GlobalFormId {
+        file: 0,
+        object: 0x800,
+    }
 }
 
 fn game() -> Game {
@@ -19,7 +22,7 @@ fn game() -> Game {
 
 #[test]
 fn scr_47_unload_without_a_preload_does_not_queue_a_request() {
-    let mut game = game();
+    let game = game();
     assert!(game.world_mut().unload_spell_art(id()).is_ok());
     assert!(game.world_mut().preload_spell_art(id()).is_ok());
     assert!(game.world_mut().unload_spell_art(id()).is_ok());
@@ -27,8 +30,14 @@ fn scr_47_unload_without_a_preload_does_not_queue_a_request() {
     assert_eq!(
         game.world_mut().take_spell_art_requests(),
         vec![
-            SpellArtRequest { spell: id(), action: SpellArtAction::Preload },
-            SpellArtRequest { spell: id(), action: SpellArtAction::Unload },
+            SpellArtRequest {
+                spell: id(),
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell: id(),
+                action: SpellArtAction::Unload
+            },
         ]
     );
 }

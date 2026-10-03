@@ -2,10 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::Game;
 use soe_game::vmad::{ScriptEntry, Vmad};
+use soe_game::Game;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{CallMethod, Return};
-use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, ident, s};
 use soe_papyrus::{ObjectId, Value};
 
 const SCENE: u32 = 0x800;
@@ -135,10 +135,8 @@ fn scr_44_completed_authored_id_survives_save_load_and_repeated_queries() {
     restored.load_state(&save).unwrap();
     assert!(query(&mut restored, id(SCENE), ACTION_ID));
     assert!(!query(&mut restored, id(SCENE), 0));
-    assert!(
-        restored
-            .traces()
-            .iter()
-            .all(|trace| !trace.contains("error"))
-    );
+    assert!(restored
+        .traces()
+        .iter()
+        .all(|trace| !trace.contains("error")));
 }
