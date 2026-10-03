@@ -39,18 +39,37 @@ fn tool_06_adversarial_system_filter_fields_and_rate_window() {
 
     let end = control.now_ms();
     let window = control.window(start, end);
-    let collapsed = window
-        .iter()
-        .find(|line| line.fields.get("message").is_some_and(|m| m == "weapon not equipped"));
+    let collapsed = window.iter().find(|line| {
+        line.fields
+            .get("message")
+            .is_some_and(|m| m == "weapon not equipped")
+    });
     assert_eq!(collapsed.map(|line| line.count), Some(3));
-    assert!(window.iter().any(|line| line.fields.get("actor").is_some_and(|actor| actor == "15")));
-    assert!(window.iter().any(|line| line.fields.get("message").is_some_and(|m| m == "ai detail")));
-    assert!(window.iter().any(|line| line.fields.get("message").is_some_and(|m| m == "vm detail")));
-    assert!(!window.iter().any(|line| line.fields.get("message").is_some_and(|m| m == "hidden global debug")));
+    assert!(window
+        .iter()
+        .any(|line| line.fields.get("actor").is_some_and(|actor| actor == "15")));
+    assert!(window
+        .iter()
+        .any(|line| line.fields.get("message").is_some_and(|m| m == "ai detail")));
+    assert!(window
+        .iter()
+        .any(|line| line.fields.get("message").is_some_and(|m| m == "vm detail")));
+    assert!(!window.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|m| m == "hidden global debug")));
 
     std::thread::sleep(Duration::from_millis(1_010));
     control.flush().unwrap();
     let output = lines.lock().unwrap();
-    assert!(output.iter().any(|line| line.fields.get("message").is_some_and(|m| m == "weapon not equipped") && line.count == 3));
-    assert!(output.iter().any(|line| line.fields.get("message").is_some_and(|m| m == "weapon not equipped") && line.fields.get("actor").is_some_and(|actor| actor == "15")));
+    assert!(output.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|m| m == "weapon not equipped")
+        && line.count == 3));
+    assert!(output.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|m| m == "weapon not equipped")
+        && line.fields.get("actor").is_some_and(|actor| actor == "15")));
 }

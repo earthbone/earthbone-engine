@@ -94,11 +94,23 @@ fn tool_07_adversarial_conditional_trace_stack_and_error_stack_follow_ck_contrac
         .local("result", "Var")
         .ins(
             CallStatic,
-            vec![s("Debug"), s("TraceConditional"), s("result"), s("visible"), Operand::Bool(true)],
+            vec![
+                s("Debug"),
+                s("TraceConditional"),
+                s("result"),
+                s("visible"),
+                Operand::Bool(true),
+            ],
         )
         .ins(
             CallStatic,
-            vec![s("Debug"), s("TraceConditional"), s("result"), s("hidden"), Operand::Bool(false)],
+            vec![
+                s("Debug"),
+                s("TraceConditional"),
+                s("result"),
+                s("hidden"),
+                Operand::Bool(false),
+            ],
         )
         .ins(
             CallStatic,
@@ -116,15 +128,36 @@ fn tool_07_adversarial_conditional_trace_stack_and_error_stack_follow_ck_contrac
     .unwrap();
     let thread = game.vm.call_global("Tool07StackProbe", "Run", &[]).unwrap();
     game.run_until_idle(32);
-    assert!(matches!(game.vm.thread_result(thread), Some(soe_papyrus::Value::None)));
+    assert!(matches!(
+        game.vm.thread_result(thread),
+        Some(soe_papyrus::Value::None)
+    ));
 
     let output = std::fs::read_to_string(scratch.path().join("Logs/Script/Papyrus.0.log")).unwrap();
-    assert!(output.contains("visible"), "true conditional trace missing: {output}");
-    assert!(!output.contains("hidden"), "false conditional trace was emitted: {output}");
-    assert!(output.contains("stack marker\n"), "TraceStack message missing: {output}");
-    assert!(output.contains("Tool07StackProbe.Run()"), "stack frame missing: {output}");
-    assert!(output.contains("stack:\n\t"), "VM error stack missing: {output}");
-    assert!(output.contains("Line "), "error frame has no line field: {output}");
+    assert!(
+        output.contains("visible"),
+        "true conditional trace missing: {output}"
+    );
+    assert!(
+        !output.contains("hidden"),
+        "false conditional trace was emitted: {output}"
+    );
+    assert!(
+        output.contains("stack marker\n"),
+        "TraceStack message missing: {output}"
+    );
+    assert!(
+        output.contains("Tool07StackProbe.Run()"),
+        "stack frame missing: {output}"
+    );
+    assert!(
+        output.contains("stack:\n\t"),
+        "VM error stack missing: {output}"
+    );
+    assert!(
+        output.contains("Line "),
+        "error frame has no line field: {output}"
+    );
 }
 
 #[test]
@@ -143,11 +176,38 @@ fn tool_07_adversarial_trace_user_opens_once_and_records_in_both_destinations() 
     let function = FunctionBuilder::new("Run", "None")
         .global()
         .local("result", "Var")
-        .ins(CallStatic, vec![s("Debug"), s("OpenUserLog"), s("result"), s("Probe")])
-        .ins(CallStatic, vec![s("Debug"), s("OpenUserLog"), s("result"), s("Probe")])
-        .ins(CallStatic, vec![s("Debug"), s("TraceUser"), s("result"), s("Probe"), s("user payload")])
-        .ins(CallStatic, vec![s("Debug"), s("CloseUserLog"), s("result"), s("Probe")])
-        .ins(CallStatic, vec![s("Debug"), s("TraceUser"), s("result"), s("Probe"), s("closed payload")]);
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("OpenUserLog"), s("result"), s("Probe")],
+        )
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("OpenUserLog"), s("result"), s("Probe")],
+        )
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("TraceUser"),
+                s("result"),
+                s("Probe"),
+                s("user payload"),
+            ],
+        )
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("CloseUserLog"), s("result"), s("Probe")],
+        )
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("TraceUser"),
+                s("result"),
+                s("Probe"),
+                s("closed payload"),
+            ],
+        );
     game.load_script(
         &ScriptBuilder::new("Tool07UserProbe", "Form")
             .function(function.build())
@@ -156,14 +216,31 @@ fn tool_07_adversarial_trace_user_opens_once_and_records_in_both_destinations() 
     .unwrap();
     let thread = game.vm.call_global("Tool07UserProbe", "Run", &[]).unwrap();
     game.run_until_idle(32);
-    assert!(matches!(game.vm.thread_result(thread), Some(soe_papyrus::Value::None)));
+    assert!(matches!(
+        game.vm.thread_result(thread),
+        Some(soe_papyrus::Value::None)
+    ));
 
-    let user = std::fs::read_to_string(scratch.path().join("Logs/Script/User/Probe.0.log")).unwrap();
-    assert!(user.contains("user payload"), "TraceUser did not reach user file: {user}");
-    assert!(!user.contains("closed payload"), "closed log accepted a trace: {user}");
-    let papyrus = std::fs::read_to_string(scratch.path().join("Logs/Script/Papyrus.0.log")).unwrap();
-    assert!(papyrus.contains("user payload"), "TraceUser missed Papyrus trace target: {papyrus}");
-    assert!(papyrus.contains("closed payload"), "closed log error missed Papyrus file: {papyrus}");
+    let user =
+        std::fs::read_to_string(scratch.path().join("Logs/Script/User/Probe.0.log")).unwrap();
+    assert!(
+        user.contains("user payload"),
+        "TraceUser did not reach user file: {user}"
+    );
+    assert!(
+        !user.contains("closed payload"),
+        "closed log accepted a trace: {user}"
+    );
+    let papyrus =
+        std::fs::read_to_string(scratch.path().join("Logs/Script/Papyrus.0.log")).unwrap();
+    assert!(
+        papyrus.contains("user payload"),
+        "TraceUser missed Papyrus trace target: {papyrus}"
+    );
+    assert!(
+        papyrus.contains("closed payload"),
+        "closed log error missed Papyrus file: {papyrus}"
+    );
 }
 
 #[test]
@@ -200,18 +277,26 @@ fn tool_07_adversarial_vm_lines_reach_tool_06_papyrus_target_when_file_trace_is_
     .unwrap();
     tracing::subscriber::with_default(subscriber, || {
         game.vm.log.push(0.0, "trace routed despite file filter");
-        game.vm.log.push(0.0, "error: routed failure (Probe.Run line 4)");
+        game.vm
+            .log
+            .push(0.0, "error: routed failure (Probe.Run line 4)");
         game.run_until_idle(1);
     });
     control.flush_all().unwrap();
     let papyrus_lines = lines.lock().unwrap();
     assert!(papyrus_lines.iter().any(|line| {
         line.target == "papyrus"
-            && line.fields.get("message").is_some_and(|message| message == "trace routed despite file filter")
+            && line
+                .fields
+                .get("message")
+                .is_some_and(|message| message == "trace routed despite file filter")
     }));
     assert!(papyrus_lines.iter().any(|line| {
         line.target == "papyrus"
             && line.level == tracing::Level::ERROR
-            && line.fields.get("message").is_some_and(|message| message == "error: routed failure (Probe.Run line 4)")
+            && line
+                .fields
+                .get("message")
+                .is_some_and(|message| message == "error: routed failure (Probe.Run line 4)")
     }));
 }

@@ -35,10 +35,21 @@ fn tool_06_breaker_system_directives_filter_subtargets_and_reload_live() {
     });
     control.flush_all().unwrap();
     let lines = lines.lock().unwrap();
-    assert!(lines.iter().any(|line| line.fields.get("message").is_some_and(|v| v == "ai detail")));
-    assert!(lines.iter().any(|line| line.fields.get("message").is_some_and(|v| v == "melee failure")));
-    assert!(!lines.iter().any(|line| line.fields.get("message").is_some_and(|v| v == "hidden detail")));
-    assert!(!lines.iter().any(|line| line.fields.get("message").is_some_and(|v| v == "hidden papyrus error")));
+    assert!(lines
+        .iter()
+        .any(|line| line.fields.get("message").is_some_and(|v| v == "ai detail")));
+    assert!(lines.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|v| v == "melee failure")));
+    assert!(!lines.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|v| v == "hidden detail")));
+    assert!(!lines.iter().any(|line| line
+        .fields
+        .get("message")
+        .is_some_and(|v| v == "hidden papyrus error")));
 }
 
 #[test]
@@ -53,8 +64,12 @@ fn tool_06_breaker_rate_collapse_keeps_actor_identity_and_second_boundaries() {
     control.flush_all().unwrap();
     let output = lines.lock().unwrap();
     assert_eq!(output.len(), 2);
-    assert!(output.iter().any(|line| line.count == 3 && line.fields["actor"] == "14"));
-    assert!(output.iter().any(|line| line.count == 1 && line.fields["actor"] == "15"));
+    assert!(output
+        .iter()
+        .any(|line| line.count == 3 && line.fields["actor"] == "14"));
+    assert!(output
+        .iter()
+        .any(|line| line.count == 1 && line.fields["actor"] == "15"));
 }
 
 #[test]
@@ -63,9 +78,15 @@ fn tool_06_breaker_window_uses_inclusive_event_timestamps_before_grouping() {
     tracing::subscriber::with_default(subscriber, || {
         tracing::info!(target: "game::ai", marker = "boundary", "window boundary");
     });
-    let event = control.window(0, u64::MAX).into_iter().find(|line| {
-        line.fields.get("marker").is_some_and(|value| value == "boundary")
-    }).unwrap();
+    let event = control
+        .window(0, u64::MAX)
+        .into_iter()
+        .find(|line| {
+            line.fields
+                .get("marker")
+                .is_some_and(|value| value == "boundary")
+        })
+        .unwrap();
     let exact = control.window(event.first_ms, event.first_ms);
     assert_eq!(exact.len(), 1);
     assert_eq!(exact[0].fields["marker"], "boundary");
@@ -95,10 +116,27 @@ fn tool_06_breaker_godot_routes_levels_and_exposes_live_controls() {
         let output = command.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(output.status.success(), "editor={editor}: {stdout}\n{stderr}");
-        assert!(stdout.contains("tool_06_godot_routing: failures=0"), "{stdout}\n{stderr}");
-        assert!(stderr.lines().any(|line| line.starts_with("ERROR:") && line.contains("tool_06 weapon not equipped")), "{stderr}");
-        assert!(stderr.lines().any(|line| line.starts_with("WARNING:") && line.contains("tool_06 warning")), "{stderr}");
+        assert!(
+            output.status.success(),
+            "editor={editor}: {stdout}\n{stderr}"
+        );
+        assert!(
+            stdout.contains("tool_06_godot_routing: failures=0"),
+            "{stdout}\n{stderr}"
+        );
+        assert!(
+            stderr
+                .lines()
+                .any(|line| line.starts_with("ERROR:")
+                    && line.contains("tool_06 weapon not equipped")),
+            "{stderr}"
+        );
+        assert!(
+            stderr
+                .lines()
+                .any(|line| line.starts_with("WARNING:") && line.contains("tool_06 warning")),
+            "{stderr}"
+        );
         assert!(stdout.contains("tool_06 info"), "{stdout}\n{stderr}");
     }
 }

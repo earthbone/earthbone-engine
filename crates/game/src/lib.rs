@@ -70,7 +70,7 @@ pub mod wasm;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -187,7 +187,6 @@ pub struct Game {
     wasm_mods: WasmMods,
     papyrus_logs: Option<papyrus_logs::FileLogs>,
     papyrus_log_cursor: usize,
-    user_log_cursors: BTreeMap<String, usize>,
 }
 
 /// Maximum VM instructions executed in one scheduler slice.
@@ -283,7 +282,6 @@ impl Game {
             wasm_mods: WasmMods::new(),
             papyrus_logs: None,
             papyrus_log_cursor: 0,
-            user_log_cursors: BTreeMap::new(),
         }
     }
 
@@ -312,7 +310,6 @@ impl Game {
             self.papyrus_logs = None;
         }
         self.papyrus_log_cursor = self.vm.log.entries.len();
-        self.user_log_cursors.clear();
         Ok(())
     }
 
@@ -1741,26 +1738,22 @@ impl Game {
     }
 
     fn flush_papyrus_logs(&mut self) {
-        let Some(logs) = self.papyrus_logs.as_mut() else {
-            return;
-        };
-        for entry in &self.vm.log.entries[self.papyrus_log_cursor..] {
-            if let Err(error) = logs.write_vm(&entry.message) {
-                soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, "failed to write Papyrus log");
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for entry in &self.vm.log.entries[self.papyrus_log_cursor..] {
+                if let Err(error) = logs.write_vm(&entry.message) {
+                    soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, "failed to write Papyrus log");
+                }
             }
         }
         self.papyrus_log_cursor = self.vm.log.entries.len();
 
-        let world = self.world.borrow();
-        for (name, lines) in &world.user_logs {
-            let cursor = self.user_log_cursors.entry(name.clone()).or_default();
-            let start = (*cursor).min(lines.len());
-            for line in &lines[start..] {
-                if let Err(error) = logs.write_user(name, line) {
+        let pending = std::mem::take(&mut self.world.borrow_mut().pending_user_log_writes);
+        if let Some(logs) = self.papyrus_logs.as_mut() {
+            for (name, line) in pending {
+                if let Err(error) = logs.write_user(&name, &line) {
                     soe_trace::error!(target: "papyrus", system = "papyrus", error = %error, user_log = %name, "failed to write Papyrus user log");
                 }
             }
-            *cursor = lines.len();
         }
     }
 }
