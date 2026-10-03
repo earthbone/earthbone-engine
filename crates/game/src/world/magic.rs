@@ -546,6 +546,7 @@ impl World {
         if let Some(state) = self.actor(actor) {
             state.voice_recovery_until = (recovery > 0.0).then_some(deadline);
         }
+        self.commonlib_shout_attack(shout);
         Ok(())
     }
 
@@ -2131,6 +2132,9 @@ impl World {
             return false;
         }
         self.apply_abilities(actor, [spell].into_iter().collect());
+        if actor == self.player() {
+            self.commonlib_spell_learned(spell);
+        }
         true
     }
 
@@ -4486,7 +4490,9 @@ impl World {
         if let Some(id) = traps.first() {
             if let Some(effect) = self.active_effects.get(id).cloned() {
                 if let Some(caster) = effect.caster {
-                    self.fill_soul_gem(caster, target, alloc);
+                    if self.fill_soul_gem(caster, target, alloc) {
+                        self.commonlib_souls_trapped(caster, target);
+                    }
                 }
             }
         }
@@ -4495,9 +4501,14 @@ impl World {
         }
     }
 
-    fn fill_soul_gem(&mut self, caster: GlobalFormId, target: GlobalFormId, alloc: Alloc<'_>) {
+    fn fill_soul_gem(
+        &mut self,
+        caster: GlobalFormId,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> bool {
         let Some(level) = self.actor_ref(target).map(|actor| actor.level) else {
-            return;
+            return false;
         };
         let soul_size = self.soul_size(level);
         let npc_soul = self.is_npc_soul_target(target);
@@ -4518,20 +4529,21 @@ impl World {
             .into_iter()
             .min_by_key(|(capacity, item, _)| (*capacity, *item))
         else {
-            return;
+            return false;
         };
         let Some(reference) = self.reference(caster) else {
-            return;
+            return false;
         };
         if reference.inventory.count(filled) == i32::MAX {
-            return;
+            return false;
         }
         let removed = reference.inventory.take(empty, 1);
         if removed.count() != 1 || reference.inventory.add(filled, 1).is_err() {
-            return;
+            return false;
         }
         self.inventory_event(caster, empty, -1, None, alloc);
         self.inventory_event(caster, filled, 1, None, alloc);
+        true
     }
 
     fn soul_size(&self, level: u32) -> u8 {

@@ -392,6 +392,7 @@ impl World {
                 self.loaded_3d_references.insert(id);
             }
         }
+        self.commonlib_cell_fully_loaded(cell);
     }
 
     /// Whether the cell's 3D is in memory, which is what decides

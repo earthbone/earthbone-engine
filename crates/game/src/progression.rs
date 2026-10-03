@@ -288,6 +288,9 @@ impl World {
             .skill_experience
             .insert(skill.to_owned(), next_experience);
         let skill_ranks_gained = next_level - level;
+        if skill_ranks_gained > 0.0 && actor_id == self.player() {
+            self.commonlib_skill_increase(skill);
+        }
         if skill_ranks_gained > 0.0
             && level_setting(self, "fXPLevelUpBase").is_ok()
             && level_setting(self, "fXPLevelUpMult").is_ok()

@@ -4,8 +4,11 @@
 
 use soe_commonlib_shim::events::{
     DisarmedEvent, DragonSoulsGained, FormIdentity, LevelIncrease, LocationDiscovery,
-    ScriptEventSourceHolder, UnsupportedHook,
+    ScriptEventSourceHolder, ShoutAttack, SkillIncrease, SoulsTrapped, SpellsLearned,
+    TESCellFullyLoadedEvent, UnsupportedHook,
 };
+use soe_commonlib_shim::form::FormId;
+use soe_commonlib_shim::refr::{ActorHandle, ActorValue};
 use soe_esm::GlobalFormId;
 
 use super::World;
@@ -78,6 +81,49 @@ impl World {
                 .and_then(|(raw, cell)| self.resolve_from(cell, raw));
             self.commonlib_location_discovery(reference, worldspace);
         }
+    }
+
+    pub(crate) fn commonlib_shout_attack(&mut self, shout: GlobalFormId) {
+        let shout = FormId(self.order.runtime_id(shout));
+        self.commonlib_events
+            .shout_attack()
+            .send(&ShoutAttack { shout });
+    }
+
+    pub(crate) fn commonlib_skill_increase(&mut self, skill: &str) {
+        let player = self.player();
+        let Some(actor_value) = crate::actor_values::actor_value_index(skill)
+            .and_then(|value| u32::try_from(value).ok())
+        else {
+            return;
+        };
+        let player = ActorHandle(self.order.runtime_id(player));
+        self.commonlib_events.skill_increase().send(&SkillIncrease {
+            player,
+            actor_value: ActorValue(actor_value),
+        });
+    }
+
+    pub(crate) fn commonlib_souls_trapped(&mut self, trapper: GlobalFormId, target: GlobalFormId) {
+        let trapper = ActorHandle(self.order.runtime_id(trapper));
+        let target = ActorHandle(self.order.runtime_id(target));
+        self.commonlib_events
+            .souls_trapped()
+            .send(&SoulsTrapped { trapper, target });
+    }
+
+    pub(crate) fn commonlib_spell_learned(&mut self, spell: GlobalFormId) {
+        let spell = FormId(self.order.runtime_id(spell));
+        self.commonlib_events
+            .spells_learned()
+            .send(&SpellsLearned { spell });
+    }
+
+    pub(crate) fn commonlib_cell_fully_loaded(&mut self, cell: GlobalFormId) {
+        let cell = FormId(self.order.runtime_id(cell));
+        self.commonlib_events
+            .cell_fully_loaded()
+            .send(&TESCellFullyLoadedEvent { cell });
     }
 
     /// Binary patch hooks have no implementation in the source-level shim.

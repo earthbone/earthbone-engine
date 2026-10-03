@@ -932,8 +932,12 @@ actor killer dispatch `ActorKill` after the victim enters dead state. The
 critical-hit reporting method validates an actor and winning WEAP record,
 then sends the caller-confirmed event. Critical chance and damage modifiers
 are not calculated by this reporting method. The listeners live only for the
-current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
-for the projected C++ payload contract and unsupported binary hook boundary.
+current World instance and are not saved. The SHM-20 channels dispatch after a
+successful shout cast, player skill rank gain, successful soul-gem fill, new
+player spell addition and streamed cell arrival. Their payloads resolve from
+the same world and load order. Binary hooks return explicit unsupported errors.
+See [shim](shim.md#event-binding-batch-shm-18) for the projected C++ payload
+contract and unsupported binary hook boundary.
 
 ## Conformance table
 
