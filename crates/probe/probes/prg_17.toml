@@ -1,0 +1,140 @@
+name = "prg_17"
+load_order = [
+    "Skyrim.esm",
+    "Update.esm",
+    "Dawnguard.esm",
+    "HearthFires.esm",
+    "Dragonborn.esm",
+    "ccBGSSSE001-Fish.esm",
+    "ccBGSSSE025-AdvDSGS.esm",
+    "SoeProbe.esp",
+]
+timescale = 20.0
+tick_seconds = 0.01
+timeout_seconds = 10.0
+
+[forms.player]
+plugin = "Skyrim.esm"
+object = 0x14
+kind = "actor"
+
+[forms.rank_one]
+plugin = "Skyrim.esm"
+object = 0x0babe4
+kind = "perk"
+
+[forms.rank_two]
+plugin = "Skyrim.esm"
+object = 0x079343
+kind = "perk"
+
+[forms.anchor_update]
+plugin = "Update.esm"
+object = 0x002ece
+kind = "form"
+
+[forms.anchor_dawnguard]
+plugin = "Dawnguard.esm"
+object = 0x00298c
+kind = "form"
+
+[forms.anchor_hearthfires]
+plugin = "HearthFires.esm"
+object = 0x008bd4
+kind = "form"
+
+[forms.anchor_dragonborn]
+plugin = "Dragonborn.esm"
+object = 0x01e2bb
+kind = "form"
+
+[forms.anchor_fish]
+plugin = "ccBGSSSE001-Fish.esm"
+object = 0x000f21
+kind = "form"
+
+[forms.anchor_saints]
+plugin = "ccBGSSSE025-AdvDSGS.esm"
+object = 0x21bd64
+kind = "form"
+
+[tolerances]
+real_seconds = 0.25
+game_seconds = 5.0
+timescale = 0.0
+
+[[steps]]
+id = "acquire_rank_one"
+op = "add_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "acquire_rank_two"
+op = "add_perk"
+actor = "player"
+perk = "rank_two"
+
+[[steps]]
+id = "forward_first_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "forward_second_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_two"
+
+[[steps]]
+id = "remove_rank_one"
+op = "remove_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "remove_rank_two"
+op = "remove_perk"
+actor = "player"
+perk = "rank_two"
+
+[[steps]]
+id = "acquire_rank_two_first"
+op = "add_perk"
+actor = "player"
+perk = "rank_two"
+
+[[steps]]
+id = "acquire_rank_one_second"
+op = "add_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "reverse_first_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "reverse_second_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_two"
+
+[[steps]]
+id = "request_save"
+op = "save"
+
+[[steps]]
+id = "saved_first_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_one"
+
+[[steps]]
+id = "saved_second_owned"
+op = "has_perk"
+actor = "player"
+perk = "rank_two"
