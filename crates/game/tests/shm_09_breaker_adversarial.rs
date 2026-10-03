@@ -22,15 +22,22 @@ fn linked_children_include_authored_links_before_the_child_is_materialized() {
             .sub(Tag(*b"XLKR"), link),
     );
     let mut order = LoadOrder::new();
-    order.add("SHM09.esm", plugin).expect("fixture plugin is valid");
+    order
+        .add("SHM09.esm", plugin)
+        .expect("fixture plugin is valid");
     let mut world = World::new(order);
     world.reference(id(1)).expect("parent reference loads");
 
-    let view = world.shim_reference_extras(id(1)).expect("worlds expose a live reference view");
+    let view = world
+        .shim_reference_extras(id(1))
+        .expect("worlds expose a live reference view");
     assert_eq!(
         view.linked_ref_children().len(),
         1,
         "XLKR on the child record links it to this parent even before its RefState is built"
     );
-    assert_eq!(view.linked_ref_children()[0].reference.0, world.runtime_id(id(2)));
+    assert_eq!(
+        view.linked_ref_children()[0].reference.0,
+        world.runtime_id(id(2))
+    );
 }

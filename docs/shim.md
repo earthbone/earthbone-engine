@@ -223,9 +223,10 @@ reports that executable vtable hooks are not supported by this engine.
 `World::shim_reference_extras` supplies the game adapter for those five views.
 It borrows the world, reads XLIB, XLIG and map-marker fields through current
 records, and includes live marker names and visibility flags. Incoming links
-are derived from loaded reference state. Missing links are targets absent
-from the form table, rather than merely unloaded references. Derived link
-arrays are sorted and retained only for the lifetime of the world borrow.
+are derived from winning XLKR records and loaded reference state, including
+authored children before their state is materialized. Missing links are targets
+absent from the form table, rather than merely unloaded references. Derived
+link arrays are sorted and retained only for the lifetime of the world borrow.
 This does not import additional ESS reference extras or expose mutation hooks.
 Field identities follow the local CommonLibSSE-NG-alandtse headers
 `include/RE/E/ExtraLeveledItemBase.h`, `ExtraLightData.h`,
@@ -241,7 +242,8 @@ headers `include/RE/E/ExtraMissingRefIDs.h`,
 The `ReferenceExtraQuery` interface distinguishes unsupported kinds from an
 absent value. The game adapter reads outfit item, poison and door teleport
 values from shared reference and inventory state. Missing reference IDs are
-read from the reference's resolved XAPR activation-parent records. North
+read from the reference's resolved XAPR activation-parent records, and invalid
+XAPR targets that are not REFR or ACHR records are rejected. North
 rotation reads the interior CELL default of zero, matching CommonLib when no
 extra is present. Exterior worldspace north rotation is not represented by the
 current runtime records and returns no value. Binary hook requests return a

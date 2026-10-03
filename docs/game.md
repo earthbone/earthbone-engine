@@ -78,8 +78,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
 - `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
-  map-marker records, loaded linked-reference state, teleport destinations,
-  inventory outfit/poison extras and resolved XAPR activation parents. Missing
+  map-marker records, authored XLKR links and loaded linked-reference state,
+  teleport destinations, inventory outfit/poison extras and resolved XAPR
+  activation parents. XAPR targets must be REFR or ACHR records. Missing
   linked-reference targets are reported when their forms are absent from the
   form table. Interior cells expose the zero north-rotation default. Exterior
   worldspace north rotation is not represented by runtime records and returns

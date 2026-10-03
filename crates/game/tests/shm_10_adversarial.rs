@@ -20,7 +20,9 @@ fn activate_parent_rejects_a_resolvable_non_reference_form() {
     }));
     plugin.push_top(Record::new(Tag(*b"MISC"), 2));
     let mut order = LoadOrder::new();
-    order.add("SHM10.esm", plugin).expect("fixture plugin is valid");
+    order
+        .add("SHM10.esm", plugin)
+        .expect("fixture plugin is valid");
     let world = World::new(order);
 
     assert_eq!(

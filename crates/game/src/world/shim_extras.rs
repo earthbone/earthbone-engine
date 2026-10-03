@@ -45,7 +45,27 @@ impl World {
                 }
             }
         }
+        for (child, record) in self.order.winners_of(T(b"REFR")) {
+            for bytes in record.all(T(b"XLKR")) {
+                let (keyword, raw_target) = match bytes.len() {
+                    4 => (None, le_u32(bytes)?),
+                    8 => (Some(le_u32(bytes)?), le_u32(&bytes[4..])?),
+                    _ => continue,
+                };
+                if self.resolve_from(child, raw_target) == Some(reference) {
+                    let keyword = keyword
+                        .and_then(|raw| self.resolve_from(child, raw))
+                        .map(|id| FormId(self.runtime_id(id)))
+                        .unwrap_or(FormId(0));
+                    children.push(LinkedRefChild {
+                        keyword,
+                        reference: ObjectRefHandle(self.runtime_id(child)),
+                    });
+                }
+            }
+        }
         children.sort_by_key(|entry| (entry.reference.0, entry.keyword.0));
+        children.dedup_by_key(|entry| (entry.reference.0, entry.keyword.0));
         let mut missing: Vec<_> = state
             .linked
             .iter()
@@ -141,6 +161,10 @@ impl ReferenceExtraData for World {
                     let raw = le_u32(bytes)?;
                     let activate_delay = le_f32(&bytes[4..]);
                     let parent = self.resolve_from(id, raw)?;
+                    if !matches!(self.tag_of(parent), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR"))
+                    {
+                        return None;
+                    }
                     if !activate_delay.is_finite() {
                         return None;
                     }
