@@ -41,7 +41,7 @@ The MIT `EventState` implementation reads an instantiated reference's inventory,
 current actor death and unconscious flags, reference and winning-record deletion,
 and each actor's reserved furniture seat. Handles resolve through the current
 load order. Unknown or uninstantiated references return no result. A current
-seat is represented as a furniture Enter event; binary hook requests return
+seat is represented as a furniture Enter event. Binary hook requests return
 the shim's named unsupported-hook error.
 
 ## What is in it
@@ -227,7 +227,7 @@ dragon soul changes and first-time map additions already wired to dispatch.
 Binary hook requests return the requested hook name as an unsupported result
 without changing runtime state. Event payloads, generated C++
 declarations, the CommonLib source-level API, and its contract fixtures are in
-`crates/commonlib-shim`; source headers are documented in `docs/shim.md`.
+`crates/commonlib-shim`. Source headers are documented in `docs/shim.md`.
 
 ## Design
 
