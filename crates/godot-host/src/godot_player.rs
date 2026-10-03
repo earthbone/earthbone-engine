@@ -1091,7 +1091,7 @@ impl PlayerNode {
         })
     }
 
-    /// Last AI door-refresh cost and instantiated actor count for planning diagnostics.
+    /// Inclusive AI phase timings and instantiated actor count for planning diagnostics.
     #[func]
     pub fn ai_planning_details(&self) -> VarDictionary {
         let mut result = VarDictionary::new();
@@ -1105,6 +1105,9 @@ impl PlayerNode {
                 "evaluation_us",
                 world.ai.evaluation_time.as_secs_f64() * 1_000_000.0,
             );
+            for (phase, duration) in &world.ai.planning_phases {
+                result.set(format!("{phase}_us"), duration.as_secs_f64() * 1_000_000.0);
+            }
             result.set("instantiated_actors", world.loaded_actors().len() as i64);
         }
         result

@@ -640,3 +640,65 @@ A three-frame diagnostic then measured 1.235 ms of door refresh within a
 43.023 ms first AI tick, with 64 instantiated actors. This evidence led to
 indexing closed-door blocking by triangle, reusing the existing cell reference
 index and narrowing combat candidates through the existing awareness table.
+
+### PRF-11 full-phase diagnosis, 2026-10-03
+
+The continuation measured the complete AI tick and nested phases on Godot
+4.4.1, release build, five installed masters, headless Bannered Mare,
+3,600 ticks at 60 Hz. The first diagnostic run reported seven contact actors,
+24,208 evaluations, 295 ticks above 8 ms and a 13.199 ms maximum. The finer
+second run reported 1,180 failures and a 13.709 ms maximum. These runs were
+sequential and their wall-clock maxima varied.
+
+At frame 600 of the finer run, total actor processing took 6.571 ms.
+Request setup used 2.116 ms and route-result fallback used 3.496 ms.
+The first tick spent 9.414 ms scanning sandbox markers. Resumed search work
+was below one microsecond in these samples, so the node budget did not cover
+these costs. The previous two-phase report exposed none of them.
+
+Nearest lookup now carries the existing best radius into each mesh's triangle
+tree. The synthetic overlapping-mesh regression failed before the fix after
+testing all 80,002 triangles, and passes after testing two. Boolean containment
+stops at the first match rather than visiting every overlapping interior.
+With these query changes, frame 600 fallback time fell to 22.683 us. That
+intermediate run still failed six early ticks, with a 14.683 ms maximum.
+
+Marker filtering now reads only the live base or the winning NAME, XLCN and
+cell fields, sharing the reference initializer's BOS base selection. It avoids
+full placement decoding and inventory or actor-template initialization for
+irrelevant references. This changes no saved fields and adds no dependencies.
+
+The final marker subphase diagnostic found 5.742 ms in base filtering,
+3.375 ms in cell-reference lookup and 1.267 ms in bed classification during
+the first tick. Reference initialization accounted for 0.508 ms. That run
+failed three ticks and reached 15.404 ms. The candidate scan therefore gained
+its own retained cursor, with 64 reference examinations per request and 256
+across the frame. Pending actors keep their step until candidates are ready.
+The query still returns candidates in FormID order before choosing with RNG.
+
+The first host run with sliced marker queries reported one failure at frame
+1561, reaching 12.319 ms. Its failing frame did not record nested phases.
+The script now prints phase details for failures. A repeat on the same
+extension did not reproduce it. Its cause is unknown. That repeat exited zero
+and measured a 5.885 ms maximum, with all 3,600 frames below 8 ms. The original
+71 percent failure rate is gone in these runs, but this is a measured check
+on this machine, rather than a portable wall-clock guarantee.
+
+```text
+PRF-11 actors=7 frames=3600 seconds=60 evaluations=24900 worst_ai_us=5885.331 failures=0
+```
+
+The final run's first tick spent 1.844 ms in cell-reference lookup and
+1.874 ms in the entire new marker request phase. At frame 1800, request setup
+used 3.097 ms, fallback used 28.409 us, marker request work used 138.662 us
+and resumed marker work used 0.471 us. Package and actor state keep their
+existing saved layout. No actor scene-node path was added.
+
+The installed-data release Rust checks also passed both 60-second Bannered
+Mare runs, with maxima of 1.560 ms and 2.696 ms. All 24 PRF-11 Rust tests passed.
+The final path survey retained both baseline corridors and costs. Bannered
+Mare measured 35.437 us first and 23.705 us warm, versus 38.102 us and
+28.423 us before indexing. WhiterunWorld measured 89.209 us first and
+57.709 us warm, versus 102.924 us and 68.509 us before indexing.
+The 498 library tests across game, navmesh and godot-host passed. Package
+clippy with all targets and warnings denied passed for all three crates.

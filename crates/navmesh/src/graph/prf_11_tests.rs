@@ -150,3 +150,60 @@ fn prf_11_closed_door_index_counts_shared_bindings_and_rebinding() {
     graph.set_door_open(2, true);
     assert!(graph.is_walkable(b));
 }
+
+#[test]
+fn prf_11_nearest_reuses_radius_across_overlapping_meshes() {
+    let mut graph = NavGraph::new();
+    graph.add_mesh_with_adjacency(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        &[[0, 1, 2]],
+    );
+    let far = grid(200);
+    let mut vertices: Vec<_> = far
+        .mesh(0)
+        .vertices
+        .iter()
+        .map(|point| [point[0] + 1000.0, point[1] + 1000.0, point[2]])
+        .collect();
+    let mut triangles: Vec<_> = far
+        .mesh(0)
+        .triangles
+        .iter()
+        .map(|triangle| triangle.vertices)
+        .collect();
+    let edge = vertices.len() as u32;
+    vertices.extend([
+        [0.0, 0.0, 0.0],
+        [1000.0, 1000.0, 0.0],
+        [1001.0, 1000.0, 0.0],
+    ]);
+    triangles.push([edge, edge + 1, edge + 2]);
+    graph.add_mesh_with_adjacency(vertices, &triangles);
+    let mut tested = 0;
+    assert_eq!(
+        graph.nearest_impl([-1.0, -1.0, 0.0], |_| tested += 1),
+        Some(NodeId::new(0, 0))
+    );
+    assert!(tested <= 2, "tested {tested} of 80,002 triangles");
+}
+
+#[test]
+fn prf_11_containment_stops_after_first_surface_in_overlapping_interiors() {
+    let mut graph = NavGraph::new();
+    for floor in 0..1024 {
+        let z = floor as f32 * 20.0;
+        graph.add_mesh_with_adjacency(
+            vec![[0.0, 0.0, z], [100.0, 0.0, z], [0.0, 100.0, z]],
+            &[[0, 1, 2]],
+        );
+    }
+    graph.set_blocked(NodeId::new(0, 0), true);
+    let mut tested = 0;
+    assert!(graph.contains_point_impl([20.0, 20.0, 10000.0], |_| tested += 1));
+    assert_eq!(
+        tested, 1,
+        "containment includes blocked triangles and ignores height"
+    );
+    assert!(!graph.contains_point([200.0, 200.0, 0.0]));
+    assert!(!graph.contains_point([f32::NAN, 0.0, 0.0]));
+}

@@ -406,3 +406,9 @@ Closed door bindings have a per-triangle count. A node expansion checks that
 index instead of scanning every closed door. Opening one of several doors
 bound to a triangle leaves it blocked until all such doors open or move away.
 Rebinding a closed door transfers its count to the new triangle.
+
+Nearest-centroid lookup shares the best radius between the mesh tree and each
+triangle tree. A regression with overlapping mesh bounds limits the lookup to
+two tested triangles in an 80,002-triangle graph. Containment lookup stops at
+the first containing triangle. It still ignores surface height and includes
+blocked triangles. A 1,024-floor regression requires one triangle test.

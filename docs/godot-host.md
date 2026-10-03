@@ -4219,8 +4219,17 @@ player using the same installed cell data.
 and query caches. `ai_planning_microseconds` reports the last shared AI driver
 tick, including door refresh, package evaluation, navigation slices and movement.
 `ai_package_evaluations` reports the active world's evaluation count.
-`ai_planning_details` reports door refresh time, automatic package evaluation
-time and instantiated actor count.
+`ai_planning_details` reports door refresh, evaluation scheduling, resumed
+navigation, actor processing, automatic evaluations, package selection and
+switching, conditions, combat flags and target checks, combat acquisition,
+procedure movement, fleeing, pursuit and path requests, plus instantiated actor
+count. Navigation details include request setup, search advancement, route
+result conversion and fallback containment, and flee search. Procedure details
+include tree entry, marker selection and Turn Undead checks. Marker details
+include cell lookup, base filtering, bed classification, reference initialization
+and resumed scans.
+Phase durations include their nested calls. For example, conditions are
+also included in package selection, and new path requests in movement.
 These measurement hooks add no actor scene nodes or saved fields.
 
 `godot/prf_11_ai_planning_check.gd` starts the installed Bannered Mare through

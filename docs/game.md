@@ -8111,3 +8111,31 @@ its FormID iteration order. Explicit `EvaluatePackage` calls still evaluate
 immediately. `evaluation_time` measures automatic evaluations within the full
 AI tick. Evaluation scheduling uses existing actor fields and adds no saved
 state.
+
+The transient `planning_phases` table resets on each AI tick and records inclusive
+wall-clock durations for scheduling, resumed navigation, actor processing,
+selection, conditions, switching, combat checks, movement and path requests.
+The host exposes these alongside total planning time. Nested phase durations
+overlap, so they are not a partition of total time.
+
+Marker and bed base filtering reads existing reference state first, or the
+winning placement's NAME, XLCN and cell when absent. It shares BOS base selection
+with reference initialization, without choosing actor templates or initializing
+inventory. Only eligible marker references need initialization.
+The field layouts follow local xEdit `wbDefinitionsTES5.pas` REFR and ACHR
+definitions and the existing `soe-esm` REFR reader.
+Idle-marker reservation checks read already initialized actors. This avoids
+initializing unrelated actors while looking for furniture or idle markers.
+Navigation diagnostics also record request setup, search advancement, route
+result conversion and fallback containment, flee search, procedure tree entry,
+marker selection and Turn Undead checks.
+
+Sandbox marker queries also retain their cursor and candidate FormIDs across
+frames. Each request examines at most 64 references in a tick and the frame
+shares 256 reference examinations. The scheduler rotates pending actors when
+the shared budget is exhausted. Pending actors hold their current step and
+consume no marker-choice RNG until the query completes. Candidate order remains
+FormID order. A changed package or search goal cancels the old query, and unloaded
+actors lose it. Marker requests are transient and restart after save restoration.
+Cell lookup, base filtering, bed classification and reference initialization
+have separate timing entries. `marker_resume` measures retained candidate scans.

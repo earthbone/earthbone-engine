@@ -77,6 +77,7 @@ pub(super) struct Planner {
     frame: u64,
     remaining: usize,
     pub(super) last_work: usize,
+    pub(super) phases: BTreeMap<&'static str, std::time::Duration>,
     next_actor: Option<GlobalFormId>,
 }
 
@@ -87,6 +88,7 @@ impl Default for Planner {
             frame: 0,
             remaining: FRAME_NODE_BUDGET,
             last_work: 0,
+            phases: BTreeMap::new(),
             next_actor: None,
         }
     }
@@ -122,6 +124,7 @@ impl Planner {
         self.frame = self.frame.wrapping_add(1);
         self.remaining = FRAME_NODE_BUDGET;
         self.last_work = 0;
+        self.phases.clear();
         let keys: Vec<_> = self.requests.keys().copied().collect();
         let start = self
             .next_actor
@@ -137,7 +140,12 @@ impl Planner {
                     self.next_actor = Some(actor);
                     break;
                 }
-                let used = request.advance(graph, cells, self.remaining.min(REQUEST_NODE_BUDGET));
+                let used = request.advance(
+                    graph,
+                    cells,
+                    self.remaining.min(REQUEST_NODE_BUDGET),
+                    &mut self.phases,
+                );
                 self.remaining -= used;
                 self.last_work += used;
                 request.frame = self.frame;
@@ -160,6 +168,7 @@ impl Planner {
         {
             self.requests.remove(&actor);
         }
+        let setup_started = std::time::Instant::now();
         let request = self.requests.entry(actor).or_insert_with(|| {
             let work = match goal {
                 Goal::Point { to, .. } => Work::Route(graph.start_path_between(from, to)),
@@ -183,8 +192,14 @@ impl Planner {
                 frame: self.frame.wrapping_sub(1),
             }
         });
+        *self.phases.entry("request_setup").or_default() += setup_started.elapsed();
         if request.result.is_pending() && request.frame != self.frame {
-            let used = request.advance(graph, cells, self.remaining.min(REQUEST_NODE_BUDGET));
+            let used = request.advance(
+                graph,
+                cells,
+                self.remaining.min(REQUEST_NODE_BUDGET),
+                &mut self.phases,
+            );
             self.remaining -= used;
             self.last_work += used;
             request.frame = self.frame;
@@ -225,6 +240,7 @@ impl Request {
         graph: &NavGraph,
         cells: &[Option<GlobalFormId>],
         budget: usize,
+        phases: &mut BTreeMap<&'static str, std::time::Duration>,
     ) -> usize {
         if budget == 0 {
             return 0;
@@ -235,12 +251,15 @@ impl Request {
                     return 0;
                 };
                 let (result, used) = if let Some(search) = search {
+                    let started = std::time::Instant::now();
                     let result = search.advance(graph, budget);
+                    *phases.entry("search_advance").or_default() += started.elapsed();
                     (result, search.last_work())
                 } else {
                     (Poll::Ready(None), 1)
                 };
                 if let Poll::Ready(path) = result {
+                    let started = std::time::Instant::now();
                     let path = path
                         .map(|path| planned(path, cells, if fallback { None } else { cell }))
                         .or_else(|| {
@@ -252,6 +271,7 @@ impl Request {
                                 }
                             })
                         });
+                    *phases.entry("route_result").or_default() += started.elapsed();
                     self.result = Poll::Ready(path.map(|path| (to, path)));
                 }
                 used
@@ -260,6 +280,7 @@ impl Request {
                 let Goal::Flee { threat } = self.goal else {
                     return 0;
                 };
+                let started = std::time::Instant::now();
                 let mut used = 0;
                 while used < budget {
                     if !flee.flooded {
@@ -302,6 +323,7 @@ impl Request {
                         break;
                     }
                 }
+                *phases.entry("flee_search").or_default() += started.elapsed();
                 used
             }
         }
@@ -314,14 +336,16 @@ pub(super) fn request(
     from: [f32; 3],
     goal: Goal,
 ) -> Poll<ResultPath> {
-    super::ensure_nav_graph(world);
-    let Some(graph) = &world.ai.nav else {
-        return Poll::Ready(None);
-    };
-    world
-        .ai
-        .planner
-        .request(graph, &world.ai.nav_cells, actor, from, goal)
+    super::measure_phase(world, "path_requests", |world| {
+        super::ensure_nav_graph(world);
+        let Some(graph) = &world.ai.nav else {
+            return Poll::Ready(None);
+        };
+        world
+            .ai
+            .planner
+            .request(graph, &world.ai.nav_cells, actor, from, goal)
+    })
 }
 
 #[cfg(test)]
@@ -356,6 +380,74 @@ mod tests {
             cell: None,
             fallback: true,
         }
+    }
+
+    #[test]
+    fn prf_11_marker_filter_keeps_unrelated_references_uninitialized() {
+        use crate::ai::{idle_markers, sandbox_markers};
+        use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
+
+        let mut plugin = Plugin::new(FileHeader::default());
+        for (tag, object) in [
+            ("CELL", 0x800),
+            ("NPC_", 0x801),
+            ("STAT", 0x802),
+            ("IDLM", 0x803),
+        ] {
+            plugin.push_top(Record::new(Tag(tag.as_bytes().try_into().unwrap()), object));
+        }
+        for (tag, object, base) in [
+            ("ACHR", 0x810, 0x801u32),
+            ("REFR", 0x811, 0x802),
+            ("REFR", 0x812, 0x802),
+        ] {
+            let mut record = Record::new(Tag(tag.as_bytes().try_into().unwrap()), object)
+                .sub(Tag(*b"NAME"), base.to_le_bytes());
+            record.placement.cell = Some(0x800);
+            plugin.push_top(record);
+        }
+        let mut order = LoadOrder::new();
+        order.add("Prf11Markers.esm", plugin).unwrap();
+        let mut world = World::new(order);
+        world
+            .mod_data
+            .reference_swaps
+            .insert(actor(0x812), actor(0x803));
+        assert_eq!(
+            sandbox_markers(&mut world, actor(0x800), [0.0; 3], 10.0),
+            vec![actor(0x812)]
+        );
+        assert_eq!(
+            idle_markers(&mut world, actor(0x810), actor(0x800), [0.0; 3], 10.0),
+            vec![actor(0x812)]
+        );
+        assert!(world.reference_ref(actor(0x810)).is_none());
+        assert!(world.reference_ref(actor(0x811)).is_none());
+        assert!(world.loaded_actors().is_empty());
+        world.reference(actor(0x812)).unwrap().base = Some(actor(0x802));
+        assert!(sandbox_markers(&mut world, actor(0x800), [0.0; 3], 10.0).is_empty());
+        assert!(idle_markers(&mut world, actor(0x810), actor(0x800), [0.0; 3], 10.0).is_empty());
+    }
+
+    #[test]
+    fn prf_11_phase_timings_reset_and_cover_early_returns() {
+        use crate::ai::{select, tick};
+        use soe_esm::LoadOrder;
+        let mut world = World::new(LoadOrder::new());
+        world
+            .ai
+            .planning_phases
+            .insert("stale", std::time::Duration::MAX);
+        let mut alloc = |_: &str, _: &str| soe_papyrus::ObjectId(1);
+        tick(&mut world, 0.1, &mut alloc);
+        assert!(!world.ai.planning_phases.contains_key("stale"));
+        for phase in ["scheduling", "navigation_resume"] {
+            assert!(world.ai.planning_phases[phase] <= world.ai.planning_time);
+        }
+        assert!(select(&mut world, actor(0x800)).is_none());
+        assert!(world.ai.planning_phases.contains_key("package_selection"));
+        tick(&mut world, 0.1, &mut alloc);
+        assert!(!world.ai.planning_phases.contains_key("package_selection"));
     }
 
     #[test]

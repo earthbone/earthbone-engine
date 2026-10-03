@@ -41,6 +41,7 @@ func _run() -> void:
 			failures += 1
 			if failures <= 3:
 				printerr("FAIL PRF-11: frame %d AI planning %.3f us" % [frame, planning])
+				printerr("PRF-11 failing phases ", player.call("ai_planning_details"))
 		if frame % 600 == 0:
 			print("PRF-11 phases frame=%d " % frame, player.call("ai_planning_details"))
 		if frame % 60 == 0:

@@ -700,30 +700,37 @@ impl NavGraph {
     /// # Panics
     /// This function does not panic.
     pub fn contains_point(&self, point: [f32; 3]) -> bool {
+        self.contains_point_impl(point, |_| {})
+    }
+
+    fn contains_point_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> bool {
         if !point.iter().all(|value| value.is_finite()) {
             return false;
         }
-        let mut found = false;
         self.spatial
             .get_or_init(|| SpatialIndex::build(&self.meshes))
-            .visit_xy(point, |mi| {
+            .any_xy(point, |mi| {
                 let mesh = &self.meshes[mi];
                 if point[0] < mesh.min[0]
                     || point[0] > mesh.max[0]
                     || point[1] < mesh.min[1]
                     || point[1] > mesh.max[1]
                 {
-                    return;
+                    return false;
                 }
-                mesh.spatial.visit_xy(point, |ti| {
-                    found |= mesh.height_at(ti as u32, point[0], point[1]).is_some();
-                });
-            });
-        found
+                mesh.spatial.any_xy(point, |ti| {
+                    tested(NodeId::new(mi as u32, ti as u32));
+                    mesh.height_at(ti as u32, point[0], point[1]).is_some()
+                })
+            })
     }
 
     /// The triangle whose centroid is nearest, for points just off the mesh.
     pub fn nearest(&self, point: [f32; 3]) -> Option<NodeId> {
+        self.nearest_impl(point, |_| {})
+    }
+
+    fn nearest_impl(&self, point: [f32; 3], mut tested: impl FnMut(NodeId)) -> Option<NodeId> {
         if !point.iter().all(|p| p.is_finite()) {
             return None;
         }
@@ -732,18 +739,19 @@ impl NavGraph {
             .get_or_init(|| SpatialIndex::build(&self.meshes))
             .visit_nearest(point, |mi, radius| {
                 let mesh = &self.meshes[mi];
-                mesh.spatial.visit_nearest(point, |ti, triangle_radius| {
-                    let node = NodeId::new(mi as u32, ti as u32);
-                    if self.node_blocked(node) {
-                        return;
-                    }
-                    let candidate = (distance(mesh.centroid(ti as u32), point), node);
-                    if best.is_none_or(|old| candidate < old) {
-                        *radius = candidate.0;
-                        *triangle_radius = candidate.0;
-                        best = Some(candidate);
-                    }
-                });
+                mesh.spatial
+                    .visit_nearest_with_radius(point, radius, |ti, triangle_radius| {
+                        let node = NodeId::new(mi as u32, ti as u32);
+                        tested(node);
+                        if self.node_blocked(node) {
+                            return;
+                        }
+                        let candidate = (distance(mesh.centroid(ti as u32), point), node);
+                        if best.is_none_or(|old| candidate < old) {
+                            *triangle_radius = candidate.0;
+                            best = Some(candidate);
+                        }
+                    });
             });
         best.map(|(_, n)| n)
     }

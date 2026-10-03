@@ -127,7 +127,15 @@ impl SpatialIndex {
         self.nodes[at].end = self.nodes.len();
     }
 
+    #[cfg(test)]
     pub(super) fn visit_xy(&self, point: [f32; 3], mut visit: impl FnMut(usize)) {
+        self.any_xy(point, |index| {
+            visit(index);
+            false
+        });
+    }
+
+    pub(super) fn any_xy(&self, point: [f32; 3], mut matches: impl FnMut(usize) -> bool) -> bool {
         let mut at = 0;
         while let Some(node) = self.nodes.get(at) {
             if point[0] < node.min[0]
@@ -137,12 +145,13 @@ impl SpatialIndex {
             {
                 at = node.end;
             } else {
-                if let Some(mesh) = node.mesh {
-                    visit(mesh);
+                if node.mesh.is_some_and(&mut matches) {
+                    return true;
                 }
                 at += 1;
             }
         }
+        false
     }
 
     pub(super) fn visit_xy_nearest_height(
@@ -196,7 +205,18 @@ impl SpatialIndex {
     pub(super) fn visit_nearest(&self, point: [f32; 3], mut visit: impl FnMut(usize, &mut f32)) {
         if !self.nodes.is_empty() {
             let mut radius = f32::INFINITY;
-            self.nearest(0, point, &mut radius, &mut visit);
+            self.visit_nearest_with_radius(point, &mut radius, &mut visit);
+        }
+    }
+
+    pub(super) fn visit_nearest_with_radius(
+        &self,
+        point: [f32; 3],
+        radius: &mut f32,
+        mut visit: impl FnMut(usize, &mut f32),
+    ) {
+        if !self.nodes.is_empty() {
+            self.nearest(0, point, radius, &mut visit);
         }
     }
 
