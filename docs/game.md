@@ -5,6 +5,10 @@ values in the existing actor component store for actors already built in the
 world. It resolves actor-value indices through the vanilla actor-value name
 table. Its default-object lookup reads DOBJ records through the footstep
 record view and returns the resolved FormID. It does not cache either result.
+SHM-14 adds runtime FormID handles to the `WorldState` player view. Its C++
+contract test queries player identity, position, actor values, death state and
+loaded actor forms from a Rust service borrowing `World`. Player object-reference
+handles contain the runtime FormID.
 
 `ambience::tracks_for_cell` resolves the cell's `XCMO` music type, or the first
 regional sound entry's `RDMO` when the cell has none. It returns eligible
@@ -37,6 +41,12 @@ HST-18 adds transient crosshair and grabbed-reference values to `World`.
 `Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
 corresponding Papyrus form object when a host value is present, and return
 `None` when it is absent. The values are host frame state and are not saved.
+The MIT `EventState` implementation reads an instantiated reference's inventory,
+current actor death and unconscious flags, reference and winning-record deletion,
+and each actor's reserved furniture seat. Handles resolve through the current
+load order. Unknown or uninstantiated references return no result. A current
+seat is represented as a furniture Enter event. Binary hook requests return
+the shim's named unsupported-hook error.
 
 ## What is in it
 
@@ -56,7 +66,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
 
 - `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
   stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
-  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results. The
+  SHM-12 C++ contract test exchanges requests with a Rust test fixture that answers from this
+  adapter and a live `World`.
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
@@ -89,6 +101,9 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
   observes the existing quest state and does not keep a second quest copy.
+  SHM-23 streams live start and failed-stop payloads from this source to a
+  compiled C++ sink over a test pipe. The test validates CommonLib event fields
+  and does not define a C ABI.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, PERK entry-point fragments, and alias scripts.
@@ -201,20 +216,35 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
   reanimation effects from this same `World`. Sit and sleep animation state is
   not stored by the runtime, so the adapter reports it as unsupported. Binary
-  address and vtable hooks have no runtime target.
+  address and vtable hooks have no runtime target. SHM-15 exposes this view to
+  C++ through the MIT `RuntimeStateCallbacks` table and `RE::CallbackTES`. The
+  SHM-15 C++ fixture queries a test host that reads each result from the live
+  `World` without keeping a copied state.
 
 `World::commonlib_event_sources` exposes the in-process CommonLib event
 channels for disarm, dragon souls gained, level increase and location
 discovery. The matching `commonlib_*` methods send those event payloads to
 registered sinks. Form identities retain both the load-order file index and
-object id. Level increase reads `player_level` and the current player identity
-from the live world, and rejects levels outside the event's `u16` field before
-dispatch. These events add no saved state. Disarm, dragon soul awards and
-location discovery are event entry points for their gameplay callers. This
-crate does not currently implement those gameplay systems. Binary hook
-requests return the requested hook name as an unsupported result without
-changing runtime state. The corresponding source-level API and C++ contract
-fixture are in `crates/commonlib-shim`.
+object id. Player level increases are emitted after progression changes the
+live player level. Positive `ModActorValue` changes to the player's
+`dragonsouls` value emit the accepted increase. A successful weapon disarm
+emits the caster and target after the weapon is dropped. `AddToMap` emits
+location discovery only when it first adds the reference, using the cell's
+resolved worldspace when available. Level increase reads the current player
+identity and rejects levels outside the event's `u16` field before dispatch.
+The grab and release channel follows held-reference changes, harvest follows a
+successful `World::harvest_item` inventory addition, hit follows a committed
+melee contact, object loaded follows reference 3D residency changes, and quest
+stage follows a successful defined stage change. Quest stage events use item
+index zero because quest log callbacks are not run individually here. Form and
+reference identities use the live load order's runtime IDs. These channels add
+no saved state. Disarm, dragon soul awards and location discovery remain event
+entry points for gameplay callers, with successful weapon disarms, accepted
+dragon soul changes and first-time map additions already wired to dispatch.
+Binary hook requests return the requested hook name as an unsupported result
+without changing runtime state. Event payloads, generated C++
+declarations, the CommonLib source-level API, and its contract fixtures are in
+`crates/commonlib-shim`. Source headers are documented in `docs/shim.md`.
 
 ## Design
 
@@ -430,18 +460,21 @@ Stack profiling uses the current Papyrus thread. A failed file write is added
 to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
 native layer has no host frame-capture request path.
 
-**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`. While
+enabled, incoming player health damage is ignored by melee, magic and
+`DamageActorValue` paths. Other actors and non-health actor values keep their
+normal damage behavior.
 `Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
 package driver while it is false. `Debug.ToggleCollisions` flips
-`World::debug_collisions_enabled`. The host collision path does not read this
-flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
+`World::debug_collisions_enabled`. The Godot host applies this flag to resident
+cell collision bodies and player query collision bodies. `Debug.DumpAliasData`
+logs each runtime alias id and its filled form
 or `empty`, and logs a diagnostic when its argument is not a quest or has no
 runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments
 as `[channel] message`. The CK `Debug` class page documents these global
 functions. The local Skyrim Platform function catalog supplies the two-string
 signature for `DebugChannelNotify`, which is absent from that CK page.
-God-mode damage immunity and host collision switching are not implemented by
-these runtime flags.
+Player movement continues to use the `soe-physics` `SimpleWorld` solver.
 
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
@@ -604,6 +637,29 @@ four functions were absent from this corpus. SCR-20 tests cover native
 arguments, duplicate and missing names, queued host effects and latent
 completion. This host path does not reproduce the freeze note.
 
+### Debug presentation natives, SCR-23
+
+`Debug.SetFootIK(enabled)` changes a transient world setting. The current actor
+renderer has no foot-IK solver, so this setting does not change rendered
+poses. `Debug.ShowRefPosition(reference)` accepts a
+resolved placed reference, records its identity once, and logs an invalid
+reference when the object does not resolve to a placed reference.
+`Debug.PlayerMoveToAndWait(editorId)` resolves the destination reference,
+queues a host move, and suspends the Papyrus thread. The Godot host applies the
+placement and resolves the wait with 0 after destination resources install.
+Missing references log an error and return 0. Failed host installation returns
+-1. `Debug.MoveToCell`
+resolves a CELL editor id and moves the player to the cell origin. An unknown
+cell logs an error and leaves the player unchanged.
+
+The local `ck-wiki/Debug_Script.wikitext` documents the listed signatures and
+summaries, and `CenterOnCell_-_Debug.wikitext` documents the cell teleport
+argument and its warning about freezing. Individual pages for the four SCR-23
+functions are absent from the corpus. Host rendering displays each requested
+reference position as a small emissive sphere using `RenderingServer` instances.
+Foot IK remains a presentation gap because no solver or ground-contact input is
+available in the actor renderer.
+
 `ObjectReference.GetCurrentScene` searches active SCEN records and resolves
 their participant alias IDs through the owning quest. It returns the first
 matching scene in sorted FormID order, or None if the reference is not an
@@ -673,7 +729,21 @@ state. Projectile runtime access returns an explicit unsupported-hook result
 because projectile simulation is not implemented. The matching local
 CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 `ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
-shim exposes source-level C++ declarations only, without an FFI bridge.
+shim exposes source-level C++ declarations, with no general FFI bridge.
+
+`World::commonlib_extra_worn`, `commonlib_game_setting`, `commonlib_hazard`,
+`commonlib_high_process` and `commonlib_resolve_hit` project current inventory,
+setting, placed hazard, actor combat-process and resolved melee-hit state into
+the MIT shim types. Hazard reads require a placed reference whose base record
+is HAZD. High-process reads include combat membership, target and stagger only.
+Hit resolution runs through the existing melee combat path. The SHM-11 game
+tests cover live settings, worn markers, present and absent hazards, actor
+combat process state, and a resolved hit. These Rust adapters do not provide a
+C++ to Rust binding.
+
+condition API also has a request/reply bridge for compiled C++ condition
+calls. The game handles each request against the current world and VM. This
+transport does not provide general plugin loader services.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. It
@@ -968,6 +1038,12 @@ and associated keywords. `World::commonlib_reference` builds a reference through
 world path, then exposes its current base, transform, cell and enabled/deleted flags through
 the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
 File views retain the load-order filename and regular or light slot.
+`shm_16_populated_world_views_reach_cpp_mit_contracts` samples non-empty winning
+records, regular and light files, reference transform and base, and drawn actor
+state from these adapters, then passes those values to a compiled C++ consumer
+that exercises the MIT contracts. Unsupported `SetBaseObject` and trampoline
+hooks are checked in the C++ fixture. This checks populated cross-language
+contract values without providing a C++ to Rust ABI.
 
 `World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
 Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
@@ -982,8 +1058,14 @@ actor killer dispatch `ActorKill` after the victim enters dead state. The
 critical-hit reporting method validates an actor and winning WEAP record,
 then sends the caller-confirmed event. Critical chance and damage modifiers
 are not calculated by this reporting method. The listeners live only for the
-current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
-for the projected C++ payload contract and unsupported binary hook boundary.
+current World instance and are not saved. The SHM-20 channels dispatch after a
+successful shout cast, player skill rank gain, successful soul-gem fill, new
+player spell addition and streamed cell arrival. Their payloads resolve from
+the same world and load order. Binary hooks return explicit unsupported errors.
+A game integration fixture forwards these live events to compiled C++ sinks
+over a test pipe and checks the responses. This test transport is not an engine
+plugin ABI. See [shim](shim.md#event-binding-batch-shm-18) for the projected C++
+payload contract and unsupported binary hook boundary.
 
 ## Conformance table
 
@@ -1179,25 +1261,27 @@ and the equipped shout while retaining the actor's known spells and inventory.
 `Actor.RemoveAllSpells` clears known spells and spell hand assignments while
 leaving unrelated equipment in place. `StartVampireFeed` queues the documented
 `OnVampireFeed` event on the calling actor when its target resolves to a
-sleeping actor. `StartCannibal` remains a quiet stub because actor action state
-is not modeled. `ClearExtraArrows` needs
-attached-arrow state in the host renderer.
+sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
+calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
+is a no-op because the runtime does not model attached-arrow extra data. The
+CK native clears arrows from actor 3D, so host renderer support remains a
+prerequisite for implementing this behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
-`ShowRefPosition` records a resolved reference for development display.
-`PlayerMoveToAndWait` resolves a destination reference by editor id, moves the
-player to its position, rotation and cell, and returns `1.0` on success or
-`0.0` when the destination is missing. This float result is the runtime's
-success indication. The CK page defines a float return but does not describe
-its value. `MoveToCell` resolves a cell by editor id and moves the player to
-its origin. Failed destination lookups leave the player in place and write a
-Papyrus log entry. The existing Godot player pose sync reflects changed
-placement and cell state. The Godot host has no foot IK rig or reference
-tripod renderer yet, so the two display requests currently record their
-state without changing visuals. `PlayerMoveToAndWait` also moves synchronously
-and does not suspend the Papyrus stack while the host attaches the destination
-cell.
+The actor renderer has no foot IK solver, so changing this setting does not
+change rendered poses. `ShowRefPosition` records a resolved placed reference
+for development display. The Godot host displays each requested position as
+an emissive sphere using `RenderingServer` instances. `PlayerMoveToAndWait`
+resolves a destination reference by editor id, queues a host move, and
+suspends the Papyrus thread until the host installs the destination placement
+and cell. The host resolves the wait with `0.0` after installation or `-1.0`
+if the move cannot be applied. A missing destination logs an error and
+returns `0.0`. The CK page defines a float return but does not describe its
+value. `MoveToCell` resolves a cell by editor id and moves the player to its
+origin. Failed destination lookups leave the player in place and write a
+Papyrus log entry. The local source is
+`ck-wiki/Debug_Script.wikitext`.
 
 ## ForceRefTo and Form contract audit
 
@@ -1411,11 +1495,21 @@ Creation Engine frame capture or memory budgets.
   native error when the spell's delivery or effect is unsupported.
 - `MoveToPackageLocation` moves an actor to its selected package location
   center and cell. It logs a native error if that location is unavailable.
-- `WillIntimidateSucceed` shares condition function 655's estimate, comparing
-  player Speechcraft with the target's AIDT Confidence. The perk entry point
-  that supplies the complete intimidation formula is not implemented.
-- `GetWarmthRating` still returns zero. Armor warmth data and survival warmth
-  calculation are not implemented.
+- `WillIntimidateSucceed` compares player Speechcraft, after the player's
+  eligible `Mod Player Intimidation` PERK entries, with the target's AIDT
+  Confidence multiplied by 25. Value functions support Set, Add, Multiply,
+  random-range Add, actor-value Add/Set/Multiply and actor-value-scaled
+  Multiply. The entry point ID, function encodings and tab order follow UESP
+  `PERK.wikitext`. Native name, arguments and result follow CK
+  `WillIntimidateSucceed_-_Actor.wikitext`. The native evaluates perk
+  conditions with the actor as owner and the subject as target, including
+  conditional Papyrus variables from the calling VM.
+- `GetWarmthRating` sums equipped ARMO warmth classifications. ARMO records
+  with `Survival_ArmorWarm` contribute 54, those with `Survival_ArmorCold`
+  contribute 17, and unclassified ARMO records contribute 27. Other equipped
+  forms contribute zero. The total and no-argument signature follow CK
+  `Actor_Script.wikitext`. The keyword classifications are read from the
+  winning ARMO and KYWD records.
 - `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
   record and add or remove it from the world's transient active music type list.
   Duplicate additions and removing an inactive type leave the list unchanged.
@@ -2766,7 +2860,8 @@ functions, `SetRace`, `SetEyeTexture`, `SetCriticalStage`, `AttachAshPile`,
 the bleedout and AI flags, `WornHasKeyword`, `IsPlayersLastRiddenHorse` and
 `Game.AddPerkPoints`. Sixteen more went in as quiet stubs because the system
 behind them does not exist yet: flight, active magic effects, the ragdoll,
-the survival warmth rating, werewolf crime, jail time and the sun.
+werewolf crime, jail time and the sun. SCR-17 later connected the warmth query
+to equipped ARMO keywords.
 
 Decisions taken rather than read, since no wiki page states them:
 
@@ -7956,3 +8051,14 @@ API](https://docs.wasmtime.dev/api/wasmtime/component/index.html) and the
 [Rust component build
 guide](https://component-model.bytecodealliance.org/language-support/creating-runnable-components/rust.html).
 The project decision and acceptance check are in `ENGINE-PLAN.md`, round 4.
+
+## CommonLib magic provider, SHM-13
+
+`CommonLibMagic` adapts favorites, casting checks, active magic effects,
+reference marker flags and default equipment requests through the MIT
+`MagicWorldState` provider. Favorite forms are stored on their actor and
+persisted by the `SHM-13` actor save section. Marker visibility and fast travel
+use the existing reference flags. `ShowAllHidden`, unsupported cast checks
+and non-default equip parameters return explicit unsupported-state errors.
+Supported equipment requests use `World::equip_item`, and dispel requests use
+the shared active-effect removal path.

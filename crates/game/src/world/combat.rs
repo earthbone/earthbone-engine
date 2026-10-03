@@ -578,13 +578,16 @@ impl World {
         // reductions on the same base damage, so they stack multiplicatively
         // rather than adding. Sources do not state vanilla's exact ordering,
         // see docs/combat.md.
-        let health_damage = finite(
+        let mut health_damage = finite(
             f64::from(weapon_damage)
                 * (1.0 - reduction)
                 * (1.0 - block_reduction)
                 * (1.0 - resistance_reduction)
                 * difficulty,
         )?;
+        if self.debug_god_mode && self.player == Some(hit.target) {
+            health_damage = 0.0;
+        }
         // Stagger magnitude scales the damage that actually lands (post
         // armor and block, matching the row's "hit magnitude") by the
         // weapon's own Stagger fraction, so a fully absorbed hit and a
@@ -764,6 +767,26 @@ impl World {
             self.record_player_assault(hit.attacker, hit.target);
         }
         self.break_invisibility(hit.attacker, alloc);
+        let mut event_flags = soe_commonlib_shim::events::HitFlags::default();
+        if hit.is_power_attack {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::POWER_ATTACK.0;
+        }
+        if sneak_attacked {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::SNEAK_ATTACK.0;
+        }
+        if hit.is_bash {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::BASH_ATTACK.0;
+        }
+        if blocked {
+            event_flags.0 |= soe_commonlib_shim::events::HitFlags::HIT_BLOCKED.0;
+        }
+        self.commonlib_hit(soe_commonlib_shim::events::TesHitEvent {
+            target: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.target)),
+            cause: soe_commonlib_shim::refr::ObjectRefHandle(self.runtime_id(hit.attacker)),
+            source: soe_commonlib_shim::form::FormId(self.runtime_id(hit.weapon)),
+            projectile: soe_commonlib_shim::form::FormId(0),
+            flags: event_flags,
+        });
         Ok(HitResult {
             weapon_damage,
             armor_rating,
@@ -1532,6 +1555,57 @@ impl World {
                 .resolve_from(current, template)
                 .ok_or(Error::Unsupported("unresolved armor template"))?;
         }
+    }
+
+    /// Sum the warmth classification of an actor's equipped armor.
+    ///
+    /// Survival Mode assigns 54 to warm armor, 17 to cold armor and 27 to
+    /// armor without either keyword. Non-armor equipment contributes zero.
+    ///
+    /// # Errors
+    /// Missing actor state or malformed armor keyword data.
+    pub(crate) fn actor_warmth_rating(&mut self, actor: GlobalFormId) -> Result<f32, Error> {
+        let equipped: Vec<_> = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect();
+        let warm = self.form("Survival_ArmorWarm");
+        let cold = self.form("Survival_ArmorCold");
+        let mut total = 0.0;
+        for item in equipped {
+            let Some(record) = self
+                .record(item)
+                .filter(|record| record.tag == Tag(*b"ARMO") && !record.is_deleted())
+            else {
+                continue;
+            };
+            let mut has_warm = false;
+            let mut has_cold = false;
+            if let Some(data) = record.find(Tag(*b"KWDA")) {
+                if data.len() % 4 != 0 {
+                    return Err(Error::Equipment);
+                }
+                for chunk in data.as_chunks::<4>().0 {
+                    let raw = u32::from_le_bytes(*chunk);
+                    let Some(keyword) = self.resolve_from(item, raw) else {
+                        continue;
+                    };
+                    has_warm |= Some(keyword) == warm;
+                    has_cold |= Some(keyword) == cold;
+                }
+            }
+            total += if has_warm {
+                54.0
+            } else if has_cold {
+                17.0
+            } else {
+                27.0
+            };
+        }
+        Ok(total)
     }
 }
 

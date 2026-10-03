@@ -131,3 +131,45 @@ fn shm_19_world_rejects_unsupported_binary_hooks_explicitly() {
         "write_vfunc"
     );
 }
+
+#[test]
+fn shm_19_player_dragon_soul_modification_emits_only_accepted_gains() {
+    let mut world = World::new(LoadOrder::new());
+    let player = world.player();
+    let seen = Rc::new(RefCell::new(Vec::<DragonSoulsGained>::new()));
+    world
+        .commonlib_event_sources()
+        .dragon_souls_gained()
+        .add_sink(Box::new(Capture(seen.clone())));
+
+    world.mod_actor_value(player, "dragonsouls", 2.5).unwrap();
+    world.mod_actor_value(player, "dragonsouls", -1.0).unwrap();
+
+    assert_eq!(world.actor_value(player, "dragonsouls"), 1.5);
+    assert_eq!(*seen.borrow(), [DragonSoulsGained { souls: 2.5 }]);
+}
+
+#[test]
+fn shm_19_add_to_map_emits_once_after_reference_state_changes() {
+    let mut world = World::new(LoadOrder::new());
+    let marker = world.player();
+    let seen = Rc::new(RefCell::new(Vec::<LocationDiscovery>::new()));
+    world
+        .commonlib_event_sources()
+        .location_discovery()
+        .add_sink(Box::new(Capture(seen.clone())));
+
+    world.add_to_map(marker, true);
+    world.add_to_map(marker, false);
+
+    let state = world.reference_ref(marker).unwrap();
+    assert!(state.on_map);
+    assert!(!state.fast_travel);
+    assert_eq!(
+        *seen.borrow(),
+        [LocationDiscovery {
+            map_marker: FormIdentity(0x14),
+            worldspace_id: None,
+        }]
+    );
+}

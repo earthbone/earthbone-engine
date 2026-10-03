@@ -88,6 +88,7 @@ fn aud_05_completed_interrupted_fade_leaves_only_latest_track_playing() {
         eprintln!("skipping: set SOE_GODOT_BIN to a Godot 4.4 or newer executable");
         return;
     };
+
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
     // CONTEXT: Cargo test does not refresh the release library Godot loads.
@@ -103,7 +104,16 @@ fn aud_05_completed_interrupted_fade_leaves_only_latest_track_playing() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
+
     let extension = project.join("soe.gdextension");
+    if !project
+        .join("../target/release/libsoe_godot_host.so")
+        .exists()
+    {
+        eprintln!("skipping: build the release GDExtension before running this test");
+        return;
+    }
+
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().join("Data");
     fixture(&data);

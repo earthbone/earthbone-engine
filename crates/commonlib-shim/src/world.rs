@@ -125,6 +125,98 @@ pub trait WorldState {
     fn unsupported_hook(&self, name: &'static str) -> Result<(), UnsupportedState>;
 }
 
+/// Result codes represented by CommonLib's magic casting query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CannotCastReason {
+    Ok = 0,
+    Magicka = 1,
+    PowerUsed = 2,
+    RangedUnderWater = 3,
+    MultipleCast = 4,
+    ItemCharge = 5,
+    CastWhileShouting = 6,
+    ShoutWhileCasting = 7,
+    ShoutWhileRecovering = 8,
+}
+
+/// Access to favorites, casting checks and active magic effects in live state.
+/// Game adapters resolve each FormId against the active load order.
+pub trait MagicWorldState {
+    /// Read favorite membership for an actor and resolved form.
+    fn is_favorite(&self, actor: FormId, form: FormId) -> Result<bool, UnsupportedState>;
+    /// Change favorite membership and report whether the set changed.
+    fn set_favorite(
+        &mut self,
+        actor: FormId,
+        form: FormId,
+        favorite: bool,
+    ) -> Result<bool, UnsupportedState>;
+    /// Check cast restrictions represented by the runtime.
+    fn cannot_cast(
+        &mut self,
+        actor: FormId,
+        spell: FormId,
+    ) -> Result<CannotCastReason, UnsupportedState>;
+    /// Check whether a target has an active application of an effect form.
+    fn has_magic_effect(&self, target: FormId, effect: FormId) -> Result<bool, UnsupportedState>;
+    /// Count the active effect applications on a target.
+    fn active_effect_count(&self, target: FormId) -> Result<usize, UnsupportedState>;
+    /// Dispel all active applications from a spell on a target.
+    fn dispel_spell(&mut self, target: FormId, spell: FormId) -> Result<bool, UnsupportedState>;
+    /// Read the marker visibility and fast-travel bits represented by the runtime.
+    fn map_marker_flags(&self, reference: FormId) -> Result<u8, UnsupportedState>;
+    /// Update the marker visibility and fast-travel bits represented by the runtime.
+    fn set_map_marker_flags(
+        &mut self,
+        reference: FormId,
+        flags: u8,
+    ) -> Result<(), UnsupportedState>;
+    /// Equip an object when all supplied options match the supported default.
+    fn equip_object(
+        &mut self,
+        actor: FormId,
+        object: FormId,
+        params: ObjectEquipParams,
+    ) -> Result<(), UnsupportedState>;
+}
+
+/// Equip options that the engine cannot represent through its shared inventory path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectEquipParams {
+    pub count: i32,
+    pub play_equip_sounds: bool,
+    pub force_equip: bool,
+    pub show_message: bool,
+    pub has_extra_data: bool,
+    pub has_equip_slot: bool,
+}
+
+impl Default for ObjectEquipParams {
+    fn default() -> Self {
+        Self {
+            count: 1,
+            play_equip_sounds: true,
+            force_equip: false,
+            show_message: false,
+            has_extra_data: false,
+            has_equip_slot: false,
+        }
+    }
+}
+
+impl ObjectEquipParams {
+    /// Whether these parameters match the runtime's supported default request.
+    pub fn is_supported(self) -> bool {
+        self.count == 1
+            && self.play_equip_sounds
+            && !self.force_equip
+            && !self.show_message
+            && !self.has_extra_data
+            && !self.has_equip_slot
+    }
+}
+
 /// An explicit rejection for a `AIProcess` operation that depends on Skyrim
 /// internals with no engine equivalent.
 pub fn reject_ai_process_hook(name: &'static str) -> Result<(), UnsupportedState> {
