@@ -143,6 +143,33 @@ and [shader cache setting](https://docs.godotengine.org/en/4.4/classes/class_pro
 The `soe-perf` skill's old frame-monitor description is superseded by this
 repository's wall-clock measurement contract.
 
+## PRF-15 core operation baselines
+
+`tools/perf.sh` runs the Divan target `crates/bench/benches/prf_15.rs` in
+release mode with 30 samples and a 100 ms minimum per benchmark. Short
+operations run in fixed batches, and the stored values divide each batch
+median by its operation count. It measures form lookup, winning-override
+resolution, navmesh locate and path search, a Papyrus call and native call,
+NIF parsing, BC7 DDS decode and a BSA file read. The fixtures are generated
+in memory. If
+`SKYRIM_DATA` is set, the target also parses an installed NIF and reads the
+corresponding file from a mesh archive under the data directory.
+
+The current medians live in `docs/perf-baselines.json`, in nanoseconds, tagged
+with host, CPU model, architecture and data mode. Run `tools/perf.sh` to
+compare the nine synthetic operation medians on the same machine. When
+`SKYRIM_DATA` is set, its two installed asset medians are stored and compared
+as well. It exits nonzero when an operation is more than 15 percent slower or a
+measurement is missing, or when the baseline belongs to another CPU identity.
+After reviewing a measured change, run `tools/perf.sh refresh` to replace the
+medians for the current CPU. A refresh writes the current host and CPU
+identity into the baseline. Divan 0.1.21 is licensed MIT or Apache-2.0.
+`cargo tree -p soe-bench -i divan` shows its dependency
+tree; `cargo tree -p divan` includes cfg-if, clap, condtype, divan-macros,
+libc and regex-lite. Clap also brings terminal_size and rustix. The benchmark
+API and its median table follow the
+[Divan 0.1.21 documentation](https://docs.rs/divan/0.1.21/divan/).
+
 ## Run of 2026-09-17, branch `perf`
 
 ### Top level
