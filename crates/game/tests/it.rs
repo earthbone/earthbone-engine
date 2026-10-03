@@ -1128,10 +1128,14 @@ mod sav_68_reset;
 mod save_generations;
 #[path = "scr_01_adversarial.rs"]
 mod scr_01_adversarial;
+#[path = "scr_01_breaker2_adversarial.rs"]
+mod scr_01_breaker2_adversarial;
 #[path = "scr_01_breaker_adversarial.rs"]
 mod scr_01_breaker_adversarial;
 #[path = "scr_02_adversarial.rs"]
 mod scr_02_adversarial;
+#[path = "scr_02_breaker2_adversarial.rs"]
+mod scr_02_breaker2_adversarial;
 #[path = "scr_02_breaker_adversarial.rs"]
 mod scr_02_breaker_adversarial;
 #[path = "scr_02_native_contract_inventory.rs"]
@@ -1152,6 +1156,8 @@ mod scr_08_adversarial;
 mod scr_09_actor_queries;
 #[path = "scr_09_adversarial.rs"]
 mod scr_09_adversarial;
+#[path = "scr_09_breaker2_adversarial.rs"]
+mod scr_09_breaker2_adversarial;
 #[path = "scr_09_breaker_adversarial.rs"]
 mod scr_09_breaker_adversarial;
 #[path = "scr_10_actor_state_natives.rs"]
@@ -1162,22 +1168,32 @@ mod scr_10_adversarial;
 mod scr_11_actor_state_bindings;
 #[path = "scr_11_adversarial.rs"]
 mod scr_11_adversarial;
+#[path = "scr_11_breaker2_adversarial.rs"]
+mod scr_11_breaker2_adversarial;
 #[path = "scr_11_breaker_adversarial.rs"]
 mod scr_11_breaker_adversarial;
 #[path = "scr_12_adversarial.rs"]
 mod scr_12_adversarial;
+#[path = "scr_12_breaker2_adversarial.rs"]
+mod scr_12_breaker2_adversarial;
 #[path = "scr_12_breaker_adversarial.rs"]
 mod scr_12_breaker_adversarial;
 #[path = "scr_13_actor_native_batch.rs"]
 mod scr_13_actor_native_batch;
 #[path = "scr_13_adversarial.rs"]
 mod scr_13_adversarial;
+#[path = "scr_13_breaker2_adversarial.rs"]
+mod scr_13_breaker2_adversarial;
 #[path = "scr_14_adversarial.rs"]
 mod scr_14_adversarial;
+#[path = "scr_14_breaker2_adversarial.rs"]
+mod scr_14_breaker2_adversarial;
 #[path = "scr_14_breaker_adversarial.rs"]
 mod scr_14_breaker_adversarial;
 #[path = "scr_15_adversarial.rs"]
 mod scr_15_adversarial;
+#[path = "scr_15_breaker2_adversarial.rs"]
+mod scr_15_breaker2_adversarial;
 #[path = "scr_15_breaker_adversarial.rs"]
 mod scr_15_breaker_adversarial;
 #[path = "scr_15_native_behavior.rs"]

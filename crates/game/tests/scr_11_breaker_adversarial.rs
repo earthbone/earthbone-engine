@@ -140,3 +140,68 @@ fn vehicle_and_look_relationships_survive_world_save_load() {
         Some((id(0x802), true))
     );
 }
+
+#[test]
+fn actor_state_natives_reject_wrong_arity_and_types_before_mutating() {
+    let mut game = fixture();
+    let actor = id(0x801);
+    let vehicle = Value::Object(game.object_of_form(id(0x802)));
+    call(
+        &mut game,
+        actor,
+        "SetVehicle",
+        std::slice::from_ref(&vehicle),
+    );
+    call(
+        &mut game,
+        actor,
+        "SetVehicle",
+        &[Value::None, Value::Bool(true)],
+    );
+    assert_eq!(game.world_mut().actor_vehicle(actor), Some(id(0x802)));
+    assert!(game
+        .vm
+        .log
+        .contains("SetVehicle expects one ObjectReference argument"));
+
+    let look_target = Value::Object(game.object_of_form(id(0x802)));
+    call(
+        &mut game,
+        actor,
+        "SetLookAt",
+        &[look_target, Value::Bool(true)],
+    );
+    call(&mut game, actor, "SetLookAt", &[Value::None, Value::Int(1)]);
+    assert_eq!(
+        game.world_mut().actor_look_at(actor),
+        Some((id(0x802), true))
+    );
+    assert!(game
+        .vm
+        .log
+        .contains("SetLookAt expects ObjectReference and Bool arguments"));
+
+    call(&mut game, actor, "SetEssential", &[Value::Bool(true)]);
+    call(
+        &mut game,
+        actor,
+        "SetEssential",
+        &[Value::Bool(false), Value::Bool(false)],
+    );
+    assert!(game.world_mut().actor(actor).unwrap().essential);
+    assert!(game
+        .vm
+        .log
+        .contains("SetEssential expects one Bool argument"));
+
+    assert_eq!(
+        call(&mut game, actor, "GetSitState", &[Value::Bool(true)]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut game, actor, "GetFlyingState", &[Value::Bool(true)]),
+        Value::Int(0)
+    );
+    assert!(game.vm.log.contains("GetSitState expects no arguments"));
+    assert!(game.vm.log.contains("GetFlyingState expects no arguments"));
+}

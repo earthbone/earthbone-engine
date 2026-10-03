@@ -1303,6 +1303,13 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             class,
             "AddInventoryEventFilter",
             |world, call, me| {
+                if call.args.len() != 1 {
+                    call.log.push(
+                        call.time,
+                        format!("{class}.AddInventoryEventFilter expects one Form argument"),
+                    );
+                    return none();
+                }
                 if let Some(filter) = world.form_arg(&call.arg(0)) {
                     world.add_inventory_event_filter(me, filter);
                 }
@@ -1315,6 +1322,13 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             class,
             "RemoveInventoryEventFilter",
             |world, call, me| {
+                if call.args.len() != 1 {
+                    call.log.push(
+                        call.time,
+                        format!("{class}.RemoveInventoryEventFilter expects one Form argument"),
+                    );
+                    return none();
+                }
                 let filter = world.form_arg(&call.arg(0));
                 world.remove_inventory_event_filter(me, filter);
                 none()
@@ -1326,6 +1340,13 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             class,
             "RemoveAllInventoryEventFilters",
             |world, call, me| {
+                if !call.args.is_empty() {
+                    call.log.push(
+                        call.time,
+                        format!("{class}.RemoveAllInventoryEventFilters expects no arguments"),
+                    );
+                    return none();
+                }
                 world.remove_all_inventory_event_filters(me);
                 none()
             }
@@ -1396,6 +1417,11 @@ fn actor(vm: &mut Vm, w: &Shared) {
         );
     }
     method!(vm, w, "Actor", "IsChild", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.IsChild expects no arguments");
+            return b(false);
+        }
         match world.actor_is_child(me) {
             Ok(child) => b(child),
             Err(error) => {
@@ -1405,6 +1431,11 @@ fn actor(vm: &mut Vm, w: &Shared) {
         }
     });
     method!(vm, w, "Actor", "IsDetectedBy", |world, call, me| {
+        if call.args.len() != 1 {
+            call.log
+                .push(call.time, "Actor.IsDetectedBy expects one Actor argument");
+            return b(false);
+        }
         let Some(observer) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
@@ -1416,15 +1447,30 @@ fn actor(vm: &mut Vm, w: &Shared) {
             }
         }
     });
-    method!(vm, w, "Actor", "IsCommandedActor", |world, _call, me| b(
-        world.is_commanded_actor(me)
-    ));
-    method!(vm, w, "Actor", "IsOnMount", |world, _call, me| b(world
-        .actor(me)
-        .is_some_and(|actor| actor.riding_mount)));
-    method!(vm, w, "Actor", "IsTrespassing", |world, _call, me| b(world
-        .actor(me)
-        .is_some_and(|actor| actor.trespassing)));
+    method!(vm, w, "Actor", "IsCommandedActor", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.IsCommandedActor expects no arguments");
+            return b(false);
+        }
+        b(world.is_commanded_actor(me))
+    });
+    method!(vm, w, "Actor", "IsOnMount", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.IsOnMount expects no arguments");
+            return b(false);
+        }
+        b(world.actor(me).is_some_and(|actor| actor.riding_mount))
+    });
+    method!(vm, w, "Actor", "IsTrespassing", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.IsTrespassing expects no arguments");
+            return b(false);
+        }
+        b(world.actor(me).is_some_and(|actor| actor.trespassing))
+    });
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -1526,10 +1572,20 @@ fn actor(vm: &mut Vm, w: &Shared) {
         }
     );
     method!(vm, w, "Actor", "SetEssential", |world, call, me| {
+        if call.args.len() != 1 || !matches!(call.arg(0), Value::Bool(_)) {
+            call.log
+                .push(call.time, "Actor.SetEssential expects one Bool argument");
+            return none();
+        }
         world.set_actor_essential(me, call.arg(0).as_bool());
         none()
     });
-    method!(vm, w, "Actor", "GetSitState", |world, _call, me| {
+    method!(vm, w, "Actor", "GetSitState", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.GetSitState expects no arguments");
+            return i(0);
+        }
         i(world.sit_state(me).unwrap_or(0))
     });
     method!(vm, w, "Actor", "SetHeadTracking", |world, call, me| {
@@ -4333,6 +4389,13 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "ActiveMagicEffect",
         "AddInventoryEventFilter",
         |world, call, me| {
+            if call.args.len() != 1 {
+                call.log.push(
+                    call.time,
+                    "ActiveMagicEffect.AddInventoryEventFilter expects one Form argument",
+                );
+                return none();
+            }
             match world.form_arg(&call.arg(0)) {
                 Some(filter) => world.add_inventory_event_filter(me, filter),
                 None => call.log.push(
@@ -4349,6 +4412,13 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "ActiveMagicEffect",
         "RemoveInventoryEventFilter",
         |world, call, me| {
+            if call.args.len() != 1 {
+                call.log.push(
+                    call.time,
+                    "ActiveMagicEffect.RemoveInventoryEventFilter expects one Form argument",
+                );
+                return none();
+            }
             let filter = world.form_arg(&call.arg(0));
             world.remove_inventory_event_filter(me, filter);
             none()
@@ -4359,7 +4429,14 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         w,
         "ActiveMagicEffect",
         "RemoveAllInventoryEventFilters",
-        |world, _call, me| {
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "ActiveMagicEffect.RemoveAllInventoryEventFilters expects no arguments",
+                );
+                return none();
+            }
             world.remove_all_inventory_event_filters(me);
             none()
         }
@@ -4577,8 +4654,13 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
     // The Hover package owns the only flight state implemented by the driver.
-    method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
-        world.actor(me).map_or(0, |actor| {
+    method!(vm, w, "Actor", "GetFlyingState", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.GetFlyingState expects no arguments");
+            return i(0);
+        }
+        i(world.actor(me).map_or(0, |actor| {
             i32::from(actor.flying_state.unwrap_or_else(|| {
                 if actor.ai.procedure == crate::ai::Procedure::Hover {
                     3
@@ -4586,9 +4668,16 @@ fn dlc(vm: &mut Vm, w: &Shared) {
                     0
                 }
             }))
-        })
-    ));
+        }))
+    });
     method!(vm, w, "Actor", "SetVehicle", |world, call, me| {
+        if call.args.len() != 1 {
+            call.log.push(
+                call.time,
+                "Actor.SetVehicle expects one ObjectReference argument",
+            );
+            return none();
+        }
         let vehicle = match call.arg(0) {
             Value::None => None,
             value => world.form_arg(&value),
@@ -4603,6 +4692,13 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         none()
     });
     method!(vm, w, "Actor", "SetLookAt", |world, call, me| {
+        if call.args.len() != 2 || !matches!(call.arg(1), Value::Bool(_)) {
+            call.log.push(
+                call.time,
+                "Actor.SetLookAt expects ObjectReference and Bool arguments",
+            );
+            return none();
+        }
         let target_arg = call.arg(0);
         let target = match &target_arg {
             Value::None => None,

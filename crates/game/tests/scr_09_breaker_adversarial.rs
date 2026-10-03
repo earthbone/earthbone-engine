@@ -93,3 +93,20 @@ fn scr_09_commanded_summon_query_survives_world_save_load() {
     game.world_mut().load_state(&saved).unwrap();
     assert!(actor_bool(&mut game, summoned, "IsCommandedActor", &[]));
 }
+
+#[test]
+fn scr_09_no_argument_predicates_reject_extra_arguments() {
+    let mut game = fixture();
+    for method in ["IsChild", "IsCommandedActor", "IsOnMount", "IsTrespassing"] {
+        let actor = if method == "IsChild" {
+            id(0x900)
+        } else {
+            id(0x901)
+        };
+        assert!(!actor_bool(&mut game, actor, method, &[Value::Bool(true)],));
+        assert!(game
+            .vm
+            .log
+            .contains(&format!("Actor.{method} expects no arguments")));
+    }
+}
