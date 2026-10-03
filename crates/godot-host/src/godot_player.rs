@@ -22,11 +22,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use godot::builtin::Rid;
 use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
     Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
     InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
-    Node3D,
+    Node3D, RenderingServer, SphereMesh, StandardMaterial3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -112,6 +113,9 @@ pub struct PlayerNode {
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
+    debug_ref_markers: BTreeMap<GlobalFormId, Rid>,
+    debug_ref_marker_mesh: Option<Gd<SphereMesh>>,
+    debug_ref_marker_material: Option<Gd<StandardMaterial3D>>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     aimed_projectile_contacts: crate::combat::AimedProjectileContacts,
@@ -207,6 +211,9 @@ impl INode3D for PlayerNode {
             animation_source: None,
             player_appearance: None,
             pending_debug_latents: Vec::new(),
+            debug_ref_markers: BTreeMap::new(),
+            debug_ref_marker_mesh: None,
+            debug_ref_marker_material: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             aimed_projectile_contacts: crate::combat::AimedProjectileContacts::default(),
@@ -420,6 +427,12 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
+            server.free_rid(rid);
+        }
+        self.debug_ref_marker_mesh = None;
+        self.debug_ref_marker_material = None;
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
         self.actor_bodies.free();

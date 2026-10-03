@@ -2931,14 +2931,21 @@ fn debug(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Debug", "PlayerMoveToAndWait", |world, call| {
         let target = world.form(&text(&call.arg(0)));
-        let success = target.is_some_and(|target| world.debug_player_move_to_reference(target));
-        if !success {
+        let Some(target) = target.filter(|target| world.reference(*target).is_some()) else {
             call.log.push(
                 call.time,
                 "Debug.PlayerMoveToAndWait: destination reference not found",
             );
-        }
-        f(if success { 1.0 } else { 0.0 })
+            return f(0.0);
+        };
+        let latent = call.defer();
+        world
+            .debug_host_requests
+            .push(DebugHostRequest::MovePlayerToReference {
+                reference: target,
+                latent,
+            });
+        NativeReturn::Latent(latent)
     });
     global!(vm, w, "Debug", "MoveToCell", |world, call| {
         if !world.debug_player_move_to_cell(&text(&call.arg(0))) {

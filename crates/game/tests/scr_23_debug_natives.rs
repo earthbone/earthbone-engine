@@ -125,14 +125,50 @@ fn scr_23_show_ref_position_records_resolved_reference_and_rejects_alias() {
 #[test]
 fn scr_23_player_move_to_and_wait_moves_player_to_reference() {
     let mut game = game_with_debug_destinations();
-    run_global(
-        &mut game,
-        "PlayerMoveProbe",
-        "PlayerMoveToAndWait",
-        "destination",
-        "String",
-        Value::string("DebugTarget"),
-    );
+    let function = FunctionBuilder::new("Run", "Float")
+        .global()
+        .param("destination", "String")
+        .local("result", "Var")
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("PlayerMoveToAndWait"),
+                ident("result"),
+                ident("destination"),
+            ],
+        )
+        .ins(soe_papyrus::Opcode::Return, vec![ident("result")])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new("PlayerMoveProbe", "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    let thread = game
+        .vm
+        .call_global("PlayerMoveProbe", "Run", &[Value::string("DebugTarget")])
+        .unwrap();
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), None);
+    assert!(matches!(
+        game.world().debug_host_requests.last(),
+        Some(soe_game::world::DebugHostRequest::MovePlayerToReference {
+            reference,
+            ..
+        }) if *reference == game.form("DebugTarget").unwrap()
+    ));
+    let target = game.form("DebugTarget").unwrap();
+    assert!(game.world_mut().debug_player_move_to_reference(target));
+    let Some(soe_game::world::DebugHostRequest::MovePlayerToReference { latent, .. }) =
+        game.world_mut().debug_host_requests.pop()
+    else {
+        unreachable!();
+    };
+    game.vm.resolve_latent(latent, Value::Float(0.0));
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), Some(Value::Float(0.0)));
     let player = game.player();
     let world = game.world();
     let moved = world.reference_ref(player).unwrap();
@@ -140,14 +176,37 @@ fn scr_23_player_move_to_and_wait_moves_player_to_reference() {
     assert_eq!(moved.rotation, [0.1, 0.2, 0.3]);
     assert_eq!(moved.cell, Some(id(CELL)));
     drop(world);
-    run_global(
-        &mut game,
-        "PlayerMoveMissingProbe",
-        "PlayerMoveToAndWait",
-        "destination",
-        "String",
-        Value::string("MissingReference"),
-    );
+    let function = FunctionBuilder::new("Run", "Float")
+        .global()
+        .param("destination", "String")
+        .local("result", "Var")
+        .ins(
+            CallStatic,
+            vec![
+                s("Debug"),
+                s("PlayerMoveToAndWait"),
+                ident("result"),
+                ident("destination"),
+            ],
+        )
+        .ins(soe_papyrus::Opcode::Return, vec![ident("result")])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new("PlayerMoveMissingProbe", "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    let thread = game
+        .vm
+        .call_global(
+            "PlayerMoveMissingProbe",
+            "Run",
+            &[Value::string("MissingReference")],
+        )
+        .unwrap();
+    game.run_until_idle(64);
+    assert_eq!(game.vm.thread_result(thread), Some(Value::Float(0.0)));
     assert!(game.vm.log.messages().iter().any(|message| {
         message
             .to_string()
