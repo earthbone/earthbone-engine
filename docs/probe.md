@@ -198,6 +198,23 @@ The example has no menus, animation or combat. It starts with the generated
 quest at stage zero and TimeScale 20. Other live state is not imported from an
 ESS file by this tool.
 
+## Schedule tables
+
+`ScheduleRow` stores one actor at one game-hour boundary: hour from 0 through
+23, actor FormID, stable display name, running package FormID, cell FormID and
+furniture reference FormID. Missing package, cell or furniture values are
+`null`. `ScheduleTable::new` accepts only complete 24-hour tables with one row
+per actor and hour. `parse_schedule_log` reads `SOESCHEDULE ` JSON rows from a
+Papyrus log and accepts incomplete captures so the comparison can report
+missing actor-hour rows. Duplicate rows, invalid hours and changing actor
+names are rejected. `ScheduleTable::differences` reports each changed field
+and each missing or extra actor-hour separately.
+
+Schedule rows use stable FormIDs, not load-order runtime slots, so captures
+from Skyrim and the engine can be compared when they use the same declared
+load order. The table API handles captured rows; it does not enumerate actors
+or generate the Papyrus schedule recorder.
+
 ## Sources and validation
 
 Read before implementation:
@@ -237,3 +254,5 @@ official records and checks CLI matching and differing comparisons.
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.
+`tests/ply_07_schedule.rs` covers complete 24-hour tables, named actor identity,
+row-level differences, partial log parsing and the installed Eorlund record.
