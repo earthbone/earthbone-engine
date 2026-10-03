@@ -3,7 +3,7 @@
 //! Godot controls for the player status meters and heading compass.
 
 use godot::classes::control::{LayoutPreset, MouseFilter};
-use godot::classes::{CanvasLayer, Control, Label, ProgressBar, VBoxContainer};
+use godot::classes::{CanvasLayer, ColorRect, Control, Label, ProgressBar, VBoxContainer};
 use godot::prelude::*;
 
 use super::PlayerNode;
@@ -18,6 +18,9 @@ pub(super) struct HudView {
     stamina_label: Gd<Label>,
     stamina_bar: Gd<ProgressBar>,
     compass: Gd<Label>,
+    cart_mode: Gd<Label>,
+    blood_overlay: Gd<ColorRect>,
+    presentation: crate::hud::GameUiPresentation,
 }
 
 impl HudView {
@@ -42,8 +45,24 @@ impl HudView {
         compass.set_position(Vector2::new(520.0, 24.0));
         compass.set_text("W   NW   [N]   NE   E");
 
+        let mut cart_mode = Label::new_alloc();
+        cart_mode.set_name("CartMode");
+        cart_mode.set_anchors_and_offsets_preset(LayoutPreset::CENTER_TOP);
+        cart_mode.set_position(Vector2::new(-42.0, 24.0));
+        cart_mode.set_text("CART");
+        cart_mode.hide();
+
+        let mut blood_overlay = ColorRect::new_alloc();
+        blood_overlay.set_name("ScreenBlood");
+        blood_overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+        blood_overlay.set_mouse_filter(MouseFilter::IGNORE);
+        blood_overlay.set_color(Color::from_rgba(0.65, 0.0, 0.0, 0.0));
+        blood_overlay.hide();
+
         root.add_child(&stats);
         root.add_child(&compass);
+        root.add_child(&cart_mode);
+        root.add_child(&blood_overlay);
         layer.add_child(&root);
 
         Self {
@@ -56,6 +75,9 @@ impl HudView {
             stamina_label: stamina.0,
             stamina_bar: stamina.1,
             compass,
+            cart_mode,
+            blood_overlay,
+            presentation: crate::hud::GameUiPresentation::default(),
         }
     }
 
@@ -86,6 +108,35 @@ impl HudView {
 
     pub(super) fn hide(&mut self) {
         self.root.hide();
+    }
+
+    pub(super) fn set_cart_mode(&mut self, enabled: bool) {
+        self.presentation.set_cart_mode(enabled);
+        self.cart_mode.set_visible(self.presentation.cart_mode);
+    }
+
+    pub(super) fn trigger_screen_blood(&mut self, value: i32) {
+        self.presentation.trigger_screen_blood(value);
+        self.blood_overlay.set_color(Color::from_rgba(
+            0.65,
+            0.0,
+            0.0,
+            self.presentation.blood_alpha,
+        ));
+        self.blood_overlay
+            .set_visible(self.presentation.blood_alpha > 0.0);
+    }
+
+    pub(super) fn tick_presentation(&mut self, delta: f64) {
+        self.presentation.tick(delta);
+        self.blood_overlay.set_color(Color::from_rgba(
+            0.65,
+            0.0,
+            0.0,
+            self.presentation.blood_alpha,
+        ));
+        self.blood_overlay
+            .set_visible(self.presentation.blood_alpha > 0.0);
     }
 }
 
