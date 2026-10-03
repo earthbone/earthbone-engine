@@ -167,7 +167,13 @@ impl PlayerNode {
             );
             return false;
         };
-        let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        let mut game = match source.localized_game() {
+            Ok(game) => game,
+            Err(error) => {
+                godot_error!("PlayerNode: {error}");
+                return false;
+            }
+        };
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             godot_error!(
