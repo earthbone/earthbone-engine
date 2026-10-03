@@ -117,6 +117,7 @@ impl PlayerNode {
         };
 
         let previous_game = self.game.replace(game);
+        self.clear_player_input();
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.last_activate_reference = None;
@@ -200,6 +201,7 @@ impl PlayerNode {
         self.effect_shaders.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
+        self.clear_player_input();
         self.refresh_image_space();
         self.main_menu.leave();
         self.sync_game_pose()
@@ -637,6 +639,7 @@ impl PlayerNode {
             streamer.bind_mut().clear();
         }
         self.game = None;
+        self.clear_player_input();
         self.data_source = None;
         self.game_streamer = None;
         self.loaded_cell = None;
@@ -755,7 +758,7 @@ impl PlayerNode {
         activated
     }
 
-    fn open_swing_door(&mut self, target: GlobalFormId) {
+    pub(super) fn open_swing_door(&mut self, target: GlobalFormId) {
         let (Some(source), Some(game)) = (&self.data_source, &self.game) else {
             return;
         };

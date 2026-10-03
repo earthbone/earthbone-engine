@@ -251,6 +251,114 @@ declarations, the CommonLib source-level API, and its contract fixtures are in
 
 ## Design
 
+### Scripted player input, PLY-01
+
+`player_input::Driver` queues typed commands and executes one per step at
+1/60 second. An empty queue does not tick. Each event retains its step,
+command, gameplay result or error, player cell and pose, and new Papyrus
+traces. Queue and log are transient. World owns all gameplay mutations.
+
+Commands place the player at a reference plus an offset, set XYZ rotation
+in radians, activate, execute an authored melee contact, press or release an
+equipped casting hand, choose a dialogue topic, confirm a menu operation,
+or wait for one step. MoveTo is explicit placement, with optional rotation
+matching and normal cell and trigger events. As the local CK
+`MoveTo_-_ObjectReference.wikitext` documents, rotation remains unchanged when
+the destination cell is unloaded, even when rotation matching is requested.
+Menu operations advance a
+dialogue response, close a latent gift menu, or commit a COBJ transaction.
+Scripted steps advance the simulation independently of host menu presentation.
+Attack uses the existing equipment and damage checks with a supplied contact
+target. It does not generate an animation or a spatial contact query.
+
+Default activation now moves loose inventory references through
+`add_item_notified`, preserving item instance data and delivering inventory
+and container-change events. The input layer rejects disabled or deleted
+references, preserves OnActivate on blocked activation, and begins dialogue
+after a successful actor activation. Invalid transforms are rejected before
+enqueueing. Gameplay rejections are recorded and consume one fixed step.
+
+The local CK `Activate_-_ObjectReference.wikitext`,
+`MoveTo_-_ObjectReference.wikitext`, `SetAngle_-_ObjectReference.wikitext`
+and `OnContainerChanged_-_ObjectReference.wikitext` supply activation,
+placement, compass yaw and pickup event semantics. This is a scripted input
+schedule over existing Game operations, rather than a new format reader.
+`ply_01_` tests exercise timing, interactions, combat and casting, rejection,
+and an installed vanilla load door. Optional `SOE_PLY_01_FIXTURE` exports the
+synthetic plugin, scripts and headless log for the windowed host comparison.
+
+### Headless playthrough routes, PLY-02
+
+`play::Route` parses one authored operation per line. Blank lines and `#`
+comments are ignored. Double quotes preserve spaces in form names. A form
+is an editor ID, `player`, `Plugin.esm:hexObjectID`, or `dynamic:hexObjectID`.
+Plugin names resolve through the live load order rather than a saved slot.
+
+```text
+navigate <reference> <units-per-second> <max-ticks>
+navigate-marker <cell> <x> <y> <z> <units-per-second> <max-ticks>
+activate <reference>
+talk <speaker> <topic>
+wait-stage <quest> <stage> <max-ticks>
+expect-stage <quest> <highest-stage>
+expect-position <cell> <x> <y> <z> <tolerance>
+expect-item <holder> <item> <count>
+expect-no-vm-error
+```
+
+Navigation uses winning NAVM records within the starting interior or worldspace,
+including resolved edge links and deleted meshes. Endpoints must have a walkable
+XY footprint in their named cells and lie within 128 units of the surface.
+They project onto that surface. Closed bound doors block their triangles and
+are refreshed while walking. The runner queries the existing smoothed path at
+each tick and moves toward its next waypoint. It retains waypoint cell ownership,
+delivers cell and trigger events, checks surface samples within 0.25 units,
+and fails on missing paths, interrupted movement or timeout. Load-door crossings
+use activation steps. Navigation adds no collision host or reference nodes.
+The runner does not consume host obstacle shapes or simulate a physics capsule.
+
+Actions use the shared PLY-01 executor and advance 1/60 second, including gameplay
+rejections. Unresolved form names fail before execution. `talk` activates an
+actor, chooses the offered DIAL topic, then advances
+the response through the existing dialogue API. Waits pump the same clock and
+VM until the requested stage is in the quest's done set. A higher stage alone
+does not satisfy that wait. Position assertions check cell identity and Euclidean
+distance. Item assertions use the shared GetItemCount query for base forms,
+original reference instances, form lists and keywords. VM assertions
+reject any `error:` entry in the VM log, including entries preceding the route.
+Speeds must be positive and at most 600 units per second. A time bound is at most
+36,000 ticks. Assertions consume no ticks. The first failure stops execution and
+reports the step number, source line, reason, player pose, sorted inventory,
+loaded quest stages and flags, live VM thread count and execution trace.
+Routes and reports add no saved state or dependencies.
+
+`soe-play <Data-directory> <external-save.ess> <route-file>` reads plugin names
+from the ESS, loads their scripts through the existing archive and loose-file
+overlay, and invokes transactional world/VM restoration before binding scripts.
+It does not run new-game quest startup. A route failure or unsupported save import
+exits with status 1, invalid arguments with status 2, and success with status 0.
+It uses the existing ESS import boundary, including inert queued messages and
+suspended call tables. It does not claim complete vanilla-save resumption.
+
+An explicit fourth argument, `--world-checkpoint`, imports the supported world
+passes without saved VM variables or execution and binds fresh scripts. It
+prints that choice on stderr and never falls back from strict import. This
+allows world assertions and authored input from corpus checkpoints while the
+existing importer rejects their unresolved ReferenceAlias identities. Checkpoint
+startup omits saved timers and queued calls. It does not reproduce a resumed
+quest's script variables. Both modes reject failed world passes. Neither mode
+changes the external save. `load_world_checkpoint` exposes this startup choice
+to callers without a command-line process.
+
+Local CK `PathToReference_-_Actor.wikitext` supplies path failure and interruption
+semantics, and `Activate_-_ObjectReference.wikitext` supplies default activation
+and blocked OnActivate behavior. `GetItemCount_-_ObjectReference.wikitext` describes
+base-object quantities. Navigation reuses `soe-navmesh`, whose source is local
+Recast/Detour `DetourNavMeshQuery.cpp`, `findStraightPath`. Detour's independent
+mesh representation is not introduced. `ply_02_` tests cover grammar, navigation,
+interaction steps, bounded waits, assertions, diagnostics and external corpus
+startup through the binary.
+
 ### MCM script lifecycle, UI-05
 
 `Game::start` initializes enabled quests without registering MCM scripts.
