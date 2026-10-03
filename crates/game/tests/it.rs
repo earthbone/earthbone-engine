@@ -1012,6 +1012,8 @@ mod prg_07_adversarial;
 mod prg_07_character_level;
 #[path = "prg_08_adversarial.rs"]
 mod prg_08_adversarial;
+#[path = "prg_08_breaker_adversarial.rs"]
+mod prg_08_breaker_adversarial;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
 #[path = "prg_09_race_skill_initialization.rs"]
