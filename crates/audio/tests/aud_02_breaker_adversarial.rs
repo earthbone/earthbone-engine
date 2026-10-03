@@ -11,7 +11,8 @@ use std::process::{Command, Stdio};
 fn voice_archive() -> Option<soe_bsa::Archive> {
     let data = PathBuf::from(std::env::var_os("SKYRIM_DATA")?);
     let path = data.join("Skyrim - Voices_en0.bsa");
-    path.exists().then(|| soe_bsa::Archive::open(&path).expect("voice archive opens"))
+    path.exists()
+        .then(|| soe_bsa::Archive::open(&path).expect("voice archive opens"))
 }
 
 fn ffmpeg_samples(xwma: &Xwma<'_>) -> Vec<f32> {
@@ -56,7 +57,7 @@ fn ffmpeg_samples(xwma: &Xwma<'_>) -> Vec<f32> {
 
 fn max_correlation(left: &[f32], right: &[f32]) -> f64 {
     let mut best = 0.0f64;
-    for offset in (-4096isize..=4096).step_by(32) {
+    for offset in -4096isize..=4096 {
         let left_start = offset.max(0) as usize;
         let right_start = (-offset).max(0) as usize;
         let compared = left
@@ -101,10 +102,11 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
         .filter(|name| name.to_lowercase().ends_with(".fuz"))
         .cloned()
         .collect();
-    assert!(!names.is_empty(), "English voice archive has no FUZ entries");
-    let indices: Vec<usize> = (0..8)
-        .map(|slot| slot * (names.len() - 1) / 7)
-        .collect();
+    assert!(
+        !names.is_empty(),
+        "English voice archive has no FUZ entries"
+    );
+    let indices: Vec<usize> = (0..8).map(|slot| slot * (names.len() - 1) / 7).collect();
     let mut waveform_mismatches = Vec::new();
     for index in indices {
         let name = &names[index];
@@ -112,12 +114,16 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
         let fuz = Fuz::split(&bytes).expect("FUZ splits");
         let xwma = Xwma::parse(fuz.audio).expect("vanilla xWMA parses");
         let native = decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
-        let repeated = decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let repeated =
+            decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
         let reference = ffmpeg_samples(&xwma);
 
         assert_eq!(native.sample_rate, xwma.format.sample_rate, "{name}");
         assert_eq!(native.channels, xwma.format.channels, "{name}");
-        assert_eq!(native.samples, repeated.samples, "{name}: decode is repeatable");
+        assert_eq!(
+            native.samples, repeated.samples,
+            "{name}: decode is repeatable"
+        );
         assert!(!native.samples.is_empty(), "{name}: native output is empty");
         assert!(!reference.is_empty(), "{name}: ffmpeg output is empty");
         let native_duration = native.duration_seconds();
@@ -135,7 +141,10 @@ fn aud_02_breaker_multiple_vanilla_lines_match_ffmpeg_and_repeat() {
             }
         } else {
             assert_eq!(native.peak(), 0.0, "{name}: silence differs from ffmpeg");
-            assert!(reference.iter().all(|sample| *sample == 0.0), "{name}: only one decoder is silent");
+            assert!(
+                reference.iter().all(|sample| *sample == 0.0),
+                "{name}: only one decoder is silent"
+            );
         }
     }
     assert!(

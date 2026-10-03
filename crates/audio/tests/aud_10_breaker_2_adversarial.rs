@@ -81,8 +81,12 @@ fn aud_10_cache_identity_distinguishes_unhinted_empty_and_changed_text() {
     let rhubarb = Rhubarb::at(program);
     let unhinted = rhubarb.cache_settings(&pcm(), None).unwrap();
     let empty = rhubarb.cache_settings(&pcm(), Some("")).unwrap();
-    let hinted = rhubarb.cache_settings(&pcm(), Some("first response")).unwrap();
-    let changed = rhubarb.cache_settings(&pcm(), Some("second response")).unwrap();
+    let hinted = rhubarb
+        .cache_settings(&pcm(), Some("first response"))
+        .unwrap();
+    let changed = rhubarb
+        .cache_settings(&pcm(), Some("second response"))
+        .unwrap();
 
     assert_ne!(unhinted, empty);
     assert_ne!(hinted, changed);

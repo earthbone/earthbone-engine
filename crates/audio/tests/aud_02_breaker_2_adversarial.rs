@@ -51,7 +51,7 @@ fn ffmpeg_samples(xwma: &Xwma<'_>) -> Vec<f32> {
 
 fn max_correlation(left: &[f32], right: &[f32]) -> f64 {
     let mut best = 0.0f64;
-    for offset in (-4096isize..=4096).step_by(32) {
+    for offset in -4096isize..=4096 {
         let left_start = offset.max(0) as usize;
         let right_start = (-offset).max(0) as usize;
         let compared = left
@@ -106,7 +106,10 @@ fn aud_02_installed_vanilla_xwma_matches_ffmpeg_without_feature() {
     let native = decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
     let repeated = decode_with(&Native, &xwma).unwrap_or_else(|error| panic!("{name}: {error}"));
     let reference = ffmpeg_samples(&xwma);
-    assert_eq!(native.samples, repeated.samples, "native decode is repeatable");
+    assert_eq!(
+        native.samples, repeated.samples,
+        "native decode is repeatable"
+    );
     assert_eq!(native.sample_rate, xwma.format.sample_rate);
     assert_eq!(native.channels, xwma.format.channels);
     assert!(!native.samples.is_empty());

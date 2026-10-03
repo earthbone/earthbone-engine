@@ -145,7 +145,11 @@ fn aud_10_installed_dialogue_corpus_meets_both_duration_bounds() {
     }
     corpus.sort_by_key(|row| (row.0, row.1));
     corpus.truncate(8);
-    assert_eq!(corpus.len(), 8, "fixed corpus must contain eight INFO lines");
+    assert_eq!(
+        corpus.len(),
+        8,
+        "fixed corpus must contain eight INFO lines"
+    );
 
     for (_, _, name, response) in &corpus {
         let bytes = archive.read(name).expect("voice line reads");
