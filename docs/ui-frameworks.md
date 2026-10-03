@@ -124,101 +124,99 @@ for the UI backlog, not claims of implementation.
 
 - Local `engine-refs/SexLabpp/lib/ImGui/SKSEMenuFramework.h`, for callback
   names. The enclosing SexLabpp repository has an Apache-2.0 license; it does
-  not establish a separate license for this copied header.
-- [SKSE Menu Framework SDK](https://github.com/Thiago099/SKSE-Menu-Framework-SDK)
-  and [SKSE Menu Framework source](https://github.com/Thiago099/SKSE-Menu-Framework),
-  for page registration and MIT repository licenses.
-- [SKSE Menu Framework 3 source](https://github.com/QTR-Modding/SKSE-Menu-Framework-3)
-  and its [Nexus page](https://www.nexusmods.com/skyrimspecialedition/mods/120352),
-  for current API behavior and the runtime source license.
-- [Original dMenu source](https://github.com/D7ry/dMenu), for project identity
-  and its MIT license.
-- [dMenu NG source](https://github.com/c0kadam/dmenu-NG), for the public
-  versioned control API and separation between its API header and GPL runtime.
-- [imgui-godot](https://github.com/pkdawson/imgui-godot), including its
-  README and wiki, for the GDExtension, callback and input integration model.
-- [imgui-rs](https://github.com/imgui-rs/imgui-rs), for Rust bindings, draw
-  data ownership and dual MIT or Apache-2.0 license.
-- The existing [shim](shim.md), [Godot host](godot-host.md) and
-  [style](style.md) docs, for crate boundaries and project rules.
+... (+98 lines) [see remaining: rtk proxy git show ':2:docs/ui-frameworks.md' | tail -n +127]
+## Running mod SWF menus through Ruffle, UI-23
 
-The requested framework repositories were not present as working clones in
-`engine-refs`; the local SDK header was available. The linked upstream source
-pages supplied API and license details where the local corpus had no copy.
-# HTML menus and PrismaUI compatibility, UI-22
+The UI-19 path converts the winning interface SWF art into Godot resources. It
+does not execute ActionScript. UI-19 writes JPEXS output to an external,
+content-addressed cache as reference material. The scripts are not copied into
+the repository or run by the engine.
 
-Godot core has no HTML or browser renderer. HTML menus therefore need an
-embedded web renderer and a bridge to the engine's menu and input lifecycle.
-This matters for compatibility with mods written for PrismaUI. The engine's
-default menus remain native Godot controls, following the SkyUI layout and
-behaviour in [intent.md](intent.md).
+### Scaleform surface found in the source
 
-## Embedding choices
+The supplied SkyUI Community ActionScript tree contains 152 `.as` files. A
+literal scan finds 470 `gfx.io.GameDelegate` operations, 337 `call` sites and
+133 `addCallBack` sites. The scripts refer to five `gfx` namespace roots:
+`io` (470 references), `ui` (140), `managers` (69), `events` (26), and
+`controls` (8). `_global.gfxExtensions` is assigned in three files and
+`_global.gfxPlayer` is referenced once.
 
-| Renderer | Licence and bundle size | Godot texture output | Integration notes |
-|---|---|---|---|
-| CEF through [gdCEF](https://github.com/Lecrapouille/gdcef) | gdCEF is MIT. CEF has LGPL third-party libraries. Its installation guide reports about 600 MB to download and about 1 GB of built artifacts. | Yes. gdCEF creates a browser attached to a `TextureRect`, and includes 2D and 3D examples. | Bundles Chromium, subprocesses, libraries and resources. It needs per-platform artifacts. |
-| System webview through [Godot WRY](https://github.com/doceazedo/godot_wry) | The addon is MIT and WRY is MIT or Apache-2.0. The addon does not publish a fixed bundle size because it uses the platform webview. Linux needs WebKitGTK installed. | No. The webview is an operating-system surface that always renders above Godot, not a `Texture2D` for 2D or 3D materials. | Small addon footprint, but different browser engines across Windows, macOS and Linux. Godot WRY currently documents Linux X11 support. |
-| Ultralight SDK | Ultralight's Free License Agreement governs the SDK. The free grant is not a general redistribution grant. Commercial distribution requires the agreement's distribution license, and its terms include revenue and funding limits. PrismaUI uses the free SDK and has its own source-available license. No official runtime bundle size is published in the reviewed pages. | Yes, with renderer integration. Ultralight exposes GPU and CPU renderers and GPU integration APIs. A Godot adapter still has to upload or share the rendered surface as a Godot texture. | WebKit-based and substantially lighter in baseline memory than Chromium according to the vendor. PrismaUI itself integrates Ultralight with Skyrim's DirectX 11 renderer, so its rendering code cannot be reused as a Godot renderer. |
+The UI-19 converter recognizes these SWF tag families while building art and
+timelines. They are ordinary SWF tags, not Scaleform-only tags:
 
-The stated CEF download and artifact sizes come from gdCEF's build guide and
-are estimates, not measurements of a packaged engine build. WRY's platform
-webview is supplied by the operating system, so its browser update and bundle
-size are outside the addon. The reviewed Ultralight materials make no numerical
-runtime-size claim. Recheck the current [Ultralight terms](https://ultralig.ht/terms/ultralight-subscription-agreement-v2.pdf)
-before redistributing its SDK or basing a public release on it.
+| Purpose | Tags handled by UI-19 |
+|---|---|
+| Shapes and images | `DefineShape`, `DefineBits`, `DefineBitsJpeg2`, `DefineBitsJpeg3`, `DefineBitsLossless`, `JpegTables` |
+| Text and fonts | `DefineEditText`, `DefineText`, `DefineText2`, `DefineFont2` |
+| Display and timeline | `DefineSprite`, `PlaceObject`, `RemoveObject`, `ShowFrame`, `FrameLabel` |
+| Symbols and scripts | `ExportAssets`, `ImportAssets`, `SymbolClass`, `DoAction`, `DoInitAction`, `DefineButton`, `DefineButton2` |
+| Explicitly unsupported by UI-19 | `DefineMorphShape`, `DefineFont`, `DefineFont4`, and unknown tag codes, retained as unsupported tag IDs |
 
-## PrismaUI's mod API
+Ruffle PR 9090 adds `GFX` and `CFX` as uncompressed and zlib-compressed SWF
+header signatures. It changes signature recognition only. It does not add
+Scaleform ActionScript APIs, Skyrim's game delegate, or host callbacks. These
+four signatures are file headers, not SWF tag codes.
 
-PrismaUI is an SKSE plugin framework. A mod requests its versioned C++
-interface with `RequestPluginAPI(InterfaceVersion::V1)`, then creates one
-`PrismaView` for that plugin from an HTML path under
-`Data/PrismaUI/views/`. The plugin can call `Invoke` to call JavaScript,
-register JavaScript listeners to receive UI events, and use view methods for
-focus, visibility, ordering and destruction. The interface supports passing
-game data to the page and receiving commands back. PrismaUI uses HTML, CSS and
-JavaScript, with JSON exchange in its public description and examples.
+### Ruffle gaps for Skyrim menus
 
-The native engine does not load an SKSE DLL or PrismaUI's Skyrim-specific
-DirectX 11 renderer. Compatibility therefore means offering a corresponding
-view lifecycle and bidirectional event/data bridge to HTML mods. It does not
-mean loading the existing Skyrim binary plugin. HTML assets should be local to
-the mod, and engine commands must pass through the shared Game APIs.
+Ruffle runs ActionScript 1 and 2, but a Skyrim menu also expects the host
+services and Scaleform extensions named below. The Ruffle repository does not
+provide the Skyrim `gfx` namespace. Each used extension needs either a
+compatible implementation or a documented per-menu replacement. The `GameDelegate`
+entries belong to the Skyrim host and need an engine bridge even if Ruffle
+executes the surrounding script.
 
-PrismaUI's framework has a custom source-available license. Its repository
-allows use and redistribution of official files under listed conditions, but
-does not allow public redistribution of a modified framework without written
-permission. The included Ultralight SDK has separate license terms. These
-terms make PrismaUI useful as an API reference, not as a component to vendor
-or modify for this engine.
+| Surface used by source | Examples | Required work |
+|---|---|---|
+| Skyrim host bridge | `gfx.io.GameDelegate.call`, `addCallBack` | Dispatch typed menu requests, deliver callbacks, preserve argument and callback order, and reject unknown operations clearly |
+| Navigation constants | `gfx.ui.NavigationCode` including `TAB`, `ENTER`, directions, and gamepad buttons | Map host keyboard and controller input to the exact constants used by each menu |
+| Focus management | `gfx.managers.FocusHandler.instance.setFocus`, `getFocus` | Maintain focus across lists, cards, dialogs, and menu transitions |
+| Input adaptation | `gfx.managers.InputDelegate.instance.enableControlFixup`, `isGamepad`, `inputToNav` | Translate Godot input events and controller layouts into the navigation events expected by the SWF |
+| Controls and events | `gfx.controls.Button`, `gfx.controls.ButtonGroup`, `gfx.controls.ScrollBar`, `gfx.events.EventDispatcher` | Supply compatible components and event ordering for scripts that construct or extend them |
+| Scaleform text and mouse extensions | `TextField.SetText`, `MovieClip` platform/button helpers, mouse callbacks | Audit each used extension against Ruffle and implement the missing behavior without changing menu semantics |
 
-## Recommendation and proposed rows
+This inventory is a source-level compatibility map, not a claim that stock
+Ruffle lacks every similarly named Adobe Flash feature. The exact missing
+method set must be checked against a pinned Ruffle revision during the first
+prototype. Ruffle's current project description says ActionScript 1 and 2 are
+supported, while Scaleform's own reference describes its extensions as
+Scaleform-only APIs.
 
-Keep native Godot controls as the default. Build a PrismaUI-compatible host
-contract around views, focus, visibility, ordering, destruction, JavaScript
-calls and event delivery. For the first renderer prototype, use gdCEF's
-offscreen texture path behind an optional feature so the team can test real
-HTML mods without imposing its roughly 1 GB artifacts on every installation.
-Measure memory, frame cost, input focus, transparency and texture upload before
-making it a supported runtime option. Do not adopt WRY for in-scene menus
-because its operating-system surface cannot be composited into Godot's 2D or
-3D scene. Revisit Ultralight only after its SDK redistribution terms and
-Godot texture integration are settled.
+### GameDelegate calls by vanilla source class
 
-Proposed follow-up rows:
+The table lists literal call and callback names in the supplied Vanilla and
+PauseMenu ActionScript directories. A class with several methods may
+contribute to one menu. Shared classes are included so the bridge inventory
+does not silently omit their calls. These names are case-sensitive.
 
-1. Specify the PrismaUI-compatible view and event contract in `godot-host`,
-   including focus, lifecycle, typed commands into Game and version handling.
-2. Add an optional CEF renderer adapter that displays one HTML view as a Godot
-   texture and reports its measured package size and runtime cost.
-3. Validate the adapter against named PrismaUI mods for mouse, keyboard,
-   controller, pause state, focus handoff and close events.
-4. Survey HTML asset loading and script permissions, then define how menus
-   remain local and cannot bypass the shared Game API.
-
-## Sources
-
-- Local search of `/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs` found no PrismaUI, gdCEF or Godot WRY source clone.
-- [PrismaUI Nexus page](https://www.nexusmods.com/skyrimspecialedition/mods/148718), [PrismaUI API](https://www.prismaui.dev/api/create-view/) and [PrismaUI framework license](https://github.com/PrismaUI-SKSE/framework/blob/main/LICENSE.md).
-- [Ultralight Free License Agreement](https://ultralig.ht/terms/ultralight-subscription-agreement-v2.pdf) and [Ultralight game integration guide](https://docs.ultralig.ht/docs/game-integration).
-- [Godot WRY repository](https://github.com/doceazedo/godot_wry) and [gdCEF repository](https://github.com/Lecrapouille/gdcef), including gdCEF's [installation guide](https://github.com/Lecrapouille/gdcef/blob/godot-4.x/doc/installation.md).
+| Source class | GameDelegate calls and callbacks |
+|---|---|
+| `Vanilla/BookBottomBar` | `ShowTakeButton` |
+| `Vanilla/ButtonMapping` | `SetButtonMapping` |
+| `Vanilla/ButtonTextArtHolder` | `GetButtonFromUserEvent` |
+| `Vanilla/CharacterSelectHintButtons` | `PlaySound` |
+| `Vanilla/Console` | `ExecuteCommand`, `HideComplete` |
+| `Vanilla/CrossPlatformButtons` | `myLog` |
+| `Vanilla/DialogueMenu` | `AdjustForPALSD`, `Cancel`, `CloseMenu`, `FadeDone`, `HideDialogueText`, `NotifyVoiceReady`, `PopulateDialogueList`, `SetSpeakerName`, `ShowDialogueList`, `ShowDialogueText`, `SkipText`, `StartHideMenu`, `TopicClicked` |
+| `Vanilla/FaderMenu` | `FadeDone`, `InitFade`, `UpdateFade` |
+| `Vanilla/HUDMenu` | `FadeOutChargeMeters`, `FadeOutStamina`, `FlashShoutMeter`, `HideSubtitle`, `RegisterHUDComponents`, `SetChargeMeterPercent`, `SetCompassAngle`, `SetCompassMarkers`, `SetCompassTemperature`, `SetCrosshairEnabled`, `SetCrosshairTarget`, `SetEnemyHealthPercent`, `SetEnemyHealthTargetPercent`, `SetHealthMeterPercent`, `SetLoadDoorInfo`, `SetLocationName`, `SetMagickaMeterPercent`, `SetShoutMeterPercent`, `SetStaminaMeterPercent`, `SetSubtitlesEnabled`, `ShowElements`, `ShowMessage`, `ShowNotification`, `ShowSubtitle`, `ShowTutorialHintText`, `StartMagickaMeterBlinking`, `StartStaminaMeterBlinking`, `ValidateCrosshair` |
+| `Vanilla/LevelUpMenu` | `PlaySound`, `addHealth`, `addMagicka`, `addStamina` |
+| `Vanilla/LoadingMenu` | `RequestLoadingText`, `RequestPlayerInfo` |
+| `Vanilla/LockpickingMenu` | `SetLockInfo`, `SetPickMinMax`, `ToggleDebugMode`, `UpdateLockAngle`, `UpdatePickAngle`, `UpdatePickHealth`, `UpdateSweetSpot` |
+| `Vanilla/MainSaveLoadList` | `PlaySound` |
+| `Vanilla/MessageBox` | `PlaySound`, `buttonPress`, `setButtons`, `setIsCancellable`, `setIsVertical`, `setMessageText` |
+| `Vanilla/ObjectiveText` | `PlaySound` |
+| `Vanilla/QuestNotification` | `PlaySound` |
+| `Vanilla/RaceSexPanels` | `ChangeName`, `ConfirmDone`, `FadeOut`, `HideLoadingIcon`, `PlaySound`, `SetAllowTextInput`, `SetCategoriesList`, `SetNameText`, `SetOptionSliders`, `SetRaceList`, `SetRaceText`, `ShowTextEntry`, `ShowTextEntryField`, `ShowVirtualKeyboard`, `ZoomPC`, `moveCategoriesUp` |
+| `Vanilla/RaceWidePanel` | `PlaySound` |
+| `Vanilla/SaveLoadPanel` | `CharacterSelected`, `ConfirmOKToLoad`, `DeleteSave`, `ForceStopSaveListLoading`, `IsOKtoLoad`, `PrepSaveGameScreenshot`, `ScreenshotReady`, `onFillCharacterListComplete`, `onSaveLoadBatchComplete` |
+| `Vanilla/SleepWaitMenu` | `Cancel`, `OK`, `PlaySound` |
+| `Vanilla/StartMenu` | `CONTINUE`, `ChangeUser`, `ConfirmContinue`, `ConfirmNewGame`, `CreationClub`, `DoDeleteSaveUISanityCheck`, `DoLoadDLCPlugins`, `DoneLoadingDLC`, `DownloadAll`, `EndPressStartState`, `FadeInMenu`, `FadeOutMenu`, `HELP`, `LoadDLC`, `MOD`, `NEW`, `ORBISDeleteSave`, `OnDeleteSaveUISanityCheck`, `OnDisabledLoadPress`, `OnPS5DataTransfer`, `OnSaveDataEventLoadCANCEL`, `OnSaveDataEventLoadSUCCESS`, `OpenMarketplace`, `PlaySound`, `PopulateCharacterList`, `QuitToDesktop`, `QuitToMainMenu`, `ShowGamerTagAndIcon`, `Sky10DLCPressed`, `StartLoadingDLC`, `StartState`, `currentState`, `fadeOutStarted`, `onProfileChange`, `onStartButtonProcessFinished`, `sendMenuProperties` |
+| `Vanilla/StatsMenu` | `HideRing`, `MoveCamera`, `SetDescriptionCard`, `SetDirection`, `SetPerkCount`, `SetPlayerInfo`, `SetStatsMode`, `ShowLegendaryButtonHint`, `UpdateSkillList` |
+| `Vanilla/TrainingMenu` | `Exit`, `Train` |
+| `Vanilla/TutorialMenu` | `CloseMenu` |
+| `Vanilla/UniformTimeMeter` | `PlaySound` |
+| `PauseMenu/JournalBottomBar` | `PlaySound`, `RememberCurrentTabIndex`, `RequestPlayerInfo` |
+| `PauseMenu/JournalSaveLoadList` | `PlaySound` |
+| `PauseMenu/Quest_Journal` | `CloseMenu`, `HideMenu`, `PlaySound`, `RestoreSavedSettings`, `ShouldShowMod`, `ShowMenu`, `StartCloseMenu`, `onRightStickInput` |
+... (+37 lines) [see remaining: rtk proxy git show ':3:docs/ui-frameworks.md' | tail -n +97]

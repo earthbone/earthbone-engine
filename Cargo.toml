@@ -19,6 +19,7 @@ members = [
     "crates/profile",
     "crates/probe",
     "crates/save",
+    "crates/swf-convert",
     "crates/trace",
 ]
 
