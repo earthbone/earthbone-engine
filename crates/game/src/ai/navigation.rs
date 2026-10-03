@@ -432,10 +432,16 @@ mod tests {
         );
         assert!(world.reference_ref(actor(0x810)).is_none());
         assert!(world.reference_ref(actor(0x811)).is_none());
-        assert!(world.loaded_actors().is_empty());
+        assert_eq!(world.loaded_actors(), []);
         world.reference(actor(0x812)).unwrap().base = Some(actor(0x802));
-        assert!(sandbox_markers(&mut world, actor(0x800), [0.0; 3], 10.0).is_empty());
-        assert!(idle_markers(&mut world, actor(0x810), actor(0x800), [0.0; 3], 10.0).is_empty());
+        assert_eq!(
+            sandbox_markers(&mut world, actor(0x800), [0.0; 3], 10.0),
+            []
+        );
+        assert_eq!(
+            idle_markers(&mut world, actor(0x810), actor(0x800), [0.0; 3], 10.0),
+            []
+        );
     }
 
     #[test]

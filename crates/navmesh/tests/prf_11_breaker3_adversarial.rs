@@ -86,7 +86,7 @@ fn prf_11_breaker3_non_finite_endpoints_are_rejected_for_sliced_and_sync_queries
 
 #[test]
 fn prf_11_breaker3_large_mesh_locate_tests_at_most_eight_triangles() {
-    let mut graph = grid(200);
+    let graph = grid(200);
     assert_eq!(graph.triangle_count(), 80_000);
     let frame = WorkFrame::begin();
     assert!(graph.locate([100.2, 110.7, 0.0]).is_some());

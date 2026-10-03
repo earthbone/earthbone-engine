@@ -59,5 +59,5 @@ fn prf_11_breaker_obstacle_change_rejects_a_pending_corridor() {
 
     assert_eq!(search.advance(&graph, usize::MAX), Poll::Ready(None));
     assert!(graph.find_path_between(from, to).is_none());
-    assert!(!baseline.nodes.is_empty());
+    assert_ne!(baseline.nodes, [] as [NodeId; 0]);
 }
