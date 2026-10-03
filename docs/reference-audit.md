@@ -61,7 +61,7 @@ available rather than inferring undocumented CK descriptions.
 | `Sound.SetInstanceVolume` global | `Sound.psc`: takes integer instance ID and float volume, clamps the volume to 0 through 1, returns nothing. | Updates the selected instance and clamps its volume. |
 
 The same PSC declares `PlayAndWait(ObjectReference) -> Bool` and
-`GetDescriptor() -> SoundDescriptor`; neither is in the native registry. No
+`GetDescriptor() -> SoundDescriptor`. Neither is in the native registry. No
 existing backlog row owns those missing bindings. They remain unassigned API
 gaps because this audit cannot add or widen a backlog row. The exact registry
 sets and registered method behavior are covered by the `scr_70_` tests listed
@@ -207,16 +207,16 @@ list, as described in `game.md`.
 | Registry method | CK contract comparison |
 |---|---|
 | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled | The enable pages distinguish waiting and no-wait variants. The state queries return booleans. |
-| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded reads reference cell residency; publishing exact host 3D residency is assigned to HST-13. |
+| Delete, IsDeleted, Is3DLoaded | Delete and IsDeleted match the documented calls. Is3DLoaded reads reference cell residency. Publishing exact host 3D residency is assigned to HST-13. |
 | GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior | Form returns and interior-cell query match their CK pages. |
 | GetPositionX, GetPositionY, GetPositionZ, GetAngleX, GetAngleY, GetAngleZ | The six scalar getters match the axis and degree contracts. |
 | SetPosition, SetAngle | Both take three floats. SetAngle uses degrees at the Papyrus boundary. |
 | MoveTo, MoveToMyEditorLocation, GetDistance | MoveTo takes target, three offsets and an optional rotation flag. SCR-67 now applies the default-true rotation flag. |
 | Activate, BlockActivation, IsActivationBlocked | Activate returns success and default-only processing suppresses events while bypassing the block. |
 | GetLinkedRef, GetNthLinkedRef | Both return references selected by their optional keyword or index contracts. |
-| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems honors `abKeepOwnership`; quest-item retention remains unsupported because stacks do not classify quest objects. |
+| GetItemCount, AddItem, RemoveItem, RemoveAllItems | Item queries and mutation calls return the documented integer or None. RemoveItem reads the optional recipient at parameter four. RemoveAllItems honors `abKeepOwnership`. Quest-item retention remains unsupported because stacks do not classify quest objects. |
 | GetScale, SetScale, GetDisplayName, SetDisplayName | Scalar, string and setter return types match the named pages. |
-| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation queues an event and returns a boolean. PlayAnimationAndWait and WaitForAnimationEvent defer until an event. PlayGamebryoAnimation only accepts a non-empty name; authored legacy animation playback remains unsupported under SCR-39. |
+| PlayAnimation, PlayAnimationAndWait, PlayGamebryoAnimation, WaitForAnimationEvent | PlayAnimation queues an event and returns a boolean. PlayAnimationAndWait and WaitForAnimationEvent defer until an event. PlayGamebryoAnimation only accepts a non-empty name. Authored legacy animation playback remains unsupported under SCR-39. |
 | GetOpenState, SetOpen, Lock, IsLocked, GetKey, GetLockLevel, SetLockLevel | State and key queries match the class contract. Lock and setters return None. |
 | PlaceAtMe, PlaceActorAtMe | The placement calls return the created reference and honor the optional count/disabled inputs supported by their implementation. |
 | AddToMap, EnableFastTravel | Both are void methods with optional fast-travel input as documented. |
@@ -231,25 +231,25 @@ list, as described in `game.md`.
 | GetCurrentScene | Takes no arguments and returns the active scene for this reference, or None. It reads the world's active scene set. |
 | IsFurnitureInUse, IsFurnitureMarkerInUse | Signatures and defaults match the CK pages. The runtime reads HST-09 marker reservations. It currently returns false whenever `abIgnoreReserved` is true because the saved actor seat state does not distinguish a reservation from actual use. HST-09 owns that state distinction. |
 | GetTriggerObjectCount | Takes no arguments and returns the count of tracked trigger occupants. A non-trigger logs an error and returns zero. This uses HST-14 trigger tracking. |
-| SetMotionType, ApplyHavokImpulse | SetMotionType takes the motion type and optional activation flag; ApplyHavokImpulse takes a direction and magnitude. Both validate the request and queue host physics work. Host support is bounded to HST-12's movable references. |
+| SetMotionType, ApplyHavokImpulse | SetMotionType takes the motion type and optional activation flag. ApplyHavokImpulse takes a direction and magnitude. Both validate the request and queue host physics work. Host support is bounded to HST-12's movable references. |
 | SetNoFavorAllowed, DamageObject | Their argument and result shapes match their pages. SetNoFavorAllowed updates the shared flag. DamageObject advances supported destruction state. |
-| KnockAreaEffect, PushActorAway | Their signatures match the CK pages. Both queue shared actor impulses through CMB-38; KnockAreaEffect uses the documented magnitude and radius with a documented linear attenuation approximation. |
-| InterruptCast, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse | InterruptCast clears the shared pending cast. Ragdoll methods set a saved actor override through CMB-38. TetherToHorse moves the horse to an approximate cart-relative position; host constraint work belongs to HST-15. |
+| KnockAreaEffect, PushActorAway | Their signatures match the CK pages. Both queue shared actor impulses through CMB-38. KnockAreaEffect uses the documented magnitude and radius with a documented linear attenuation approximation. |
+| InterruptCast, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse | InterruptCast clears the shared pending cast. Ragdoll methods set a saved actor override through CMB-38. TetherToHorse moves the horse to an approximate cart-relative position. Host constraint work belongs to HST-15. |
 | CreateDetectionEvent | Takes an owner Actor and sound level, then records a shared detection event. |
 | TranslateTo, SplineTranslateTo, StopTranslation, Reset | Translation methods queue linear or spline motion and dispatch completion/failure events through HST-16. Reset restores the reference's supported authored state. |
 | MusicType.Add, MusicType.Remove | Both are methods with no arguments and no return. They validate the receiver as a live MUSC record and add or remove it from the world's transient active music list. |
 
-The audit found that `MoveTo` ignored `abMatchRotation`; SCR-67 fixes it, and
+The audit found that `MoveTo` ignored `abMatchRotation`. SCR-67 fixes it, and
 `scr_67_move_to_respects_match_rotation_and_default` checks the default true
 case and the false case. The named `IsInDialogueWithPlayer` page was also
-missing from the earlier hand-kept inventory; the registry-derived check now
+missing from the earlier hand-kept inventory. The registry-derived check now
 includes it and the docs record its argument and result contract.
 
 `RemoveAllItems` honors `abKeepOwnership` when transferring stacks. The
 `abRemoveQuestItems` policy remains unsupported because the game's stack model
 does not classify quest objects for this call. No existing open backlog row
 owns that Papyrus removal policy. A dedicated inventory prerequisite row is
-needed; this audit does not edit `BACKLOG.csv` under the task boundary.
+needed. This audit does not edit `BACKLOG.csv` under the task boundary.
 This remains an explicit implementation gap.
 
 ## Native contract audit, SCR-73
@@ -386,7 +386,7 @@ come from `engine-refs/ck-wiki` and the shipped
 | `Alias.Clear`, `ReferenceAlias.Clear` | `Clear_-_ReferenceAlias.wikitext` clears the target, errors for a non-optional alias, and reevaluates packages. | Registered on both classes because alias method inheritance is not resolved for ReferenceAlias dispatch. Validates Optional, clears the runtime alias override and reevaluates the former target package. |
 
 The Cell method comparison has eight bindings. The exact-name `Clear` comparison
-has one method binding and no global binding. The setter type discrepancy is
+has two method bindings and no global binding. The setter type discrepancy is
 corrected by checking resolved record tags before changing `XOWN`.
 
 ## Faction and ForceRefIfEmpty native contracts, SCR-58

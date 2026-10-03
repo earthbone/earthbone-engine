@@ -153,8 +153,6 @@ fn scr_68_clear_switches_from_alias_package_to_base_package() {
         file: 0,
         object: 0x805,
     };
-    let mut alloc = |_: &str, _: &str| ObjectId(1);
-
     assert_eq!(
         game.world_mut()
             .quest_state(quest)
@@ -165,11 +163,10 @@ fn scr_68_clear_switches_from_alias_package_to_base_package() {
             .flags,
         quest::alias_flags::OPTIONAL
     );
-    assert!(game.world_mut().start_quest(quest, &mut alloc));
-    assert_eq!(
-        game.world_mut().evaluate_package(actor, &mut alloc),
-        Some(alias_package)
-    );
+    assert!(game.start_quest(quest));
+    assert!(game.world_mut().drive_actor(actor));
+    game.tick(0.0);
+    assert_eq!(game.world().current_package(actor), Some(alias_package));
 
     call_clear(&mut game, alias);
 

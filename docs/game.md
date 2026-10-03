@@ -1731,7 +1731,7 @@ returns its owning quest, but it does not document Scene. The CK
 | `Scene.IsPlaying` | Return whether this scene is playing. | Reads the active scene run state. |
 | `Scene.GetOwningQuest` | Return the quest that owns this scene. | Resolves the SCEN record's parent quest. |
 | `Scene.IsActionComplete` | Return whether the specified action ID is complete. | Resolves the authored SCEN action ID to its action slot and checks that slot's completed state. Negative or unknown IDs and stopped scenes return false. |
-| `Scroll.Cast` | Cast this scroll from a source reference, with an optional target. | Executes the owning SPEL scroll through the shared cast executor and preserves source, caster, and target attribution. The script contract does not specify inventory consumption; the selected-instance consume path belongs to MAG-18. |
+| `Scroll.Cast` | Cast this scroll from a source reference, with an optional target. | Executes the owning SPEL scroll through the shared cast executor and preserves source, caster, and target attribution. The script contract does not specify inventory consumption. The selected-instance consume path belongs to MAG-18. |
 
 `Scroll.Cast` accepts source and optional target references as declared. The
 separate inventory selection API consumes one selected scroll after successful
@@ -5747,7 +5747,7 @@ also checks the absent `Sound.PlayAndWait` and `Sound.GetDescriptor` methods.
 The local CK crawl contains neither a `ShaderParticleGeometry` class page nor
 named pages for `Apply` or `Remove`. `ATTEMPTS.md` records the attempted CK
 routes and archived-page crawl. The local xEdit function data lists the
-related condition functions as `Form, Float`; CommonLib's native-function RTTI
+related condition functions as `Form, Float`. CommonLib's native-function RTTI
 records a `float` argument and `void` result. Those sources support the
 registered method shape but do not supply a CK description of its argument.
 `Apply` and `Remove` take a fade duration in seconds in this runtime. Zero is
@@ -5759,7 +5759,7 @@ The local vanilla `skse64/scripts/vanilla/Sound.psc` declares four functions:
 
 | Registry binding | `Sound.psc` contract | Current implementation and assigned work |
 |---|---|---|
-| `Sound.Play` method | `ObjectReference` source argument, integer playback instance result. | Records the source and sound, returns a fresh nonzero instance ID. Host audio playback for this native is not connected; physical output verification belongs to `HST-05`. |
+| `Sound.Play` method | `ObjectReference` source argument, integer playback instance result. | Records the source and sound, returns a fresh nonzero instance ID. Host audio playback for this native is not connected. Physical output verification belongs to `HST-05`. |
 | `Sound.StopInstance` global | Integer playback instance argument, no result. | Removes only the selected instance from the world's sound-instance table. |
 | `Sound.SetInstanceVolume` global | Integer instance and float volume arguments, no result. Volume is clamped to 0 through 1. | Updates the selected instance and clamps the volume to 0 through 1. |
 | `Sound.PlayAndWait` method | `ObjectReference` source argument, boolean result, latent playback. | Registered as a false-returning stub. Waiting for physical playback completion belongs with `HST-05`. |

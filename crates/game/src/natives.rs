@@ -5539,7 +5539,7 @@ mod tests {
         }
         assert!(audit.contains("`ActorBase` and `Alias` have no registered global bindings"));
         assert!(audit.contains("assigns the correction to SCR-18"));
-        assert!(audit.contains("SCR-68 owns optional validation and its diagnostic"));
+        assert!(audit.contains("Required aliases retain their target and emit a trace diagnostic"));
         assert!(audit.contains("Assign reference-type validation to SCR-59"));
         let backlog = include_str!("../../../BACKLOG.csv");
         assert!(backlog.contains("\"SCR-18\""));
@@ -5575,6 +5575,7 @@ mod tests {
             ("cell", "setactorowner"),
             ("cell", "setfactionowner"),
             ("cell", "setpublic"),
+            ("referencealias", "clear"),
         ];
         let mut compared: Vec<_> = compared
             .drain(..)

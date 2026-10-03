@@ -72,7 +72,7 @@ const FLAMES: u32 = 0x915;
 const BOX_MESSAGE: u32 = 0x916;
 const NOTE_MESSAGE: u32 = 0x917;
 const SCENE: u32 = 0x918;
-const SCENE_QUEST: u32 = 0x919;
+const SCENE_QUEST: u32 = 0xA32;
 const SOUND: u32 = 0x919;
 const COUNTER: u32 = 0x91A;
 const QUEST: u32 = 0x91B;
@@ -3438,10 +3438,11 @@ fn scenes_begin_and_end() {
         g.traces()
     );
     call(&mut g, &scene, "ForceStart", &[]);
-    assert_eq!(g.traces().iter().filter(|t| *t == "scene begin").count(), 1);
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene begin").count(), 2);
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene end").count(), 1);
     call(&mut g, &scene, "Stop", &[]);
     assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
-    assert!(g.traces().iter().any(|t| t == "scene end"));
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene end").count(), 2);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
