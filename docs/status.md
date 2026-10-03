@@ -66,6 +66,17 @@ in the backlog row: the main menu lifecycle (UI-18), music (AUD-05), stagger
   the host has no new-game path.
 - 30 Papyrus native rows are open. The SCR rows in BACKLOG.csv name each
   native and what its implementation still lacks.
+- The walkthrough is slow and stutters. Before PRF-11 a frame froze inside
+  NavGraph::locate during NPC planning. With PRF-11's first pass, planning still
+  takes 8 to 100 ms in 71 percent of frames in a 60 second Bannered Mare check.
+  No per-system frame breakdown exists to show where the rest of the frame goes
+  (PRF-12 to PRF-15).
+- In the 2026-10-03 walkthrough, menus printed form IDs instead of item names:
+  the inventory menu falls back to the form ID when `World::name_of` finds no
+  name. Menus also have no item preview (UI-25), and container looting does not
+  follow QuickLoot IE yet (UI-26).
+- Everything in the game, Papyrus and navmesh crates runs on one thread. The VM
+  interleaves script threads on it in slices of 64 instructions (PRF-17).
 - The playtest bots (PLY-01 to PLY-07) are drafted, not merged.
 - Checks only the user can run are pending: the TOOL-04 probe capture in the
   original game, HST-05 on a physical speaker, PRF-08 windowed cold starts and
