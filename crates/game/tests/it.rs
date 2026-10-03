@@ -1393,6 +1393,10 @@ mod shm_17_condition_bridge;
 mod shm_17_conditions;
 #[path = "shm_18_adversarial.rs"]
 mod shm_18_adversarial;
+#[path = "shm_18_breaker_adversarial.rs"]
+mod shm_18_breaker_adversarial;
+#[path = "shm_18_cpp_bridge.rs"]
+mod shm_18_cpp_bridge;
 #[path = "shm_18_live_events.rs"]
 mod shm_18_live_events;
 #[path = "shm_19_adversarial.rs"]

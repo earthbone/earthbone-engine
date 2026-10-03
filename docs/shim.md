@@ -463,6 +463,11 @@ The event type declarations follow CommonLibSSE-NG-alandtse
 `include/RE/A/ActorKill.h`, `include/RE/C/CriticalHit.h` and
 `include/RE/B/BSTEvent.h`. The C++ contract fixture checks payload fields,
 sizes, notify-control values, dispatch and the unsupported hook result.
+The game integration fixture forwards events raised by its live `World` to a
+compiled C++ sink process and checks the payloads and sink results returned by
+that process. The pipe is test transport, not a plugin ABI. The shim still has
+no C ABI, and C++ declarations do not expose a running engine to a separately
+compiled plugin.
 
 ## Appendix: the 349 names by group
 
