@@ -193,38 +193,54 @@ pub fn compare(
         observed_version,
         differences: Vec::new(),
     };
-    let forms = probe.all_forms();
-    for (index, e) in engine.iter().enumerate() {
-        diff(
-            &mut report,
-            e,
-            "authored.load_order",
-            serde_json::to_value(&probe.load_order)?,
-            serde_json::to_value(&e.load_order)?,
-            0.0,
-        );
-        diff(
-            &mut report,
-            e,
-            "authored.forms.aliases",
-            serde_json::to_value(forms.keys().collect::<Vec<_>>())?,
-            serde_json::to_value(e.forms.keys().collect::<Vec<_>>())?,
-            0.0,
-        );
-        for (alias, form) in &forms {
-            let object = e.forms.get(alias).map(|id| {
-                let raw = *id as u32;
-                raw & if raw >> 24 == 0xfe { 0xfff } else { 0xff_ffff }
-            });
+    let authored_forms = probe.all_forms();
+    for (source, observations) in [("engine", engine), ("observed", observed)] {
+        for boundary in observations {
             diff(
                 &mut report,
-                e,
-                &format!("authored.forms.{alias}.object"),
-                serde_json::json!(form.object),
-                serde_json::to_value(object)?,
+                boundary,
+                &format!("{source}.authored.load_order"),
+                serde_json::to_value(&probe.load_order)?,
+                serde_json::to_value(&boundary.load_order)?,
                 0.0,
             );
+            diff(
+                &mut report,
+                boundary,
+                &format!("{source}.authored.form_aliases"),
+                serde_json::to_value(authored_forms.keys().collect::<Vec<_>>())?,
+                serde_json::to_value(boundary.forms.keys().collect::<Vec<_>>())?,
+                0.0,
+            );
+            diff(
+                &mut report,
+                boundary,
+                &format!("{source}.authored.skse_version"),
+                serde_json::Value::Null,
+                serde_json::to_value(&boundary.skse_version)?,
+                0.0,
+            );
+            for (alias, form) in &authored_forms {
+                if let Some(id) = boundary.forms.get(alias) {
+                    let raw = *id as u32;
+                    let object = if raw >> 24 == 0xfe {
+                        raw & 0xfff
+                    } else {
+                        raw & 0xffffff
+                    };
+                    diff(
+                        &mut report,
+                        boundary,
+                        &format!("{source}.authored.forms.{alias}.object"),
+                        form.object.into(),
+                        object.into(),
+                        0.0,
+                    );
+                }
+            }
         }
+    }
+    for (index, e) in engine.iter().enumerate() {
         let Some(o) = observed.get(index) else {
             diff(
                 &mut report,
@@ -355,18 +371,18 @@ fn run_with_assets(
     let mut game = Game::new(order);
     let mut resolved = BTreeMap::new();
     for (name, form) in probe.all_forms() {
-        if form.kind == FormKind::Player {
-            resolved.insert(name, game.world_mut().player());
-            continue;
-        }
-        let id = game
-            .world()
-            .form_from_file(form.object, &form.plugin)
-            .ok_or_else(|| Error::Execution(format!("missing form {name}")))?;
-        if !game
-            .world()
-            .tag_of(id)
-            .is_some_and(|tag| kind_matches(form.kind, tag))
+        let id = if form.kind == FormKind::Player {
+            game.world_mut().player()
+        } else {
+            game.world()
+                .form_from_file(form.object, &form.plugin)
+                .ok_or_else(|| Error::Execution(format!("missing form {name}")))?
+        };
+        if form.kind != FormKind::Player
+            && !game
+                .world()
+                .tag_of(id)
+                .is_some_and(|tag| kind_matches(form.kind, tag))
         {
             return Err(Error::Execution(format!("mistyped form {name}")));
         }

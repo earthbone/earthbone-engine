@@ -17,6 +17,8 @@ pub struct Probe {
     pub timescale: f32,
     pub tick_seconds: f64,
     pub timeout_seconds: f64,
+    #[serde(default)]
+    pub startup_wait_seconds: f32,
     pub tolerances: Tolerances,
     #[serde(default)]
     pub forms: BTreeMap<String, Form>,
@@ -137,6 +139,8 @@ pub enum Step {
         id: String,
         actor: String,
         variable: String,
+        #[serde(default)]
+        set: Option<i32>,
     },
     SetAnimationInt {
         id: String,
@@ -150,6 +154,25 @@ pub enum Step {
     },
     ThirdPerson {
         id: String,
+    },
+    AnimationEvents {
+        id: String,
+        actor: String,
+        events: Vec<String>,
+        #[serde(default)]
+        set_int: BTreeMap<String, i32>,
+    },
+    AnimationFloat {
+        id: String,
+        actor: String,
+        variable: String,
+        #[serde(default)]
+        set: Option<f32>,
+    },
+    EquipItem {
+        id: String,
+        actor: String,
+        item: String,
     },
     WaitAnimation {
         id: String,
@@ -183,7 +206,8 @@ pub enum Step {
 }
 
 impl Step {
-    pub(crate) fn id(&self) -> &str {
+    /// The unique request token recorded at each boundary.
+    pub fn id(&self) -> &str {
         match self {
             Self::SetStage { id, .. }
             | Self::ResetQuest { id, .. }
@@ -197,6 +221,9 @@ impl Step {
             | Self::SetAnimationInt { id, .. }
             | Self::DrawWeapon { id, .. }
             | Self::ThirdPerson { id }
+            | Self::AnimationEvents { id, .. }
+            | Self::AnimationFloat { id, .. }
+            | Self::EquipItem { id, .. }
             | Self::WaitAnimation { id, .. }
             | Self::Cast { id, .. }
             | Self::ActorValue { id, .. }
@@ -313,6 +340,9 @@ impl Probe {
             || !self.timeout_seconds.is_finite()
             || self.timeout_seconds < self.tick_seconds
             || self.timeout_seconds / self.tick_seconds > 1_000_000.0
+            || !self.startup_wait_seconds.is_finite()
+            || self.startup_wait_seconds < 0.0
+            || f64::from(self.startup_wait_seconds) >= self.timeout_seconds
         {
             return Err(invalid("clock configuration"));
         }
@@ -356,9 +386,12 @@ impl Probe {
             {
                 return Err(invalid("form name, plugin or local object ID"));
             }
-            if form.kind == FormKind::Player && (form.plugin != "Skyrim.esm" || form.object != 0x14)
+            if form.kind == FormKind::Player
+                && (!form.plugin.eq_ignore_ascii_case("Skyrim.esm") || form.object != 0x14)
             {
-                return Err(invalid("player must name Skyrim.esm object 0x14"));
+                return Err(invalid(
+                    "player must name Skyrim.esm object 0x14 (identity Skyrim.esm:000014)",
+                ));
             }
         }
         let check = |name: &str, kinds: &[FormKind]| -> Result<(), Error> {
@@ -372,7 +405,7 @@ impl Probe {
                 Err(Error::Invalid(format!("unknown or mistyped form {name}")))
             }
         };
-        let reference = [FormKind::Actor, FormKind::ObjectReference];
+        let reference = [FormKind::Actor, FormKind::Player, FormKind::ObjectReference];
         if let Some(graph) = &self.animation_graph {
             check(&graph.actor, &reference)?;
             if !graph.path.starts_with("meshes/actors/")
@@ -443,6 +476,36 @@ impl Probe {
                         return Err(invalid("animation variable"));
                     }
                 }
+                Step::AnimationEvents {
+                    actor,
+                    events,
+                    set_int,
+                    ..
+                } => {
+                    check(actor, &reference)?;
+                    if events.is_empty() || events.len() > 16 || events.iter().any(|e| !token(e)) {
+                        return Err(invalid("animation events must contain 1 to 16 tokens"));
+                    }
+                    if set_int.len() > 8 || set_int.keys().any(|name| !token(name)) {
+                        return Err(invalid("animation batch integer variables"));
+                    }
+                }
+                Step::AnimationFloat {
+                    actor, variable, ..
+                } => {
+                    check(actor, &reference)?;
+                    if !token(variable) {
+                        return Err(invalid("animation variable"));
+                    }
+                    if matches!(step, Step::AnimationFloat { set: Some(value), .. } if !value.is_finite())
+                    {
+                        return Err(invalid("animation float must be finite"));
+                    }
+                }
+                Step::EquipItem { actor, item, .. } => {
+                    check(actor, &[FormKind::Actor, FormKind::Player])?;
+                    check(item, &[])?;
+                }
                 Step::Cast {
                     spell,
                     source,
@@ -454,13 +517,13 @@ impl Probe {
                     check(target, &reference)?;
                 }
                 Step::ActorValue { actor, value, .. } => {
-                    check(actor, &[FormKind::Actor])?;
+                    check(actor, &[FormKind::Actor, FormKind::Player])?;
                     if soe_game::actor_values::actor_value_index(value).is_none() {
                         return Err(invalid("unknown actor value"));
                     }
                 }
                 Step::HasEffect { actor, effect, .. } => {
-                    check(actor, &[FormKind::Actor])?;
+                    check(actor, &[FormKind::Actor, FormKind::Player])?;
                     check(effect, &[FormKind::MagicEffect])?;
                 }
                 Step::DrawWeapon { actor, .. } => check(actor, &[FormKind::Actor])?,
@@ -491,5 +554,44 @@ impl Probe {
             last = menu.at;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod anm_56 {
+    use super::{BTreeMap, Probe, Step};
+
+    #[test]
+    fn anm_56_startup_wait_defaults_to_zero_and_rejects_invalid_delays() {
+        let mut probe = Probe::parse(crate::EXAMPLE).unwrap();
+        assert_eq!(probe.startup_wait_seconds, 0.0);
+        for delay in [-1.0, f32::NAN, f32::INFINITY, 10.0] {
+            probe.startup_wait_seconds = delay;
+            assert!(probe.validate().is_err(), "delay {delay}");
+        }
+    }
+
+    #[test]
+    fn anm_56_batch_rejects_invalid_integer_variable_maps() {
+        for set_int in [
+            BTreeMap::from([("bad variable".into(), 1)]),
+            (0..9)
+                .map(|index| (format!("variable{index}"), 1))
+                .collect(),
+        ] {
+            let mut probe = Probe::parse(include_str!("../probes/anm_56.toml")).unwrap();
+            probe.steps = vec![Step::AnimationEvents {
+                id: "request".into(),
+                actor: "player".into(),
+                events: vec!["blockStop".into()],
+                set_int,
+            }];
+            assert!(probe
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("batch integer variables"));
+        }
     }
 }

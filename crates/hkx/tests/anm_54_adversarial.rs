@@ -17,5 +17,9 @@ fn anm_54_tie_claims_require_an_original_runtime_capture() {
         .expect("replay ANM-54 against installed HKX");
     let comparison = soe_probe::compare(&probe, &replay, &observed)
         .expect("compare capture boundaries and values");
-    assert!(comparison.matched, "capture differs from HKX replay: {:?}", comparison.differences);
+    assert!(
+        comparison.matched,
+        "capture differs from HKX replay: {:?}",
+        comparison.differences
+    );
 }

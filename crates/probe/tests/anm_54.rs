@@ -65,6 +65,7 @@ fn anm_54_new_steps_execute_vanilla_natives_and_read_graph_variables() {
             id: "read".into(),
             actor: "player".into(),
             variable: "iBlockState".into(),
+            set: None,
         },
         Step::AnimationBatch {
             id: "batch".into(),
@@ -172,6 +173,7 @@ fn anm_54_new_steps_reject_invalid_actor_variable_batch_and_player_identity() {
             id: "bad".into(),
             actor: "player".into(),
             variable: "bad variable".into(),
+            set: None,
         },
         Step::SetAnimationInt {
             id: "bad".into(),

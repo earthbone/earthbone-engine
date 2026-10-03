@@ -281,18 +281,6 @@ fn step_function(step: &Step, index: usize) -> Function {
                 );
             }
         }
-        Step::AnimationInt {
-            actor, variable, ..
-        } => {
-            method(
-                &mut fun,
-                &format!("f_{actor}"),
-                "GetAnimationVariableInt",
-                "integer",
-                vec![s(variable)],
-            );
-            result_number(&mut fun, "value", "integer");
-        }
         Step::SetAnimationInt {
             actor,
             variable,
@@ -315,6 +303,98 @@ fn step_function(step: &Step, index: usize) -> Function {
             vec![],
         ),
         Step::ThirdPerson { .. } => global(&mut fun, "Game", "ForceThirdPerson", "discard", vec![]),
+        Step::AnimationEvents {
+            actor,
+            events,
+            set_int,
+            ..
+        } => {
+            for (variable, value) in set_int {
+                method(
+                    &mut fun,
+                    &format!("f_{actor}"),
+                    "SetAnimationVariableInt",
+                    "discard",
+                    vec![s(variable), i(*value)],
+                );
+            }
+            for event in events {
+                global(
+                    &mut fun,
+                    "Debug",
+                    "SendAnimationEvent",
+                    "discard",
+                    vec![ident(&format!("f_{actor}")), s(event)],
+                );
+            }
+        }
+        Step::AnimationInt {
+            actor,
+            variable,
+            set,
+            ..
+        } => {
+            let object = format!("f_{actor}");
+            if let Some(value) = set {
+                method(
+                    &mut fun,
+                    &object,
+                    "SetAnimationVariableInt",
+                    "discard",
+                    vec![s(variable), i(*value)],
+                );
+            }
+            method(
+                &mut fun,
+                &object,
+                "GetAnimationVariableInt",
+                "integer",
+                vec![s(variable)],
+            );
+            result_number(&mut fun, "value", "integer");
+        }
+        Step::AnimationFloat {
+            actor,
+            variable,
+            set,
+            ..
+        } => {
+            let object = format!("f_{actor}");
+            if let Some(value) = set {
+                method(
+                    &mut fun,
+                    &object,
+                    "SetAnimationVariableFloat",
+                    "discard",
+                    vec![s(variable), f(*value)],
+                );
+            }
+            method(
+                &mut fun,
+                &object,
+                "GetAnimationVariableFloat",
+                "value",
+                vec![s(variable)],
+            );
+            result_number(&mut fun, "value", "value");
+        }
+        Step::EquipItem { actor, item, .. } => {
+            let object = format!("f_{actor}");
+            method(
+                &mut fun,
+                &object,
+                "AddItem",
+                "discard",
+                vec![ident(&format!("f_{item}")), i(1), b(true)],
+            );
+            method(
+                &mut fun,
+                &object,
+                "EquipItem",
+                "discard",
+                vec![ident(&format!("f_{item}")), b(false), b(true)],
+            );
+        }
         Step::WaitAnimation { actor, event, .. } => {
             method(
                 &mut fun,
@@ -438,6 +518,15 @@ pub fn script(probe: &Probe) -> Result<Script, Error> {
         );
         ins(&mut run, Opcode::Return, vec![none()]);
     }
+    if probe.startup_wait_seconds > 0.0 {
+        global(
+            &mut run,
+            "Utility",
+            "Wait",
+            "discard",
+            vec![f(probe.startup_wait_seconds)],
+        );
+    }
     global(
         &mut run,
         "Utility",
@@ -547,4 +636,31 @@ pub fn build(probe: &Probe, out: &Path) -> Result<(), Error> {
     std::fs::write(out.join("Scripts/SoeProbeRunner.pex"), pex)?;
     std::fs::write(out.join("Seq/SoeProbe.seq"), QUEST_ID.to_le_bytes())?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod anm_56 {
+    use super::{script, Opcode, Operand, Probe};
+
+    #[test]
+    fn anm_56_startup_wait_precedes_recorded_clock_samples() {
+        let mut probe = Probe::parse(crate::EXAMPLE).unwrap();
+        probe.startup_wait_seconds = 3.0;
+        let script = script(&probe).unwrap();
+        let run = script.objects[0].function_in("", "RunSequence").unwrap();
+        let native_index = |name: &str| {
+            run.code
+                .iter()
+                .position(|instruction| {
+                    instruction.op == Opcode::CallStatic
+                        && instruction.args[1] == Operand::Identifier(name.into())
+                })
+                .unwrap()
+        };
+        let wait = native_index("Wait");
+        assert!(wait < native_index("GetCurrentRealTime"));
+        assert!(wait < native_index("GetCurrentGameTime"));
+        assert_eq!(run.code[wait].args[3], Operand::Float(3.0));
+    }
 }
