@@ -299,6 +299,9 @@ no more than 50 ms. This measures temporal coverage only. Rhubarb exports mouth 
 recognized words, so the check does not claim that hints improve transcript accuracy or exact
 phoneme alignment.
 
+The installed-data run on 2026-10-02 passed for all eight responses with Rhubarb Lip Sync 1.14.0
+and ffmpeg. Both tracks for every response stayed within the 50 ms duration bound.
+
 ### Shapes onto phonemes
 
 Rhubarb emits mouth positions and a race maps morph targets per phoneme, so one sound from each
