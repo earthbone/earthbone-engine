@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use godot::classes::physics_server_3d::{BodyMode, BodyParameter, BodyState};
-use godot::classes::PhysicsServer3D;
+use godot::classes::{PhysicsRayQueryParameters3D, PhysicsServer3D};
 use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
@@ -29,6 +29,88 @@ use soe_physics::{Collider, Iso, Shape, Vec3};
 use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
+
+/// Cast a vertical host-physics ray around a Skyrim-space reference position.
+///
+/// `above_units` and `below_units` bound the ray around the reference origin.
+/// The returned position is the first host collision point, converted back to
+/// Skyrim world units.
+///
+/// # Errors
+/// Returns an error for invalid ray bounds, a degenerate ray, or an unavailable
+/// physics space. A clear ray returns `Ok(None)`.
+pub fn ground_collision_position(
+    space: Rid,
+    position: SkyrimPos,
+    above_units: f32,
+    below_units: f32,
+) -> Result<Option<SkyrimPos>, &'static str> {
+    let (from, to) = ground_ray_endpoints(position, above_units, below_units)?;
+    let mut query = PhysicsRayQueryParameters3D::new_gd();
+    query.set_from(from);
+    query.set_to(to);
+    query.set_hit_from_inside(true);
+    let mut state = PhysicsServer3D::singleton()
+        .space_get_direct_state(space)
+        .ok_or("unavailable ground collision space")?;
+    let result = state.intersect_ray(&query);
+    let Some(hit) = result
+        .get("position")
+        .and_then(|value| value.try_to::<Vector3>().ok())
+    else {
+        return Ok(None);
+    };
+    Ok(Some(GodotPos::new(hit.x, hit.y, hit.z).to_skyrim()))
+}
+
+fn ground_ray_endpoints(
+    position: SkyrimPos,
+    above_units: f32,
+    below_units: f32,
+) -> Result<(Vector3, Vector3), &'static str> {
+    if !position.x.is_finite()
+        || !position.y.is_finite()
+        || !position.z.is_finite()
+        || !above_units.is_finite()
+        || !below_units.is_finite()
+        || above_units < 0.0
+        || below_units <= 0.0
+    {
+        return Err("invalid ground collision ray bounds");
+    }
+    let from = SkyrimPos::new(position.x, position.y, position.z + above_units).to_godot();
+    let to = SkyrimPos::new(position.x, position.y, position.z - below_units).to_godot();
+    let from = Vector3::new(from.x, from.y, from.z);
+    let to = Vector3::new(to.x, to.y, to.z);
+    if from == to {
+        return Err("ground collision ray is degenerate");
+    }
+    Ok((from, to))
+}
+
+#[cfg(test)]
+mod edt_15_ground_query_tests {
+    use super::{ground_ray_endpoints, SkyrimPos};
+
+    #[test]
+    fn edt_15_host_ray_runs_down_at_selected_reference_xy() {
+        let (from, to) = ground_ray_endpoints(SkyrimPos::new(70.0, 140.0, 210.0), 100.0, 500.0)
+            .expect("valid ray");
+        assert!((from.x - 70.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((from.y - 310.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((from.z + 140.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.x - 70.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.y + 290.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+        assert!((to.z + 140.0 * super::METRES_PER_UNIT).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn edt_15_host_ray_rejects_invalid_range_and_position() {
+        assert!(ground_ray_endpoints(SkyrimPos::new(0.0, 0.0, 0.0), 0.0, 0.0).is_err());
+        assert!(ground_ray_endpoints(SkyrimPos::new(f32::NAN, 0.0, 0.0), 1.0, 1.0).is_err());
+        assert!(ground_ray_endpoints(SkyrimPos::new(0.0, 0.0, 0.0), -1.0, 1.0).is_err());
+    }
+}
 
 /// Map valid Skyrim Havok motion types to the host body mode they require.
 pub fn motion_type_to_body_mode(motion_type: u32) -> Option<BodyMode> {
