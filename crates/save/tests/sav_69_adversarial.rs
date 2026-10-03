@@ -40,10 +40,7 @@ fn sav_69_extra_list_presence_uses_refr_and_actor_change_flag_masks() {
     );
 
     let no_refr_extra = change(0, 1 << 18, vec![0xFE, 0xED]);
-    assert!(no_refr_extra
-        .reference_extra_data(78)
-        .unwrap()
-        .is_none());
+    assert!(no_refr_extra.reference_extra_data(78).unwrap().is_none());
 
     let mut actor_data = vec![0xA5; 8];
     actor_data.extend(&reference_list);
@@ -110,7 +107,11 @@ fn sav_69_package_before_owner_rank_global_and_lock_keeps_inventory_boundary() {
         let contents = form.reference_contents(78).unwrap().unwrap();
         let extra = contents.extra.unwrap();
         assert_eq!(
-            extra.entries.iter().map(|entry| entry.kind).collect::<Vec<_>>(),
+            extra
+                .entries
+                .iter()
+                .map(|entry| entry.kind)
+                .collect::<Vec<_>>(),
             [108, 33, 35, 34, 42]
         );
         assert!(matches!(

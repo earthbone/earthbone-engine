@@ -61,7 +61,11 @@ fn sav_69_sequence_and_stacked_frames_stop_at_following_owner_and_lock() {
             .unwrap();
         assert_eq!(decoded.data_bytes().unwrap(), data);
         assert_eq!(
-            decoded.entries.iter().map(|entry| entry.kind).collect::<Vec<_>>(),
+            decoded
+                .entries
+                .iter()
+                .map(|entry| entry.kind)
+                .collect::<Vec<_>>(),
             [108, 33, 42]
         );
         assert!(matches!(
