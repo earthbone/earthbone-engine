@@ -173,6 +173,13 @@ impl PlayerNode {
         }
 
         let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        let scripts = game.load_scripts_from_vfs(source.vfs());
+        if !scripts.scripts_failed.is_empty() {
+            return failed(&format!(
+                "could not load {} saved Papyrus definitions",
+                scripts.scripts_failed.len()
+            ));
+        }
         let selected = match game.recover_generation(&store) {
             Ok(selected) => selected,
             Err(error) => return failed_save(&error),

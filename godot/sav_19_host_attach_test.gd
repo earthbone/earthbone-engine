@@ -19,6 +19,12 @@ func _player(streamer: Node3D) -> Node3D:
 	_check(player.call("use_streamer_data", streamer), "player did not share installed data")
 	return player
 
+func _camera(player: Node3D) -> Camera3D:
+	for child in player.get_children():
+		if child is Camera3D:
+			return child
+	return null
+
 func _run() -> void:
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
 	get_root().add_child(streamer)
@@ -29,26 +35,26 @@ func _run() -> void:
 	_check(original.call("start_gameplay"), "source Game did not start")
 	original.call("set_facing", 1.2, -0.1)
 	var directory := OS.get_environment("SAV_19_SAVE_DIR")
-	var saved := original.call("save_game_generation", directory, 2)
+	var saved: Dictionary = original.call("save_game_generation", directory, 2)
 	_check(saved.get("ok", false), "source native generation did not save")
 	var expected_cell: String = original.call("gameplay_cell")
 	var expected_position: Vector3 = original.call("position")
 	var expected_facing: Vector2 = original.call("facing")
 	var destination := _player(streamer)
-	var rejected := destination.call("attach_restored_generation", directory + "/missing", 2)
+	var rejected: Dictionary = destination.call("attach_restored_generation", directory + "/missing", 2)
 	_check(not rejected.get("ok", true), "missing generation was accepted")
 	_check(destination.call("gameplay_cell").is_empty(), "failed import changed the host cell")
 	var before_days: float = destination.call("gameplay_days")
-	var attached := destination.call("attach_restored_generation", directory, 2)
+	var attached: Dictionary = destination.call("attach_restored_generation", directory, 2)
 	_check(attached.get("ok", false) and attached.get("state_loaded", false),
-		"verified generation did not attach")
+		"verified generation did not attach: " + str(attached))
 	_check(destination.call("gameplay_cell") == expected_cell, "restored player cell was not attached")
 	var position: Vector3 = destination.call("position")
 	_check(position.is_finite(), "restored host pose is not finite")
 	_check(position.distance_to(expected_position) < 5.0, "restored player pose was not installed")
 	_check(destination.call("facing").distance_to(expected_facing) < 0.01,
 		"restored camera facing was not installed")
-	var camera := destination.get_node_or_null("Camera3D") as Camera3D
+	var camera: Camera3D = _camera(destination)
 	_check(camera != null and camera.is_current(), "restored camera was not made current")
 	_check(destination.call("gameplay_days") > before_days, "attach did not advance a Game frame")
 	await process_frame

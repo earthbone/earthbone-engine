@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, LoadOrder, Plugin};
+use soe_esm::{FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     save::{DependencyChange, DependencySource},
     save_generations::GenerationStore,
     Game,
 };
 use soe_save::{
-    ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
+    reference::PlayerLocation, ChangeForm, Compression, FileLocationTable, GlobalData, Header,
+    RefId, Save, WString,
 };
 use std::{fs, path::PathBuf};
 
@@ -89,11 +90,55 @@ fn empty_save() -> Save {
     save
 }
 
+fn recoverable_save() -> Save {
+    let mut save = empty_save();
+    save.change_forms.push(ChangeForm {
+        form: RefId::from_bytes([0x40, 0, 0x14]),
+        change_flags: 2,
+        type_field: 1,
+        version: 1,
+        uncompressed_len: 0,
+        data: {
+            let mut data = Vec::new();
+            RefId::from_bytes([0x40, 0, 0x08]).write(&mut data);
+            for value in [1.0_f32, 2.0, 3.0, 0.0, 0.0, 0.0] {
+                data.extend_from_slice(&value.to_le_bytes());
+            }
+            data.extend_from_slice(&[0; 8]);
+            data
+        },
+    });
+    save.table_1.push(GlobalData {
+        kind: 1,
+        data: PlayerLocation {
+            next_object_id: 0xFF00_0804,
+            world: RefId::from_bytes([0x40, 0, 0]),
+            coordinates: [0, 0],
+            cell_or_world: RefId::from_bytes([0x40, 0, 0x08]),
+            position: [1.0, 2.0, 3.0],
+            unknown: 0,
+        }
+        .data_bytes(),
+    });
+    let mut papyrus = Vec::new();
+    papyrus.extend_from_slice(&1_u16.to_le_bytes());
+    for _ in 0..16 {
+        papyrus.extend_from_slice(&0_u32.to_le_bytes());
+    }
+    papyrus.extend_from_slice(&1_u16.to_le_bytes());
+    save.table_3.push(GlobalData {
+        kind: GlobalData::PAPYRUS,
+        data: papyrus,
+    });
+    save
+}
+
 fn game_with_skyrim() -> Game {
+    let mut skyrim = Plugin::new(FileHeader::default());
+    skyrim.push_top(Record::new(Tag(*b"CELL"), 0x800));
+    skyrim.push_top(Record::new(Tag(*b"NPC_"), 0x7).sub(Tag(*b"EDID"), b"Player\0".to_vec()));
     let mut order = LoadOrder::new();
-    order
-        .add("Skyrim.esm", Plugin::new(FileHeader::default()))
-        .unwrap();
+    order.add("Skyrim.esm", skyrim).unwrap();
     Game::new(order)
 }
 
@@ -188,4 +233,37 @@ fn sav_61_host_reports_dependencies_before_refusing_missing_player_state() {
         0
     );
     assert_eq!(fs::read(source_path).unwrap(), source_bytes);
+}
+
+#[test]
+fn sav_61_host_accepts_recoverable_ess_to_distinct_generation_and_keeps_source() {
+    let directory = Directory::new();
+    let source_path = directory.0.join("accepted-source.ess");
+    let save = recoverable_save();
+    let source_bytes = save.write().unwrap();
+    fs::write(&source_path, &source_bytes).unwrap();
+    let recovery = directory.store();
+    let mut game = game_with_skyrim();
+
+    let accepted =
+        soe_godot_host::save_recovery::accept_vanilla_recovery_session(&mut game, &save, &recovery)
+            .unwrap();
+
+    assert!(accepted
+        .generation
+        .path
+        .starts_with(directory.0.join("recovery")));
+    assert_ne!(accepted.generation.path, source_path);
+    assert_eq!(fs::read(&source_path).unwrap(), source_bytes);
+    let recovery_files = fs::read_dir(directory.0.join("recovery"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "soeb")
+        })
+        .count();
+    assert_eq!(recovery_files, 1);
 }

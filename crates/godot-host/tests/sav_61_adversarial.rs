@@ -3,7 +3,9 @@
 
 use soe_esm::{FileHeader, LoadOrder, Plugin};
 use soe_game::{save_generations::GenerationStore, Game};
-use soe_save::{ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString};
+use soe_save::{
+    ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
+};
 use std::{fs, path::PathBuf};
 
 struct Directory(PathBuf);
@@ -135,7 +137,10 @@ fn sav_61_host_refuses_unimported_active_projectile_state_before_restoration() {
         }
         assert_eq!(game.save_state().unwrap(), before);
         assert_eq!(fs::read(&source_path).unwrap(), source_bytes);
-        assert_eq!(fs::read_dir(directory.0.join("recovery")).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(directory.0.join("recovery")).unwrap().count(),
+            0
+        );
     }
     assert!(
         missed_refusals.is_empty(),

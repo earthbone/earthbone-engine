@@ -16,7 +16,10 @@ fn installed_godot() -> Option<(PathBuf, PathBuf)> {
         target.join("release/libsoe_godot_host.so").is_file(),
         "build the release GDExtension first"
     );
-    assert!(data.is_dir(), "SKYRIM_DATA must point to installed Skyrim data");
+    assert!(
+        data.is_dir(),
+        "SKYRIM_DATA must point to installed Skyrim data"
+    );
     Some((godot, data))
 }
 

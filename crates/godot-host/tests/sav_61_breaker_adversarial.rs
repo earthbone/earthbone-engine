@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, LoadOrder, Plugin};
-use soe_game::{Game, save_generations::GenerationStore};
+use soe_game::{save_generations::GenerationStore, Game};
 use soe_save::{
     ChangeForm, Compression, FileLocationTable, GlobalData, Header, RefId, Save, WString,
 };

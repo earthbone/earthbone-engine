@@ -51,8 +51,8 @@ fn unusable_finding(finding: &DependencyFinding) -> bool {
 /// Inspect and explicitly accept a vanilla save into a separate native store.
 ///
 /// Missing plugins or scripts and changed plugin kinds are reported before
-/// restoration. The importer currently leaves PARW change forms opaque, so
-/// their presence also refuses execution rather than discarding that state.
+/// restoration. Active projectile and hazard changes are not imported, while
+/// opaque PCON and PARW bytes also refuse execution rather than being dropped.
 /// The source ESS path is never opened for writing by this operation.
 ///
 /// # Errors
@@ -77,12 +77,42 @@ pub fn accept_vanilla_recovery_session(
             )
         })
         .collect();
-    let opaque: Vec<_> = save
+    let mut opaque: Vec<_> = save
         .change_forms
         .iter()
         .filter(|change| change.record_type() == "PARW")
         .map(|change| format!("PARW change form {:06X}", change.form.raw()))
         .collect();
+    opaque.extend(
+        save.change_forms
+            .iter()
+            .filter(|change| {
+                matches!(
+                    change.record_type(),
+                    "PMIS" | "PGRE" | "PBEA" | "PFLA" | "PHZD" | "PBAR"
+                )
+            })
+            .map(|change| {
+                format!(
+                    "unimported {} change form {:06X}",
+                    change.record_type(),
+                    change.form.raw()
+                )
+            }),
+    );
+    for change in save
+        .change_forms
+        .iter()
+        .filter(|change| change.record_type() == "PCON")
+    {
+        let unresolved = change
+            .reference_header(save.form_version)
+            .map(|header| header.is_none_or(|header| header.remaining_bytes > 0))
+            .unwrap_or(true);
+        if unresolved {
+            opaque.push(format!("opaque PCON change form {:06X}", change.form.raw()));
+        }
+    }
     reasons.extend(opaque);
     if !reasons.is_empty() {
         return Err(VanillaRecoveryError::Refused { report, reasons });

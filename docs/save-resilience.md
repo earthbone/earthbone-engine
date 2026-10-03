@@ -22,8 +22,9 @@ records survive. See [game.md](game.md#save-and-load) for this storage API and
 the current import boundary.
 
 The host's SAV-61 recovery coordinator preflights vanilla dependencies before
-restoration. It refuses missing plugins or scripts, changed plugin kinds and
-opaque PARW change forms. If restoration succeeds, it writes a native
+restoration. It refuses missing plugins or scripts, changed plugin kinds,
+unimported active projectile and hazard changes, opaque PCON remainders and
+PARW change forms. If restoration succeeds, it writes a native
 generation in the caller's separate recovery store and leaves the source ESS
 untouched. This does not retain arbitrary unsupported ESS change forms or
 provide a complete recovered Skyrim session.

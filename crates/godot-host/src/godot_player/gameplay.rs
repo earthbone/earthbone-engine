@@ -111,9 +111,9 @@ impl PlayerNode {
                 restored_player_destination(reference.cell, reference.position, reference.rotation)
             })
         };
-        if destination.is_none() {
+        let Some((cell, position, rotation)) = destination else {
             return false;
-        }
+        };
 
         let previous_game = self.game.replace(game);
         self.melee_contact.cancel();
@@ -126,7 +126,19 @@ impl PlayerNode {
         }
 
         self.advance(1.0 / 60.0);
-        let attached = self.game.is_some()
+        if let Some(game) = &self.game {
+            if let Some(reference) = game.world_mut().reference(player) {
+                reference.cell = Some(cell);
+                reference.position = position;
+                reference.rotation = rotation;
+            }
+        }
+        let pose_reinstalled = self.sync_game_pose();
+        if let Some(camera) = &mut self.camera {
+            camera.make_current();
+        }
+        let attached = pose_reinstalled
+            && self.game.is_some()
             && self.character.is_some()
             && self.loaded_cell.is_some()
             && self

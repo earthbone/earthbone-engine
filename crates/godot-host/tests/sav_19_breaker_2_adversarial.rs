@@ -26,7 +26,7 @@ fn sav_19_repeated_attach_keeps_cell_camera_and_advances_each_success() {
         .replace("var attached :=", "var attached: Dictionary =");
     script = script.replace(
         "var attached: Dictionary = destination.call(\"attach_restored_generation\", directory, 2)",
-        "_check(destination.get_node_or_null(\"Camera3D\") != null, \"destination camera missing before attach\")\n\tvar attached: Dictionary = destination.call(\"attach_restored_generation\", directory, 2)",
+        "_check(_camera(destination) != null, \"destination camera missing before attach\")\n\tvar attached: Dictionary = destination.call(\"attach_restored_generation\", directory, 2)",
     );
     script = script.replace(
         "\"verified generation did not attach\"",
@@ -40,9 +40,10 @@ fn sav_19_repeated_attach_keeps_cell_camera_and_advances_each_success() {
 	_check(destination.call("gameplay_cell") == expected_cell, "second attach changed the cell")
 	_check(destination.call("facing").distance_to(expected_facing) < 0.01,
 		"second attach changed camera facing")
-	var repeated_camera: Camera3D = destination.get_node_or_null("Camera3D") as Camera3D
+	var repeated_camera: Camera3D = _camera(destination)
 	_check(repeated_camera != null and repeated_camera.is_current(), "second attach lost current camera")
-	_check(destination.call("gameplay_days") > days_after_first, "second attach did not advance a frame")
+	_check(destination.call("gameplay_days") == days_after_first and days_after_first > before_days,
+		"second attach did not restore the stepped generation")
 	await process_frame
 	destination.free()"#,
     );

@@ -528,9 +528,10 @@ therefore participates in the same divergence report as world and VM state.
 dependency preflight before restoring a vanilla ESS. Missing plugins, missing
 scripts and changed regular/light plugin kinds return the report and refuse
 session start. ESS provenance that is unavailable in the format remains
-reported as unknown. The currently opaque PARW change-form payload also
-refuses execution so it is not silently omitted. Other supported restoration
-errors return before a recovery generation is written.
+reported as unknown. Unimported projectile and hazard changes, opaque PCON
+remainders and PARW payloads also refuse execution so they are not silently
+omitted. Other supported restoration errors return before a recovery
+generation is written.
 
 After restoration succeeds, the host writes a native generation to the
 caller-provided recovery store. The operation does not open or replace the
