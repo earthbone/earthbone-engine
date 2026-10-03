@@ -77,9 +77,10 @@ fn max_correlation(left: &[f32], right: &[f32]) -> f64 {
 fn aud_02_installed_vanilla_xwma_matches_ffmpeg_without_feature() {
     const MIN_WAVEFORM_CORRELATION: f64 = 0.8;
     const MAX_DURATION_ERROR_SECONDS: f64 = 0.06;
-    let data = PathBuf::from(
-        std::env::var_os("SKYRIM_DATA").expect("SKYRIM_DATA points to installed game data"),
-    );
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
     let archive = soe_bsa::Archive::open(&data.join("Skyrim - Voices_en0.bsa"))
         .expect("English voice archive opens");
     assert!(
