@@ -535,7 +535,7 @@ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --path godot --script s
 
 The source layouts are UESP `RFCT.wikitext`, `ARTO.wikitext` and `EFSH.wikitext`,
 and xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no
-VisualEffect function page or shipped `VisualEffect.psc`; the existing game
+VisualEffect function page or shipped `VisualEffect.psc`. The existing game
 tests cover native argument handling, errors, stacking, expiry and target
 specific stop. The Godot capture verifies instance creation and release, not
 fidelity to Skyrim's complete authored effect appearance.
