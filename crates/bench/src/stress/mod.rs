@@ -210,7 +210,7 @@ impl Workload {
                 return Err(format!("sandbox actor {actor} has no active destination"));
             }
         }
-        if selected_actors == 0 {
+        if !self.actors.is_empty() && selected_actors == 0 {
             return Err("stress actors did not select any packages".into());
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
