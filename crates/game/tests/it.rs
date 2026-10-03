@@ -1024,8 +1024,12 @@ mod prg_07_adversarial;
 mod prg_07_character_level;
 #[path = "prg_08_adversarial.rs"]
 mod prg_08_adversarial;
+#[path = "prg_08_breaker_adversarial.rs"]
+mod prg_08_breaker_adversarial;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
+#[path = "prg_09_breaker_adversarial.rs"]
+mod prg_09_breaker_adversarial;
 #[path = "prg_09_race_skill_initialization.rs"]
 mod prg_09_race_skill_initialization;
 #[path = "prg_10_adversarial.rs"]
@@ -1059,6 +1063,10 @@ mod prg_16_purchase_data_semantics;
 mod prg_17_adversarial;
 #[path = "prg_17_breaker_adversarial.rs"]
 mod prg_17_breaker_adversarial;
+#[path = "prg_21_adversarial.rs"]
+mod prg_21_adversarial;
+#[path = "prg_21_breaker_adversarial.rs"]
+mod prg_21_breaker_adversarial;
 #[path = "quest_flow.rs"]
 mod quest_flow;
 #[path = "real_crafting.rs"]

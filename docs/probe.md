@@ -259,3 +259,12 @@ official records and checks CLI matching and differing comparisons.
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.
+
+`probes/prg_21.toml` labels the six LVSP flag combinations at levels 1, 10 and
+20, three nested-list cases and zero or full chance-none controls. It records
+the resolved form identities for the authored labels and the expected engine
+trace is in `probes/prg_21.expected.json`. The sequence runs on quest start and
+finishes in about one second of gameplay. The current command set does not
+roll LVSP records in Skyrim, so this capture does not establish the original
+runtime's selected spells. `tests/prg_21_capture.rs` compares a saved
+`Papyrus.0.log` when `SOE_PROBE_CAPTURE` names its directory.

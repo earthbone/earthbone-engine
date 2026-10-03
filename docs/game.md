@@ -1738,13 +1738,14 @@ Creation Engine frame capture or memory budgets.
   for zero maximum and CarryWeight.
 - Actor initialization resolves separate stats and traits template chains.
   Manual attributes use race starting values plus NPC offsets. Manual skills
-  preserve the DNAM cache while race-bonus semantics remain unresolved.
-  Fixed-level auto-calculated skills
-  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
-  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
-  initialized actor values, so reload does not seed bonuses again. Leveled
-  templates return an error pending spawn selection. Missing race DATA
-  retains the synthetic-record fallback. See [actor values](actor-values.md).
+  use their DNAM values and skill offsets without an additional race bonus.
+  UESP's `CLAS.wikitext` race-bonus term is part of the auto-calculated skill
+  formula. Fixed-level auto-calculated skills use class weights, actor level
+  and race boosts. `PC_LEVEL_MULT`, missing class and zero-weight cases keep
+  the authored DNAM skill cache. SOEW saves initialized actor values, so reload
+  does not seed bonuses again. Leveled templates return an error pending spawn
+  selection. Missing race DATA retains the synthetic-record fallback. See
+  [actor values](actor-values.md).
 - `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
   multipliers and offsets. The improve multiplier and offset plus
   `fSkillUseCurve` determine experience needed at each current skill level.
@@ -7401,15 +7402,19 @@ skymp supplies the recursive count-selection pattern, but its missing
 highest-level restriction and chance-global shortcut are not reused. These
 references do not provide a reusable Rust consumer. No dependency was added.
 
-Eleven synthetic tests cover actor-level filtering, nested counts, duplicate
+Synthetic tests cover actor-level filtering, nested counts, duplicate
 weighting, Use All Spells, saved selections and empty outcomes, winning links,
 template inheritance, traversal bounds, malformed inputs and RNG rollback
-after earlier successful draws, plus older saved placeholders. The five-master
-survey executes all 33 winning
-LVSP lists at levels 1, 10 and 50, with 171 concrete spell results over 99
-selections. The survey checks record execution, not comparison against a
-running original game. Live actor leveling and later spell reevaluation retain
-their progression scope.
+after earlier successful draws, plus older saved placeholders. PRG-21 adds
+synthetic cases for flags 0, 1, 4, 5, 6 and 7 at levels 1, 10 and 20, nested
+Use All selection, and chance-none values 0 and 100. These cases exercise the
+engine selector and do not establish original-runtime behavior. xEdit supplies
+the LVSP flag names and values. CommonLib's `TESLeveledList::Flag` supplies the
+same bit names, but its interface does not specify selection precedence. The
+SKYRIM_DATA-gated five-master survey executes winning LVSP lists at levels 1,
+10 and 20 and checks that every result resolves to a SPEL record. The survey
+checks record execution, not comparison against a running original game. Live
+actor leveling and later spell reevaluation retain their progression scope.
 
 ## Concrete inventory reference moves
 
@@ -7578,7 +7583,8 @@ authored HasPerk conditions, this supports retaining lower identities. That
 retention is an inference, without a direct original-runtime purchase
 comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
 byte unused, and the existing NPC reader retains only its FormID. This
-purchase path does not reinterpret it. The full CK Perk page was absent from
+purchase path does not reinterpret it. Entry-point dispatch separately reads
+the rank from an actor base's PRKR entries. The full CK Perk page was absent from
 the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
 not need it since the installed corpus and the sources above settle all four
 bytes. The existing CTDA parser, condition evaluator, actor values and
@@ -7606,12 +7612,14 @@ malformed graph policy, effect execution or menu behavior.
 ## Perk entry-point dispatch (PRG-08)
 
 `EntryPointDispatcher` registers handlers by entry-point ID and visits an
-actor's owned winning PERK records in load-order order, then each record's
-complex entry sections in file order. It passes the PRKE rank as a one-based
-value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
-for the handler. The dispatcher does not sort by priority. The local sources
-do not establish equal-priority execution order or exact versus cumulative
-effect-rank selection.
+actor's owned winning PERK records in load-order order. NPC actors use the
+rank byte from their base record's PRKR entry. Other actors use the highest
+owned rank in that PERK's NNAM chain. Within each PERK it filters out complex
+entries above that rank, then orders eligible entries by ascending PRKE
+priority. Equal priorities retain their source order. The invocation carries
+the entry's one-based PRKE rank, priority, and EPFT/EPFD data. Priority direction, tie
+behavior and cross-perk interleaving still need a vanilla capture. The local
+sources do not establish exact versus cumulative effect-rank selection.
 
 Each PRKC tab evaluates its own CTDA conditions against the matching supplied
 tab subject. Conditions within a tab use the shared evaluator's file-order
@@ -7627,9 +7635,13 @@ to the staged weapon damage, with outgoing effects before incoming effects.
 Their condition tabs are owner/weapon/target and owner/attacker/weapon,
 respectively. Malformed function payloads, unknown actor values, unsupported
 functions and condition errors reject the hit before health or events change.
-This path retains the dispatcher's winning-record and source-section order.
+This path retains winning-record order, followed by ascending priority and
+source order for ties within each PERK. These ordering choices have not been
+compared with the reference runtime.
 It does not claim the unresolved priority-tie, acquisition-order or exact
-versus cumulative rank behavior documented above.
+versus cumulative rank behavior documented above. Source-order ties and
+ascending priority are deterministic engine choices, not captured vanilla
+behavior. Cross-perk ordering also needs a capture.
 
 ## Leveled item entry extras
 

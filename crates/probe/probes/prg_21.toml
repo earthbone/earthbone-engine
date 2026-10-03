@@ -1,0 +1,207 @@
+name = "prg_21"
+load_order = [
+    "Skyrim.esm",
+    "Update.esm",
+    "Dawnguard.esm",
+    "HearthFires.esm",
+    "Dragonborn.esm",
+    "ccBGSSSE001-Fish.esm",
+    "ccQDRSSE001-SurvivalMode.esl",
+    "ccBGSSSE037-Curios.esl",
+    "ccBGSSSE025-AdvDSGS.esm",
+    "_ResourcePack.esl",
+    "SoeProbe.esp",
+]
+timescale = 20.0
+tick_seconds = 0.01
+timeout_seconds = 10.0
+
+[forms.anchor_update]
+plugin = "Update.esm"
+object = 0x002ece
+kind = "form"
+
+[forms.anchor_dawnguard]
+plugin = "Dawnguard.esm"
+object = 0x00298c
+kind = "form"
+
+[forms.anchor_hearthfires]
+plugin = "HearthFires.esm"
+object = 0x008bd4
+kind = "form"
+
+[forms.anchor_dragonborn]
+plugin = "Dragonborn.esm"
+object = 0x01e2bb
+kind = "form"
+
+[forms.anchor_fish]
+plugin = "ccBGSSSE001-Fish.esm"
+object = 0x000f21
+kind = "form"
+
+[forms.anchor_survival]
+plugin = "ccQDRSSE001-SurvivalMode.esl"
+object = 0x00083f
+kind = "form"
+
+[forms.anchor_curios]
+plugin = "ccBGSSSE037-Curios.esl"
+object = 0x000839
+kind = "form"
+
+[forms.anchor_saints]
+plugin = "ccBGSSSE025-AdvDSGS.esm"
+object = 0x21bd64
+kind = "form"
+
+[forms.anchor_resources]
+plugin = "_ResourcePack.esl"
+object = 0x000022
+kind = "form"
+
+[tolerances]
+real_seconds = 0.25
+game_seconds = 5.0
+timescale = 0.0
+
+# The current transport can record form identity and clocks, but has no native
+# observation for rolling an LVSP from the vanilla runtime.
+[[steps]]
+id = "flag_0_level_1"
+op = "form_property"
+form = "anchor_update"
+property = "form_id"
+
+[[steps]]
+id = "flag_0_level_10"
+op = "form_property"
+form = "anchor_dawnguard"
+property = "form_id"
+
+[[steps]]
+id = "flag_0_level_20"
+op = "form_property"
+form = "anchor_hearthfires"
+property = "form_id"
+
+[[steps]]
+id = "flag_1_level_1"
+op = "form_property"
+form = "anchor_dragonborn"
+property = "form_id"
+
+[[steps]]
+id = "flag_1_level_10"
+op = "form_property"
+form = "anchor_fish"
+property = "form_id"
+
+[[steps]]
+id = "flag_1_level_20"
+op = "form_property"
+form = "anchor_survival"
+property = "form_id"
+
+[[steps]]
+id = "flag_4_level_1"
+op = "form_property"
+form = "anchor_curios"
+property = "form_id"
+
+[[steps]]
+id = "flag_4_level_10"
+op = "form_property"
+form = "anchor_saints"
+property = "form_id"
+
+[[steps]]
+id = "flag_4_level_20"
+op = "form_property"
+form = "anchor_resources"
+property = "form_id"
+
+[[steps]]
+id = "flag_5_level_1"
+op = "form_property"
+form = "anchor_update"
+property = "form_id"
+
+[[steps]]
+id = "flag_5_level_10"
+op = "form_property"
+form = "anchor_dawnguard"
+property = "form_id"
+
+[[steps]]
+id = "flag_5_level_20"
+op = "form_property"
+form = "anchor_hearthfires"
+property = "form_id"
+
+[[steps]]
+id = "flag_6_level_1"
+op = "form_property"
+form = "anchor_dragonborn"
+property = "form_id"
+
+[[steps]]
+id = "flag_6_level_10"
+op = "form_property"
+form = "anchor_fish"
+property = "form_id"
+
+[[steps]]
+id = "flag_6_level_20"
+op = "form_property"
+form = "anchor_survival"
+property = "form_id"
+
+[[steps]]
+id = "flag_7_level_1"
+op = "form_property"
+form = "anchor_curios"
+property = "form_id"
+
+[[steps]]
+id = "flag_7_level_10"
+op = "form_property"
+form = "anchor_saints"
+property = "form_id"
+
+[[steps]]
+id = "flag_7_level_20"
+op = "form_property"
+form = "anchor_resources"
+property = "form_id"
+
+[[steps]]
+id = "nested_flag_6_level_1"
+op = "form_property"
+form = "anchor_update"
+property = "form_id"
+
+[[steps]]
+id = "nested_flag_6_level_10"
+op = "form_property"
+form = "anchor_dawnguard"
+property = "form_id"
+
+[[steps]]
+id = "nested_flag_6_level_20"
+op = "form_property"
+form = "anchor_hearthfires"
+property = "form_id"
+
+[[steps]]
+id = "chance_none_zero"
+op = "form_property"
+form = "anchor_dragonborn"
+property = "form_id"
+
+[[steps]]
+id = "chance_none_full"
+op = "form_property"
+form = "anchor_fish"
+property = "form_id"
