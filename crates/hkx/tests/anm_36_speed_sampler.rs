@@ -126,3 +126,30 @@ fn anm_36_disabled_speed_sampler_preserves_the_output_binding() {
     let output = vm.variables.real(vm.variables.index("speedOut").unwrap());
     assert_eq!(output, Some(19.0));
 }
+
+#[test]
+fn anm_36_state_and_direction_bindings_preserve_goal_speed_output() {
+    for (state, direction, goal_speed) in [
+        (-1.0, -1.0, 123.5),
+        (0.0, 0.0, 0.0),
+        (2.0, 1.0, -7.25),
+        (9.0, -0.5, 42.0),
+    ] {
+        let bytes = speed_sampler_graph(true, 0.0);
+        let (graph, clips, pose) = interpreter(&bytes);
+        let mut vm = Interpreter::new(&graph, &clips, pose);
+        assert!(vm.unsupported().unbound.is_empty());
+        assert!(vm.variables.set_by_name("state", state));
+        assert!(vm.variables.set_by_name("direction", direction));
+        assert!(vm.variables.set_by_name("goalSpeed", goal_speed));
+
+        vm.update(1.0 / 60.0);
+
+        let speed_out = vm.variables.real(vm.variables.index("speedOut").unwrap());
+        assert_eq!(
+            speed_out,
+            Some(goal_speed),
+            "state={state}, direction={direction}"
+        );
+    }
+}

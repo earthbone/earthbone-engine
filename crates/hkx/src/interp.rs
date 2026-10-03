@@ -2253,7 +2253,8 @@ impl<'a> Interpreter<'a> {
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 Target::SpeedSamplerGoalSpeed => rt.speed_sampler_goal_speed = Some(value),
                 // Output targets are skipped above. State and direction are
-                // recognized inputs but do not affect the sampled speed.
+                // recognized inputs but no local source establishes how they
+                // affect sampling, so this implementation uses goalSpeed.
                 Target::DampingKp => {
                     if let Some(state) = rt.damping.as_mut() {
                         state.kp = value;
