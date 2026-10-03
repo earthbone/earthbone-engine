@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::GlobalFormId;
-use soe_godot_host::audio::AmbienceOwner;
 use soe_game::ambience::Track;
+use soe_godot_host::audio::AmbienceOwner;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }

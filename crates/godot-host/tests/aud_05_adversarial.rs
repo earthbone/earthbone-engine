@@ -55,15 +55,27 @@ fn fixture(data: &Path) {
     let second = wave(330.0);
     let third = wave(440.0);
     let files = [
-        BsaFile { path: "music/end_first.wav", bytes: &first },
-        BsaFile { path: "music/end_second.wav", bytes: &second },
-        BsaFile { path: "music/end_third.wav", bytes: &third },
+        BsaFile {
+            path: "music/end_first.wav",
+            bytes: &first,
+        },
+        BsaFile {
+            path: "music/end_second.wav",
+            bytes: &second,
+        },
+        BsaFile {
+            path: "music/end_third.wav",
+            bytes: &third,
+        },
     ];
     let archive = write_bsa(&files, BsaVersion::SkyrimSe).unwrap();
     std::fs::write(data.join("Skyrim - Sounds.bsa"), archive).unwrap();
     let voice = soe_audio::fuz::write(1, &[], &wave(440.0));
     let voices = write_bsa(
-        &[BsaFile { path: "sound/voice/aud05/fixture.fuz", bytes: &voice }],
+        &[BsaFile {
+            path: "sound/voice/aud05/fixture.fuz",
+            bytes: &voice,
+        }],
         BsaVersion::SkyrimSe,
     )
     .unwrap();
@@ -122,5 +134,8 @@ func run() -> void:
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success() && stdout.contains("RESULT: PASS"), "Godot failed\n{stdout}\n{stderr}");
+    assert!(
+        output.status.success() && stdout.contains("RESULT: PASS"),
+        "Godot failed\n{stdout}\n{stderr}"
+    );
 }

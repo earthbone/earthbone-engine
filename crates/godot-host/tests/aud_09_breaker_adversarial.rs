@@ -55,7 +55,10 @@ fn fixture(data: &Path) {
     std::fs::write(data.join("Music/Second.wav"), wave(440.0)).unwrap();
     let empty = [];
     let voices = write_bsa(
-        &[BsaFile { path: "sound/voice/placeholder.wav", bytes: &empty }],
+        &[BsaFile {
+            path: "sound/voice/placeholder.wav",
+            bytes: &empty,
+        }],
         BsaVersion::SkyrimSe,
     )
     .unwrap();
@@ -120,5 +123,8 @@ func run() -> void:
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success() && stdout.contains("RESULT: PASS"), "Godot failed\n{stdout}\n{stderr}");
+    assert!(
+        output.status.success() && stdout.contains("RESULT: PASS"),
+        "Godot failed\n{stdout}\n{stderr}"
+    );
 }
