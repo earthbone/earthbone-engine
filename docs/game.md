@@ -770,7 +770,7 @@ menu for teammates, or for any actor when `abForceOpen` is true. Invalid
 argument counts and types are reported in the Papyrus trace. `ClearForcedMovement`
 clears the actor's current package destination and navmesh route, then marks
 the package state for reevaluation. The package assignment remains intact.
-The local CK corpus has no named function page for `ClearForcedMovement`;
+The local CK corpus has no named function page for `ClearForcedMovement`.
 SKSE's vanilla `Actor.psc` describes it as restoring the actor's standard
 state, so the runtime clears its currently represented package route.
 The host barter panel displays the resolved merchant stock. Price calculation,
@@ -910,7 +910,7 @@ no script has set it. The explicit value is persisted in the actor section
 flag to authored head-tracking bones. `Actor.SetLookAt` stores its placed
 reference target and pathing option, and `Actor.ClearLookAt` clears both. The
 actor section `SCR-11` persists these relationships and includes them in the
-determinism hash. `Actor.ShowGiftMenu` creates a latent gift-menu request; the
+determinism hash. `Actor.ShowGiftMenu` creates a latent gift-menu request. The
 transfer behavior is described under UI-15.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the
@@ -1004,7 +1004,7 @@ restraint, and active magic. The concrete contract differences found were:
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
 | Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
 | Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11. Flight state also depends on AI-66. |
-| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | No current backlog row owns the lock and message behavior. |
+| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | INV-09. |
 
 `Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
 The value path reads the shared actor-value components. `Actor.StartSneaking`
@@ -2393,7 +2393,7 @@ instant-spell slot. The latter slots persist in the actor section named
 `Actor.Trespass` sets the shared actor flag read by `IsTrespassing`. The local
 CK pages consulted for these bindings are `GetEquippedSpell_-_Actor`,
 `GetVoiceRecoveryTime_-_Actor`, `PlayIdleWithTarget_-_Actor` and
-`Dismount_-_Actor`; the CK snapshot has no `Trespass_-_Actor` page. The
+`Dismount_-_Actor`. The CK snapshot has no `Trespass_-_Actor` page. The
 existing world model does not provide paired-idle target routing or host mount
 placement, and these calls do not create crime witness events.
 

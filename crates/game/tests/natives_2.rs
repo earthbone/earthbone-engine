@@ -2262,7 +2262,17 @@ fn scr_14_actor_offset_natives_store_and_clear_requests() {
     );
     call(&mut g, &guard, "ClearKeepOffsetFromActor", &[]);
     assert_eq!(g.world_mut().actor(actor).unwrap().keep_offset, None);
-    call(&mut g, &guard, "KeepOffsetFromActor", &[guard.clone()]);
+    call(
+        &mut g,
+        &guard,
+        "KeepOffsetFromActor",
+        &[
+            guard.clone(),
+            Value::Float(0.0),
+            Value::Float(0.0),
+            Value::Float(0.0),
+        ],
+    );
     let defaults = g.world_mut().actor(actor).unwrap().keep_offset.unwrap();
     assert_eq!(defaults.offset, [0.0; 3]);
     assert_eq!(defaults.angles, [0.0; 3]);
