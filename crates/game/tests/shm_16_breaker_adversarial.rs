@@ -96,12 +96,17 @@ fn reference_pointer_lookup_rejects_null_and_unknown_runtime_handles() {
         object: 0x801,
     };
 
-    assert!(world.commonlib_reference_ptr(ObjectRefPtr::default()).is_none());
+    assert!(world
+        .commonlib_reference_ptr(ObjectRefPtr::default())
+        .is_none());
     assert!(world
         .commonlib_reference_ptr(ObjectRefPtr(Some(ObjectRefHandle(0x00FF_FFFF))))
         .is_none());
     let pointer = world.commonlib_reference(id).unwrap().pointer();
-    assert_eq!(world.commonlib_reference_ptr(pointer).unwrap().form_id(), FormId(0x801));
+    assert_eq!(
+        world.commonlib_reference_ptr(pointer).unwrap().form_id(),
+        FormId(0x801)
+    );
 }
 
 #[test]

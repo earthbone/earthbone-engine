@@ -660,7 +660,7 @@ state. Projectile runtime access returns an explicit unsupported-hook result
 because projectile simulation is not implemented. The matching local
 CommonLib declarations are `BSPointerHandle.h`, `PlayerCharacter.h`,
 `ProcessLists.h` and `Projectile.h` in the alandtse reference checkout. The
-shim exposes source-level C++ declarations only, without an FFI bridge.
+shim exposes source-level C++ declarations, with no general FFI bridge.
 
 `World::commonlib_extra_worn`, `commonlib_game_setting`, `commonlib_hazard`,
 `commonlib_high_process` and `commonlib_resolve_hit` project current inventory,
@@ -671,6 +671,10 @@ Hit resolution runs through the existing melee combat path. The SHM-11 game
 tests cover live settings, worn markers, present and absent hazards, actor
 combat process state, and a resolved hit. These Rust adapters do not provide a
 C++ to Rust binding.
+
+condition API also has a request/reply bridge for compiled C++ condition
+calls. The game handles each request against the current world and VM. This
+transport does not provide general plugin loader services.
 `Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
 requests. The host loads model files for head parts offered by playable races
 and their chargen TRI files before processing later race menu requests. It

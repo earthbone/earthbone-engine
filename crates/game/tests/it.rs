@@ -51,6 +51,7 @@ mod ai_14_breaker_adversarial_2;
 mod ai_14_breaker_breaker_adversarial;
 #[path = "ai_14_breaker_breaker_adversarial_2.rs"]
 mod ai_14_breaker_breaker_adversarial_2;
+
 #[path = "ai_15_adversarial.rs"]
 mod ai_15_adversarial;
 #[path = "ai_16_adversarial.rs"]
@@ -1384,6 +1385,10 @@ mod shm_15_world_state;
 mod shm_16_adversarial;
 #[path = "shm_16_breaker_adversarial.rs"]
 mod shm_16_breaker_adversarial;
+#[path = "shm_17_adversarial.rs"]
+mod shm_17_adversarial;
+#[path = "shm_17_condition_bridge.rs"]
+mod shm_17_condition_bridge;
 #[path = "shm_17_conditions.rs"]
 mod shm_17_conditions;
 #[path = "shm_18_adversarial.rs"]
