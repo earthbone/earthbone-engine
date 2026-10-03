@@ -115,7 +115,9 @@ fn scr_23_show_position_requires_placed_reference_and_deduplicates() {
     );
     assert_eq!(game.world().debug_ref_positions(), vec![target]);
     assert!(game.vm.log.messages().iter().any(|message| {
-        message.to_string().contains("Debug.ShowRefPosition: invalid reference")
+        message
+            .to_string()
+            .contains("Debug.ShowRefPosition: invalid reference")
     }));
 }
 
@@ -128,7 +130,12 @@ fn scr_23_player_move_waits_for_host_completion_and_rejects_missing_name() {
         .local("result", "Var")
         .ins(
             CallStatic,
-            vec![s("Debug"), s("PlayerMoveToAndWait"), ident("result"), ident("destination")],
+            vec![
+                s("Debug"),
+                s("PlayerMoveToAndWait"),
+                ident("result"),
+                ident("destination"),
+            ],
         )
         .ins(soe_papyrus::Opcode::Return, vec![ident("result")])
         .build();
@@ -150,7 +157,10 @@ fn scr_23_player_move_waits_for_host_completion_and_rejects_missing_name() {
         Some(DebugHostRequest::MovePlayerToReference { reference, .. }) if *reference == target
     ));
     let player_id = game.player();
-    assert_eq!(game.world().reference_ref(player_id).unwrap().position, [0.0; 3]);
+    assert_eq!(
+        game.world().reference_ref(player_id).unwrap().position,
+        [0.0; 3]
+    );
 
     let Some(DebugHostRequest::MovePlayerToReference { latent, .. }) =
         game.world_mut().debug_host_requests.pop()
@@ -174,7 +184,12 @@ fn scr_23_player_move_waits_for_host_completion_and_rejects_missing_name() {
         .local("result", "Var")
         .ins(
             CallStatic,
-            vec![s("Debug"), s("PlayerMoveToAndWait"), ident("result"), ident("destination")],
+            vec![
+                s("Debug"),
+                s("PlayerMoveToAndWait"),
+                ident("result"),
+                ident("destination"),
+            ],
         )
         .ins(soe_papyrus::Opcode::Return, vec![ident("result")])
         .build();
@@ -189,9 +204,14 @@ fn scr_23_player_move_waits_for_host_completion_and_rejects_missing_name() {
         .call_global("PlayerMoveMissing", "Run", &[Value::string("NoSuchRef")])
         .unwrap();
     game.run_until_idle(64);
-    assert_eq!(game.vm.thread_result(missing_thread), Some(Value::Float(0.0)));
+    assert_eq!(
+        game.vm.thread_result(missing_thread),
+        Some(Value::Float(0.0))
+    );
     assert!(game.vm.log.messages().iter().any(|message| {
-        message.to_string().contains("destination reference not found")
+        message
+            .to_string()
+            .contains("destination reference not found")
     }));
 }
 
@@ -232,6 +252,8 @@ fn scr_23_move_to_cell_changes_origin_and_missing_cell_is_noop() {
         assert_eq!(moved.cell, Some(id(OTHER_CELL)));
     }
     assert!(game.vm.log.messages().iter().any(|message| {
-        message.to_string().contains("Debug.MoveToCell: destination cell not found")
+        message
+            .to_string()
+            .contains("Debug.MoveToCell: destination cell not found")
     }));
 }

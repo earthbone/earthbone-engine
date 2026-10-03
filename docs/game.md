@@ -1153,9 +1153,9 @@ leaving unrelated equipment in place. `StartVampireFeed` queues the documented
 `OnVampireFeed` event on the calling actor when its target resolves to a
 sleeping actor. `StartCannibal` queues the `CannibalStart` graph event on the
 calling actor when its argument resolves to a dead actor. `ClearExtraArrows`
-queues a `ClearExtraArrows` graph event on the calling actor. The runtime does
-not model attached-arrow extra data, so clearing those meshes in the host
-renderer remains unsupported.
+is a no-op because the runtime does not model attached-arrow extra data. The
+CK native clears arrows from actor 3D, so host renderer support remains a
+prerequisite for implementing this behavior.
 
 The SCR-23 Debug natives update runtime debug state or the shared player
 reference. `SetFootIK` stores the requested setting, defaulting to enabled.
@@ -1383,9 +1383,8 @@ Creation Engine frame capture or memory budgets.
   Multiply. The entry point ID, function encodings and tab order follow UESP
   `PERK.wikitext`; native name, arguments and result follow CK
   `WillIntimidateSucceed_-_Actor.wikitext`. The native evaluates perk
-  conditions with the actor as owner and the subject as target. The native
-  callback has no access to the calling VM's conditional Papyrus variables,
-  so an entry that requires one logs an error and fails closed.
+  conditions with the actor as owner and the subject as target, including
+  conditional Papyrus variables from the calling VM.
 - `GetWarmthRating` sums equipped ARMO warmth classifications. ARMO records
   with `Survival_ArmorWarm` contribute 54, those with `Survival_ArmorCold`
   contribute 17, and unclassified ARMO records contribute 27. Other equipped

@@ -25,6 +25,7 @@
 
 use crate::{conditions, Game, World};
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
+use soe_papyrus::{ObjectId, Value, Vm};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A failed purchase leaves perk ownership and the point balance unchanged.
@@ -158,6 +159,28 @@ pub fn entry_point_invocations(
     entry_point: u8,
     context: &EntryPointContext,
 ) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    entry_point_invocations_with_conditions(world, Some(vm), None, actor, entry_point, context)
+}
+
+/// Collect eligible entries using a caller-provided view of conditional VM variables.
+pub(crate) fn entry_point_invocations_with_lookup(
+    world: &mut World,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    entry_point_invocations_with_conditions(world, None, Some(lookup), actor, entry_point, context)
+}
+
+fn entry_point_invocations_with_conditions(
+    world: &mut World,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
     let owned = world.perks_for_actor(actor);
     let entries = world
         .order()
@@ -171,7 +194,7 @@ pub fn entry_point_invocations(
             if section.entry_point != entry_point {
                 continue;
             }
-            if !entry_conditions(world, vm, perk_id, &section, context)? {
+            if !entry_conditions(world, vm, lookup, perk_id, &section, context)? {
                 continue;
             }
             let invocation = EntryPointInvocation {
@@ -426,7 +449,8 @@ fn finish_section(sections: &mut Vec<EntrySection>, current: &mut Option<EntrySe
 
 fn entry_conditions(
     world: &mut World,
-    vm: &soe_papyrus::Vm,
+    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     perk: GlobalFormId,
     section: &EntrySection,
     context: &EntryPointContext,
@@ -457,9 +481,14 @@ fn entry_conditions(
             skill_use: context.skill_use,
             light_level: None,
         };
-        if !conditions::evaluate(world, vm, condition_context, conditions)
-            .map_err(|error| DispatchError::Condition(perk, error))?
-        {
+        let result = match (vm, lookup) {
+            (Some(vm), _) => conditions::evaluate(world, vm, condition_context, conditions),
+            (_, Some(lookup)) => {
+                conditions::evaluate_with_lookup(world, condition_context, conditions, lookup)
+            }
+            (None, None) => conditions::evaluate_without_vm(world, condition_context, conditions),
+        };
+        if !result.map_err(|error| DispatchError::Condition(perk, error))? {
             return Ok(false);
         }
     }

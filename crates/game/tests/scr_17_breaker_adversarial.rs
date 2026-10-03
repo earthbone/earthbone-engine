@@ -60,7 +60,7 @@ fn game() -> Game {
             .sub(T(b"DATA"), [43, 2, 2])
             .sub(T(b"PRKC"), [0])
             .sub(T(b"CTDA"), condition(629, QUEST, 1.0))
-            .zsub(T(b"CIS2"), "::gate")
+            .zsub(T(b"CIS2"), "::Gate_var")
             .sub(T(b"PRKC"), [1])
             .sub(T(b"EPFT"), [1])
             .sub(T(b"EPFD"), 25.0_f32.to_le_bytes())
@@ -71,7 +71,14 @@ fn game() -> Game {
     Game::new(order)
 }
 
-fn call(game: &mut Game, receiver: u32, method: &str, args: &[Value], types: &[&str], returns: &str) -> Value {
+fn call(
+    game: &mut Game,
+    receiver: u32,
+    method: &str,
+    args: &[Value],
+    types: &[&str],
+    returns: &str,
+) -> Value {
     let script_name = format!("Scr17BreakerProbe{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let mut function = FunctionBuilder::new("Run", returns)
         .global()
@@ -114,19 +121,46 @@ fn scr_17_intimidation_uses_live_conditional_perk_variables() {
     script.objects[0].variables[0].user_flags = 8;
     game.vm.load(script);
     game.vm.attach(quest_object, "Scr17Gate").unwrap();
-    game.vm.set_var(quest_object, "Scr17Gate", "::Gate", Value::Int(1)).unwrap();
-    game.world_mut().actor(id(PLAYER)).unwrap().perks.insert(id(PERK));
-    game.world_mut().set_actor_value(id(PLAYER), "speechcraft", 49.0).unwrap();
-    game.world_mut().set_actor_value(id(TARGET), "confidence", 2.0).unwrap();
-    assert_eq!(call(&mut game, TARGET, "WillIntimidateSucceed", &[], &[], "Bool"), Value::Bool(true));
+    game.vm
+        .set_var(quest_object, "Scr17Gate", "::Gate_var", Value::Int(1))
+        .unwrap();
+    assert_eq!(
+        game.vm.conditional_vars(quest_object, "::Gate_var"),
+        [Value::Int(1)]
+    );
+    game.world_mut()
+        .actor(id(PLAYER))
+        .unwrap()
+        .perks
+        .insert(id(PERK));
+    game.world_mut()
+        .set_actor_value(id(PLAYER), "speechcraft", 49.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(TARGET), "confidence", 2.0)
+        .unwrap();
+    let result = call(&mut game, TARGET, "WillIntimidateSucceed", &[], &[], "Bool");
+    assert_eq!(result, Value::Bool(true), "{:?}", game.vm.log.messages());
 }
 
 #[test]
 fn scr_17_warmth_rejects_malformed_keyword_arrays() {
     let mut game = game();
-    game.world_mut().actor(id(TARGET)).unwrap().equipped.insert(id(BROKEN_ARMOR));
-    assert_eq!(call(&mut game, TARGET, "GetWarmthRating", &[], &[], "Float"), Value::Float(0.0));
-    assert!(game.vm.log.messages().iter().any(|message| message.to_string().contains("GetWarmthRating")));
+    game.world_mut()
+        .actor(id(TARGET))
+        .unwrap()
+        .equipped
+        .insert(id(BROKEN_ARMOR));
+    assert_eq!(
+        call(&mut game, TARGET, "GetWarmthRating", &[], &[], "Float"),
+        Value::Float(0.0)
+    );
+    assert!(game
+        .vm
+        .log
+        .messages()
+        .iter()
+        .any(|message| message.to_string().contains("GetWarmthRating")));
 }
 
 #[test]
@@ -134,6 +168,12 @@ fn scr_17_package_move_rejects_nonfinite_centers_without_moving() {
     let mut game = game();
     let original = game.world_mut().reference(id(TARGET)).unwrap().position;
     game.world_mut().actor(id(TARGET)).unwrap().ai.center = Some([f32::NAN, 4.0, 5.0]);
-    assert_eq!(call(&mut game, TARGET, "MoveToPackageLocation", &[], &[], "None"), Value::None);
-    assert_eq!(game.world_mut().reference(id(TARGET)).unwrap().position, original);
+    assert_eq!(
+        call(&mut game, TARGET, "MoveToPackageLocation", &[], &[], "None"),
+        Value::None
+    );
+    assert_eq!(
+        game.world_mut().reference(id(TARGET)).unwrap().position,
+        original
+    );
 }

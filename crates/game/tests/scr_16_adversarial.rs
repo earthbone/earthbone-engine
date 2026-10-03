@@ -111,16 +111,10 @@ fn scr_16_start_cannibal_ignores_living_or_invalid_targets() {
 }
 
 #[test]
-fn scr_16_clear_extra_arrows_requests_actor_graph_event() {
+fn scr_16_clear_extra_arrows_does_not_request_an_animation_event() {
     let mut game = game();
     call(&mut game, "ClearExtraArrows");
-    assert_eq!(
-        game.world().animation_requests,
-        vec![soe_game::world::AnimationRequest {
-            target: id(ACTOR),
-            animation: "ClearExtraArrows".to_owned(),
-        }]
-    );
+    assert!(game.world().animation_requests.is_empty());
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
 

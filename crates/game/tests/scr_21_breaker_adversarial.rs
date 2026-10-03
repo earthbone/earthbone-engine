@@ -46,7 +46,10 @@ fn scr_21_native_god_mode_blocks_only_player_health_damage() {
         let stamina = world.actor(player).unwrap().values.get("stamina").current();
         world.damage_actor_value(player, "health", 20.0).unwrap();
         world.damage_actor_value(player, "stamina", 20.0).unwrap();
-        assert_eq!(world.actor(player).unwrap().values.get("health").current(), health);
+        assert_eq!(
+            world.actor(player).unwrap().values.get("health").current(),
+            health
+        );
         assert_eq!(
             world.actor(player).unwrap().values.get("stamina").current(),
             stamina - 20.0
@@ -56,25 +59,32 @@ fn scr_21_native_god_mode_blocks_only_player_health_damage() {
     let mut world = game.world_mut();
     let health = world.actor(player).unwrap().values.get("health").current();
     world.damage_actor_value(player, "health", 20.0).unwrap();
-    assert_eq!(world.actor(player).unwrap().values.get("health").current(), health - 20.0);
+    assert_eq!(
+        world.actor(player).unwrap().values.get("health").current(),
+        health - 20.0
+    );
 }
 
 #[test]
 fn scr_21_god_mode_does_not_protect_an_actor_when_it_is_not_the_player() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
-    plugin.push_top(
-        Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Scr21.esm", plugin).unwrap();
     let mut game = Game::new(order);
     set_god_mode(&mut game, true);
     let mut world = game.world_mut();
-    let actor = GlobalFormId { file: 0, object: 0x900 };
+    let actor = GlobalFormId {
+        file: 0,
+        object: 0x900,
+    };
     let health = world.actor(actor).unwrap().values.get("health").current();
     world.damage_actor_value(actor, "health", 20.0).unwrap();
-    assert_eq!(world.actor(actor).unwrap().values.get("health").current(), health - 20.0);
+    assert_eq!(
+        world.actor(actor).unwrap().values.get("health").current(),
+        health - 20.0
+    );
 }
 
 #[test]
@@ -104,7 +114,11 @@ fn scr_21_channel_notify_keeps_empty_and_whitespace_arguments() {
     )
     .unwrap();
     game.vm
-        .call_global(script, "Run", &[Value::string(""), Value::string(" line\n")])
+        .call_global(
+            script,
+            "Run",
+            &[Value::string(""), Value::string(" line\n")],
+        )
         .unwrap();
     game.run_until_idle(64);
     assert!(game.vm.log.contains("[]  line\n"));

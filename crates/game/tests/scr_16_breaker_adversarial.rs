@@ -57,7 +57,14 @@ fn call(game: &mut Game, method: &str, args: &[Value]) {
     let mut operands = vec![s(method), ident("actor"), ident("::nonevar")];
     for index in 0..args.len() {
         let name = format!("arg{index}");
-        function = function.param(&name, if method == "StartCannibal" || method == "StartVampireFeed" { "Actor" } else { "Form" });
+        function = function.param(
+            &name,
+            if method == "StartCannibal" || method == "StartVampireFeed" {
+                "Actor"
+            } else {
+                "Form"
+            },
+        );
         operands.push(ident(&name));
     }
     let bytes = ScriptBuilder::new(&script, "Form")
@@ -130,11 +137,7 @@ fn scr_16_breaker_start_cannibal_requires_a_dead_actor_target() {
     let mut game = game();
     call(&mut game, "StartCannibal", &[Value::Int(1)]);
     let target = Value::Object(game.object_of_form(id(TARGET)));
-    call(
-        &mut game,
-        "StartCannibal",
-        &[target],
-    );
+    call(&mut game, "StartCannibal", &[target]);
     assert!(game.world().animation_requests.is_empty());
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
@@ -144,12 +147,11 @@ fn scr_16_breaker_start_vampire_feed_ignores_missing_or_awake_targets() {
     let mut game = game();
     call(&mut game, "StartVampireFeed", &[Value::Int(4)]);
     let target = Value::Object(game.object_of_form(id(TARGET)));
-    call(
-        &mut game,
-        "StartVampireFeed",
-        &[target],
-    );
-    assert!(!game.traces().iter().any(|trace| trace == "feed event received"));
+    call(&mut game, "StartVampireFeed", &[target]);
+    assert!(!game
+        .traces()
+        .iter()
+        .any(|trace| trace == "feed event received"));
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }
 
@@ -157,9 +159,14 @@ fn scr_16_breaker_start_vampire_feed_ignores_missing_or_awake_targets() {
 fn scr_16_breaker_clear_extra_arrows_does_not_substitute_a_graph_event_for_removal() {
     let mut game = game();
     call(&mut game, "ClearExtraArrows", &[]);
+    call(&mut game, "ClearExtraArrows", &[Value::Int(7)]);
     assert!(
         game.world().animation_requests.is_empty(),
         "ClearExtraArrows must clear attached arrow 3D, not queue an unrelated graph event"
     );
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("ClearExtraArrows expects no arguments")));
     assert!(errors(&game).is_empty(), "{:?}", errors(&game));
 }

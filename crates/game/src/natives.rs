@@ -1624,7 +1624,11 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 );
                 return b(false);
             }
-            match crate::conditions::will_intimidate_succeed(world, &Vm::default(), me) {
+            match crate::conditions::will_intimidate_succeed(
+                world,
+                &|object, name| call.conditional_vars(object, &name),
+                me,
+            ) {
                 Ok(succeeds) => b(succeeds),
                 Err(error) => {
                     call.log
@@ -4180,8 +4184,11 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
-    method!(vm, w, "Actor", "ClearExtraArrows", |world, _call, me| {
-        world.request_animation(me, "ClearExtraArrows");
+    method!(vm, w, "Actor", "ClearExtraArrows", |_world, call, _me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.ClearExtraArrows expects no arguments");
+        }
         none()
     });
     self_method!(

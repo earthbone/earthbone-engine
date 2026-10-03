@@ -3467,7 +3467,7 @@ fn furniture_marker_type(
 /// authored Mod Player Intimidation perk entries.
 pub(crate) fn will_intimidate_succeed(
     world: &mut World,
-    vm: &Vm,
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
     subject: GlobalFormId,
 ) -> Result<bool, Error> {
     let player = world.player();
@@ -3482,9 +3482,8 @@ pub(crate) fn will_intimidate_succeed(
         return Ok(false);
     }
     let confidence = subject_actor.values.get("confidence").current();
-    let invocations = crate::perks::entry_point_invocations(
+    let invocations = crate::perks::entry_point_invocations_with_lookup(
         world,
-        vm,
         player,
         43,
         &crate::perks::EntryPointContext {
@@ -3496,6 +3495,7 @@ pub(crate) fn will_intimidate_succeed(
             alchemy_effect: None,
             skill_use: None,
         },
+        lookup,
     )
     .map_err(|error| Error::IntimidationPerk(error.to_string()))?;
     let effective_speechcraft =
