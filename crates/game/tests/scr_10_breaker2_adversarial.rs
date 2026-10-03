@@ -81,7 +81,7 @@ fn scr_10_alerted_without_combat_is_not_the_searching_combat_state() {
 }
 
 #[test]
-fn scr_10_path_to_unreached_target_suspends_until_path_completion() {
+fn scr_10_path_without_navigation_data_fails_to_build() {
     let mut game = game();
     let target = Value::Object(game.object_of_form(id(TARGET)));
     let class = "Scr10Breaker2LatentPath";
@@ -111,5 +111,5 @@ fn scr_10_path_to_unreached_target_suspends_until_path_completion() {
         .call_global(class, "Run", &[actor, target, Value::Float(0.5)])
         .unwrap();
     assert!(game.run_until_idle(64));
-    assert!(game.vm.thread_result(thread).is_none());
+    assert_eq!(game.vm.thread_result(thread), Some(Value::Bool(false)));
 }

@@ -958,7 +958,7 @@ restraint, and active magic. The concrete contract differences found were:
 
 | Binding | CK contract | Current registry behavior | Owning work |
 |---|---|---|---|
-| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Reads `in_combat` as 1 and `alerted` as 2, otherwise 0. | SCR-10. |
+| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Reads `in_combat` as 1, otherwise 0. Searching remains unsupported because actor state has no search state. | SCR-10. |
 | Actor.GetEquippedWeapon | Returns the left or right hand weapon selected by its Boolean argument. | Reads the actor's selected hand, with the right hand as default. | SCR-14. |
 | Actor.GetEquippedShield | Returns the currently equipped shield. | Returns equipped inventory armor whose resolved BOD2 mask includes shield slot 9. | SCR-14. |
 | Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
@@ -986,7 +986,8 @@ including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
 `Actor.IsBleedingOut`, `Actor.IsRunning`, `Actor.IsSprinting` and
 `Actor.IsHostileToActor`. The alarm and bleedout queries read actor state,
 while the movement queries read the running and sprinting flags supplied by
-runtime movement. `IsHostileToActor` is true when the calling actor is in combat
+runtime movement. `IsRunning` excludes sprinting, matching the CK distinction.
+`IsHostileToActor` is true when the calling actor is in combat
 and its current combat target is the supplied actor. A non-actor argument
 returns false.
 `natives::register` includes the implementations and quiet stubs listed below.
@@ -1229,8 +1230,9 @@ Current behavior and compatibility limits:
   Invalid indices return an empty name, zero and false. The CK Utility page
   documents these global signatures, and SKSE's vanilla `Utility.psc` declares
   them as global natives.
-`Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true,
-2 when the actor's alert flag is set, and 0 otherwise. `Actor.GetSleepState`
+`Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
+and 0 otherwise. Searching state 2 remains unsupported because the actor
+state has no search state. `Actor.GetSleepState`
 returns 3 while the AI driver marks the actor sleeping, 2 while its Sleep
 procedure is active but not yet sleeping, and 0 otherwise. The driver does not
 represent wants-to-wake state 4. These values follow the CK pages

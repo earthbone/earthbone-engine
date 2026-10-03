@@ -1561,15 +1561,9 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.in_combat)));
     method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
-        world.actor(me).map_or(0, |actor| {
-            if actor.in_combat {
-                1
-            } else if actor.alerted {
-                2
-            } else {
-                0
-            }
-        })
+        world
+            .actor(me)
+            .map_or(0, |actor| i32::from(actor.in_combat))
     ));
     method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(world
         .actor(me)
@@ -1833,7 +1827,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
     ));
     method!(vm, w, "Actor", "IsRunning", |world, call, me| b(world
         .actor(me)
-        .is_some_and(|actor| actor.running)));
+        .is_some_and(|actor| actor.running && !actor.sprinting)));
     method!(vm, w, "Actor", "IsSprinting", |world, call, me| b(world
         .actor(me)
         .is_some_and(|actor| actor.sprinting)));

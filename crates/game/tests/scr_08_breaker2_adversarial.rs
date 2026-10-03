@@ -86,7 +86,10 @@ fn scr_08_alarm_and_movement_queries_are_repeatable_reads() {
     for _ in 0..3 {
         assert_eq!(call_actor(&mut game, "IsAlarmed", &[]), Value::Bool(true));
         assert_eq!(call_actor(&mut game, "IsRunning", &[]), Value::Bool(true));
-        assert_eq!(call_actor(&mut game, "IsSprinting", &[]), Value::Bool(false));
+        assert_eq!(
+            call_actor(&mut game, "IsSprinting", &[]),
+            Value::Bool(false)
+        );
     }
     let mut world = game.world_mut();
     let actor = world.actor(id(ACTOR)).unwrap();

@@ -80,7 +80,7 @@ fn actor_call_on(game: &mut Game, actor_form: GlobalFormId, name: &str, args: &[
 }
 
 #[test]
-fn scr_10_combat_state_reports_idle_and_active_values() {
+fn scr_10_alert_does_not_report_searching_without_combat_state() {
     let mut game = game();
     game.world_mut().drive_actor(id(ACTOR));
     assert_eq!(actor_call(&mut game, "GetCombatState", &[]), Value::Int(0));
@@ -88,7 +88,7 @@ fn scr_10_combat_state_reports_idle_and_active_values() {
     assert_eq!(actor_call(&mut game, "GetCombatState", &[]), Value::Int(1));
     game.world_mut().actor(id(ACTOR)).unwrap().in_combat = false;
     game.world_mut().actor(id(ACTOR)).unwrap().alerted = true;
-    assert_eq!(actor_call(&mut game, "GetCombatState", &[]), Value::Int(2));
+    assert_eq!(actor_call(&mut game, "GetCombatState", &[]), Value::Int(0));
 }
 
 #[test]
