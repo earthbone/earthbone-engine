@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
-    PhysicsWorld, PlayerNode, Vec3,
+    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
+    PlayerNode, Vec3,
 };
 use crate::units::placement_to_godot;
 use godot::prelude::*;
@@ -317,6 +317,9 @@ impl PlayerNode {
                         self.base_mut().emit_signal("race_menu_requested", &[]);
                     }
                     soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        if let Some(view) = self.hud_view.as_mut() {
+                            view.trigger_screen_blood(value);
+                        }
                         self.base_mut()
                             .emit_signal("screen_blood_requested", &[Variant::from(value)]);
                     }
@@ -358,6 +361,21 @@ impl PlayerNode {
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
         }
+        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
+            let world = game.world();
+            let layers = world.shader_particle_layers();
+            let player = soe_esm::GlobalFormId {
+                file: 0,
+                object: soe_game::world::PLAYER_OBJECT,
+            };
+            let origin = world
+                .ref_placement(player)
+                .filter(|placement| placement.visible)
+                .map_or([0.0; 3], |placement| placement.position);
+            streamer
+                .bind_mut()
+                .sync_shader_particles(&layers, origin, delta.max(0.0) as f32);
+        }
         self.apply_host_requests();
         if self.main_menu.is_active() {
             return;
@@ -389,8 +407,8 @@ impl PlayerNode {
         if let Some(visual) = &mut self.player_appearance {
             if visual.is_instance_valid() {
                 visual.bind_mut().set_first_person_geometry_visible(
-                    self.rig.mode != super::CameraMode::First
-                        || self.camera_state.first_person_geometry_visible(),
+                    self.camera_state
+                        .rendered_first_person_geometry_visible(self.rig.mode),
                 );
             } else {
                 self.player_appearance = None;
@@ -448,12 +466,25 @@ impl PlayerNode {
                     );
                 }
                 soe_game::HostRequest::CameraFirstPerson => {
-                    self.rig.mode = CameraMode::First;
+                    crate::camera::apply_game_camera_request(&mut self.rig, true);
                     self.update_camera();
                 }
                 soe_game::HostRequest::CameraThirdPerson => {
-                    self.rig.mode = CameraMode::Third;
+                    crate::camera::apply_game_camera_request(&mut self.rig, false);
                     self.update_camera();
+                }
+                soe_game::HostRequest::ControllerShake {
+                    left_strength,
+                    right_strength,
+                    duration,
+                } => {
+                    let mut input = godot::classes::Input::singleton();
+                    for device in input.get_connected_joypads().iter_shared() {
+                        input
+                            .start_joy_vibration_ex(device as i32, left_strength, right_strength)
+                            .duration(duration)
+                            .done();
+                    }
                 }
                 soe_game::HostRequest::FadeOutGame {
                     fading_out,

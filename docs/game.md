@@ -153,6 +153,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
   associated-item field follow local xEdit `wbDefinitionsTES5.pas`. The CK
   magic-effect pages in the local corpus do not specify additional Light
   runtime semantics.
+- `Spell.Preload` and `Spell.Unload` validate the winning SPEL record and queue
+  typed spell art requests on `World`. `take_spell_art_requests` drains them in
+  Papyrus call order. `Unload` queues only when this world previously received
+  `Preload` for that spell. The Godot host does not consume these requests yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -266,10 +270,13 @@ Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
 linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
 resolved `INAM` IDLE form emits its editor ID through the actor's animation
 event path once when the actor arrives. A marker whose base is FURN uses the
-existing Sit-marker reservation. The reservation is released before the route
-advances, and the Patrol dwell deadline prevents the idle event from firing
-again after save and restore. PDTO references and subtype fields are
-validated, but they do not start a conversation. AI-23's UseIdleMarker
+existing Sit-marker reservation. The first non-null DIAL reference in the
+marker's PDTO entries starts a dialogue session when the actor and player are
+eligible and no other session is open. Topic subtype entries are validated
+but do not select a dialogue session. The reservation is released before the
+route advances, and the Patrol dwell deadline prevents the idle event or topic
+action from firing again after save and restore. These field layouts follow
+xEdit `wbRefRecord(ACHR)` and Mutagen `Patrol.xml`. AI-23's UseIdleMarker
 reservation and interruption behavior is not in this worktree, and its
 reservation contract remains separate from Patrol's FURN reservation.
 
@@ -527,8 +534,11 @@ Papyrus calls return void, rejected requests are recorded in
 `World::advance_skill`. Invalid use is recorded there as a native diagnostic.
 The signatures and short behavior descriptions come from the local
 `ck-wiki/Game_Script.wikitext`, since individual pages for these five
-functions are absent. Skill effects use the record-backed AVIF and GMST path
-documented in [progression](progression.md).
+functions are absent. The host displays cart mode, the race editor and a
+timed screen blood overlay. `PlayBink` reaches the host as a signal with all
+four options, but Bink decoding and playback are not implemented. Skill
+effects use the record-backed AVIF and GMST path documented in
+[progression](progression.md).
 
 **World reference placement.** `World::ref_placement` (in `world/refs.rs`) is
 the read-only view a host uses to keep rendering and collision resources in
@@ -553,19 +563,24 @@ CK pages define sit values 0, 2, 3 and 4, flying values 0 through 4, and
 systems before they can be completed.
 
 **Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
-current time-driven sun position in Skyrim units, using a 100,000-unit orbit
-with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
-is relative to the player's current placement. `Game.IsPlayerSungazing`
+current time-driven sun position in Skyrim units, on the runtime's 100,000-unit
+orbit. The model places the sun east at 06:00, overhead at 12:00 and west at
+18:00, relative to the player's current placement. `Game.IsPlayerSungazing`
 compares the host camera direction with the sun direction and returns true
-within one degree. `Game.ShakeCamera` queues a transient request for the host.
-Its source defaults to the player, strength defaults to 0.5 and clamps to 0
-through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
-fallback. Invalid source types, non-finite values and negative durations do
-not queue an effect. These camera requests are transient and are not saved.
-The CK pages define the returned coordinates and gaze meaning, while the
-shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
-not specify the sun orbit formula or gaze angular tolerance, so those are
-runtime choices.
+within the runtime's one-degree angular cutoff. These orbit and cutoff values
+are runtime model choices. The local CK `Game_Script.wikitext` describes the
+coordinate getters and says sungazing checks whether the player looks directly
+at the sun. The shipped `Game.psc` confirms their global signatures. Neither
+source specifies an orbit formula, radius, or angular tolerance. The tests
+`scr_26_sun_orbit_uses_100000_unit_radius_and_clock_cardinals` and
+`scr_26_sungazing_uses_one_degree_angular_cutoff` pin the chosen model.
+`Game.ShakeCamera` queues a transient request for the host. Its source defaults
+to the player, strength defaults to 0.5 and clamps to 0 through 1, and duration
+zero uses `fCameraShakeDuration` or a 0.25-second fallback. Invalid source
+types, non-finite values and negative durations do not queue an effect. These
+camera requests are transient and are not saved. The shipped `Game.psc` and CK
+page define the native signature and description. Shipped script defaults
+provide shake defaults and clamping.
 
 ### Debug natives, SCR-20
 
@@ -700,8 +715,9 @@ assault. The combat path uses the victim's crime faction and its `CRVA`
 assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
 and lethal player hits do not add an assault bounty. The victim's witnessed
 perpetrator set and the faction's violent bounty are updated through the
-existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
-remain later work.
+existing crime recorder. `Faction.SendAssaultAlarm` also records a player
+assault using the nearest built actor in its faction as witness and marks that
+actor alarmed.
 
 **Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
 `LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
@@ -720,11 +736,25 @@ CK corpus supplies no usable return contract for these condition functions.
 crime faction at one in-game day per 100 gold of bounty, rounded up and
 capped at seven days. It advances the shared clock, clears that faction's
 violent and nonviolent bounty, clears partial skill-use experience, and adds
-the served days to the player's `days_in_jail`. That counter is stored in the
-`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
-record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
-this path, so prison placement and stolen-item confiscation or belongings
-restoration are not implemented.
+the served days to the player's `days_in_jail`. The counter and serving
+faction are stored in the `PRG-13` actor save section. Release uses that
+faction even if the player's current crime faction changes. When the winning
+FACT supplies a valid `PLCN` reference, ordinary player inventory moves to
+that player belongings chest.
+Stacks with an owner extra move to the faction's valid `STOL` evidence chest
+when it is present. Inventory changes are prepared before commit, and missing
+or invalid chest references leave the affected items with their current
+holder. `Game.ClearPrison` clears the served-day counter and transfers the
+contents of the serving faction's `PLCN` back to the player. Contents in
+`STOL` remain evidence. Jail marker travel through `JAIL`, outfit changes
+through `JOUT`, and guard movement remain unimplemented. The FACT field
+definitions follow `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/FACT.wikitext`.
+`Faction.SendPlayerToJail` serves the receiver faction's bounty through this
+accounting path and marks the player arrested after a positive sentence. Its
+inventory-removal option removes any inventory left with the player after
+confiscation. The real-jail option still produces a Papyrus trace because
+jail-marker travel is not implemented.
 
 **Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
 when the player has enough `Gold001`, jail for a positive bounty, and
@@ -765,11 +795,15 @@ and forced movement state are not implemented.
 **Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
 `ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
 cleared by `Actor.ClearArrested`. It also resets the player's cumulative
-served-day counter. `Game.ServeTime` applies the remaining jail time. The
-engine does not yet select a high-process witness for werewolf crime, trigger
-a sun-gaze modifier, or send controller rumble to Godot.
-`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
-`ShakeController` remain stubs until those owning systems exist.
+served-day counter. `Game.ServeTime` applies the remaining jail time.
+`Game.SendWereWolfTransformation` records the werewolf crime with the first
+sorted loaded high-process actor whose shared detection state marks the player
+Alert or in Combat. `Game.SetSunGazeImageSpaceModifier` validates and saves an
+optional IMAD form, then applies it when the player starts looking at the sun.
+`Game.ShakeController` queues finite strengths and a non-negative duration for
+the Godot host, clamping strengths to the host's 0 to 1 range. Invalid
+controller-shake values are appended to the world's native error collection
+without queuing a request.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
@@ -901,7 +935,17 @@ UI-15 supplies the gift menu and inventory transaction path.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the
 given faction, defaulting an absent reaction to neutral and saturating at the
-`i32` bounds. The shipped `Faction.psc` supplies its argument contract.
+`i32` bounds through `World::mod_faction_reaction`. The shipped
+`skse64/scripts/vanilla/Faction.psc` supplies the argument contract.
+`Faction.SendAssaultAlarm` chooses the nearest built actor belonging to its
+faction, marks it alarmed, then records the player's assault through the
+witnessed-crime API.
+The CK `SendAssaultAlarm_-_Actor.wikitext` page describes the actor alarm as
+simulating an assault by the player. `Faction.SendPlayerToJail` routes its
+receiver faction through the existing sentence accounting API. The vanilla
+PSC declares the inventory and real-jail flags. Inventory removal is applied
+when requested. Real-jail travel still produces a trace because jail-marker
+travel is not implemented.
 
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,
@@ -982,12 +1026,12 @@ restraint, and active magic. The concrete contract differences found were:
 
 | Binding | CK contract | Current registry behavior | Owning work |
 |---|---|---|---|
-| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Quietly returns 0 because search state is not represented. | SCR-10, with AI engagement state prerequisite CMB-17. |
+| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Reads `in_combat` as 1, otherwise 0. Searching remains unsupported because actor state has no search state. | SCR-10. |
 | Actor.GetEquippedWeapon | Returns the left or right hand weapon selected by its Boolean argument. | Reads the actor's selected hand, with the right hand as default. | SCR-14. |
 | Actor.GetEquippedShield | Returns the currently equipped shield. | Returns equipped inventory armor whose resolved BOD2 mask includes shield slot 9. | SCR-14. |
-| Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
-| Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
-| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11. Flight state also depends on AI-66. |
+| Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | HasLOS accepts finite positions for references in the same cell. PathToReference returns true only for a valid speed and an already reached target. | SCR-10. |
+| Actor.IsFlying | Reports the actor's flight state. | Reads live movement flight flags or the Hover package procedure. | SCR-10. |
+| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | GetSleepState maps the sleep procedure and sleeping flag to 0, 2 or 3. | SCR-10 and SCR-11. |
 | Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem. `abSilent` suppresses the equip message. | Both arguments are ignored. No lock or message state is represented. | No current backlog row owns the lock and message behavior. |
 
 `Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers.
@@ -999,18 +1043,26 @@ SCR-02 registry regression checks the ActiveMagicEffect registrations and the
 Actor discrepancy bindings against this inventory. It does not claim original
 runtime parity for state which the engine does not model yet.
 
-`natives::register` has 385 stateful registrations and 166 quiet stubs,
-including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed` and
-`Actor.IsBleedingOut`. `IsAlarmed` reads the actor's alert flag.
-`IsBleedingOut` requires an actor to be unconscious, alive and at or below its
-record-derived bleedout threshold. A quiet stub returns the idle value the game
-gives when nothing is going on, so vanilla scripts can continue when their
-owning system has no behavior yet.
+The SCR-10 tests cover the state codes and argument boundaries described
+above. `HasLOS` does not query collision geometry, and `PathToReference` does
+not start a latent movement request. GetSleepState cannot report the documented
+wants-to-wake state 4 because the actor state has no wake transition. These
+bindings remain limited until the runtime has those owning behaviors.
+
+`natives::register` has 388 stateful registrations and 163 quiet stubs,
+including `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
+`Actor.IsBleedingOut`, `Actor.IsRunning`, `Actor.IsSprinting` and
+`Actor.IsHostileToActor`. The alarm and bleedout queries read actor state,
+while the movement queries read the running and sprinting flags supplied by
+runtime movement. `IsRunning` excludes sprinting, matching the CK distinction.
+`IsHostileToActor` is true when the calling actor is in combat
+and its current combat target is the supplied actor. A non-actor argument
+returns false.
 `natives::register` includes the implementations and quiet stubs listed below.
 The registration test checks the hand-kept stateful count and rejects duplicate
-names. It includes `CreateDetectionEvent`, `Is3DLoaded`, `Actor.IsAlarmed`,
-`Actor.IsBleedingOut`, shader-particle controls, EffectShader playback and
-Utility's frame-rate functions. `IsAlarmed` reads the actor's alert flag.
+names. It includes `CreateDetectionEvent`, `Is3DLoaded`, the Actor alert,
+bleedout and movement queries, shader-particle controls, EffectShader playback
+and Utility's frame-rate functions. `IsAlarmed` reads the actor's alert flag.
 `IsBleedingOut` requires an actor to be unconscious, alive and at or below its
 record-derived bleedout threshold. `Utility.IsInMenuMode` reads the state most
 recently supplied to `tick_menu_mode`. A quiet stub returns the idle value the
@@ -1030,7 +1082,7 @@ an SKSE member.
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Is3DLoaded, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, DamageObject, GetCurrentDestructionStage, ClearDestruction, SetNoFavorAllowed, PlayAnimation, PlayAnimationAndWait, WaitForAnimationEvent, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe, GetCurrentScene, CreateDetectionEvent, TetherToHorse, ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, Reset | IsFurnitureInUse, PlayGamebryoAnimation, SetMotionType, ApplyHavokImpulse, KnockAreaEffect, PushActorAway and 6 more, plus the DLC furniture marker and translation functions: IsFurnitureMarkerInUse, TranslateTo, SplineTranslateTo, StopTranslation |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, SetEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, RemoveAllSpells, HasSpell, EquipItem, UnequipItem, UnequipAll, IsEquipped, GetEquippedWeapon, GetEquippedShield, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, StartVampireFeed | IsRunning, IsSprinting, IsHostileToActor, EvaluatePackage, SetLookAt and 34 more, plus DLC methods without a system: IsFlying, GetWarmthRating, StartCannibal, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation, WillIntimidateSucceed |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), ShowGiftMenu, SetExpressionOverride, ClearExpressionOverride, IsDead, Kill, GetKiller, Resurrect, IsInCombat, GetCombatState, GetSleepState, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, SetEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, RemoveAllSpells, HasSpell, EquipItem, UnequipItem, UnequipAll, IsEquipped, GetEquippedWeapon, GetEquippedShield, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, IsAlarmed, IsBleedingOut, IsRunning, IsSprinting, IsHostileToActor, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, StartVampireFeed | EvaluatePackage, SetLookAt and 34 more, plus DLC methods without a system: IsFlying, GetWarmthRating, StartCannibal, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation, WillIntimidateSucceed |
 | ActorBase | GetSkin, SetSkin, GetRace, GetClass, GetGiftFilter, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | |
 | Quest | Start, Stop, Reset, IsRunning, IsStarting, IsStopping, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -1041,10 +1093,10 @@ an SKSE member.
 | ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu, SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, ShakeController, ShakeCamera | FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC sky functions: GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell | |
-| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
+| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup, SendAssaultAlarm, SendPlayerToJail | - |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, ShakeController, SendWereWolfTransformation, SetSunGazeImageSpaceModifier, IncrementStat, QueryStat, IsFastTravelEnabled, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, `SetINI*` and `GetINI*` (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetCurrentBudget, OverBudget | GetCurrentMemory, GetBudgetCount, GetBudgetName. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -1109,13 +1161,13 @@ functions are documented in the CK page as conditional or beta functions.
 | `Utility.StartFrameRateCapture` | CK marks this as beta-only and starts sampling. Quiet stub, owned by SCR-49. |
 | `Utility.EndFrameRateCapture` | CK marks this as beta-only and ends sampling. Quiet stub, owned by SCR-49. |
 | `Utility.GetAverageFrameRate` | CK marks this as beta-only and reports the capture average. Quiet stub, owned by SCR-49. |
-| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the capture minimum. Quiet stub, owned by SCR-50. |
-| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the capture maximum. Quiet stub, owned by SCR-50. |
-| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. Quiet stub, owned by SCR-50. |
-| `Utility.GetBudgetCount` | CK reports the number of memory budgets. Returns the two engine budget categories documented below. |
-| `Utility.GetBudgetName` | CK reports a budget name by index. Returns the engine category name, or `None` for an invalid index. |
-| `Utility.GetCurrentBudget` | CK reports current memory use by budget index. Returns the measured Papyrus instructions or exterior cell loads for the latest update. |
-| `Utility.OverBudget` | CK reports whether the indexed budget is exceeded. Compares the measured count with its configured cap. |
+| `Utility.GetMinFrameRate` | CK marks this as beta-only and reports the active capture minimum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetMaxFrameRate` | CK marks this as beta-only and reports the active capture maximum. It returns `None` and logs when no frames have been captured. |
+| `Utility.GetCurrentMemory` | CK says this initializes and returns memory statistics when tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetCount` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so this logs an explicit error and returns `None`. |
+| `Utility.GetBudgetName` | CK exposes memory budget metadata only when memory tracking is enabled. The runtime has no game-owned memory tracker, so valid indices log an explicit error and return an empty string. |
+| `Utility.GetCurrentBudget` | Returns measured Papyrus instructions or exterior cell loads for the latest update. |
+| `Utility.OverBudget` | Compares the measured count with its configured cap. |
 | `VisualEffect.Play` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes starting an effect on a target with negative duration meaning indefinite. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 | `VisualEffect.Stop` | The local CK corpus has no VisualEffect function page or shipped VisualEffect PSC. The registered shape is a method. The sibling `EffectShader` PSC describes stopping an effect on a target. VisualEffect rendering and its authored-art lifecycle belong to MAG-24. |
 
@@ -1226,9 +1278,9 @@ comments. No bindings in this inventory are globals.
 | Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
 | Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
 | Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
-| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding. Witnessed assault handling is part of PRG-12's arrest path. |
-| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding. Jail, property handling and sentence effects belong to PRG-13. |
-| Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
+| Faction.SendAssaultAlarm | Selects the nearest built actor in the faction and records a player assault through the crime system. A missing witness or untracked faction is traced. |
+| Faction.SendPlayerToJail | Serves the receiver faction's bounty through jail sentence accounting and marks the player arrested after a positive sentence. Jail travel and belongings storage are not implemented. |
+| Faction.ModReaction | Takes another faction and a signed delta, then saturating-adds it to this faction's reaction toward it. |
 | ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
 
 The shipped `ReferenceAlias.psc` also returns false when already filled and
@@ -1238,28 +1290,32 @@ derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
-- `GetBudgetCount` reports two engine categories: `Papyrus instructions per
-  slice` and `Exterior cell loads per update`. `GetCurrentBudget` returns the
-  measured instruction count from the most recent VM slice or exterior cell
-  load count from the most recent host streaming update. `OverBudget` compares
-  that measurement with `PAPYRUS_INSTRUCTIONS_PER_SLICE` or
-  `EXTERIOR_CELL_LOADS_PER_UPDATE`. Invalid indices return `None`, zero and
-  false for name, integer and boolean queries. The CK Utility page documents
-  these global signatures, and SKSE's vanilla `Utility.psc` declares them as
-  global natives.
+- `GetBudgetCount` reports the two engine categories, `Papyrus instructions per
+  slice` and `Exterior cell loads per update`. `GetBudgetName` returns their
+  names. `GetCurrentBudget` returns the measured instruction count from the
+  most recent VM slice or the exterior cell load count from the most recent
+  host streaming update. `OverBudget` compares that measurement with
+  `PAPYRUS_INSTRUCTIONS_PER_SLICE` or `EXTERIOR_CELL_LOADS_PER_UPDATE`.
+  Invalid scheduler indices return zero and false for integer and boolean
+  queries. These runtime scheduler limits are separate from CK memory budget
+  metadata. The CK Utility pages document the global signatures, and SKSE's
+  vanilla `Utility.psc` declares these as global natives.
 `Actor.GetCombatState` reads `ActorState::in_combat`, returning 1 while true
-and 0 otherwise. Searching state 2 is not represented by the combat system.
-`Actor.GetSleepState` reads the AI driver's `sleeping` flag, returning 3 while
-the sleep procedure is active and 0 otherwise. Transitional sleep states are
-not represented, including 2 (wants to sleep) and 4 (wants to wake). These values follow the CK pages
+and 0 otherwise. Searching state 2 remains unsupported because the actor
+state has no search state. `Actor.GetSleepState`
+returns 3 while the AI driver marks the actor sleeping, 2 while its Sleep
+procedure is active but not yet sleeping, and 0 otherwise. The driver does not
+represent wants-to-wake state 4. These values follow the CK pages
 `GetCombatState_-_Actor` and `GetSleepState_-_Actor` in the local `ck-wiki`
 corpus.
 
-`Actor.HasLOS` returns true when both references are at the same position and
-the target is visible. Other geometry is not checked. `Actor.PathToReference`
-returns true for a visible target already at the actor's position and valid
-speed. Other requests need a latent path completion API. `Actor.IsFlying`
-remains a quiet stub because the actor model has no current flight state.
+`Actor.HasLOS` returns true for finite reference positions in the same cell,
+and only the player can query a non-actor target. It does not query collision
+geometry, clip checks to the player's camera or make the three documented
+visibility picks. `Actor.PathToReference` returns true
+only when a valid speed is supplied and the target is already at the actor's
+position. Other requests need a latent path completion API. `Actor.IsFlying`
+reads live actor flight flags or the Hover procedure.
 Their CK contracts are described by
 `HasLOS_-_Actor`, `PathToReference_-_Actor` and `IsFlying_-_Actor` in the local
 `ck-wiki` corpus.
@@ -1268,32 +1324,36 @@ Their CK contracts are described by
   `SPGD` record and starts or restarts its transient layer. `Remove(fadeSeconds)`
   removes it immediately or fades it out. `World::shader_particle_layers`
   exposes decoded geometry fields and the current fade strength in form order.
+  `soe-godot-host` consumes that snapshot and renders one server-side MultiMesh
+  per active form, centered on the player. Particle positions are stable for a
+  form and index, wrap through the authored box as gravity advances, and use
+  the SPGD texture when it can be loaded. The host bounds density to 256 quads.
   Both methods reject malformed record data and non-finite or negative fade
   values before changing the active set. Game ticks advance the fades. These
   effects are transient and are not saved. The CK corpus has no named pages for
   these two methods. The DATA and ICON layout follows xEdit's
   `wbRecord(SPGD)`, UESP's `SPGD.wikitext`, Mutagen's Skyrim SPGD schema, and
-  CommonLib's `BGSShaderParticleGeometryData`. `Raw_Function_Data.wikitext`
-  identifies both functions and their float arguments. The host does not yet
-  consume the layer snapshot or render particle geometry.
+  CommonLib's `BGSShaderParticleGeometryData`. UESP's
+  `Raw_Function_Data.wikitext` identifies the Play and Stop functions and
+  their float arguments.
 
 ### Utility runtime queries, SCR-50
 
-`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture.
-Without available capture data, they return `None` and log that beta capture is
-unavailable. `GetCurrentMemory` requires a memory-tracking provider, which the
-game and host do not have, so it returns `None` and logs an error. The capture
-lifecycle and average query remain available.
-`GetBudgetCount` returns two engine categories, `Papyrus instructions per slice`
-and `Exterior cell loads per update`. `GetBudgetName` returns those names by
-index. `GetCurrentBudget` reads the instruction count returned by the most
-recent VM scheduler slice or the number of exterior cells committed by the
-most recent host streaming update. Before a measurement, each value is zero.
-`OverBudget` compares the measured value with that category's configured cap.
-Invalid indices return zero, false or `None` for integer, boolean and name
-queries. `GetCurrentMemory` remains unavailable and is not needed to read these
-engine-owned counters. The CK Utility page documents the signatures, and
-SKSE's vanilla `Utility.psc` declares them as global natives.
+`GetMinFrameRate` and `GetMaxFrameRate` read the active frame-rate capture fed
+by `Game::tick`. Without captured frames, they return `None` and log that beta
+capture data is unavailable. `GetCurrentMemory`, `GetBudgetCount`, and
+`GetBudgetName` are available only when memory tracking is enabled. This
+runtime has no game-owned memory tracker, so `GetCurrentMemory` and
+`GetBudgetCount` return `None` and log an explicit error. `GetBudgetName`
+requires exactly one integer index. It returns an empty string for an invalid
+index, or logs an explicit error and returns an empty string when tracking is
+unavailable. The scheduler budget methods `GetCurrentBudget` and `OverBudget`
+read separate runtime counters. `GetCurrentBudget` reads the instruction count
+returned by the most recent VM scheduler slice or the number of exterior cells committed by
+the most recent host streaming update. Before a measurement, each value is
+zero. `OverBudget` compares that measured value with its configured cap. The
+CK Utility page documents these signatures, and SKSE's vanilla `Utility.psc`
+declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
@@ -1304,8 +1364,9 @@ Creation Engine frame capture or memory budgets.
   and returns true when any referenced MGEF has its hostile flag. Missing or
   malformed spell/effect records are logged and return false. `Spell.Cast` and
   `RemoteCast` use the direct-cast path described below. `Spell.Preload` and
-  `Spell.Unload` validate the spell record and report that art resource
-  loading is unsupported. `Topic.Add` validates and records known topics.
+  `Spell.Unload` validate the spell record and queue typed art requests. The
+  Godot host does not consume them yet. `Topic.Add` validates and records known
+  topics.
 - The shipped `Topic.psc` declares `Topic.Add()` only. There is no
   `Topic.Remove` native or Spell/Topic global native in the local vanilla
   Papyrus sources.
@@ -1365,11 +1426,10 @@ Creation Engine frame capture or memory budgets.
   `FunctionsDump.txt` entry for `MusicType`.
 
 - `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
-  SPEL reader, then report that spell art resource loading is unsupported. They
-  do not change cast or active-effect state. The shipped `Spell.psc` describes
-  these as art-resource operations and warns against misuse. The game crate has
-  no art resource loader, so implementing their load and unload effects requires
-  a separate resource-system prerequisite.
+  SPEL reader and queue typed art requests. The Godot host does not consume
+  these requests yet, so art is not loaded or released. The shipped `Spell.psc`
+  describes these as art-resource operations and warns against misuse. A host
+  art resource provider remains a prerequisite for the observable effects.
 - `VisualEffect.Play` adds a transient effect instance for the RFCT form and
   placed target. Calls stack, negative durations remain until stopped, and a
   finite duration expires on an unpaused game tick. The optional facing
@@ -1476,7 +1536,8 @@ Creation Engine frame capture or memory budgets.
   `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
   `ModCrimeGold` adds to the violent or non-violent bounty and to the infamy
   of that kind, `PlayerPayCrimeGold` removes the bounty from the player's
-  `Gold001` and clears it. Jail and the assault alarm are stubs.
+  `Gold001` and clears it. Faction assault alarms and jail sentencing use the
+  witnessed-crime and jail-accounting paths described above.
 - Perks, the crime faction and the outfits are seeded from `PRKR`, `CRIF`,
   `DOFT` and `SOFT`. `SetCrimeFaction` also joins the faction, per its page.
   `StartSneaking` toggles, per its page. `SetRestrained` and
@@ -1620,12 +1681,12 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.GetSunPositionX` | Quiet zero stub for the X coordinate. |
 | `Game.GetSunPositionY` | Quiet zero stub for the Y coordinate. |
 | `Game.GetSunPositionZ` | Quiet zero stub for the Z coordinate. |
-| `Game.ShakeCamera` | Quiet stub. CK takes a source reference and strength. |
-| `Game.SendWereWolfTransformation` | Quiet stub for the CK crime-reporting operation. |
-| `Game.ServeTime` | Quiet stub for the CK jail-time operation. |
-| `Game.ClearPrison` | Quiet stub for clearing player prison state. |
-| `Game.SetSunGazeImageSpaceModifier` | Quiet stub for setting the sun-gaze image modifier. |
-| `Game.ShakeController` | Quiet stub. CK takes two strengths and a duration. |
+| `Game.ShakeCamera` | Queues a source reference, strength and duration for the host camera. |
+| `Game.SendWereWolfTransformation` | Reports werewolf crime through a loaded high-process actor with current Alert or Combat detection. |
+| `Game.ServeTime` | Serves jail time against the player's crime faction when one is set. |
+| `Game.ClearPrison` | Clears the player's arrested flag and cumulative served-day counter. |
+| `Game.SetSunGazeImageSpaceModifier` | Sets the saved IMAD modifier triggered when sungazing begins. |
+| `Game.ShakeController` | Queues left and right rumble strengths plus duration for the Godot host. |
 | `Game.FadeOutGame` | Quiet stub. CK takes fade direction, black fade, delay and duration. |
 | `Game.RequestSave` | Quiet stub for a normal save request. |
 | `Game.RequestAutoSave` | Quiet stub for an autosave request. |
@@ -1636,11 +1697,11 @@ The Game class page provides the signatures and short contracts used below.
 | `Game.TriggerScreenBlood` | Quiet stub. The CK Game class page has no entry. |
 | `Game.PlayBink` | Quiet stub. CK takes a filename and four playback flags. |
 | `Game.AdvanceSkill` | Quiet stub. CK takes a skill name and usage magnitude. |
-| `Game.PrecacheCharGen` | Quiet stub for preloading character-generation assets. |
-| `Game.PrecacheCharGenClear` | Quiet stub for clearing the character-generation cache. |
-| `Game.ShowTrainingMenu` | Quiet stub. CK takes the trainer actor. |
-| `Game.ShowFirstPersonGeometry` | Quiet stub. CK takes a visibility flag. |
-| `Game.SetCameraTarget` | Quiet stub. CK takes the target actor. |
+| `Game.PrecacheCharGen` | Queues the host to retain available race head-part models and chargen TRI assets. |
+| `Game.PrecacheCharGenClear` | Queues the host to release retained race head-part and chargen TRI assets. |
+| `Game.ShowTrainingMenu` | Queues a valid trainer actor for the host training presenter. |
+| `Game.ShowFirstPersonGeometry` | Sets whether the player's first-person geometry is shown in first-person view. |
+| `Game.SetCameraTarget` | Sets a valid actor as the camera anchor target. |
 | `Game.QuitToMainMenu` | Quiet stub for returning to the main menu. |
 | `Game.SetSittingRotation` | Quiet stub. CK takes the rotation value. |
 | `Game.StartTitleSequence` | Quiet stub. CK takes a sequence name. |
@@ -1705,12 +1766,19 @@ scene and sends `OnEnd`. `Scene.IsPlaying` reads the running-scene set.
 `Scene.GetOwningQuest` resolves the owning quest from the scene record's parent
 quest field. These behaviors match the local PSC summaries.
 
-`Scene.IsActionComplete` takes the action's zero-based position in the SCEN
-action list, following the existing scene action state and the vanilla scenes
-that reuse authored action numbers. It reports whether that slot completed in
-the current run. Negative and unknown slots return false. The previous
-constant-false stub is now backed by the same completed slot set that gates
-phase advancement.
+`Scene.IsActionComplete(actionID)` takes the SCEN action number from `INAM`,
+not the action's zero-based position in the list. It reports whether the
+matching action slot completed in this scene's current run. Negative and
+unknown action numbers return false, including numbers for actions removed
+from the record. Completion in another scene with the same action number does
+not affect the result. The local CK corpus has no named page for this method.
+The vanilla `Scene.psc` declares its integer action ID argument, while UESP's
+SCEN layout identifies `INAM` as the action number and notes that action
+numbers can be non-sequential and can overlap between scene records. The
+`scr_44_` tests exercise sparse and invalid action numbers through Papyrus
+dispatch. A `SKYRIM_DATA`-gated check uses the UESP-named vanilla scenes to
+verify overlapping action numbers stay scene-local through Papyrus dispatch.
+The completed slots remain the same state that gates phase advancement.
 
 `Scene.ForceStart` is currently the same path as `Start`. Vanilla PSC says it
 must also end scenes running on references in the forced scene. Actor action
@@ -5710,10 +5778,10 @@ registered Sound names and method/global placement match those declarations.
 `World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
 removes the selected instance from the world's sound-instance table.
 
-| Registry binding | CK contract comparison | Current implementation and assigned work |
+| Registry binding | Source comparison | Current implementation |
 |---|---|---|
-| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
-| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `ShaderParticleGeometry.Apply` method | The CK function page and class declaration were not present in the crawl. UESP lists Play as a form plus float function. | Validates the winning SPGD record and nonnegative finite fade, then applies the transient layer. |
+| `ShaderParticleGeometry.Remove` method | The CK function page and class declaration were not present in the crawl. UESP lists Stop as a form plus float function. | Validates the fade and removes the layer immediately or fades it out. |
 | `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
 | `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
 | `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |

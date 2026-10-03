@@ -349,6 +349,10 @@ mod ai_86_adversarial;
 mod ai_86_condition_contracts;
 #[path = "ai_87_adversarial.rs"]
 mod ai_87_adversarial;
+#[path = "ai_88_adversarial.rs"]
+mod ai_88_adversarial;
+#[path = "ai_88_breaker_adversarial.rs"]
+mod ai_88_breaker_adversarial;
 #[path = "ai_89_adversarial.rs"]
 mod ai_89_adversarial;
 #[path = "ai_89_mounted_patrol.rs"]
@@ -996,6 +1000,8 @@ mod prg_12_adversarial;
 mod prg_12_arrest_choices;
 #[path = "prg_13_adversarial.rs"]
 mod prg_13_adversarial;
+#[path = "prg_13_breaker_adversarial.rs"]
+mod prg_13_breaker_adversarial;
 #[path = "prg_13_jail.rs"]
 mod prg_13_jail;
 #[path = "prg_14_adversarial.rs"]
@@ -1144,6 +1150,10 @@ mod scr_05_lazy_cell_binding;
 mod scr_08_actor_native_contracts;
 #[path = "scr_08_adversarial.rs"]
 mod scr_08_adversarial;
+#[path = "scr_08_breaker2_adversarial.rs"]
+mod scr_08_breaker2_adversarial;
+#[path = "scr_08_breaker_adversarial.rs"]
+mod scr_08_breaker_adversarial;
 #[path = "scr_09_actor_queries.rs"]
 mod scr_09_actor_queries;
 #[path = "scr_09_adversarial.rs"]
@@ -1152,6 +1162,10 @@ mod scr_09_adversarial;
 mod scr_10_actor_state_natives;
 #[path = "scr_10_adversarial.rs"]
 mod scr_10_adversarial;
+#[path = "scr_10_breaker2_adversarial.rs"]
+mod scr_10_breaker2_adversarial;
+#[path = "scr_10_breaker_adversarial.rs"]
+mod scr_10_breaker_adversarial;
 #[path = "scr_11_adversarial.rs"]
 mod scr_11_adversarial;
 #[path = "scr_12_adversarial.rs"]
@@ -1190,14 +1204,22 @@ mod scr_23_adversarial;
 mod scr_23_debug_natives;
 #[path = "scr_24_adversarial.rs"]
 mod scr_24_adversarial;
+#[path = "scr_24_breaker_adversarial.rs"]
+mod scr_24_breaker_adversarial;
 #[path = "scr_24_effect_shader.rs"]
 mod scr_24_effect_shader;
 #[path = "scr_25_adversarial.rs"]
 mod scr_25_adversarial;
+#[path = "scr_25_breaker_adversarial.rs"]
+mod scr_25_breaker_adversarial;
 #[path = "scr_26_adversarial.rs"]
 mod scr_26_adversarial;
+#[path = "scr_26_breaker_adversarial.rs"]
+mod scr_26_breaker_adversarial;
 #[path = "scr_27_adversarial.rs"]
 mod scr_27_adversarial;
+#[path = "scr_27_breaker_adversarial.rs"]
+mod scr_27_breaker_adversarial;
 #[path = "scr_28_adversarial.rs"]
 mod scr_28_adversarial;
 #[path = "scr_29_adversarial.rs"]
@@ -1206,6 +1228,8 @@ mod scr_29_adversarial;
 mod scr_29_game_native_contracts;
 #[path = "scr_30_adversarial.rs"]
 mod scr_30_adversarial;
+#[path = "scr_30_breaker_adversarial.rs"]
+mod scr_30_breaker_adversarial;
 #[path = "scr_30_game_natives.rs"]
 mod scr_30_game_natives;
 #[path = "scr_31_adversarial.rs"]
@@ -1262,16 +1286,24 @@ mod scr_43_adversarial;
 mod scr_43_quest_transition_natives;
 #[path = "scr_44_adversarial.rs"]
 mod scr_44_adversarial;
+#[path = "scr_44_breaker2_adversarial.rs"]
+mod scr_44_breaker2_adversarial;
+#[path = "scr_44_breaker_adversarial.rs"]
+mod scr_44_breaker_adversarial;
 #[path = "scr_44_scene_action_complete.rs"]
 mod scr_44_scene_action_complete;
 #[path = "scr_45_adversarial.rs"]
 mod scr_45_adversarial;
 #[path = "scr_46_adversarial.rs"]
 mod scr_46_adversarial;
+#[path = "scr_46_breaker_adversarial.rs"]
+mod scr_46_breaker_adversarial;
 #[path = "scr_46_shader_particle_geometry.rs"]
 mod scr_46_shader_particle_geometry;
 #[path = "scr_47_adversarial.rs"]
 mod scr_47_adversarial;
+#[path = "scr_47_breaker_adversarial.rs"]
+mod scr_47_breaker_adversarial;
 #[path = "scr_48_adversarial.rs"]
 mod scr_48_adversarial;
 #[path = "scr_49_adversarial.rs"]
@@ -1280,6 +1312,10 @@ mod scr_49_adversarial;
 mod scr_49_utility_frame_rate;
 #[path = "scr_50_adversarial.rs"]
 mod scr_50_adversarial;
+#[path = "scr_50_breaker2_adversarial.rs"]
+mod scr_50_breaker2_adversarial;
+#[path = "scr_50_breaker_adversarial.rs"]
+mod scr_50_breaker_adversarial;
 #[path = "scr_50_utility_runtime_queries.rs"]
 mod scr_50_utility_runtime_queries;
 #[path = "scr_51_adversarial.rs"]
