@@ -7,6 +7,8 @@ use soe_esm::GlobalFormId;
 use soe_game::Game;
 use soe_papyrus::Value;
 
+use crate::input::{Action, Bindings};
+
 #[cfg(feature = "godot")]
 use godot::classes::{Button, CheckButton, HBoxContainer, Label, VBoxContainer};
 #[cfg(feature = "godot")]
@@ -55,6 +57,47 @@ pub struct KeyConflictScanner {
 }
 
 impl KeyConflictScanner {
+    /// Build vanilla conflicts from the active gameplay bindings.
+    #[must_use]
+    pub fn from_bindings(bindings: &Bindings) -> Self {
+        let mut scanner = Self::default();
+        for (key_code, control) in bindings.vanilla_controls() {
+            if let Ok(key_code) = i32::try_from(*key_code) {
+                scanner.add_vanilla_control(key_code, control);
+            }
+        }
+        for action in Action::all() {
+            let control = action.event_name();
+            for binding in [
+                bindings.get(action),
+                bindings.mouse(action),
+                bindings.gamepad(action),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                for chord in &binding.0 {
+                    for code in &chord.0 {
+                        if let Ok(key_code) = i32::try_from(*code) {
+                            scanner.add_vanilla_control(key_code, control);
+                        }
+                    }
+                }
+            }
+        }
+        scanner
+    }
+
+    fn add_vanilla_control(&mut self, key_code: i32, control: impl Into<String>) {
+        if !self
+            .vanilla_controls
+            .iter()
+            .any(|(known, _)| *known == key_code)
+        {
+            self.vanilla_controls.push((key_code, control.into()));
+        }
+    }
+
     /// Add or replace a vanilla control mapping.
     pub fn set_vanilla_control(&mut self, key_code: i32, control: impl Into<String>) {
         set_control(&mut self.vanilla_controls, key_code, control.into());
@@ -592,6 +635,39 @@ impl ConfigPage {
         scanner: &KeyConflictScanner,
     ) -> bool {
         let conflict = scanner.conflict(key_code);
+        self.remap_key(
+            game,
+            script,
+            id,
+            key_code,
+            &conflict.control,
+            &conflict.name,
+        )
+    }
+
+    /// Discover the active vanilla binding and registered mod conflicts,
+    /// then send SkyUI's key-map callback.
+    pub fn remap_key_live(
+        &self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+        key_code: i32,
+        bindings: &Bindings,
+    ) -> bool {
+        let scanner = KeyConflictScanner::from_bindings(bindings);
+        let mut conflict = scanner.conflict(key_code);
+        if conflict.control.is_empty() {
+            for (config, control) in game.mcm_custom_controls(key_code) {
+                if !control.is_empty() {
+                    conflict = KeyConflict {
+                        control,
+                        name: config.name,
+                    };
+                    break;
+                }
+            }
+        }
         self.remap_key(
             game,
             script,
