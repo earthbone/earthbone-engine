@@ -1877,7 +1877,6 @@ quest field. These behaviors match the local PSC summaries.
 
 `Scene.IsActionComplete(actionID)` takes the authored SCEN action ID from `INAM`. The runtime maps that ID to its action-list slot, then reads the completed slot state that gates phase advancement. This keeps sparse IDs separate from their internal positions. Negative, unknown and removed action IDs return false. Completion in another scene with the same action ID does not affect the result. The local CK corpus has no named page for this method. The vanilla `Scene.psc` declares an integer action ID, while UESP identifies `INAM` as the action number and notes that IDs can be non-sequential and overlap between scene records. The `scr_44_` tests exercise sparse and invalid IDs through Papyrus dispatch, and a `SKYRIM_DATA`-gated check verifies overlapping IDs stay scene-local.
 
-
 The comparison tests derive the methods and globals directly from the registry.
 Papyrus dispatch behavior is covered by the `scr_69_` tests and the focused
 Scene and Scroll tests in `tests/natives_2.rs` and `tests/magic.rs`. No installed

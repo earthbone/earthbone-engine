@@ -117,8 +117,8 @@ fn scr_70_shader_apply_uses_the_registered_instance_and_fade_argument() {
 #[test]
 fn scr_70_shader_remove_targets_the_registered_instance() {
     let mut game = shader_game();
-    call_shader(&mut game, "Apply", None);
+    call_shader(&mut game, "Apply", Some(0.0));
     assert_eq!(game.world().shader_particle_layers().len(), 1);
-    call_shader(&mut game, "Remove", None);
+    call_shader(&mut game, "Remove", Some(0.0));
     assert!(game.world().shader_particle_layers().is_empty());
 }

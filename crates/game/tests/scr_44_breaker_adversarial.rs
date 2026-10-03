@@ -40,6 +40,7 @@ fn scene_record() -> Record {
         .sub(Tag(*b"ENAM"), 0u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x900u32.to_le_bytes())
         .sub(Tag(*b"ANAM"), [])
+        .sub(Tag(*b"PNAM"), 0x810u32.to_le_bytes())
 }
 
 fn malformed_scene_record() -> Record {
@@ -60,6 +61,7 @@ fn malformed_scene_record() -> Record {
 fn fixture_game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(scene_record());
+    plugin.push_top(soe_game::quest::build_record(0x810, "SceneQuest", 0));
     plugin.push_top(malformed_scene_record());
     let mut order = LoadOrder::new();
     order.add("Scene.esp", plugin).unwrap();
