@@ -473,6 +473,68 @@ impl World {
         self.refs.get(&id)
     }
 
+    /// Begin an opening animation for a placed door and record its open destination.
+    ///
+    /// Returns false when the form is missing, deleted, or is not a door.
+    pub fn begin_door_opening(&mut self, id: GlobalFormId) -> bool {
+        self.begin_door_transition(id, true)
+    }
+
+    /// Begin a closing animation for a placed door and record its closed destination.
+    ///
+    /// Returns false when the form is missing, deleted, or is not a door.
+    pub fn begin_door_closing(&mut self, id: GlobalFormId) -> bool {
+        self.begin_door_transition(id, false)
+    }
+
+    fn begin_door_transition(&mut self, id: GlobalFormId, opening: bool) -> bool {
+        let Some((base, deleted)) = self
+            .reference(id)
+            .map(|reference| (reference.base, reference.deleted))
+        else {
+            return false;
+        };
+        if deleted || base.is_none_or(|base| self.tag_of(base) != Some(T(b"DOOR"))) {
+            return false;
+        }
+        let Some(reference) = self.reference(id) else {
+            return false;
+        };
+        reference.opened = opening;
+        reference.open_transition = Some(if opening {
+            super::DoorOpenTransition::Opening
+        } else {
+            super::DoorOpenTransition::Closing
+        });
+        true
+    }
+
+    /// Finish a placed door's current opening or closing animation.
+    ///
+    /// Returns false when the form is missing or has no transition in progress.
+    pub fn finish_door_transition(&mut self, id: GlobalFormId) -> bool {
+        let Some(reference) = self.reference(id) else {
+            return false;
+        };
+        if reference.open_transition.is_none() {
+            return false;
+        }
+        reference.open_transition = None;
+        true
+    }
+
+    pub(crate) fn door_open_state(&mut self, id: GlobalFormId) -> Option<i32> {
+        let (base, deleted) = self
+            .reference(id)
+            .map(|reference| (reference.base, reference.deleted))?;
+        if deleted {
+            return None;
+        }
+        let is_door = base.is_some_and(|base| self.tag_of(base) == Some(T(b"DOOR")));
+        self.reference(id)
+            .map(|reference| reference.open_state(is_door))
+    }
+
     /// The current runtime placement and visibility of a loaded reference,
     /// for a host to compare against what it last drew or collided. `None`
     /// only when the reference has never been instantiated, so its

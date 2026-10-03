@@ -1087,13 +1087,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         w,
         "ObjectReference",
         "GetOpenState",
-        |world, call, me| {
-            i(if world.reference(me).is_some_and(|r| r.opened) {
-                1
-            } else {
-                3
-            })
-        }
+        |world, call, me| i(world.door_open_state(me).unwrap_or(0))
     );
     method!(vm, w, "ObjectReference", "SetOpen", |world, call, me| {
         let open = call.args.first().is_none_or(Value::as_bool);
