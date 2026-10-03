@@ -30,12 +30,7 @@ fn scr_09_mount_and_trespass_queries_are_per_actor_and_follow_saved_state() {
 #[test]
 fn scr_09_no_argument_actor_queries_return_false_for_non_actor_subjects() {
     let mut game = fixture();
-    for method in [
-        "IsChild",
-        "IsCommandedActor",
-        "IsOnMount",
-        "IsTrespassing",
-    ] {
+    for method in ["IsChild", "IsCommandedActor", "IsOnMount", "IsTrespassing"] {
         assert!(!actor_bool(&mut game, id(0x910), method, &[]), "{method}");
     }
     assert!(game.vm.log.contains("not an actor"));

@@ -68,7 +68,10 @@ fn flying_state_preserves_each_defined_native_state() {
     let actor = id(0x801);
     for state in 0_u8..=4 {
         game.world_mut().actor(actor).unwrap().flying_state = Some(state);
-        assert_eq!(call(&mut game, actor, "GetFlyingState", &[]), Value::Int(i32::from(state)));
+        assert_eq!(
+            call(&mut game, actor, "GetFlyingState", &[]),
+            Value::Int(i32::from(state))
+        );
     }
     game.world_mut().actor(actor).unwrap().flying_state = None;
     game.world_mut().actor(actor).unwrap().ai.procedure = Procedure::Hover;
@@ -98,7 +101,10 @@ fn invalid_vehicle_reference_does_not_detach_or_replace_current_vehicle() {
     let absent = Value::Object(game.object_of_form(id(0x999)));
     call(&mut game, actor, "SetVehicle", &[absent]);
     assert_eq!(game.world_mut().actor_vehicle(actor), Some(id(0x802)));
-    assert!(game.traces().iter().any(|trace| trace.contains("not a placed reference")));
+    assert!(game
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("not a placed reference")));
 }
 
 #[test]
@@ -109,7 +115,10 @@ fn invalid_look_target_keeps_target_and_pathing_until_explicit_clear() {
     call(&mut game, actor, "SetLookAt", &[target, Value::Bool(true)]);
     let absent = Value::Object(game.object_of_form(id(0x999)));
     call(&mut game, actor, "SetLookAt", &[absent, Value::Bool(false)]);
-    assert_eq!(game.world_mut().actor_look_at(actor), Some((id(0x802), true)));
+    assert_eq!(
+        game.world_mut().actor_look_at(actor),
+        Some((id(0x802), true))
+    );
     call(&mut game, actor, "ClearLookAt", &[]);
     assert_eq!(game.world_mut().actor_look_at(actor), None);
 }
@@ -126,5 +135,8 @@ fn vehicle_and_look_relationships_survive_world_save_load() {
     let loaded = fixture();
     loaded.world_mut().load_state(&save).unwrap();
     assert_eq!(loaded.world_mut().actor_vehicle(actor), Some(id(0x802)));
-    assert_eq!(loaded.world_mut().actor_look_at(actor), Some((id(0x802), true)));
+    assert_eq!(
+        loaded.world_mut().actor_look_at(actor),
+        Some((id(0x802), true))
+    );
 }
