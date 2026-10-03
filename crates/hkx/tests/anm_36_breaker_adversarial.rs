@@ -25,7 +25,11 @@ fn graph(bind_goal_speed: bool, authored_goal_speed: f32) -> Vec<u8> {
     b.ptr(graph, 136, data);
     b.ptr(data, 120, strings);
     b.ptr(data, 112, values);
-    b.array_strings(strings, 48, &["state", "direction", "goalSpeed", "speedOut"]);
+    b.array_strings(
+        strings,
+        48,
+        &["state", "direction", "goalSpeed", "speedOut"],
+    );
     let infos = b.array_structs(data, 32, 6, 4);
     b.set_i8(infos, 4, 3);
     for offset in [6, 12, 18] {
@@ -83,13 +87,19 @@ fn anm_36_sampler_publishes_latest_goal_speed_on_repeated_updates() {
     let (graph, clips, pose) = interpreter(&bytes);
     let mut vm = Interpreter::new(&graph, &clips, pose);
 
-    for (state, direction, goal_speed) in [(0.0, -1.0, 0.0), (3.0, 1.0, -12.75), (-2.0, 0.25, 327.5)] {
+    for (state, direction, goal_speed) in
+        [(0.0, -1.0, 0.0), (3.0, 1.0, -12.75), (-2.0, 0.25, 327.5)]
+    {
         assert!(vm.variables.set_by_name("state", state));
         assert!(vm.variables.set_by_name("direction", direction));
         assert!(vm.variables.set_by_name("goalSpeed", goal_speed));
         vm.update(1.0 / 60.0);
         let output = vm.variables.real(vm.variables.index("speedOut").unwrap());
-        assert_eq!(output, Some(goal_speed), "state={state}, direction={direction}");
+        assert_eq!(
+            output,
+            Some(goal_speed),
+            "state={state}, direction={direction}"
+        );
     }
 }
 
