@@ -168,6 +168,33 @@ fn open_state_rejects_deleted_missing_and_parameterized_contexts() {
 }
 
 #[test]
+fn locking_during_opening_snaps_the_reported_state_closed() {
+    let mut game = fixture();
+    let door = id(DOOR);
+    game.object_of(soe_game::Handle::Form(door));
+    assert!(game.world_mut().begin_door_opening(door));
+
+    game.world_mut()
+        .set_locked(door, true, &mut |_, _| panic!("unexpected form allocation"));
+
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 3.0)), Ok(true));
+}
+
+#[test]
+fn settled_door_state_survives_engine_save_load() {
+    let game = fixture();
+    let door = id(DOOR);
+    assert!(game.world_mut().begin_door_opening(door));
+    assert!(game.world_mut().finish_door_transition(door));
+
+    let saved = game.save_state().unwrap();
+    let mut restored = fixture();
+    restored.load_state(&saved).unwrap();
+
+    assert_eq!(evaluate(&restored, door, &condition(157, 0, 1.0)), Ok(true));
+}
+
+#[test]
 fn current_package_requires_actor_and_matches_only_the_selected_package() {
     let game = fixture();
     game.world_mut().actor(id(ACTOR)).unwrap().ai.package = Some(id(PACKAGE));
