@@ -113,6 +113,12 @@ synthetic captured log, and checks that one wrong expectation is reported by
 line number. Real captures go under `crates/game/tests/captures/` and are
 picked up by a test per directory once the first one exists.
 
+`tst_11_real_vanilla_log_differential_reports_every_trace` reads a real capture
+from `SOE_PAPYRUS_LOG` when that variable names a `Papyrus.0.log`. It verifies
+that parsing creates expectations and that the differential report names each
+expected trace absent from the VM log. The test returns without running when
+the variable is unset.
+
 ## Determinism
 
 A scenario that replays the same way twice can be bisected, recorded and
