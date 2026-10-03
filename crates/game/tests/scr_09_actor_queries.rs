@@ -21,6 +21,28 @@ fn race(object: u32, child: bool) -> Record {
     Record::new(Tag(*b"RACE"), object).sub(Tag(*b"DATA"), data)
 }
 
+fn magic_effect(object: u32, archetype: u32, associated_item: u32) -> Record {
+    let mut data = vec![0; 152];
+    data[8..12].copy_from_slice(&associated_item.to_le_bytes());
+    data[64..68].copy_from_slice(&archetype.to_le_bytes());
+    data[80..84].copy_from_slice(&1_u32.to_le_bytes());
+    data[84..88].copy_from_slice(&3_u32.to_le_bytes());
+    Record::new(Tag(*b"MGEF"), object).sub(Tag(*b"DATA"), data)
+}
+
+fn magic_spell(object: u32, effect: u32) -> Record {
+    let mut spit = vec![0; 36];
+    spit[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    spit[20..24].copy_from_slice(&3_u32.to_le_bytes());
+    let mut efit = 1.0_f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    efit.extend_from_slice(&30_u32.to_le_bytes());
+    Record::new(Tag(*b"SPEL"), object)
+        .sub(Tag(*b"SPIT"), spit)
+        .sub(Tag(*b"EFID"), effect.to_le_bytes())
+        .sub(Tag(*b"EFIT"), efit)
+}
+
 fn detection_records() -> Vec<Record> {
     let values: [(&str, f32); 24] = [
         ("fSneakBaseValue", 0.0),
@@ -83,6 +105,13 @@ pub fn fixture() -> Game {
         plugin.push_top(Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), base.to_le_bytes()));
     }
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x910));
+    let mut summonable = vec![0; 24];
+    summonable[0..4].copy_from_slice(&0x4000_u32.to_le_bytes());
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x920).sub(Tag(*b"ACBS"), summonable));
+    plugin.push_top(magic_effect(0x930, 18, 0x920));
+    plugin.push_top(magic_effect(0x931, 10, 0));
+    plugin.push_top(magic_spell(0x940, 0x930));
+    plugin.push_top(magic_spell(0x941, 0x931));
     for record in detection_records() {
         plugin.push_top(record);
     }
@@ -167,4 +196,57 @@ fn scr_09_is_detected_by_uses_other_actor_and_does_not_advance_state() {
             .is_actor_detected_by(id(0x900), id(0x910)),
         Err(DetectionError::Actor(actor)) if actor == id(0x910)
     ));
+}
+
+#[test]
+fn scr_09_actor_query_native_errors_are_reported_and_return_false() {
+    let mut game = fixture();
+    assert!(!actor_bool(&mut game, id(0x910), "IsChild", &[]));
+    assert!(game.vm.log.contains("not an actor"));
+
+    let missing_observer = game.object_of_form(id(0x910));
+    assert!(!actor_bool(
+        &mut game,
+        id(0x900),
+        "IsDetectedBy",
+        &[Value::Object(missing_observer)],
+    ));
+    assert!(game.vm.log.contains("not an actor"));
+}
+
+#[test]
+fn scr_09_is_commanded_actor_becomes_true_for_a_commanded_summon() {
+    let mut game = fixture();
+    let shared = game.shared_world();
+    let summon_effect = shared
+        .borrow_mut()
+        .cast_spell(
+            id(0x940),
+            id(0x900),
+            Some(id(0x900)),
+            Some(id(0x900)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(summon_effect.len(), 1);
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+    assert!(!actor_bool(&mut game, summoned, "IsCommandedActor", &[]));
+
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(0x941),
+            id(0x900),
+            Some(id(0x900)),
+            Some(summoned),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(game.world().is_commanded_actor(summoned));
+    assert!(actor_bool(&mut game, summoned, "IsCommandedActor", &[]));
 }
