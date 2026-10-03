@@ -123,9 +123,11 @@ mistyped form aliases, unknown properties and unsupported commands are errors.
 tables specify `plugin`, `object` and `kind`. `object` is the local object ID,
 without a load-order prefix, written as a decimal or hexadecimal TOML integer.
 The kinds are `quest`, `actor`, `object_reference`, `spell`, `magic_effect`,
-`global_variable` and `form`. The runner resolves them with
+`global_variable`, `perk` and `form`. The runner resolves them with
 `Game.GetFormFromFile`, casts to the declared Papyrus type and stops on a
 missing form. Engine execution checks the record types before starting.
+The optional `player` alias must have kind `actor` and resolves through
+`Game.GetPlayer`, since the player actor is not fetched as a normal file form.
 
 | Operation | Additional step fields | Result |
 | --- | --- | --- |
@@ -139,6 +141,9 @@ missing form. Engine execution checks the record types before starting.
 | `wait_animation` | `actor`, `event` | Boolean `value` from ObjectReference.WaitForAnimationEvent |
 | `cast` | `spell`, `source`, `target` | `issued` after Spell.Cast |
 | `actor_value` | `actor`, `value` | Numeric `value` from Actor.GetActorValue |
+| `add_perk` | `actor`, `perk` | `issued` after Actor.AddPerk |
+| `remove_perk` | `actor`, `perk` | `issued` after Actor.RemovePerk |
+| `has_perk` | `actor`, `perk` | Boolean `value` from Actor.HasPerk |
 | `has_effect` | `actor`, `effect` | Boolean `value` from Actor.HasMagicEffect |
 | `form_property` | `form`, `property` | `value` for `type`, `form_id` or `global_value` |
 | `save` | None | `issued` after Game.RequestSave |
@@ -150,6 +155,14 @@ actor-value queries to measure application. `wait_animation` needs a loaded
 animation graph and an external event. The headless comparator has no host
 animator and reports its timeout if the event never arrives. Timeout bounds
 engine execution, not the vanilla latent native.
+
+`add_perk`, `remove_perk` and `has_perk` accept declared `perk` forms and
+invoke the matching vanilla Actor natives. `prg_17.toml` uses the player and
+two consecutive Armsman records to capture both acquisition orders, ownership
+readback and readback after `Game.RequestSave`. The trace takes only a few
+seconds of open gameplay. RequestSave does not force a reload, so these
+observations do not establish post-load persistence, entry-point priority or
+raw-rank eligibility.
 
 Waits emit a `begin` sample with an empty result and an `end` sample on return.
 Ordinary waits exclude menu time. Menu waits include it. Game waits use game
@@ -221,6 +234,15 @@ Read before implementation:
 - Existing `crates/game/tests/quest_flow.rs`, game quest/VMAD builders and
   `crates/papyrus/src/asm.rs`. These already provide the Rust writers needed
   here. No replacement binary-format writer or upstream code copy was added.
+- For PRG-17, local `TES5Edit/Core/wbDefinitionsTES5.pas` defines PERK's DATA,
+  NNAM and PRKE/PRKC effect layout. `uesp-modfileformat/PERK.wikitext` calls
+  the PRKE priority meaning an assumption and describes PRKC as a tab index.
+  CommonLibSSE `BGSPerkEntry.h` names the rank and priority header bytes, while
+  `BGSEntryPointPerkEntry.h` describes the entry point data and condition
+  filters. No Perk Entry Point Extender source was present in the local corpus.
+  The sequence uses vanilla Papyrus AddPerk, RemovePerk and HasPerk calls and
+  does not infer priority or tab behavior from record layout. Capture
+  comparison remains necessary for those runtime facts.
 
 The new direct format dependency is `toml` with parsing only. Its added
 packages are toml, toml_edit, toml_datetime, serde_spanned and winnow. Serde,
@@ -237,3 +259,12 @@ official records and checks CLI matching and differing comparisons.
 capture. Its profile and FormIDs follow the synthetic plugin fixture and its
 small scheduling delays fit the tolerances declared before the tests run.
 No live Skyrim probe has been captured by these tests.
+
+`probes/prg_21.toml` labels the six LVSP flag combinations at levels 1, 10 and
+20, three nested-list cases and zero or full chance-none controls. It records
+the resolved form identities for the authored labels and the expected engine
+trace is in `probes/prg_21.expected.json`. The sequence runs on quest start and
+finishes in about one second of gameplay. The current command set does not
+roll LVSP records in Skyrim, so this capture does not establish the original
+runtime's selected spells. `tests/prg_21_capture.rs` compares a saved
+`Papyrus.0.log` when `SOE_PROBE_CAPTURE` names its directory.

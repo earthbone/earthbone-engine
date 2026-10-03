@@ -53,6 +53,7 @@ mod menu;
 mod profiling;
 mod race;
 mod saves;
+mod scripted;
 mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -113,6 +114,7 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    player_input: soe_game::player_input::Driver,
     animation_source: Option<GlobalFormId>,
     /// The existing skinned node bound to the player's own appearance.
     player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
@@ -216,6 +218,7 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            player_input: soe_game::player_input::Driver::default(),
             animation_source: None,
             player_appearance: None,
             pending_debug_latents: Vec::new(),
@@ -738,6 +741,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
+        self.clear_player_input();
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
@@ -784,6 +788,7 @@ impl PlayerNode {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.data_source = Some(source);
         self.game = None;
+        self.clear_player_input();
         self.image_space = crate::image_space::ImageSpaceStack::default();
         self.refresh_image_space();
         self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
@@ -875,6 +880,10 @@ impl PlayerNode {
     }
 
     fn advance_measured(&mut self, delta: f64) {
+        if self.player_input.pending() > 0 {
+            self.step_player_input();
+            return;
+        }
         if !self.menu.is_open()
             && self
                 .game

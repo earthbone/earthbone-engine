@@ -295,6 +295,7 @@ fn kind_matches(kind: FormKind, tag: Tag) -> bool {
         FormKind::Spell => tag == Tag(*b"SPEL"),
         FormKind::MagicEffect => tag == Tag(*b"MGEF"),
         FormKind::GlobalVariable => tag == Tag(*b"GLOB"),
+        FormKind::Perk => tag == Tag(*b"PERK"),
         FormKind::Form => true,
     }
 }
@@ -321,6 +322,10 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         .map_err(|e| Error::Execution(e.to_string()))?;
     let mut game = Game::new(order);
     for (name, form) in probe.all_forms() {
+        if name == "player" && form.kind == FormKind::Actor {
+            game.world_mut().player();
+            continue;
+        }
         let id = game
             .world()
             .form_from_file(form.object, &form.plugin)

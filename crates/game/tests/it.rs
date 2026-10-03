@@ -982,6 +982,18 @@ mod packages;
 mod perk_dispatch;
 #[path = "perks.rs"]
 mod perks;
+#[path = "ply_01_adversarial.rs"]
+mod ply_01_adversarial;
+#[path = "ply_01_breaker_adversarial.rs"]
+mod ply_01_breaker_adversarial;
+#[path = "ply_01_player_input.rs"]
+mod ply_01_player_input;
+#[path = "ply_02_adversarial.rs"]
+mod ply_02_adversarial;
+#[path = "ply_02_breaker_adversarial.rs"]
+mod ply_02_breaker_adversarial;
+#[path = "ply_02_routes.rs"]
+mod ply_02_routes;
 #[path = "prf_09_adversarial.rs"]
 mod prf_09_adversarial;
 #[path = "prf_09_profiling.rs"]
@@ -1012,8 +1024,12 @@ mod prg_07_adversarial;
 mod prg_07_character_level;
 #[path = "prg_08_adversarial.rs"]
 mod prg_08_adversarial;
+#[path = "prg_08_breaker_adversarial.rs"]
+mod prg_08_breaker_adversarial;
 #[path = "prg_09_adversarial.rs"]
 mod prg_09_adversarial;
+#[path = "prg_09_breaker_adversarial.rs"]
+mod prg_09_breaker_adversarial;
 #[path = "prg_09_race_skill_initialization.rs"]
 mod prg_09_race_skill_initialization;
 #[path = "prg_10_adversarial.rs"]
@@ -1042,6 +1058,15 @@ mod prg_15_actor_skills;
 mod prg_16_data_length_adversarial;
 #[path = "prg_16_purchase_data_semantics.rs"]
 mod prg_16_purchase_data_semantics;
+
+#[path = "prg_17_adversarial.rs"]
+mod prg_17_adversarial;
+#[path = "prg_17_breaker_adversarial.rs"]
+mod prg_17_breaker_adversarial;
+#[path = "prg_21_adversarial.rs"]
+mod prg_21_adversarial;
+#[path = "prg_21_breaker_adversarial.rs"]
+mod prg_21_breaker_adversarial;
 #[path = "quest_flow.rs"]
 mod quest_flow;
 #[path = "real_crafting.rs"]
