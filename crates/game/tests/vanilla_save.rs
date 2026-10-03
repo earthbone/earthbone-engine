@@ -19,6 +19,9 @@ mod projectiles;
 #[path = "sav_26_adversarial.rs"]
 mod sav_26_adversarial;
 
+#[path = "sav_26_breaker_adversarial.rs"]
+mod sav_26_breaker_adversarial;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 

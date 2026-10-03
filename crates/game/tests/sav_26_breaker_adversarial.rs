@@ -66,8 +66,14 @@ fn sav_26_pcon_and_parw_queries_survive_combined_placement_save_reload() {
 
     world.restore_vanilla_reference_placements(&save).unwrap();
     assert_eq!(world.restore_vanilla_projectiles(&save).unwrap(), 2);
-    assert_eq!(world.reference_ref(id(0, 0xA02)).unwrap().base, Some(id(0, 0x900)));
-    assert_eq!(world.reference(id(0, 0xA03)).unwrap().base, Some(id(0, 0x901)));
+    assert_eq!(
+        world.reference_ref(id(0, 0xA02)).unwrap().base,
+        Some(id(0, 0x900))
+    );
+    assert_eq!(
+        world.reference(id(0, 0xA03)).unwrap().base,
+        Some(id(0, 0x901))
+    );
 
     let bytes = world.save_state();
     let mut loaded = World::from_shared_order(order);
@@ -81,7 +87,10 @@ fn sav_26_pcon_and_parw_queries_survive_combined_placement_save_reload() {
         loaded.restored_projectile_extra(id(0, 0xA03)),
         world.restored_projectile_extra(id(0, 0xA03))
     );
-    assert_eq!(loaded.reference_ref(id(0, 0xA02)).unwrap().base, Some(id(0, 0x900)));
+    assert_eq!(
+        loaded.reference_ref(id(0, 0xA02)).unwrap().base,
+        Some(id(0, 0x900))
+    );
 }
 
 #[test]

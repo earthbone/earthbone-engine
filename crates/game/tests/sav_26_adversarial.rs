@@ -30,19 +30,31 @@ fn sav_26_pcon_keeps_shared_move_prefix_and_opaque_suffix_separate() {
     save.change_forms
         .push(typed_change(0x400A02, 42, change_flags::MOVE, data.clone()));
 
-    let header = save.change_forms.last().unwrap().reference_header(78).unwrap().unwrap();
-    assert_eq!(header.initial, soe_save::reference::Initial::Moved(soe_save::reference::Placement {
-        cell_or_world: reference(0x400800),
-        position: [41.0, 42.0, 43.0],
-        rotation: [0.1, 0.2, 0.3],
-    }));
+    let header = save
+        .change_forms
+        .last()
+        .unwrap()
+        .reference_header(78)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        header.initial,
+        soe_save::reference::Initial::Moved(soe_save::reference::Placement {
+            cell_or_world: reference(0x400800),
+            position: [41.0, 42.0, 43.0],
+            rotation: [0.1, 0.2, 0.3],
+        })
+    );
     assert_eq!(&data[header.bytes_consumed..], &[0xFA, 0xCE, 0x55]);
 
     let mut world = World::new(references::fixture_order());
     world.restore_vanilla_projectiles(&save).unwrap();
     assert_eq!(
         world.restored_projectile_extra(id(0, 0xA02)),
-        Some(&ProjectileRecordExtra { flags: change_flags::MOVE, payload: data })
+        Some(&ProjectileRecordExtra {
+            flags: change_flags::MOVE,
+            payload: data
+        })
     );
 }
 
@@ -57,20 +69,30 @@ fn sav_26_parw_payload_that_looks_like_placement_stays_opaque() {
     save.change_forms
         .push(typed_change(0x400A03, 47, change_flags::MOVE, data.clone()));
 
-    assert!(save.change_forms.last().unwrap().reference_header(78).unwrap().is_none());
+    assert!(save
+        .change_forms
+        .last()
+        .unwrap()
+        .reference_header(78)
+        .unwrap()
+        .is_none());
     let order = references::fixture_order();
     let mut world = World::new(order);
     world.restore_vanilla_projectiles(&save).unwrap();
     assert_eq!(
         world.restored_projectile_extra(id(0, 0xA03)),
-        Some(&ProjectileRecordExtra { flags: change_flags::MOVE, payload: data })
+        Some(&ProjectileRecordExtra {
+            flags: change_flags::MOVE,
+            payload: data
+        })
     );
 }
 
 #[test]
 fn sav_26_projectile_change_rejects_a_same_id_nonmatching_winning_record() {
     let mut save = references::fixture();
-    save.change_forms.push(typed_change(0x400900, 42, 0x1234, vec![1, 2]));
+    save.change_forms
+        .push(typed_change(0x400900, 42, 0x1234, vec![1, 2]));
     let mut world = World::new(references::fixture_order());
     let before = world.save_state();
 
@@ -109,6 +131,9 @@ fn sav_26_parw_bytes_do_not_interrupt_pcon_placement_restore() {
     let mut world = World::new(references::fixture_order());
 
     world.restore_vanilla_reference_placements(&save).unwrap();
-    assert_eq!(world.reference_ref(id(0, 0xA02)).unwrap().position, [1.0, 2.0, 3.0]);
+    assert_eq!(
+        world.reference_ref(id(0, 0xA02)).unwrap().position,
+        [1.0, 2.0, 3.0]
+    );
     assert!(world.reference_ref(id(0, 0xA03)).is_none());
 }
