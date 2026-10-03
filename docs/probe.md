@@ -164,7 +164,7 @@ Declare clock tolerances before collecting traces. Pause flags remain exact.
 
 ## Observation fields
 
-Each trace line begins `SOEPROBE ` followed by one JSON object.
+Each trace line begins `SOEPROBE` and a space, followed by one JSON object.
 
 | Field | Meaning and comparison |
 | --- | --- |
