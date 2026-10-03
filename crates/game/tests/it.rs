@@ -619,6 +619,10 @@ mod footstep_actors;
 mod footsteps;
 #[path = "hst_03_adversarial.rs"]
 mod hst_03_adversarial;
+#[path = "hst_03_breaker_2_adversarial.rs"]
+mod hst_03_breaker_2_adversarial;
+#[path = "hst_03_breaker_3_adversarial.rs"]
+mod hst_03_breaker_3_adversarial;
 #[path = "hst_03_breaker_adversarial.rs"]
 mod hst_03_breaker_adversarial;
 #[path = "hst_03_lockpicking.rs"]
