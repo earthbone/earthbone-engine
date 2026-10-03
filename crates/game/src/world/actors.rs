@@ -46,6 +46,35 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Update the shared actor state when a rider mounts or leaves a mount.
+    ///
+    /// # Errors
+    /// Returns an error if the rider or mount is not an actor, or both ids are equal.
+    pub fn set_mount_rider(
+        &mut self,
+        rider: GlobalFormId,
+        mount: GlobalFormId,
+        mounted: bool,
+    ) -> Result<(), String> {
+        if rider == mount {
+            return Err(format!("actor {rider} cannot ride itself"));
+        }
+        if self.actor(rider).is_none() {
+            return Err(format!("{rider} is not an actor"));
+        }
+        if self.actor(mount).is_none() {
+            return Err(format!("{mount} is not an actor"));
+        }
+
+        self.actor(rider)
+            .ok_or_else(|| format!("{rider} is not an actor"))?
+            .riding_mount = mounted;
+        self.actor(mount)
+            .ok_or_else(|| format!("{mount} is not an actor"))?
+            .being_ridden = mounted;
+        Ok(())
+    }
+
     /// Set the actor's head-tracking flag.
     ///
     /// # Errors
@@ -521,6 +550,54 @@ impl World {
     /// The actor's state when it has been built, without building it.
     pub fn actor_ref(&self, id: GlobalFormId) -> Option<&ActorState> {
         self.actors.get(&id)
+    }
+
+    /// Return the live combat group member and distinct target counts for an actor.
+    ///
+    /// Members are combat actors connected through shared targets or direct
+    /// target relationships. An actor without a current combat target has no
+    /// group counts.
+    #[must_use]
+    pub fn combat_group_counts(&self, subject: GlobalFormId) -> Option<(usize, usize)> {
+        let actor = self.actors.get(&subject)?;
+        actor.combat_target?;
+
+        let mut members = std::collections::BTreeSet::from([subject]);
+        let mut targets = std::collections::BTreeSet::new();
+        loop {
+            let prior_len = members.len();
+            for member in &members {
+                if let Some(target) = self
+                    .actors
+                    .get(member)
+                    .and_then(|state| state.combat_target)
+                {
+                    targets.insert(target);
+                }
+            }
+            for (candidate, state) in &self.actors {
+                if state.combat_target.is_some()
+                    && (targets.contains(candidate)
+                        || state.combat_target.is_some_and(|target| {
+                            targets.contains(&target) || members.contains(&target)
+                        }))
+                {
+                    members.insert(*candidate);
+                }
+            }
+            if members.len() == prior_len {
+                break;
+            }
+        }
+        targets = members
+            .iter()
+            .filter_map(|member| {
+                self.actors
+                    .get(member)
+                    .and_then(|state| state.combat_target)
+            })
+            .collect();
+        Some((members.len(), targets.len()))
     }
 
     /// Whether an instantiated actor is currently marked alarmed.

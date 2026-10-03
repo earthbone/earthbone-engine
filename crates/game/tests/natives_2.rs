@@ -2374,6 +2374,26 @@ fn scr_12_expression_and_head_tracking_actor_natives() {
     assert_eq!(loaded.world_mut().head_tracking(loaded_id), Some(false));
 }
 
+#[test]
+fn anm_59_expression_override_holds_until_clear_then_restores_record_mood() {
+    let mut g = game();
+    let actor = obj(&mut g, "GuardRef");
+    let id = g.form("GuardRef").unwrap();
+    let record_mood = g.world_mut().facial_expression(id);
+
+    call(
+        &mut g,
+        &actor,
+        "SetExpressionOverride",
+        &[Value::Int(12), Value::Int(45)],
+    );
+    assert_eq!(g.world_mut().facial_expression(id), Some((12, 45)));
+    assert_eq!(g.world_mut().facial_expression(id), Some((12, 45)));
+
+    call(&mut g, &actor, "ClearExpressionOverride", &[]);
+    assert_eq!(g.world_mut().facial_expression(id), record_mood);
+}
+
 // ----- references, cells, ownership -----
 
 /// GetActorOwner "gets the ActorBase that owns this object", None when

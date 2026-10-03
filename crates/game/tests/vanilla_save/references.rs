@@ -8,7 +8,7 @@ use soe_save::{
     ChangeForm,
 };
 
-pub(super) fn fixture_order() -> LoadOrder {
+pub(crate) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
 
@@ -645,6 +645,11 @@ fn installed_saved_reference_placements_restore_and_persist() {
         unplaced += report.unplaced.len();
     }
     assert!(total > 100000);
-    eprintln!("{} saves: {total} placements, {created} created, {missing_bases} missing bases, {missing_cells} missing cells, {unplaced} unplaced references", paths.len());
-    eprintln!("{quests} quests restored after placement/global passes, {unresolved_quest_forms} remaining unresolved quest identities");
+    eprintln!(
+        "{} saves: {total} placements, {created} created, {missing_bases} missing bases, {missing_cells} missing cells, {unplaced} unplaced references",
+        paths.len()
+    );
+    eprintln!(
+        "{quests} quests restored after placement/global passes, {unresolved_quest_forms} remaining unresolved quest identities"
+    );
 }

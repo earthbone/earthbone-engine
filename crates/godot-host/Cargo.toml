@@ -65,6 +65,7 @@ godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
 thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-game = { path = "../game" }
+soe-save = { path = "../save" }
 soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }

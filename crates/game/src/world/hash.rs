@@ -146,6 +146,11 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);
+    h.u8(match s.open_transition {
+        None => 0,
+        Some(super::DoorOpenTransition::Opening) => 1,
+        Some(super::DoorOpenTransition::Closing) => 2,
+    });
     h.bool(s.locked);
     h.i32(s.lock_level);
     let mut extras = soe_papyrus::vm::state::Writer::new();
@@ -467,6 +472,27 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.allow_pc_dialogue,
     ] {
         h.bool(flag);
+    }
+    match a.ward_state {
+        None => h.u8(0),
+        Some(state) => {
+            h.u8(1);
+            h.u32(state);
+        }
+    }
+    match a.dual_casting {
+        None => h.u8(0),
+        Some(value) => {
+            h.u8(1);
+            h.bool(value);
+        }
+    }
+    match a.shout_variation {
+        None => h.u8(0),
+        Some(variation) => {
+            h.u8(1);
+            h.i32(variation);
+        }
     }
     opt_form(h, a.exclusive_branch);
     h.len(a.relationships.len());

@@ -20,7 +20,7 @@ use godot::classes::base_material_3d::{
     CullMode, EmissionOperator, Feature, TextureParam, Transparency,
 };
 use godot::classes::image::Format;
-use godot::classes::mesh::{ArrayType, PrimitiveType};
+use godot::classes::mesh::{ArrayType, BlendShapeMode, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
@@ -106,6 +106,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Detect Life shader pairs currently synchronized to the renderer.
+    detect_life_shaders: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -131,6 +133,7 @@ pub struct CellStreamerNode {
     collision_cell: Option<GlobalFormId>,
     /// Host joints between linked references, released with either endpoint.
     tethers: crate::godot_tether::TetherConstraints,
+    pending_tethers: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -452,6 +455,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            detect_life_shaders: std::collections::BTreeSet::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -462,6 +466,7 @@ impl INode3D for CellStreamerNode {
             collision_space: None,
             collision_cell: None,
             tethers: crate::godot_tether::TetherConstraints::default(),
+            pending_tethers: std::collections::BTreeSet::new(),
             ref_cache: std::collections::HashMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
@@ -608,9 +613,16 @@ impl CellStreamerNode {
         &mut self,
         world: &soe_game::World,
         requests: Vec<soe_game::world::EffectShaderRequest>,
+        detections: &[crate::detect_life::DetectionPresentation],
         delta: f32,
     ) {
         let mut server = RenderingServer::singleton();
+        let mut requests = requests;
+        requests.extend(crate::detect_life::effect_shader_requests(
+            world,
+            detections,
+            &mut self.detect_life_shaders,
+        ));
         for request in requests {
             let key = (request.shader, request.target);
             if !request.playing {
@@ -832,12 +844,47 @@ impl CellStreamerNode {
         for id in stale_tethers {
             self.tethers.release_reference(id);
         }
+        self.pending_tethers.retain(|(cart, horse)| {
+            world
+                .ref_placement(*cart)
+                .is_some_and(|placement| placement.visible)
+                && world
+                    .ref_placement(*horse)
+                    .is_some_and(|placement| placement.visible)
+        });
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
             self.collision
                 .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
+        }
+        for request in world.take_reference_physics_requests() {
+            if let soe_game::world::ReferencePhysicsRequest::TetherToHorse { cart, horse } = request
+            {
+                self.pending_tethers.insert((cart, horse));
+            } else {
+                world.request_reference_physics(request);
+            }
+        }
+        let ready_tethers: Vec<_> = self
+            .pending_tethers
+            .iter()
+            .filter_map(|(cart, horse)| {
+                Some((
+                    *cart,
+                    *horse,
+                    self.collision.body_for_reference(*cart)?,
+                    self.collision.body_for_reference(*horse)?,
+                ))
+            })
+            .collect();
+        for (cart, horse, cart_body, horse_body) in ready_tethers {
+            let cart_pivot = Vector3::new(0.0, -0.2, -3.5);
+            let horse_pivot = Vector3::new(0.0, -0.5, 0.0);
+            self.tethers
+                .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot);
+            self.pending_tethers.remove(&(cart, horse));
         }
         let mut changed = std::collections::HashSet::new();
         let mut resident_refs = std::collections::BTreeMap::new();
@@ -1074,6 +1121,11 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    fn defer_tethers_for_collision_reset(&mut self) {
+        self.pending_tethers.extend(self.tethers.pairs());
+        self.tethers.free();
+    }
+
     #[signal]
     fn cell_load_requested(cell_x: i32, cell_y: i32);
 
@@ -1605,7 +1657,7 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
-            self.tethers.free();
+            self.defer_tethers_for_collision_reset();
             self.collision.free();
             self.collision_cell = None;
             self.collision_space = None;
@@ -1683,7 +1735,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
-        self.tethers.free();
+        self.defer_tethers_for_collision_reset();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
@@ -2160,6 +2212,7 @@ impl CellStreamerNode {
     pub fn clear(&mut self) {
         self.collision.free();
         self.tethers.free();
+        self.pending_tethers.clear();
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
@@ -2859,32 +2912,72 @@ fn image_from_texture(texture: &TextureData) -> Option<Gd<Image>> {
 /// caller applies a material through `set_surface_override_material`, this
 /// function only builds the geometry.
 pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
+    let arrays = mesh_surface_arrays(surface);
+    let mut mesh = ArrayMesh::new_gd();
+    mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
+    mesh
+}
+
+pub(crate) fn actor_array_mesh_from(
+    surface: &SurfaceArrays,
+    shapes: &[crate::actor::ExpressionShape],
+) -> Gd<ArrayMesh> {
+    let arrays = mesh_surface_arrays(surface);
+    let mut mesh = ArrayMesh::new_gd();
+    mesh.set_blend_shape_mode(BlendShapeMode::RELATIVE);
+    for shape in shapes {
+        mesh.add_blend_shape(&StringName::from(shape.name.as_str()));
+    }
+    let mut blend_shapes = Array::<AnyArray>::new();
+    for shape in shapes {
+        let mut target = VarArray::new();
+        for _ in 0..ArrayType::MAX.ord() {
+            target.push(&Variant::nil());
+        }
+        let positions: PackedVector3Array = shape
+            .positions
+            .iter()
+            .map(|p| Vector3::new(p[0], p[1], p[2]))
+            .collect();
+        target.set(ArrayType::VERTEX.ord() as usize, &positions.to_variant());
+        if !shape.normals.is_empty() {
+            let normals: PackedVector3Array = shape
+                .normals
+                .iter()
+                .map(|n| Vector3::new(n[0], n[1], n[2]))
+                .collect();
+            target.set(ArrayType::NORMAL.ord() as usize, &normals.to_variant());
+        }
+        blend_shapes.push(target.upcast_any_array());
+    }
+    mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays)
+        .blend_shapes(&blend_shapes)
+        .done();
+    mesh
+}
+
+fn mesh_surface_arrays(surface: &SurfaceArrays) -> VarArray {
     let mut arrays = VarArray::new();
     for _ in 0..ArrayType::MAX.ord() {
         arrays.push(&Variant::nil());
     }
-    let set = |arrays: &mut VarArray, slot: ArrayType, v: Variant| {
-        arrays.set(slot.ord() as usize, &v);
-    };
-
     let positions: PackedVector3Array = surface
         .positions
         .iter()
         .map(|p| Vector3::new(p[0], p[1], p[2]))
         .collect();
-    set(&mut arrays, ArrayType::VERTEX, positions.to_variant());
-
+    arrays.set(ArrayType::VERTEX.ord() as usize, &positions.to_variant());
     if !surface.normals.is_empty() {
         let normals: PackedVector3Array = surface
             .normals
             .iter()
             .map(|n| Vector3::new(n[0], n[1], n[2]))
             .collect();
-        set(&mut arrays, ArrayType::NORMAL, normals.to_variant());
+        arrays.set(ArrayType::NORMAL.ord() as usize, &normals.to_variant());
     }
     if !surface.tangents.is_empty() {
         let tangents: PackedFloat32Array = surface.tangents.iter().copied().collect();
-        set(&mut arrays, ArrayType::TANGENT, tangents.to_variant());
+        arrays.set(ArrayType::TANGENT.ord() as usize, &tangents.to_variant());
     }
     if !surface.uvs.is_empty() {
         let uvs: PackedVector2Array = surface
@@ -2892,20 +2985,17 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
             .iter()
             .map(|u| Vector2::new(u[0], u[1]))
             .collect();
-        set(&mut arrays, ArrayType::TEX_UV, uvs.to_variant());
+        arrays.set(ArrayType::TEX_UV.ord() as usize, &uvs.to_variant());
     }
     if surface.is_skinned() {
         let bones: PackedInt32Array = surface.bones.iter().copied().collect();
         let weights: PackedFloat32Array = surface.weights.iter().copied().collect();
-        set(&mut arrays, ArrayType::BONES, bones.to_variant());
-        set(&mut arrays, ArrayType::WEIGHTS, weights.to_variant());
+        arrays.set(ArrayType::BONES.ord() as usize, &bones.to_variant());
+        arrays.set(ArrayType::WEIGHTS.ord() as usize, &weights.to_variant());
     }
     let indices: PackedInt32Array = surface.indices.iter().copied().collect();
-    set(&mut arrays, ArrayType::INDEX, indices.to_variant());
-
-    let mut mesh = ArrayMesh::new_gd();
-    mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
-    mesh
+    arrays.set(ArrayType::INDEX.ord() as usize, &indices.to_variant());
+    arrays
 }
 
 /// Patches one batch member's vertex range in `arrays` in place, for

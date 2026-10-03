@@ -146,6 +146,55 @@ fn fmt_15_remaps_typed_vmad_objects_and_arrays_in_both_formats() {
 }
 
 #[test]
+fn fmt_15_independent_oracle_checks_every_vmad_link_after_reload() {
+    for object_format in [1u16, 2] {
+        let mut original = vmad(object_format, &[0x801, 0x802]);
+        let alias_count_at = original.len() - 2;
+        original.truncate(alias_count_at);
+        original.extend_from_slice(&1u16.to_le_bytes());
+
+        let alias_link_at = if object_format == 2 {
+            original.extend_from_slice(&0xfeedu16.to_le_bytes());
+            original.extend_from_slice(&(-7i16).to_le_bytes());
+            let at = original.len();
+            original.extend_from_slice(&0x803u32.to_le_bytes());
+            at
+        } else {
+            let at = original.len();
+            original.extend_from_slice(&0x803u32.to_le_bytes());
+            original.extend_from_slice(&(-7i16).to_le_bytes());
+            original.extend_from_slice(&0xfeedu16.to_le_bytes());
+            at
+        };
+        original.extend_from_slice(&5u16.to_le_bytes());
+        let alias_format = if object_format == 2 { 1u16 } else { 2u16 };
+        original.extend_from_slice(&alias_format.to_le_bytes());
+        original.extend_from_slice(&0u16.to_le_bytes());
+
+        let mut expected = original.clone();
+        let scalar_link_at = if object_format == 2 { 21 } else { 17 };
+        let array_link_at = if object_format == 2 { 38 } else { 34 };
+        let mapping = HashMap::from([
+            (0x801u32, 0x901u32),
+            (0x802u32, 0x902u32),
+            (0x803u32, 0x903u32),
+        ]);
+        for at in [scalar_link_at, array_link_at, alias_link_at] {
+            let old = u32::from_le_bytes(expected[at..at + 4].try_into().unwrap());
+            expected[at..at + 4].copy_from_slice(&mapping[&old].to_le_bytes());
+        }
+
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(b"QUST", 0x800).sub(b"VMAD", original));
+        plugin.remap_form_ids(&mapping).unwrap();
+        let reloaded = Plugin::parse(&plugin.to_bytes()).unwrap();
+        let actual = reloaded.records[0].find(Tag::new(b"VMAD")).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn fmt_15_rejects_malformed_vmad_without_mutating_plugin() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(b"QUST", 0x800).sub(b"VMAD", [5, 0, 2, 0, 1]));

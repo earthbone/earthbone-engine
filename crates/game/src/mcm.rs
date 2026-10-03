@@ -123,4 +123,43 @@ impl Game {
             }
         }
     }
+
+    /// Query one registered config script for its custom control label.
+    ///
+    /// The call uses normal Papyrus method lookup, so a config override of
+    /// `SKI_ConfigBase.GetCustomControl` is selected. `None` means the form
+    /// is not a registered config or the method did not return a string.
+    pub fn mcm_custom_control(&mut self, form: GlobalFormId, key_code: i32) -> Option<String> {
+        let config = self
+            .mcm_configs()
+            .into_iter()
+            .find(|config| config.form == form)?;
+        self.call_mcm_custom_control(config.form, key_code)
+    }
+
+    /// Query registered configs in registration order for their custom
+    /// control labels. Entries with a missing or non-string result are omitted.
+    pub fn mcm_custom_controls(&mut self, key_code: i32) -> Vec<(Config, String)> {
+        let configs = self.mcm_configs();
+        configs
+            .into_iter()
+            .filter_map(|config| {
+                self.call_mcm_custom_control(config.form, key_code)
+                    .map(|control| (config, control))
+            })
+            .collect()
+    }
+
+    fn call_mcm_custom_control(&mut self, form: GlobalFormId, key_code: i32) -> Option<String> {
+        let object = self.object_of_form(form);
+        let thread = self
+            .vm
+            .call(object, "GetCustomControl", &[Value::Int(key_code)])
+            .ok()?;
+        self.run_until_idle(64);
+        match self.vm.thread_result(thread)? {
+            Value::Str(control) => Some(control.to_string()),
+            _ => None,
+        }
+    }
 }

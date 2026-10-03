@@ -80,6 +80,11 @@ impl TetherConstraints {
         endpoints.dedup();
         endpoints
     }
+
+    #[must_use]
+    pub fn pairs(&self) -> Vec<(GlobalFormId, GlobalFormId)> {
+        self.links.keys().copied().collect()
+    }
 }
 
 #[cfg(test)]

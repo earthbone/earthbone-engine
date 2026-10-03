@@ -106,6 +106,11 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	var status := GDExtensionManager.load_extension("res://soe.gdextension")
+	if status != GDExtensionManager.LOAD_STATUS_OK and status != GDExtensionManager.LOAD_STATUS_ALREADY_LOADED:
+		printerr("could not load extension: ", status)
+		quit(1)
+		return
 	var parent := Node3D.new()
 	parent.position = Vector3(10.0, 0.0, 0.0)
 	root.add_child(parent)

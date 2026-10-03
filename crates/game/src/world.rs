@@ -215,6 +215,8 @@ pub struct RefState {
     pub deleted: bool,
     pub activation_blocked: bool,
     pub opened: bool,
+    /// A door animation in progress. The settled destination is in `opened`.
+    pub open_transition: Option<DoorOpenTransition>,
     pub locked: bool,
     pub lock_level: i32,
     /// Saved key and lock metadata. None keeps the authored key.
@@ -259,7 +261,26 @@ pub struct RefState {
     pub translation: Option<reference_translation::RefTranslation>,
 }
 
+/// The transitional state of an animated door reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorOpenTransition {
+    Opening,
+    Closing,
+}
+
 impl RefState {
+    pub(crate) fn open_state(&self, is_door: bool) -> i32 {
+        if !is_door {
+            return 0;
+        }
+        match self.open_transition {
+            Some(DoorOpenTransition::Opening) => 2,
+            Some(DoorOpenTransition::Closing) => 4,
+            None if self.opened => 1,
+            None => 3,
+        }
+    }
+
     fn new(base: Option<GlobalFormId>) -> Self {
         RefState {
             base,
@@ -273,6 +294,7 @@ impl RefState {
             deleted: false,
             activation_blocked: false,
             opened: false,
+            open_transition: None,
             locked: false,
             lock_level: 0,
             lock_extra: None,
@@ -366,6 +388,13 @@ pub struct ActorState {
     /// re-signals it from the live graph after load, through
     /// `World::set_blocking`.
     pub blocking: bool,
+    /// Ward animation state supplied by the host. `None` means the host has
+    /// not reported a state for this actor in the current session.
+    pub ward_state: Option<u32>,
+    /// Whether the host animation graph reports an active dual cast.
+    pub dual_casting: Option<bool>,
+    /// Active shout voice variation reported by the host animation graph.
+    pub shout_variation: Option<i32>,
     pub restrained: bool,
     pub arrested: bool,
     pub attack_on_sight: bool,
@@ -771,6 +800,10 @@ pub struct World {
     /// does not fire for the first cells after loading a save, which is the
     /// behaviour an empty set gives.
     streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// Instructions executed by the most recent Papyrus scheduler slice.
+    pub(crate) papyrus_instructions_last_slice: usize,
+    /// Exterior cells loaded by the most recent host streaming update.
+    pub(crate) exterior_cell_loads_last_update: usize,
     /// References whose host cell has loaded 3D. Rebuilt from cell streaming
     /// transitions and not saved, like `streamed_cells`.
     loaded_3d_references: std::collections::HashSet<GlobalFormId>,
@@ -791,6 +824,7 @@ pub struct World {
     /// Host interaction results for the current rendered frame.
     crosshair_reference: Option<GlobalFormId>,
     grabbed_reference: Option<GlobalFormId>,
+    player_first_person: bool,
     /// Save character ID used by deterministic SPID distribution rules.
     player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -803,6 +837,8 @@ pub struct World {
     rng_streams: [u64; rng::STREAM_COUNT],
     pub clock: GameClock,
     pub(crate) menu_mode: bool,
+    /// Actor pairs visible during the latest successful host perception step.
+    pub(crate) line_of_sight: BTreeSet<(GlobalFormId, GlobalFormId)>,
     pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     /// Transient requests for work that only the host can present.
@@ -1130,6 +1166,8 @@ impl World {
             encounter_zone_visits: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
+            papyrus_instructions_last_slice: 0,
+            exterior_cell_loads_last_update: 0,
             loaded_3d_references: std::collections::HashSet::new(),
             attached_cells: std::collections::HashSet::new(),
             pending_cell_resets: std::collections::BTreeSet::new(),
@@ -1138,6 +1176,7 @@ impl World {
             player: None,
             crosshair_reference: None,
             grabbed_reference: None,
+            player_first_person: true,
             player_character_id: 0,
             player_level: 1,
             training_sessions_this_level: 0,
@@ -1147,6 +1186,7 @@ impl World {
             rng_streams: rng::derive_streams(0x9E37_79B9_7F4A_7C15),
             clock: GameClock::default(),
             menu_mode: false,
+            line_of_sight: BTreeSet::new(),
             frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             host_requests: Vec::new(),

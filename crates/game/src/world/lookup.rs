@@ -29,6 +29,17 @@ impl World {
         self.grabbed_reference
     }
 
+    /// Set whether the host currently presents the player camera in first person.
+    pub fn set_player_first_person(&mut self, first_person: bool) {
+        self.player_first_person = first_person;
+    }
+
+    /// Return whether the host currently presents the player camera in first person.
+    #[must_use]
+    pub fn player_first_person(&self) -> bool {
+        self.player_first_person
+    }
+
     pub fn form(&self, editor_id: &str) -> Option<GlobalFormId> {
         self.editor_ids
             .get(&editor_id.to_ascii_lowercase())

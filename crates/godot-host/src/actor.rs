@@ -94,6 +94,8 @@ pub struct ActorSurface {
     /// The shape's name in the `NIF`, for reporting.
     pub name: String,
     pub arrays: SurfaceArrays,
+    /// Expression blend-shape deltas in the order uploaded to Godot.
+    pub expression_shapes: Vec<ExpressionShape>,
     /// Textures resolved from the material paths in the mesh.
     pub textures: SurfaceTextures,
     /// The shape's own bone list, carrying the inverse bind transforms.
@@ -109,6 +111,16 @@ pub struct ActorSurface {
     /// Whether the partition-local bone index correction applied, see
     /// [`partition_bone_indices`].
     pub remapped: bool,
+}
+
+/// One named CK expression target in Godot surface coordinates.
+pub struct ExpressionShape {
+    /// The CK target name used by `SetExpressionOverride`.
+    pub name: String,
+    /// Relative vertex offsets for Godot's blend-shape API.
+    pub positions: Vec<[f32; 3]>,
+    /// Relative normal offsets when the surface carries normals.
+    pub normals: Vec<[f32; 3]>,
 }
 
 /// A character's skeleton, graph, clips and skinned shapes.
@@ -541,6 +553,7 @@ impl ActorAssets {
                 path: mesh_path.to_string(),
                 source,
             })?;
+            let expression_shapes = expression_shapes(vfs, mesh_path, mesh, &arrays)?;
             if let Some(indices) = visible_indices(&file, mesh, hidden_slots).map_err(|reason| {
                 ActorError::Partitions {
                     path: mesh_path.to_owned(),
@@ -564,6 +577,7 @@ impl ActorAssets {
             out.push(ActorSurface {
                 name: mesh.name.clone(),
                 arrays,
+                expression_shapes,
                 textures: SurfaceTextures::default(),
                 skin,
                 map,
@@ -603,6 +617,80 @@ impl ActorAssets {
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
     }
+}
+
+fn expression_shapes(
+    vfs: &Vfs,
+    mesh_path: &str,
+    mesh: &soe_nif::Mesh,
+    base: &SurfaceArrays,
+) -> Result<Vec<ExpressionShape>, ActorError> {
+    let is_head = mesh_path.to_ascii_lowercase().contains("head")
+        || mesh.name.to_ascii_lowercase().contains("head");
+    if !is_head {
+        return Ok(Vec::new());
+    }
+    let tri_path = std::path::Path::new(mesh_path).with_extension("tri");
+    let tri_path = tri_path.to_string_lossy().replace('\\', "/");
+    let Ok(bytes) = vfs.read(&tri_path) else {
+        return Ok(Vec::new());
+    };
+    let tri = soe_nif::parse_head_tri(&bytes).map_err(|source| ActorError::Nif {
+        path: tri_path,
+        source,
+    })?;
+    if tri.vertices().len() != mesh.positions.len() {
+        return Ok(Vec::new());
+    }
+    let mut shapes = Vec::new();
+    for morph in tri.morphs() {
+        let name = morph.name().trim_end_matches('\0');
+        if crate::facial::expression_name_for_target(name).is_none() {
+            continue;
+        }
+        let positions = tri
+            .apply_morph(&mesh.positions, morph.name(), 1.0)
+            .map_err(|source| ActorError::Nif {
+                path: mesh_path.to_owned(),
+                source,
+            })?;
+        let mut morphed = mesh.clone();
+        morphed.positions = positions;
+        morphed.normals.clear();
+        morphed.tangents.clear();
+        let target = surface_of(&morphed).map_err(|source| ActorError::Surface {
+            path: mesh_path.to_owned(),
+            source,
+        })?;
+        shapes.push(ExpressionShape {
+            name: name.to_owned(),
+            positions: target
+                .positions
+                .iter()
+                .zip(&base.positions)
+                .map(|(target, base)| {
+                    [
+                        target[0] - base[0],
+                        target[1] - base[1],
+                        target[2] - base[2],
+                    ]
+                })
+                .collect(),
+            normals: target
+                .normals
+                .iter()
+                .zip(&base.normals)
+                .map(|(target, base)| {
+                    [
+                        target[0] - base[0],
+                        target[1] - base[1],
+                        target[2] - base[2],
+                    ]
+                })
+                .collect(),
+        });
+    }
+    Ok(shapes)
 }
 
 #[derive(Clone)]

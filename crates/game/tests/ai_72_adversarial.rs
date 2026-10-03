@@ -70,6 +70,26 @@ fn get_open_state_distinguishes_open_and_closed_states() {
 }
 
 #[test]
+fn ai_72_get_open_state_reports_opening_and_closing_transitions() {
+    let game = fixture();
+    let door = id(0x810);
+
+    assert!(game.world_mut().begin_door_opening(door));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 2.0)), Ok(true));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 1.0)), Ok(false));
+    assert!(game.world_mut().finish_door_transition(door));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 1.0)), Ok(true));
+
+    assert!(game.world_mut().begin_door_closing(door));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 4.0)), Ok(true));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 3.0)), Ok(false));
+    assert!(game.world_mut().finish_door_transition(door));
+    assert_eq!(evaluate(&game, door, &condition(157, 0, 3.0)), Ok(true));
+
+    assert!(!game.world_mut().begin_door_opening(id(0x800)));
+}
+
+#[test]
 fn default_open_and_destroyed_reject_a_deleted_reference() {
     let game = fixture();
     let reference = id(0x810);

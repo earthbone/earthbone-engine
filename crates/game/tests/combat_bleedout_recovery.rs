@@ -265,7 +265,9 @@ fn cmb_13_installed_essential_npc_reaches_a_finite_bleedout_threshold() {
     let game = Game::new(order);
     let threshold = game.world_mut().actor_bleedout_threshold(reference);
     assert!(
-        threshold.as_ref().is_ok_and(|value| value.is_finite() && *value >= 0.),
+        threshold
+            .as_ref()
+            .is_ok_and(|value| value.is_finite() && *value >= 0.),
         "installed essential/protected NPC {name} must resolve a finite bleedout threshold: {threshold:?}"
     );
 }

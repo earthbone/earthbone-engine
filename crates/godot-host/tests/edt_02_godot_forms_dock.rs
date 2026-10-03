@@ -51,9 +51,10 @@ fn edt_02_godot_editor_filters_loaded_forms_without_eager_resources() {
     std::fs::write(&patch_path, patch.to_bytes()).unwrap();
 
     let output = Command::new(godot)
-        .args(["--editor", "--path"])
+        // CONTEXT: The dock check reads controls and resources without rendering pixels.
+        .args(["--headless", "--editor", "--path"])
         .arg(&project)
-        .args(["--resolution", "640x360", "--quit-after", "900"])
+        .args(["--quit-after", "900"])
         .env("SOE_EDT_02_RUNTIME_TEST", "1")
         .env("SOE_EDT_02_BASE", &base_path)
         .env("SOE_EDT_02_PATCH", &patch_path)

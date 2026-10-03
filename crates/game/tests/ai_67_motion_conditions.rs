@@ -17,6 +17,7 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
@@ -192,4 +193,43 @@ fn ai_67_being_ridden_state_survives_world_save_load() {
         evaluate(&game, id(0x900), &condition(714, 0, 1.0)),
         Ok(true)
     );
+}
+
+#[test]
+fn ai_67_mount_transition_updates_rider_and_mount_condition_state() {
+    let game = fixture();
+    let mounted = condition(714, 0, 1.0);
+    let unmounted = condition(714, 0, 0.0);
+
+    game.world_mut()
+        .set_mount_rider(id(0x900), id(0x901), true)
+        .unwrap();
+    assert!(game.world_mut().actor(id(0x900)).unwrap().riding_mount);
+    assert!(game.world_mut().actor(id(0x901)).unwrap().being_ridden);
+    assert_eq!(evaluate(&game, id(0x901), &mounted), Ok(true));
+    assert_eq!(evaluate(&game, id(0x900), &unmounted), Ok(true));
+
+    game.world_mut()
+        .set_mount_rider(id(0x900), id(0x901), false)
+        .unwrap();
+    assert!(!game.world_mut().actor(id(0x900)).unwrap().riding_mount);
+    assert!(!game.world_mut().actor(id(0x901)).unwrap().being_ridden);
+    assert_eq!(evaluate(&game, id(0x901), &unmounted), Ok(true));
+}
+
+#[test]
+fn ai_67_mount_transition_rejects_invalid_actor_pairs_without_mutation() {
+    let game = fixture();
+    assert!(game
+        .world_mut()
+        .set_mount_rider(id(0x900), id(0x910), true)
+        .is_err());
+    assert!(!game.world_mut().actor(id(0x900)).unwrap().riding_mount);
+    assert!(!game.world_mut().actor(id(0x900)).unwrap().being_ridden);
+
+    assert!(game
+        .world_mut()
+        .set_mount_rider(id(0x900), id(0x900), true)
+        .is_err());
+    assert!(!game.world_mut().actor(id(0x900)).unwrap().riding_mount);
 }
