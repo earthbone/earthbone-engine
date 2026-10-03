@@ -5117,13 +5117,19 @@ mod tests {
 
     #[test]
     fn hst_18_world_exposes_current_crosshair_and_grabbed_references() {
-        let mut world = World::new(LoadOrder::new());
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        for object in [0x123, 0x456] {
+            plugin.push_top(soe_esm::Record::new(soe_esm::Tag(*b"REFR"), object));
+        }
+        let mut order = LoadOrder::new();
+        order.add("HostRefs.esm", plugin).unwrap();
+        let mut world = World::new(order);
         let crosshair = GlobalFormId {
-            file: 1,
+            file: 0,
             object: 0x123,
         };
         let grabbed = GlobalFormId {
-            file: 2,
+            file: 0,
             object: 0x456,
         };
         world.set_crosshair_reference(Some(crosshair));
