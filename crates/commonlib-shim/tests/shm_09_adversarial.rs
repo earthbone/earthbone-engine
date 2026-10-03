@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
-fn all_five_reference_extra_views_are_bound_to_the_game_world() {
+fn shm_09_all_five_reference_extra_views_are_bound_to_the_game_world() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let rust = fs::read_to_string(root.join("../game/src/world/shim_extras.rs")).unwrap();
     for name in [

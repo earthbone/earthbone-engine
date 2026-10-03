@@ -69,12 +69,10 @@ fn hst_15_tether_native_positions_horse_at_cart_on_call() {
     );
     assert_eq!(
         game.world_mut().take_reference_physics_requests(),
-        vec![ReferencePhysicsRequest::Tether {
+        vec![ReferencePhysicsRequest::TetherToHorse {
             cart: id(CART),
             horse: id(HORSE),
-            cart_pivot: [0.0, 3.5, -0.2],
-            horse_pivot: [0.0, 0.0, -0.5],
         }],
-        "Papyrus queues resolved endpoints and CK pivots for the host"
+        "Papyrus queues resolved endpoints for the host to constrain resident bodies"
     );
 }

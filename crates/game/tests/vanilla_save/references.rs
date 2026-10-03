@@ -8,7 +8,7 @@ use soe_save::{
     ChangeForm,
 };
 
-pub(super) fn fixture_order() -> LoadOrder {
+pub(crate) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
 

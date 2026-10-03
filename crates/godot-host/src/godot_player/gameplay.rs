@@ -111,28 +111,44 @@ impl PlayerNode {
                 restored_player_destination(reference.cell, reference.position, reference.rotation)
             })
         };
-        if destination.is_none() {
+        let Some((cell, position, rotation)) = destination else {
             return false;
-        }
+        };
 
-        self.game = Some(game);
+        let previous_game = self.game.replace(game);
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.last_activate_reference = None;
         self.footstep_cadence.reset();
         if !self.sync_game_pose() {
-            self.game = None;
+            self.game = previous_game;
             return false;
         }
 
         self.advance(1.0 / 60.0);
-        self.game.is_some()
+        if let Some(game) = &self.game {
+            if let Some(reference) = game.world_mut().reference(player) {
+                reference.cell = Some(cell);
+                reference.position = position;
+                reference.rotation = rotation;
+            }
+        }
+        let pose_reinstalled = self.sync_game_pose();
+        if let Some(camera) = &mut self.camera {
+            camera.make_current();
+        }
+        let attached = pose_reinstalled
+            && self.game.is_some()
             && self.character.is_some()
             && self.loaded_cell.is_some()
             && self
                 .camera
                 .as_ref()
-                .is_some_and(|camera| camera.is_instance_valid())
+                .is_some_and(|camera| camera.is_instance_valid());
+        if !attached {
+            self.game = previous_game;
+        }
+        attached
     }
 
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -323,11 +339,24 @@ impl PlayerNode {
             }
         }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let detections = {
+                let mut world = game.world_mut();
+                match crate::detect_life::presentations(&mut world) {
+                    Ok(detections) => detections,
+                    Err(error) => {
+                        godot_error!("PlayerNode: Detect Life presentation failed: {error}");
+                        Vec::new()
+                    }
+                }
+            };
             let requests = game.world_mut().take_effect_shader_requests();
             let world = game.world();
-            streamer
-                .bind_mut()
-                .sync_effect_shaders(&world, requests, delta.max(0.0) as f32);
+            streamer.bind_mut().sync_effect_shaders(
+                &world,
+                requests,
+                &detections,
+                delta.max(0.0) as f32,
+            );
         }
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
@@ -926,6 +955,18 @@ mod sav_19_tests {
         let pose = restored_player_destination(Some(cell), [1.0, 2.0, 3.0], [0.0; 3]);
         assert_eq!(pose, Some((cell, [1.0, 2.0, 3.0], [0.0; 3])));
         assert!(restored_player_destination(None, [1.0, 2.0, 3.0], [0.0; 3]).is_none());
-        assert!(restored_player_destination(Some(cell), [f32::NAN, 2.0, 3.0], [0.0; 3]).is_none());
+        for axis in 0..3 {
+            for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let mut position = [1.0, 2.0, 3.0];
+                position[axis] = invalid;
+                assert!(restored_player_destination(Some(cell), position, [0.0; 3]).is_none());
+
+                let mut rotation = [0.0; 3];
+                rotation[axis] = invalid;
+                assert!(
+                    restored_player_destination(Some(cell), [1.0, 2.0, 3.0], rotation).is_none()
+                );
+            }
+        }
     }
 }

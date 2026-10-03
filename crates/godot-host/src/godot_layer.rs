@@ -106,6 +106,8 @@ pub struct CellStreamerNode {
     occluders: Vec<CellOccluder>,
     /// Temporary shader visuals keyed by their authored shader and target.
     effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
+    /// Detect Life shader pairs currently synchronized to the renderer.
+    detect_life_shaders: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Point lights for active magic effects that placed LIGH references.
     runtime_lights: std::collections::HashMap<GlobalFormId, RuntimeLight>,
     /// The `CELL` each streamed exterior grid position resolved to, so
@@ -131,6 +133,7 @@ pub struct CellStreamerNode {
     collision_cell: Option<GlobalFormId>,
     /// Host joints between linked references, released with either endpoint.
     tethers: crate::godot_tether::TetherConstraints,
+    pending_tethers: std::collections::BTreeSet<(GlobalFormId, GlobalFormId)>,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -452,6 +455,7 @@ impl INode3D for CellStreamerNode {
             instances: Vec::new(),
             occluders: Vec::new(),
             effect_shaders: std::collections::HashMap::new(),
+            detect_life_shaders: std::collections::BTreeSet::new(),
             runtime_lights: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
@@ -462,6 +466,7 @@ impl INode3D for CellStreamerNode {
             collision_space: None,
             collision_cell: None,
             tethers: crate::godot_tether::TetherConstraints::default(),
+            pending_tethers: std::collections::BTreeSet::new(),
             ref_cache: std::collections::HashMap::new(),
             destruction_models: std::collections::HashMap::new(),
             terrain_lod: None,
@@ -608,9 +613,16 @@ impl CellStreamerNode {
         &mut self,
         world: &soe_game::World,
         requests: Vec<soe_game::world::EffectShaderRequest>,
+        detections: &[crate::detect_life::DetectionPresentation],
         delta: f32,
     ) {
         let mut server = RenderingServer::singleton();
+        let mut requests = requests;
+        requests.extend(crate::detect_life::effect_shader_requests(
+            world,
+            detections,
+            &mut self.detect_life_shaders,
+        ));
         for request in requests {
             let key = (request.shader, request.target);
             if !request.playing {
@@ -832,12 +844,47 @@ impl CellStreamerNode {
         for id in stale_tethers {
             self.tethers.release_reference(id);
         }
+        self.pending_tethers.retain(|(cart, horse)| {
+            world
+                .ref_placement(*cart)
+                .is_some_and(|placement| placement.visible)
+                && world
+                    .ref_placement(*horse)
+                    .is_some_and(|placement| placement.visible)
+        });
         if let Some(space) = self.collision_space {
             self.collision.ensure_references(world);
             self.collision.sync_placements(world, space);
             self.collision
                 .apply_reference_physics_requests(world, &mut self.tethers);
             self.collision.poll_movable(world);
+        }
+        for request in world.take_reference_physics_requests() {
+            if let soe_game::world::ReferencePhysicsRequest::TetherToHorse { cart, horse } = request
+            {
+                self.pending_tethers.insert((cart, horse));
+            } else {
+                world.request_reference_physics(request);
+            }
+        }
+        let ready_tethers: Vec<_> = self
+            .pending_tethers
+            .iter()
+            .filter_map(|(cart, horse)| {
+                Some((
+                    *cart,
+                    *horse,
+                    self.collision.body_for_reference(*cart)?,
+                    self.collision.body_for_reference(*horse)?,
+                ))
+            })
+            .collect();
+        for (cart, horse, cart_body, horse_body) in ready_tethers {
+            let cart_pivot = Vector3::new(0.0, -0.2, -3.5);
+            let horse_pivot = Vector3::new(0.0, -0.5, 0.0);
+            self.tethers
+                .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot);
+            self.pending_tethers.remove(&(cart, horse));
         }
         let mut changed = std::collections::HashSet::new();
         let mut resident_refs = std::collections::BTreeMap::new();
@@ -1074,6 +1121,11 @@ mod mag_14_tests {
 
 #[godot_api]
 impl CellStreamerNode {
+    fn defer_tethers_for_collision_reset(&mut self) {
+        self.pending_tethers.extend(self.tethers.pairs());
+        self.tethers.free();
+    }
+
     #[signal]
     fn cell_load_requested(cell_x: i32, cell_y: i32);
 
@@ -1605,7 +1657,7 @@ impl CellStreamerNode {
             return 0;
         };
         if self.collision_cell == Some(owner) {
-            self.tethers.free();
+            self.defer_tethers_for_collision_reset();
             self.collision.free();
             self.collision_cell = None;
             self.collision_space = None;
@@ -1683,7 +1735,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
-        self.tethers.free();
+        self.defer_tethers_for_collision_reset();
         self.collision.free();
         self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
         self.collision_space = Some(space);
@@ -2160,6 +2212,7 @@ impl CellStreamerNode {
     pub fn clear(&mut self) {
         self.collision.free();
         self.tethers.free();
+        self.pending_tethers.clear();
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();

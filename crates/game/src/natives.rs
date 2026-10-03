@@ -1087,13 +1087,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         w,
         "ObjectReference",
         "GetOpenState",
-        |world, call, me| {
-            i(if world.reference(me).is_some_and(|r| r.opened) {
-                1
-            } else {
-                3
-            })
-        }
+        |world, call, me| i(world.door_open_state(me).unwrap_or(0))
     );
     method!(vm, w, "ObjectReference", "SetOpen", |world, call, me| {
         let open = call.args.first().is_none_or(Value::as_bool);
@@ -1262,21 +1256,20 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             if me == horse || world.reference(horse).is_none() {
                 return none();
             }
-            world.request_reference_physics(ReferencePhysicsRequest::Tether {
-                cart: me,
-                horse,
-                cart_pivot: [0.0, 3.5, -0.2],
-                horse_pivot: [0.0, 0.0, -0.5],
-            });
-            if let Some(horse) = world.reference(horse) {
+            if let Some(horse_state) = world.reference(horse) {
                 let yaw = rotation[2];
-                horse.position = [
-                    position[0] + yaw.cos() * 72.0 - yaw.sin() * 300.0,
-                    position[1] + yaw.sin() * 72.0 + yaw.cos() * 300.0,
+                let (sin, cos) = yaw.sin_cos();
+                horse_state.position = [
+                    position[0] + 72.0 * cos - 300.0 * sin,
+                    position[1] + 72.0 * sin + 300.0 * cos,
                     position[2],
                 ];
-                horse.rotation = rotation;
-                horse.cell = cell;
+                horse_state.rotation = rotation;
+                horse_state.cell = cell;
+                world.request_reference_physics(ReferencePhysicsRequest::TetherToHorse {
+                    cart: me,
+                    horse,
+                });
             }
             none()
         }

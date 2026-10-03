@@ -77,10 +77,14 @@ layouts and unsupported mutation hooks do not produce editable extra data.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
-- `world/shim_extras`: CommonLib extra-data views over reference teleport
-  destinations and inventory outfit/poison extras. Missing reference IDs and
-  north rotation have no authoritative runtime field and are reported as
-  unsupported by the shim adapter.
+- `world/shim_extras`: CommonLib extra-data views over reference XLIB, XLIG,
+  map-marker records, authored XLKR links and loaded linked-reference state,
+  teleport destinations, inventory outfit/poison extras and resolved XAPR
+  activation parents. XAPR targets must be REFR or ACHR records. Missing
+  linked-reference targets are reported when their forms are absent from the
+  form table. Interior cells expose the zero north-rotation default. Exterior
+  worldspace north rotation is not represented by runtime records and returns
+  no value. Executable vtable hooks return an explicit unsupported result.
 - `World::add_quest_start_stop_sink` registers an MIT shim event listener.
   Successful `Start`, `Stop`, and stage-driven quest transitions emit the
   resolved runtime FormID and the resulting failed state. The event source
@@ -222,18 +226,21 @@ and returns the current page labels. `mcm_open`, `mcm_select_page` and
 functions. Those functions deliver the initial empty-page reset, selected-page
 reset, open and close callbacks. The registry and active menu selection are
 session UI state, while page labels remain script properties. This bridge
-does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
-order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
-`SKI_ConfigManager.psc` sources.
-The focused fixture assembles equivalent lifecycle methods in Papyrus
-bytecode. `ui_05_original_skyui_source_defines_lifecycle_order` checks the
-original source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc`
-path. `ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and
-runs the unmodified `SKI_ConfigBase.pex` when
-`SOE_SKYUI_CONFIG_BASE_PEX` names that file. The PEX execution check skips when
-the compiled SkyUI script is unavailable. It was not available in the local
-reference checkout or installed game data during this change, so the
-unmodified script execution remains unverified here.
+also exposes `mcm_custom_control` and `mcm_custom_controls`, which call
+registered configs' `GetCustomControl(keyCode)` methods and return string
+results in registration order. The methods use ordinary Papyrus dispatch so
+config overrides are honored. It does not execute SkyUI's Scaleform panel or
+its option APIs. The lifecycle order and limit come from the local SkyUI
+`SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources. The focused fixture
+assembles equivalent lifecycle methods in Papyrus bytecode.
+`ui_05_original_skyui_source_defines_lifecycle_order` checks the original
+source when `SOE_SKYUI_CONFIG_BASE` names its `SKI_ConfigBase.psc` path.
+`ui_05_executes_unmodified_skyui_base_when_pex_is_available` loads and runs
+the unmodified `SKI_ConfigBase.pex` when `SOE_SKYUI_CONFIG_BASE_PEX` names that
+file. The PEX execution check skips when the compiled SkyUI script is
+unavailable. It was not available in the local reference checkout or installed
+game data during this change, so unmodified-script execution remains
+unverified here.
 
 ### Furniture activation, HST-09
 
@@ -809,15 +816,17 @@ SOEW, so reset adds no save section. This follows the local CK
 `Reset_-_ObjectReference` contract. Dynamic references without a winning
 placement record cannot be reset.
 
-**ObjectReference.TetherToHorse.** The native places the supplied horse at
-the cart's local offset `[72, 300, 0]`, copies the cart rotation, and moves the
-horse into the cart's cell. It queues a transient host request for the cart and
-horse references using the CK page's chassis and horse connection pivots. The
-host resolves those forms to resident rigid body RIDs and connects them with a
-pin joint. The CK page names `HorseSpine2` as the horse connection and gives
-pivots in Havok units. This runtime connects the reference body as a whole and
-does not resolve that bone or build the cart's wheel and pole constraints.
-Replacing a tether or unloading its collision cell frees the old joint.
+**ObjectReference.TetherToHorse.** The native moves the supplied horse by the
+CK page's local cart offset (72, 300, 0) Skyrim units, rotates that offset by
+cart yaw, copies the cart rotation and cell, then queues the pair for host
+physics. The host waits until both references have resident collision bodies
+before creating their pin joint, using the CK chassis pivot `[0, 3.5, -0.2]`
+and horse pivot `[0, 0, -0.5]` in Havok units. A missing, invalid or
+self-reference argument leaves the world unchanged. The CK
+`TetherToHorse_-_ObjectReference.wikitext` page names `HorseSpine2` as the
+horse connection. The runtime connects whole reference bodies and does not
+sample that bone or build the cart wheels, pole and suspension rig from NIF
+data. Replacing a tether or unloading its collision cell frees the old joint.
 
 `ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation` are
 registered but remain quiet stubs. Their movement state, completion and failure
@@ -2221,13 +2230,15 @@ evaluator counts those functions as unsupported. xEdit's
 CK condition pages for these functions exist in the local CK corpus, so the
 engine does not infer their runtime values.
 AI-72 adds these queries to both condition evaluators: `GetOpenState` for
-placed `DOOR` references (0 for other references, 1 open and 3 closed),
+placed `DOOR` references (0 for other references, 1 open, 2 opening, 3 closed
+and 4 closing),
 `GetIsCurrentPackage` against the subject actor's selected package,
 `GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
 reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
-The CK state values 2 (opening) and 4 (closing) require animation progress,
-which the current reference state does not track, so those transitions remain
-unavailable.
+`World::begin_door_opening` and `World::begin_door_closing` record transitional
+states and their settled destination, while `World::finish_door_transition`
+clears the transition. The marker is transient, so loading a save restores the
+settled destination. Papyrus `GetOpenState` and CTDA 157 share this mapping.
 `GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
 `GetCannibal` remain unsupported with a function diagnostic because the local
 sources name them without defining query results.
@@ -2862,6 +2873,12 @@ finished state. Loading an engine save lets the driver continue that branch.
 Vanilla ESS package state is not connected to this cursor: named Sequence and
 Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
 its vanilla procedure.
+`sav_13_saved_actor_resumes_at_its_saved_package_procedure` checks that an
+engine save restores the running package, procedure and tree cursor before
+both actors continue to the same route result. CK documents
+`GetCurrentPackage` as returning the package the actor is running, while
+`EvaluatePackage` forces its stack to be evaluated again. This check covers
+engine-save continuation. It does not apply ESS `PackageData` to live actors.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -3478,15 +3495,15 @@ or light-level context.
 
 `GetPathingCurrentSpeed` reads the actor package speed while waypoints remain
 and the actor has not arrived. `IsPathing` uses that same pending waypoint
-state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsInFurnitureState`,
-`GetPathingCurrentSpeedAngle`, `IsBeingRidden` and `IsOnFlyingMount` return an
-unavailable-state diagnostic. xEdit supplies their function and parameter
-definitions, but the engine has no furniture animation, integer graph variable,
-rider relation or flying mount state. The CK page for `IsBeingRidden` defines
-its result, but no shared rider relation currently backs it. CK semantic pages
-for the other four functions were absent from the local corpus, so their
-numeric results are not inferred from the function names. These conditions
-are not included in `supports_function`.
+state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsBeingRidden`
+reads the mount actor flag. `World::set_mount_rider` updates that flag together
+with the rider's `riding_mount` flag when gameplay reports a mount or dismount.
+`IsInFurnitureState`, `GetPathingCurrentSpeedAngle` and `IsOnFlyingMount` return
+an unavailable-state diagnostic. xEdit supplies their function and parameter
+definitions, but the engine has no furniture animation, axis-angle or flying
+mount state. CK semantic pages for those three functions were absent from the
+local corpus, so their numeric results are not inferred from the function names.
+These conditions are not included in `supports_function`.
 Float comparisons are exact and have not been compared against vanilla
 near-equality behavior. `ObjectReference.GetItemCount` totals an exact base
 form, each FormList member or every carried item whose base has the supplied
@@ -3511,7 +3528,8 @@ was found for functions 255, 265, 266, 267 or 332. Those function IDs remain
 unsupported and return `conditions::Error::Function`, rather than inventing vendor
 or weather state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
 `uesp-modfileformat/Raw_Function_Data.wikitext`, CK
-`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
+`SetRestrained_-_Actor.wikitext`, `SetUnconscious_-_Actor.wikitext` and
+`Game_Script.wikitext`.
 
 `HasMagicEffect` matches an active MGEF on its subject. `IsSpellTarget` matches
 an active application from its magic item parameter. `HasShout` checks known
@@ -3707,8 +3725,9 @@ For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
 parameter types. The local CK corpus supplies
 `IsBeingRidden_-_Actor.wikitext`, which defines it as a zero-parameter actor
 query. `IsBeingRidden` (714) reads `ActorState::being_ridden`. The named
-`AI-67` actor save section retains that flag. A host or gameplay path must set
-the flag when another actor mounts this actor. GetGraphVariableInt (675) reads
+`AI-67` actor save section retains that flag. Gameplay reports mount and
+dismount transitions through `World::set_mount_rider`, which updates the rider
+and mount flags together. GetGraphVariableInt (675) reads
 a named integer in the actor's live graph state, case-insensitively, and
 reports missing names and non-actor subjects. Its integer state is transient
 host input and is not saved.
@@ -3739,6 +3758,12 @@ local CK function corpus has usable state-query descriptions for sprinting and
 flying, but no usable behavior contract for the other five functions. Tests
 exercise graph float, sprint and flight comparisons, malformed parameters,
 missing graph variables, invalid actor subjects and explicit diagnostics.
+
+The AI driver's `Hover` procedure signals the actor's transient flying flag
+while it moves to and holds its authored elevated location. Ending Hover or
+stopping actor movement clears the flag. CTDA 594 reads this movement state.
+`allow_flying` remains a separate permission flag. Other actor flight modes
+and host-controlled flight are not represented by this path.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,
@@ -5142,6 +5167,10 @@ execution semantics.
 `mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_shader`
 checks selection and shader identity. The host adapter converts those results
 to Godot coordinates and retains the authored shader FormID for presentation.
+The host reconciles active targets into EFSH start and stop requests. The
+RenderingServer path displays the authored membrane settings while each target
+remains selected. See [godot-host](godot-host.md#detect-life-presentation-mag-40)
+for the rendered fields and limits.
 
 `mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry`
 exercises the row's spawn, ownership and expiry check with synthetic records.
@@ -6684,10 +6713,11 @@ image-space inputs. `World::image_space_curve_samples` resolves each active
 modifier through its winning IMAD record, validates the authored key arrays,
 and samples float and RGBA keys at normalized age. Float keys use linear
 interpolation, with values held at the first or last key outside the key range.
-The host frame carries those samples with the independent active stack
-strength. This does not combine modifier values with base IMGS data or render
-a screen pass. The rendered acceptance check remains open until MAG-72 supplies
-the base values and rendering path.
+This interpolation is the current engine rule, not a recovered vanilla
+interpolator contract. The host receives each sample with its independent
+active stack strength, composes supported color, blur, DOF and HDR channels,
+and renders them through Godot. `docs/godot-host.md` records that mapping and
+the pixel fixture. Exact Skyrim shader parity remains unverified.
 
 The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
 `Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
@@ -6744,9 +6774,11 @@ storage, while `ImageSpaceModifierInstanceForm.h` calls binary entry points
 instead of defining interpolation or weighted composition. Target flags are
 set in 84 radial-blur records and 4 DOF records. The instance type stores a
 scene target, but the five Papyrus natives expose no target argument.
-Fallback target behavior, curve interpolation, unused channels and exact
-strength composition are not recovered contracts. They must not be inferred
-from similarly named Godot properties or a linear crossfade weight test.
+Fallback target behavior, curve interpolation parity, unused channels and
+exact vanilla strength composition are not recovered contracts. The host uses
+its documented weighted composition policy for supported channels. The
+synthetic pixel fixture demonstrates visible host behavior, not Skyrim shader
+parity.
 
 ## Value and Parts archetype, MAG-52
 
@@ -7728,14 +7760,17 @@ version 37 persists the record flags and saved markers.
 
 ## Saved projectile changes, SAV-24
 
-`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD and PBAR change
-forms to winning records and installs all changes atomically. The runtime
-query `World::restored_projectile_extra` returns the shared change flag word
-and exact payload bytes for each restored form. The `SAV-24` world section
-persists the result within SOEW version 37. TES5Edit
-`Core/wbDefinitionsTES5Saves.pas` defines the shared flags but leaves these
-subtype payload structures empty, so the importer does not map the raw payload
-onto plugin subrecords or claim subtype fields are implemented.
+`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD, PBAR, PCON and
+PARW change forms to winning records and installs all changes atomically. The
+runtime query `World::restored_projectile_extra` returns the change flag word
+and exact stored payload bytes for each restored form. The `SAV-24` world
+section persists the result within SOEW version 37. TES5Edit
+`Core/wbDefinitionsTES5Saves.pas` leaves these subtype payload structures
+empty, so the importer does not map payload bytes onto plugin subrecords or
+claim subtype fields are implemented. PCON placement is also decoded by the
+reference reconstruction path. PARW placement stays opaque because xEdit
+omits type 47 from its initial-data dispatch and FallrimTools uses its raw
+fallback.
 
 ## Scripted knockback and ragdoll requests, CMB-38
 

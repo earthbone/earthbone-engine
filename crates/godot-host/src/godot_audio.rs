@@ -131,7 +131,8 @@ impl INode3D for SoundBank {
             self.base_mut().add_child(&player);
             self.music_players.push(player);
         }
-        let player = AudioStreamPlayer::new_alloc();
+        let mut player = AudioStreamPlayer::new_alloc();
+        player.set_name("AmbiencePlayer");
         self.base_mut().add_child(&player);
         self.ambience = Some(player);
     }
@@ -158,6 +159,7 @@ impl INode3D for SoundBank {
 #[godot_api]
 impl SoundBank {
     /// Stop the current non-positional ambience stream.
+    #[func]
     pub(crate) fn stop_ambience(&mut self) {
         if let Some(player) = &mut self.ambience {
             player.stop();
@@ -165,8 +167,11 @@ impl SoundBank {
     }
 
     /// Start a non-positional ambience track resolved from a MUST record.
-    pub(crate) fn play_ambience(&mut self, data_path: &str) -> bool {
-        let stream = match self.stream(data_path) {
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn play_ambience(&mut self, data_path: GString) -> bool {
+        let data_path = data_path.to_string();
+        let stream = match self.stream(&data_path) {
             Ok((stream, _, _)) => stream,
             Err(error) => {
                 self.last_error = error.as_str().into();

@@ -843,19 +843,7 @@ fn function_value(
             if c.param1 != 0 || c.param2 != 0 {
                 return None;
             }
-            let (base, opened) = world
-                .reference(subject)
-                .filter(|reference| !reference.deleted)
-                .map(|reference| (reference.base, reference.opened))?;
-            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
-                if opened {
-                    1.0
-                } else {
-                    3.0
-                }
-            } else {
-                0.0
-            }
+            world.door_open_state(subject)? as f32
         }
         203 => {
             if c.param1 != 0 || c.param2 != 0 {
@@ -1046,6 +1034,7 @@ fn switch_to(
     }
     let running = ai.package;
     if let Some(a) = world.actor(actor) {
+        a.flying = ai.procedure == Procedure::Hover;
         a.ai = ai;
     }
     running
@@ -2042,6 +2031,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         let Some((dead, unconscious)) = world.actor(actor).map(|a| (a.dead, a.unconscious)) else {
             continue;
         };
+        if let Some(state) = world.actor(actor) {
+            state.flying = !dead && !unconscious && state.ai.procedure == Procedure::Hover;
+        }
         if dead || unconscious {
             continue;
         }
@@ -2680,6 +2672,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     if matches!(ai.procedure, Procedure::Orbit { .. }) {
         orbit(world, actor, &mut ai, position, dt);
         if let Some(a) = world.actor(actor) {
+            a.flying = ai.procedure == Procedure::Hover;
             a.ai = ai;
         }
         return;
@@ -2917,6 +2910,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         tree::succeeded(world, &mut ai);
     }
     if let Some(a) = world.actor(actor) {
+        a.flying = ai.procedure == Procedure::Hover;
         a.ai = ai;
     }
 }

@@ -62,9 +62,14 @@ The host does not substitute English.
 ### The WMA bitstream
 
 `WmaDecoder` keeps callers independent of a particular implementation. Its `Native`
-implementation feeds each xWMA block-aligned packet to `oxideav-wma` and returns interleaved
-float samples. xWMA carries WMA v2 format fields but omits the codec private data found in other
-WMA containers. The adapter supplies the six-byte setup value that FFmpeg's xWMA demuxer uses,
+implementation feeds xWMA block-aligned packets through `oxideav-wma` packet assembly,
+frame parsing and synthesis, then returns interleaved float samples. It selects the
+short-block exponent-reuse flag for both mono and stereo, as FFmpeg
+`libavcodec/wmadec.c` does. The codec factory in version 0.0.4 restricts that flag
+to stereo and silently substitutes silence after mono parse failures, so the
+adapter uses the lower-level codec API and returns an error on parse failure.
+xWMA carries WMA v2 format fields but omits the codec private data found in other
+WMA containers. The adapter supplies the setup flags that FFmpeg's xWMA demuxer uses,
 normalizes the documented fake bitrate combinations, checks the `dpds` entry count and cumulative
 totals, and trims decoder priming output to the exact decoded byte count. It rejects unsupported
 tags, invalid packet alignment and decoded PCM above 256 MiB.
@@ -298,6 +303,9 @@ response text and checks that each reported track duration differs from decoded 
 no more than 50 ms. This measures temporal coverage only. Rhubarb exports mouth cues rather than
 recognized words, so the check does not claim that hints improve transcript accuracy or exact
 phoneme alignment.
+
+The installed-data run on 2026-10-02 passed for all eight responses with Rhubarb Lip Sync 1.14.0
+and ffmpeg. Both tracks for every response stayed within the 50 ms duration bound.
 
 ### Shapes onto phonemes
 
