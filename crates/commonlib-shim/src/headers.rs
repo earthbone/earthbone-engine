@@ -726,7 +726,9 @@ public:
     std::optional<FormKey> form_key() { return world_.player(); }
     std::optional<ObjectRefHandle> handle() {
         const auto id = world_.player();
-        return id ? std::optional<ObjectRefHandle>{ObjectRefHandle{world_.runtime_form_id(*id)}} : std::nullopt;
+        if (!id) return std::nullopt;
+        const auto runtime_id = world_.runtime_form_id(*id);
+        return runtime_id != 0 ? std::optional<ObjectRefHandle>{ObjectRefHandle{runtime_id}} : std::nullopt;
     }
     std::optional<Position> position() {
         const auto id = world_.player();

@@ -7,6 +7,23 @@
 mod common;
 mod support;
 
+#[path = "shm_11_breaker_2_adversarial.rs"]
+mod shm_11_breaker_2_adversarial;
+#[path = "shm_12_breaker_adversarial.rs"]
+mod shm_12_breaker_adversarial;
+#[path = "shm_13_breaker_adversarial.rs"]
+mod shm_13_breaker_adversarial;
+#[path = "shm_14_breaker_2_adversarial.rs"]
+mod shm_14_breaker_2_adversarial;
+#[path = "shm_15_breaker_adversarial.rs"]
+mod shm_15_breaker_adversarial;
+#[path = "shm_16_breaker_2_adversarial.rs"]
+mod shm_16_breaker_2_adversarial;
+#[path = "shm_17_breaker_adversarial.rs"]
+mod shm_17_breaker_adversarial;
+#[path = "shm_18_breaker_2_adversarial.rs"]
+mod shm_18_breaker_2_adversarial;
+
 #[path = "shm_13_adversarial.rs"]
 mod shm_13_adversarial;
 

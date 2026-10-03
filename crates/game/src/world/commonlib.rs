@@ -54,12 +54,34 @@ impl World {
         }
     }
 
-    /// Read the placed HAZD reference fields currently represented by the
-    /// reference table. This does not simulate the hazard.
+    /// Read a placed hazard's reference fields. PHZD placements are projected
+    /// directly from their record, while a generic reference can name HAZD as
+    /// its base. This does not simulate the hazard.
     pub fn commonlib_hazard(&mut self, reference: GlobalFormId) -> Option<HazardState> {
-        let (base, position, enabled) = {
-            let state = self.reference(reference)?;
-            (state.base?, state.position, state.enabled)
+        let state = self
+            .reference(reference)
+            .and_then(|state| state.base.map(|base| (base, state.position, state.enabled)));
+        let (base, position, enabled) = if let Some(state) = state {
+            state
+        } else {
+            let source = self.order.winner_ref(reference)?;
+            let record = self.order.record(source);
+            if record.tag != soe_esm::Tag(*b"PHZD") {
+                return None;
+            }
+            let base = self
+                .order
+                .resolve(source.file, super::le_u32(record.find(super::T(b"NAME"))?)?);
+            let data = record.find(super::T(b"DATA"))?;
+            if data.len() < 24 {
+                return None;
+            }
+            let position = [
+                super::le_f32(data),
+                super::le_f32(&data[4..]),
+                super::le_f32(&data[8..]),
+            ];
+            (base, position, true)
         };
         if self.record(base)?.tag != soe_esm::Tag(*b"HAZD") {
             return None;

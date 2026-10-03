@@ -216,7 +216,10 @@ impl<'a, W: WorldState> PlayerCharacter<'a, W> {
     /// Return the player's reference handle in the runtime's resolved FormID space.
     pub fn handle(&mut self) -> Option<ObjectRefHandle> {
         let player = self.world.player()?;
-        self.world.runtime_form_id(player).map(ObjectRefHandle)
+        self.world
+            .runtime_form_id(player)
+            .filter(|runtime_id| *runtime_id != 0)
+            .map(ObjectRefHandle)
     }
 
     pub fn actor_value(&mut self, name: &str) -> Option<f32> {
