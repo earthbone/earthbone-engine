@@ -36,7 +36,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
 }
 
 #[test]
-fn npc_prkr_rank_makes_matching_prke_rank_eligible() {
+fn npc_prkr_rank_byte_does_not_override_perk_chain_rank() {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(Tag(*b"PERK"), PERK)
@@ -75,7 +75,9 @@ fn npc_prkr_rank_makes_matching_prke_rank_eligible() {
     dispatcher.register(ENTRY, record_rank);
     assert_eq!(
         dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        // NPC.wikitext marks the PRKR rank byte as no longer in use. A lone
+        // owned perk therefore has its first rank, regardless of this byte.
         Ok(1)
     );
-    assert_eq!(game.world_mut().actor_value(actor, "health"), 2.0);
+    assert_eq!(game.world_mut().actor_value(actor, "health"), 1.0);
 }
