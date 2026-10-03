@@ -101,6 +101,10 @@ pub struct Havok {
 pub struct ReferenceHeader {
     pub change_flags: u32,
     pub initial: Initial,
+    /// Whether this change-form type carries FORM, BASE and SCALE fields.
+    pub carries_reference_data: bool,
+    /// Whether this change-form type carries the generic Havok block.
+    pub carries_havok: bool,
     pub havok: Option<Havok>,
     /// xEdit calls these HasEquipData and flags1. Their consumers are separate.
     pub actor: Option<[u32; 2]>,
@@ -128,7 +132,7 @@ impl ChangeForm {
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42) {
+        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42 | 47) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {
@@ -139,7 +143,11 @@ impl ChangeForm {
         let payload = self.payload()?;
         let mut r = Cursor::new(&payload, "reference header");
         let flags = self.change_flags;
-        let initial = if self.form.kind() == RefKind::Created {
+        let initial = if self.type_index() == 47 {
+            // xEdit has no InitialDataTypeDecider entry for PARW. Its entire
+            // payload remains opaque, regardless of the change flags.
+            Initial::Unchanged
+        } else if self.form.kind() == RefKind::Created {
             Initial::Created {
                 placement: placement(&mut r)?,
                 flags: r.u8()?,
@@ -156,7 +164,8 @@ impl ChangeForm {
         } else {
             Initial::Unchanged
         };
-        let havok = if flags & flags::HAVOK != 0 {
+        let carries_havok = self.type_index() != 47;
+        let havok = if carries_havok && flags & flags::HAVOK != 0 {
             let count = r.vsval()?;
             Some(Havok {
                 data: r.take(count.value() as usize)?.to_vec(),
@@ -195,6 +204,8 @@ impl ChangeForm {
         Ok(Some(ReferenceHeader {
             change_flags: flags,
             initial,
+            carries_reference_data: has_reference_data,
+            carries_havok,
             havok,
             actor,
             form_flags,
@@ -220,12 +231,18 @@ impl ReferenceHeader {
     /// An optional field disagrees with its change bit or a retained count
     /// no longer fits the edited Havok data. This does not encode the suffix.
     pub fn data_bytes(&self) -> Result<Vec<u8>> {
-        for (flag, present) in [
-            (flags::HAVOK, self.havok.is_some()),
-            (flags::FORM, self.form_flags.is_some()),
-            (flags::BASE, self.base.is_some()),
-            (flags::SCALE, self.scale.is_some()),
-        ] {
+        let mut fields = vec![];
+        if self.carries_havok {
+            fields.push((flags::HAVOK, self.havok.is_some()));
+        }
+        if self.carries_reference_data {
+            fields.extend([
+                (flags::FORM, self.form_flags.is_some()),
+                (flags::BASE, self.base.is_some()),
+                (flags::SCALE, self.scale.is_some()),
+            ]);
+        }
+        for (flag, present) in fields {
             if (self.change_flags & flag != 0) != present {
                 return Err(Error::Reference {
                     reason: "header field presence mismatch".into(),

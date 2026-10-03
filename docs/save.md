@@ -38,9 +38,13 @@ change flags, version, compression length and exact stored bytes. Their
 subtype payloads remain opaque because the inspected Skyrim xEdit structures
 are empty and FallrimTools has no typed reader. SAV-25 tests envelope
 truncation and reports PCON/PARW flag and byte coverage across the external
-save corpus. PCON's initial placement prefix is xEdit-defined. The xEdit
-initial-data dispatch omits PARW type 47, so its payload stays opaque to
-placement parsing. Both envelope flags and exact stored payload bytes reach
+save corpus. PCON's initial placement prefix is xEdit-defined. FORM, BASE and
+SCALE flags do not select fields in PCON or PARW headers, so those bytes remain
+in the opaque tail and do not participate in the reference-field presence
+check. The xEdit initial-data dispatch omits PARW type 47, so its complete
+payload stays opaque to placement and HAVOK parsing. SAV-70 checks both layouts
+with those flags set and re-encodes their opaque bytes unchanged. Both envelope
+flags and exact stored payload bytes reach
 the game's record-backed projectile query and SAV-24 world section. PCON's
 remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)
 for the source review and remaining evidence requirement.
