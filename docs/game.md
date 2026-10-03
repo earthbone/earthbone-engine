@@ -698,8 +698,9 @@ assault. The combat path uses the victim's crime faction and its `CRVA`
 assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
 and lethal player hits do not add an assault bounty. The victim's witnessed
 perpetrator set and the faction's violent bounty are updated through the
-existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
-remain later work.
+existing crime recorder. `Faction.SendAssaultAlarm` also records a player
+assault using the nearest built actor in its faction as witness. The Actor
+alarm and other witness-driven natives remain later work.
 
 **Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
 `LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
@@ -722,7 +723,11 @@ the served days to the player's `days_in_jail`. That counter is stored in the
 `PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
 record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
 this path, so prison placement and stolen-item confiscation or belongings
-restoration are not implemented.
+restoration are not implemented. `Faction.SendPlayerToJail` serves the
+receiver faction's bounty through this accounting path and marks the player
+arrested after a positive sentence. Its inventory-removal and real-jail options
+are reported in the Papyrus trace because belongings storage and jail-marker
+travel are not implemented.
 
 **Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
 when the player has enough `Gold001`, jail for a positive bounty, and
@@ -897,7 +902,15 @@ UI-15 supplies the gift menu and inventory transaction path.
 
 `Faction.ModReaction` adds its amount to that faction's reaction toward the
 given faction, defaulting an absent reaction to neutral and saturating at the
-`i32` bounds. The shipped `Faction.psc` supplies its argument contract.
+`i32` bounds through `World::mod_faction_reaction`. The shipped
+`skse64/scripts/vanilla/Faction.psc` supplies the argument contract.
+`Faction.SendAssaultAlarm` chooses the nearest built actor belonging to its
+faction, then records the player's assault through the witnessed-crime API.
+The CK `SendAssaultAlarm_-_Actor.wikitext` page describes the actor alarm as
+simulating an assault by the player. `Faction.SendPlayerToJail` routes its
+receiver faction through the existing sentence accounting API. The vanilla
+PSC declares the inventory and real-jail flags, which currently produce a
+trace because inventory storage and jail travel are not implemented.
 
 **LeveledSpell and Location native contracts.** `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`
 checks the registered methods for `LeveledItem`, `LeveledActor`,
@@ -1039,7 +1052,7 @@ an SKSE member.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, ShowRaceMenu | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, TakeScreenshot, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell | |
-| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail |
+| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, ModReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup, SendAssaultAlarm, SendPlayerToJail | - |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormEx2, GetFormFromFile, FindClosestActor, FindRandomActor, FindClosestReferenceOfType, FindRandomReferenceOfType, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints, SetCameraTarget, ShowFirstPersonGeometry, SetSittingRotation, ShowTrainingMenu, AdvanceSkill, SetHudCartMode, ShowRaceMenu, TriggerScreenBlood, PlayBink, ServeTime, ClearPrison, FadeOutGame, RequestSave, RequestAutoSave, ForceFirstPerson, ForceThirdPerson, GetCurrentCrosshairRef, GetPlayerGrabbedRef, QuitToMainMenu, StartTitleSequence, PrecacheCharGen, PrecacheCharGenClear | plus the DLC crime functions: SendWereWolfTransformation, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, `SetINI*` and `GetINI*` (eight), IsInMenuMode, CaptureFrameRate, StartFrameRateCapture, EndFrameRateCapture, GetAverageFrameRate, GetMinFrameRate, GetMaxFrameRate, GetCurrentBudget, OverBudget | GetCurrentMemory, GetBudgetCount, GetBudgetName. `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
@@ -1222,9 +1235,9 @@ comments. No bindings in this inventory are globals.
 | Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
 | Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
 | Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
-| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding. Witnessed assault handling is part of PRG-12's arrest path. |
-| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding. Jail, property handling and sentence effects belong to PRG-13. |
-| Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
+| Faction.SendAssaultAlarm | Selects the nearest built actor in the faction and records a player assault through the crime system. A missing witness or untracked faction is traced. |
+| Faction.SendPlayerToJail | Serves the receiver faction's bounty through jail sentence accounting and marks the player arrested after a positive sentence. Jail travel and belongings storage are not implemented. |
+| Faction.ModReaction | Takes another faction and a signed delta, then saturating-adds it to this faction's reaction toward it. |
 | ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
 
 The shipped `ReferenceAlias.psc` also returns false when already filled and
@@ -1472,7 +1485,8 @@ Creation Engine frame capture or memory budgets.
   `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
   `ModCrimeGold` adds to the violent or non-violent bounty and to the infamy
   of that kind, `PlayerPayCrimeGold` removes the bounty from the player's
-  `Gold001` and clears it. Jail and the assault alarm are stubs.
+  `Gold001` and clears it. Faction assault alarms and jail sentencing use the
+  witnessed-crime and jail-accounting paths described above.
 - Perks, the crime faction and the outfits are seeded from `PRKR`, `CRIF`,
   `DOFT` and `SOFT`. `SetCrimeFaction` also joins the faction, per its page.
   `StartSneaking` toggles, per its page. `SetRestrained` and

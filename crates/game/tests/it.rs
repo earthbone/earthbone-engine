@@ -1196,6 +1196,8 @@ mod scr_24_breaker_adversarial;
 mod scr_24_effect_shader;
 #[path = "scr_25_adversarial.rs"]
 mod scr_25_adversarial;
+#[path = "scr_25_breaker_adversarial.rs"]
+mod scr_25_breaker_adversarial;
 #[path = "scr_26_adversarial.rs"]
 mod scr_26_adversarial;
 #[path = "scr_27_adversarial.rs"]
