@@ -253,7 +253,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 388;
+pub const NATIVE_COUNT: usize = 389;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1145,10 +1145,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "ObjectReference", "AddToMap", |world, call, me| {
         let fast_travel = call.arg(0).as_bool();
-        if let Some(r) = world.reference(me) {
-            r.on_map = true;
-            r.fast_travel = fast_travel;
-        }
+        world.add_to_map(me, fast_travel);
         none()
     });
     method!(
@@ -1560,24 +1557,42 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.in_combat)));
     method!(vm, w, "Actor", "GetCombatState", |world, _call, me| i(
-        i32::from(world.actor(me).is_some_and(|a| a.in_combat))
+        world
+            .actor(me)
+            .map_or(0, |actor| i32::from(actor.in_combat))
     ));
-    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(
-        if world.actor(me).is_some_and(|a| a.ai.sleeping) {
-            3
-        } else {
-            0
-        }
-    ));
+    method!(vm, w, "Actor", "GetSleepState", |world, _call, me| i(world
+        .actor(me)
+        .map_or(0, |actor| {
+            if actor.ai.sleeping {
+                3
+            } else if actor.ai.procedure == crate::ai::Procedure::Sleep {
+                2
+            } else {
+                0
+            }
+        })));
     method!(vm, w, "Actor", "HasLOS", |world, call, me| {
         let Some(target) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
+        if world.actor(target).is_none() && !world.is_player(me) {
+            return b(false);
+        }
         let from = world.reference(me).map(|reference| reference.position);
         let to = world.reference(target).and_then(|reference| {
             (reference.enabled && !reference.deleted).then_some(reference.position)
         });
-        b(from.zip(to).is_some_and(|(from, to)| from == to))
+        let same_space = world
+            .reference_ref(me)
+            .zip(world.reference_ref(target))
+            .is_some_and(|(viewer, target)| viewer.cell == target.cell);
+        b(same_space
+            && from.zip(to).is_some_and(|(from, to)| {
+                from.into_iter()
+                    .zip(to)
+                    .all(|(a, b)| a.is_finite() && b.is_finite())
+            }))
     });
     method!(vm, w, "Actor", "PathToReference", |world, call, me| {
         let speed = call.arg(1).as_float();
@@ -1629,7 +1644,11 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 );
                 return b(false);
             }
-            match crate::conditions::will_intimidate_succeed(world, me) {
+            match crate::conditions::will_intimidate_succeed(
+                world,
+                &|object, name| call.conditional_vars(object, &name),
+                me,
+            ) {
                 Ok(succeeds) => b(succeeds),
                 Err(error) => {
                     call.log
@@ -1660,6 +1679,21 @@ fn actor(vm: &mut Vm, w: &Shared) {
                 .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
         }
         none()
+    });
+    method!(vm, w, "Actor", "GetWarmthRating", |world, call, me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.GetWarmthRating expects no arguments");
+            return f(0.0);
+        }
+        match world.actor_warmth_rating(me) {
+            Ok(rating) => f(rating),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetWarmthRating: {error}"));
+                f(0.0)
+            }
+        }
     });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
         let package = world.current_package(me);
@@ -1806,6 +1840,21 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsBleedingOut", |world, call, me| b(
         world.actor_is_bleeding_out(me)
     ));
+    method!(vm, w, "Actor", "IsRunning", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.running && !actor.sprinting)));
+    method!(vm, w, "Actor", "IsSprinting", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|actor| actor.sprinting)));
+    method!(vm, w, "Actor", "IsHostileToActor", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
+        b(target.is_some_and(|target| {
+            world.actor(target).is_some()
+                && world
+                    .actor(me)
+                    .is_some_and(|actor| actor.in_combat && actor.combat_target == Some(target))
+        }))
+    });
     // StartSneaking toggles (the page's note), IsSneaking reads it.
     method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -3027,14 +3076,21 @@ fn debug(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Debug", "PlayerMoveToAndWait", |world, call| {
         let target = world.form(&text(&call.arg(0)));
-        let success = target.is_some_and(|target| world.debug_player_move_to_reference(target));
-        if !success {
+        let Some(target) = target.filter(|target| world.reference(*target).is_some()) else {
             call.log.push(
                 call.time,
                 "Debug.PlayerMoveToAndWait: destination reference not found",
             );
-        }
-        f(if success { 1.0 } else { 0.0 })
+            return f(0.0);
+        };
+        let latent = call.defer();
+        world
+            .debug_host_requests
+            .push(DebugHostRequest::MovePlayerToReference {
+                reference: target,
+                latent,
+            });
+        NativeReturn::Latent(latent)
     });
     global!(vm, w, "Debug", "MoveToCell", |world, call| {
         if !world.debug_player_move_to_cell(&text(&call.arg(0))) {
@@ -3161,7 +3217,11 @@ fn utility(vm: &mut Vm, w: &Shared) {
             );
             return none();
         }
-        i(ENGINE_BUDGETS.len() as i32)
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetCount: memory tracking is unavailable",
+        );
+        none()
     });
     global!(vm, w, "Utility", "GetBudgetName", |_world, call| {
         if call.args.len() != 1 {
@@ -3172,19 +3232,23 @@ fn utility(vm: &mut Vm, w: &Shared) {
                     call.args.len()
                 ),
             );
-            return none();
+            return s("");
         }
         let Some(Value::Int(index)) = call.args.first() else {
             call.log.push(
                 call.time,
                 "error: Utility.GetBudgetName expects an integer budget index",
             );
-            return none();
+            return s("");
         };
-        let Ok(index) = usize::try_from(*index) else {
-            return none();
-        };
-        ENGINE_BUDGETS.get(index).map_or_else(none, |name| s(name))
+        if usize::try_from(*index).is_err() {
+            return s("");
+        }
+        call.log.push(
+            call.time,
+            "error: Utility.GetBudgetName: memory tracking is unavailable",
+        );
+        s("")
     });
     global!(vm, w, "Utility", "GetCurrentBudget", |world, call| {
         let index = call.arg(0).as_int();
@@ -3272,11 +3336,6 @@ fn utility(vm: &mut Vm, w: &Shared) {
             .map_or("", String::as_str))
     });
 }
-
-const ENGINE_BUDGETS: [&str; 2] = [
-    "Papyrus instructions per slice",
-    "Exterior cell loads per update",
-];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "GlobalVariable", "GetValue", |world, call, me| f(
@@ -4026,12 +4085,13 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     });
     for name in ["Preload", "Unload"] {
         method!(vm, w, "Spell", name, |world, call, me| {
-            match world.spell(me) {
-                Ok(_) => call.log.push(
-                    call.time,
-                    format!("Spell.{name}: spell art resource loading is unsupported"),
-                ),
-                Err(error) => call.log.push(call.time, format!("Spell.{name}: {error}")),
+            let result = if name == "Preload" {
+                world.preload_spell_art(me)
+            } else {
+                world.unload_spell_art(me)
+            };
+            if let Err(error) = result {
+                call.log.push(call.time, format!("Spell.{name}: {error}"));
             }
             none()
         });
@@ -4116,7 +4176,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Apply",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Apply: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }
@@ -4129,7 +4196,14 @@ fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
         "ShaderParticleGeometry",
         "Remove",
         |world, call, me| {
-            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            let [Value::Float(fade_seconds)] = call.args.as_slice() else {
+                call.log.push(
+                    call.time,
+                    "ShaderParticleGeometry.Remove: expected one float fade argument",
+                );
+                return none();
+            };
+            let fade_seconds = *fade_seconds;
             if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
                 call.log.push(call.time, error.to_string());
             }
@@ -4285,6 +4359,23 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
                 let target = world.form_value(Some(target), alloc!(call));
                 world.form_event(me, "OnVampireFeed", vec![target], alloc!(call));
             }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "StartCannibal", |world, call, me| {
+        if world
+            .form_arg(&call.arg(0))
+            .and_then(|target| world.actor(target))
+            .is_some_and(|target| target.dead)
+        {
+            world.request_animation(me, "CannibalStart");
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "ClearExtraArrows", |_world, call, _me| {
+        if !call.args.is_empty() {
+            call.log
+                .push(call.time, "Actor.ClearExtraArrows expects no arguments");
         }
         none()
     });
@@ -4569,7 +4660,7 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
-    // The Hover package owns the only flight state implemented by the driver.
+    // The host supplies live flight state, and Hover supplies the package path.
     method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
         i32::from(
             world
@@ -4579,9 +4670,13 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     ));
     method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
         .actor(me)
-        .is_some_and(
-            |actor| actor.ai.procedure == crate::ai::Procedure::Hover
-        )));
+        .is_some_and(|actor| {
+            actor.flying
+                || actor
+                    .flying_state
+                    .is_some_and(|state| (1..=4).contains(&state))
+                || actor.ai.procedure == crate::ai::Procedure::Hover
+        })));
     // "Can this actor fly here?" Allowed to fly, and out under the sky.
     method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
         if !world.actor(me).is_some_and(|a| a.allow_flying) {
@@ -4988,22 +5083,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
-    let bools: &[(&str, &str, bool)] = &[
-        ("Actor", "IsRunning", false),
-        ("Actor", "IsSprinting", false),
-        ("Actor", "IsHostileToActor", false),
-    ];
-    for (class, name, value) in bools {
-        let global = matches!(*class, "Game" | "Utility" | "Debug");
-        let v = *value;
-        let f: soe_papyrus::NativeFn = Box::new(move |_| b(v));
-        if global {
-            vm.natives.register_global(class, name, f);
-        } else {
-            vm.natives.register_method(class, name, f);
-        }
-        n += 1;
-    }
     let ints: &[(&str, &str, i32)] = &[("Actor", "GetSitState", 0)];
     for (class, name, value) in ints {
         let global = *class == "Game";
@@ -5026,9 +5105,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PlayIdleWithTarget"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
-        ("Actor", "StartCannibal"),
-        // Attached-arrow state is owned by the host renderer.
-        ("Actor", "ClearExtraArrows"),
         // Music and particle systems are not implemented yet.
     ];
     for (class, name) in methods_none {
@@ -5052,9 +5128,8 @@ fn stubs(vm: &mut Vm) -> usize {
         );
         n += 1;
     }
-    // No warmth system (the survival plugin is not loaded) and no sun to
-    // take a position from.
-    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
+    // No sun to take a position from.
+    let floats: &[(&str, &str, f32)] = &[];
     for (class, name, value) in floats {
         let global = *class == "Game";
         let v = *value;
@@ -5247,13 +5322,19 @@ mod tests {
 
     #[test]
     fn hst_18_world_exposes_current_crosshair_and_grabbed_references() {
-        let mut world = World::new(LoadOrder::new());
+        let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+        for object in [0x123, 0x456] {
+            plugin.push_top(soe_esm::Record::new(soe_esm::Tag(*b"REFR"), object));
+        }
+        let mut order = LoadOrder::new();
+        order.add("HostRefs.esm", plugin).unwrap();
+        let mut world = World::new(order);
         let crosshair = GlobalFormId {
-            file: 1,
+            file: 0,
             object: 0x123,
         };
         let grabbed = GlobalFormId {
-            file: 2,
+            file: 0,
             object: 0x456,
         };
         world.set_crosshair_reference(Some(crosshair));

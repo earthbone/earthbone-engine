@@ -90,6 +90,15 @@ and checks that `SoundBank` starts its `AudioStreamPlayer` and stops it when
 the cell ambience is released. The test uses a windowed 640 by 360 Godot
 process and exits when the transition check finishes.
 
+### Debug collision switch, SCR-21
+
+`Debug.ToggleCollisions` changes `World::debug_collisions_enabled`. The host
+applies that value to resident cell collision bodies and the player's query
+bodies by setting their physics collision layer and mask to zero while off,
+then restoring layer and mask one when on. Bodies synchronized after a switch
+receive the current setting on the next host sync. Player movement still uses
+the `soe-physics` `SimpleWorld` solver.
+
 ### Crosshair and held references, HST-18
 
 `PlayerNode` raycasts from the eye along the camera look direction on each
@@ -202,6 +211,21 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 0.5.5 (crates.io 2026-08-09, the same version as `engine-refs/gdext`), API floor Godot 4.4
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
+
+### Shader particle geometry, SCR-46
+
+`PlayerNode` sends `World::shader_particle_layers` to `CellStreamerNode` each
+gameplay frame, centered on the player's placed reference. The streamer uses
+one `MultiMesh` RenderingServer instance for each active SPGD form, with a
+quad per particle and the record's texture when it resolves through the data
+source. Density determines the quad count at 64 per density unit, bounded to
+256, and zero density draws none. Deterministic positions fill the authored
+box and wrap downward using gravity velocity. Fade strength sets material
+opacity. Removed layers and streamer teardown free their instance RIDs.
+
+This host path is an approximate visual presentation. It does not reproduce
+engine particle randomness, rotation velocity, initial rotation, or subtexture
+animation.
 
 ### Cart and horse host tether
 
@@ -363,6 +387,18 @@ streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
 latent id is resolved after that sync succeeds. The Game crate owns name
 resolution and rejects unknown CELL editor ids before queuing a request.
 
+### Debug reference presentation and movement, SCR-23
+
+`PlayerNode` displays each `Debug.ShowRefPosition` request as a small emissive
+sphere at that reference's current world placement. The sphere mesh and
+material are shared. The host stores one `RenderingServer` instance RID per
+requested reference and frees the instances when the player node exits.
+`Debug.PlayerMoveToAndWait` requests are applied to the shared World before
+`sync_game_pose`. The latent Papyrus call resolves with 0 after the host has
+installed the destination, or -1 if the move cannot be applied or installed.
+`Debug.SetFootIK` is retained in World, but actor rendering does not yet apply
+foot inverse kinematics.
+
 `Game.ShakeController` queues a transient controller-shake request. The
 player adapter sends its left and right strengths and duration to every
 connected joypad through Godot's `Input.start_joy_vibration`.
@@ -471,13 +507,25 @@ local reference corpus, which was unavailable from this worktree during conflict
 ### Game native presentation signals, SCR-29
 
 `PlayerNode` drains transient `GameUiRequest` values from the shared `World`
-after each gameplay tick. It emits `race_menu_requested`,
-`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
-mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
-native. A change to `World::hud_cart_mode` emits
-`hud_cart_mode_changed(enabled)`. These signals are the host presentation
-boundary. A connected UI or media presenter supplies the corresponding race
-editor, overlay and video playback.
+after each gameplay tick. It opens the native race editor for `ShowRaceMenu`,
+shows a red screen overlay for `TriggerScreenBlood`, and emits the matching
+`race_menu_requested` and `screen_blood_requested(value)` signals. Blood
+intensity is the absolute native value clamped to 100 percent, and the overlay
+lasts 450 milliseconds. The HUD shows a `CART` badge while the shared
+`World::hud_cart_mode` flag is set and emits `hud_cart_mode_changed(enabled)`
+when that value changes.
+
+`PlayBink` preserves its file name and four playback options in the host
+`bink_requested` signal. The Godot `VideoStreamPlayer` documented in local
+`engine-refs/godot-docs/classes/class_videostreamplayer.rst` supports Ogg
+Theora or a video GDExtension decoder. This host has no Bink decoder or video
+presenter, so `.bik` playback remains unsupported. The local CK
+`engine-refs/ck-wiki/Game_Script.wikitext` supplies the five Game native
+signatures and describes `PlayBink` as Bink playback.
+
+`godot/scr_29_game_ui_test.gd` checks the visible race menu and HUD presenter
+controls against installed Skyrim data. Rust host tests check cart-mode state
+and the screen blood overlay's intensity and lifetime.
 
 ## EffectShader playback, MAG-14
 
@@ -1125,6 +1173,34 @@ keeps the RIDs and the mesh handle on the node. `exit_tree` and `clear` free the
 and `scene_bounds` reports the merged bounds so a camera can frame the scene without walking
 children. `bench.gd` and `capture.gd` use it. The unbatched mode (one instance per surface)
 stays as the benchmark's baseline, on the `batch_surfaces` export.
+
+PRF-08 attaches each bulk material to its mesh surface before creating the
+RenderingServer instance. Batched, unbatched, MultiMesh and distant LOD meshes
+use this path. A placement rebake carries the old surface material to the new
+mesh. This exposes the mesh/material combination to Godot's pipeline
+precompilation without an instance material override. `surface_material_count`
+reports how many full-resolution instances have a surface material.
+
+`godot/render_warmup.gd` renders the configured scene under a ColorRect during
+benchmark and walkthrough loading. It synchronizes submitted GPU work there
+and waits for at least three drawn frames and 500 ms without changes to any
+pipeline compilation counter. It fails after 30 seconds without settling.
+Camera, lights and materials stay active. No per-reference nodes are added.
+Loading durations, worst loading frame and pipeline counts are reported
+separately. This is a quiet-counter predicate, not an API for pending compiler
+jobs. It does not warm views or effects introduced later.
+
+Sources read for PRF-08: local `godot-docs/tutorials/performance/pipeline_compilations.rst`,
+`classes/class_renderingserver.rst` and `classes/class_projectsettings.rst`.
+Godot documents deferred compilation for instance overrides, covered rendering
+during loading, the pipeline counters and disk shader caching. The implementation
+uses these stock Godot 4.4 APIs and retains the default enabled shader cache.
+The headless `prf_08_whiterun_mesh_materials_are_bound_before_first_frame` check
+loads nine installed Whiterun cells in batched and unbatched modes and checks
+attached materials before drawing.
+It requires `SKYRIM_DATA` and a Godot executable. The deterministic GDScript
+contracts run through `prf_08_loading_reporting_and_repetition_contracts_in_stock_godot`.
+See [performance.md](performance.md#prf-08-first-use-rendering) for windowed acceptance.
 
 The `StandardMaterial3D` cache moved from a per-call local to the node. It now includes
 alpha and culling state in its key, with a separate path-keyed texture upload cache,

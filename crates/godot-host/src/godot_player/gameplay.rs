@@ -11,6 +11,7 @@ use crate::units::placement_to_godot;
 use godot::prelude::*;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
+use std::collections::{BTreeMap, BTreeSet};
 
 fn should_stand_from_furniture(world: &mut soe_game::World, player: GlobalFormId) -> bool {
     world
@@ -208,6 +209,10 @@ impl PlayerNode {
         if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
+        if let Some(game) = &self.game {
+            self.query_collision
+                .set_collisions_enabled(game.world().debug_collisions_enabled);
+        }
         self.sync_camera_controls();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
@@ -317,6 +322,9 @@ impl PlayerNode {
                         self.base_mut().emit_signal("race_menu_requested", &[]);
                     }
                     soe_game::world::GameUiRequest::TriggerScreenBlood(value) => {
+                        if let Some(view) = self.hud_view.as_mut() {
+                            view.trigger_screen_blood(value);
+                        }
                         self.base_mut()
                             .emit_signal("screen_blood_requested", &[Variant::from(value)]);
                     }
@@ -358,11 +366,27 @@ impl PlayerNode {
         if let Some(game) = &self.game {
             self.effect_shaders.sync(&game.world());
         }
+        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
+            let world = game.world();
+            let layers = world.shader_particle_layers();
+            let player = soe_esm::GlobalFormId {
+                file: 0,
+                object: soe_game::world::PLAYER_OBJECT,
+            };
+            let origin = world
+                .ref_placement(player)
+                .filter(|placement| placement.visible)
+                .map_or([0.0; 3], |placement| placement.position);
+            streamer
+                .bind_mut()
+                .sync_shader_particles(&layers, origin, delta.max(0.0) as f32);
+        }
         self.apply_host_requests();
         if self.main_menu.is_active() {
             return;
         }
         if self.sync_game_pose() {
+            self.sync_debug_ref_markers();
             if let Some(game) = &mut self.game {
                 for latent in self.pending_debug_latents.drain(..) {
                     game.vm
@@ -371,6 +395,12 @@ impl PlayerNode {
             }
             self.prefetch_nearby_interior(delta);
         } else {
+            if let Some(game) = &mut self.game {
+                for latent in self.pending_debug_latents.drain(..) {
+                    game.vm
+                        .resolve_latent(latent, soe_papyrus::Value::Float(-1.0));
+                }
+            }
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
         }
@@ -512,6 +542,81 @@ impl PlayerNode {
                         self.pending_debug_latents.push(latent);
                     }
                 }
+                soe_game::world::DebugHostRequest::MovePlayerToReference { reference, latent } => {
+                    if game.world_mut().debug_player_move_to_reference(reference) {
+                        game.run_until_idle(64);
+                        self.pending_debug_latents.push(latent);
+                    } else {
+                        game.vm
+                            .resolve_latent(latent, soe_papyrus::Value::Float(-1.0));
+                    }
+                }
+            }
+        }
+    }
+
+    fn sync_debug_ref_markers(&mut self) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        let Some(scenario) = self.base().get_world_3d().map(|world| world.get_scenario()) else {
+            return;
+        };
+        let placements: BTreeMap<_, _> = {
+            let world = game.world();
+            world
+                .debug_ref_positions()
+                .into_iter()
+                .filter_map(|id| world.ref_placement(id).map(|placement| (id, placement)))
+                .collect()
+        };
+        let requested: BTreeSet<_> = game.world().debug_ref_positions().into_iter().collect();
+        let mut server = godot::classes::RenderingServer::singleton();
+        if !placements.is_empty() && self.debug_ref_marker_mesh.is_none() {
+            let mut mesh = godot::classes::SphereMesh::new_gd();
+            mesh.set_radius(4.0 * crate::units::METRES_PER_UNIT);
+            mesh.set_height(8.0 * crate::units::METRES_PER_UNIT);
+            let mut material = godot::classes::StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_albedo(godot::builtin::Color::from_rgba(1.0, 0.15, 0.05, 1.0));
+            material.set_feature(godot::classes::base_material_3d::Feature::EMISSION, true);
+            material.set_emission(godot::builtin::Color::from_rgb(1.0, 0.05, 0.0));
+            self.debug_ref_marker_mesh = Some(mesh);
+            self.debug_ref_marker_material = Some(material);
+        }
+        let Some(mesh) = self.debug_ref_marker_mesh.as_ref() else {
+            return;
+        };
+        let material = self.debug_ref_marker_material.as_ref();
+        for (id, placement) in placements {
+            let pos = crate::units::SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = godot::builtin::Transform3D::new(
+                godot::builtin::Basis::IDENTITY,
+                godot::builtin::Vector3::new(pos.x, pos.y, pos.z),
+            );
+            let rid = *self.debug_ref_markers.entry(id).or_insert_with(|| {
+                let rid = server.instance_create2(mesh.get_rid(), scenario);
+                if let Some(material) = material {
+                    server.instance_geometry_set_material_override(rid, material.get_rid());
+                }
+                rid
+            });
+            server.instance_set_transform(rid, transform);
+        }
+        let stale: Vec<_> = self
+            .debug_ref_markers
+            .keys()
+            .filter(|id| !requested.contains(id))
+            .copied()
+            .collect();
+        for id in stale {
+            if let Some(rid) = self.debug_ref_markers.remove(&id) {
+                server.free_rid(rid);
             }
         }
     }

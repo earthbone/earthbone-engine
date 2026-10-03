@@ -186,10 +186,58 @@ pub struct CellBodies {
     entries: Vec<StaticEntry>,
     movable: Vec<MovableEntry>,
     grabbed_reference: Option<GlobalFormId>,
+    collisions_enabled: Option<bool>,
+    applied_collision_state: HashMap<Rid, bool>,
     pub stats: GodotCollisionStats,
 }
 
 impl CellBodies {
+    /// Enable or disable host collision for every body owned by this cell.
+    /// Bodies created after this call inherit the current setting through
+    /// `sync_collision_state` on the next host sync.
+    pub fn set_collisions_enabled(&mut self, enabled: bool) {
+        if self.collisions_enabled == Some(enabled) {
+            return;
+        }
+        self.collisions_enabled = Some(enabled);
+        let mut server = PhysicsServer3D::singleton();
+        for body in self
+            .entries
+            .iter()
+            .map(|entry| entry.body)
+            .chain(self.movable.iter().map(|entry| entry.body))
+        {
+            if body.is_valid() {
+                Self::apply_collision_state(&mut server, body, enabled);
+                self.applied_collision_state.insert(body, enabled);
+            }
+        }
+    }
+
+    /// Apply the setting to bodies added since the last collision update.
+    pub fn sync_collision_state(&mut self) {
+        let Some(enabled) = self.collisions_enabled else {
+            return;
+        };
+        let mut server = PhysicsServer3D::singleton();
+        for body in self
+            .entries
+            .iter()
+            .map(|entry| entry.body)
+            .chain(self.movable.iter().map(|entry| entry.body))
+        {
+            if body.is_valid() && self.applied_collision_state.get(&body) != Some(&enabled) {
+                Self::apply_collision_state(&mut server, body, enabled);
+                self.applied_collision_state.insert(body, enabled);
+            }
+        }
+    }
+
+    fn apply_collision_state(server: &mut Gd<PhysicsServer3D>, body: Rid, enabled: bool) {
+        server.body_set_collision_layer(body, u32::from(enabled));
+        server.body_set_collision_mask(body, u32::from(enabled));
+    }
+
     /// Find the server body carrying a placed reference.
     pub fn body_for_reference(&self, reference: GlobalFormId) -> Option<Rid> {
         self.entries
@@ -462,6 +510,7 @@ impl CellBodies {
         }
         self.stats = GodotCollisionStats::default();
         self.grabbed_reference = None;
+        self.applied_collision_state.clear();
     }
 
     /// Pushes a tracked reference's current placement and visibility to the

@@ -8,6 +8,35 @@
 use soe_esm::GlobalFormId;
 use soe_game::Game;
 
+/// Transient visible state for Game natives presented by the player HUD.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct GameUiPresentation {
+    pub cart_mode: bool,
+    pub blood_alpha: f32,
+    blood_remaining: f32,
+}
+
+impl GameUiPresentation {
+    /// Copy the authoritative HUD mode from the runtime world.
+    pub fn set_cart_mode(&mut self, enabled: bool) {
+        self.cart_mode = enabled;
+    }
+
+    /// Start the short blood overlay using the native's signed intensity.
+    pub fn trigger_screen_blood(&mut self, value: i32) {
+        self.blood_alpha = value.unsigned_abs().min(100) as f32 / 100.0;
+        self.blood_remaining = if self.blood_alpha > 0.0 { 0.45 } else { 0.0 };
+    }
+
+    /// Advance the overlay timer and clear it when the effect ends.
+    pub fn tick(&mut self, delta: f64) {
+        self.blood_remaining = (self.blood_remaining - delta.max(0.0) as f32).max(0.0);
+        if self.blood_remaining == 0.0 {
+            self.blood_alpha = 0.0;
+        }
+    }
+}
+
 const DIRECTIONS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 /// One actor-value meter as displayed by the player HUD.

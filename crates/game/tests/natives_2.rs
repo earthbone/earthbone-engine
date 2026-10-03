@@ -25,7 +25,10 @@ use soe_esm::{
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
-use soe_game::{world::RngStream, HostRequest};
+use soe_game::{
+    world::{RngStream, SpellArtAction, SpellArtRequest},
+    HostRequest,
+};
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -783,6 +786,37 @@ fn scr_21_set_god_mode_updates_the_shared_runtime_switch() {
         Value::None
     ));
     assert!(!game.world().debug_god_mode);
+}
+
+#[test]
+fn scr_21_god_mode_blocks_player_health_damage_only() {
+    let mut game = game();
+    let player = game.player();
+    {
+        let mut world = game.world_mut();
+        world.actor(player).expect("player actor");
+        let health = world.actor(player).unwrap().values.get("health").current();
+        let stamina = world.actor(player).unwrap().values.get("stamina").current();
+        world.debug_god_mode = true;
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        let actor = world.actor(player).unwrap();
+        assert_eq!(actor.values.get("health").current(), health);
+        world.damage_actor_value(player, "stamina", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("stamina").current(),
+            stamina - 25.0
+        );
+    }
+    {
+        let mut world = game.world_mut();
+        world.debug_god_mode = false;
+        let health = world.actor(player).unwrap().values.get("health").current();
+        world.damage_actor_value(player, "health", 25.0).unwrap();
+        assert_eq!(
+            world.actor(player).unwrap().values.get("health").current(),
+            health - 25.0
+        );
+    }
 }
 
 #[test]
@@ -3527,31 +3561,33 @@ fn sounds_and_spells_are_recorded() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
-/// Spell.Preload and Spell.Unload take no arguments. The game validates the
-/// spell record and reports the missing art-resource system without changing
-/// cast or active-effect state.
+/// Spell.Preload and Spell.Unload validate the spell through the world API and
+/// queue the matching host art request without changing magic state.
 #[test]
-fn scr_47_spell_art_methods_report_missing_resource_system() {
+fn scr_47_spell_art_methods_queue_ordered_host_requests() {
     let mut g = game();
     let flames = obj(&mut g, "Flames");
+    let spell = g.form("Flames").unwrap();
     let spells_before = g.world().spell_casts.clone();
     let effects_before = g.world().active_effects().count();
 
+    assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
+    assert!(g.world_mut().take_spell_art_requests().is_empty());
     assert_eq!(call(&mut g, &flames, "Preload", &[]), Value::None);
     assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
 
-    let traces = g.traces();
-    assert!(
-        traces
-            .iter()
-            .any(|line| { line == "Spell.Preload: spell art resource loading is unsupported" }),
-        "{traces:?}"
-    );
-    assert!(
-        traces
-            .iter()
-            .any(|line| { line == "Spell.Unload: spell art resource loading is unsupported" }),
-        "{traces:?}"
+    assert_eq!(
+        g.world_mut().take_spell_art_requests(),
+        vec![
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Preload
+            },
+            SpellArtRequest {
+                spell,
+                action: SpellArtAction::Unload
+            },
+        ]
     );
     assert_eq!(g.world().spell_casts, spells_before);
     assert_eq!(g.world().active_effects().count(), effects_before);

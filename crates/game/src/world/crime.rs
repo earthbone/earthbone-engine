@@ -8,8 +8,9 @@ use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
 use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
+use crate::inventory::Field;
 
-use super::World;
+use super::{World, T};
 
 impl World {
     /// Send the assault alarm for `faction` using its nearest resident actor
@@ -211,22 +212,27 @@ impl World {
     pub fn serve_jail_time(&mut self, faction: GlobalFormId) -> Result<u32, Error> {
         let player = self.player();
         self.actor(player).ok_or(Error::Actor(player))?;
-        let state = self.faction(faction).ok_or(Error::NotTracked(faction))?;
-        if !state.tracks_crime {
-            return Err(Error::NotTracked(faction));
-        }
-        let bounty = state
-            .crime_gold_violent
-            .saturating_add(state.crime_gold_nonviolent)
-            .max(0);
+        let bounty = {
+            let state = self.faction(faction).ok_or(Error::NotTracked(faction))?;
+            if !state.tracks_crime {
+                return Err(Error::NotTracked(faction));
+            }
+            state
+                .crime_gold_violent
+                .saturating_add(state.crime_gold_nonviolent)
+                .max(0)
+        };
         if bounty == 0 {
             return Ok(0);
         }
+        self.confiscate_jail_property(faction, player);
         let days = sentence_days(bounty);
+        let state = self.faction(faction).ok_or(Error::NotTracked(faction))?;
         state.crime_gold_violent = 0;
         state.crime_gold_nonviolent = 0;
         let actor = self.actor(player).ok_or(Error::Actor(player))?;
         actor.days_in_jail = actor.days_in_jail.saturating_add(days);
+        actor.jail_faction = Some(faction);
         actor.skill_experience.clear();
         let scale = self.clock.timescale;
         if scale.is_finite() && scale > 0.0 {
@@ -241,7 +247,146 @@ impl World {
             if let Some(actor) = self.actors.get_mut(&player) {
                 actor.days_in_jail = 0;
             }
+            if let Some(faction) = self
+                .actors
+                .get(&player)
+                .and_then(|actor| actor.jail_faction)
+            {
+                if self.restore_jail_property(faction, player) {
+                    if let Some(actor) = self.actors.get_mut(&player) {
+                        actor.jail_faction = None;
+                    }
+                }
+            }
         }
+    }
+
+    /// Move player belongings to the faction's authored jail containers.
+    /// Owner-marked stacks go to the evidence chest, while all other items go
+    /// to the player belongings chest.
+    fn confiscate_jail_property(&mut self, faction: GlobalFormId, player: GlobalFormId) {
+        let Some(belongings) = self.faction_container(faction, T(b"PLCN")) else {
+            return;
+        };
+        if self.reference(belongings).is_none() {
+            return;
+        }
+        let evidence = self
+            .faction_container(faction, T(b"STOL"))
+            .filter(|chest| self.reference(*chest).is_some());
+
+        let Some(player_inventory) = self.reference(player).map(|state| state.inventory.clone())
+        else {
+            return;
+        };
+        let Some(belongings_inventory) = self
+            .reference(belongings)
+            .map(|state| state.inventory.clone())
+        else {
+            return;
+        };
+        let evidence_inventory = evidence.and_then(|chest| {
+            self.reference(chest)
+                .map(|state| (chest, state.inventory.clone()))
+        });
+        let mut player_inventory = player_inventory;
+        let mut belongings_inventory = belongings_inventory;
+        let mut evidence_inventory = evidence_inventory;
+        let mut unconfiscated = Vec::new();
+        let items = player_inventory
+            .iter()
+            .map(|(item, count)| (*item, count))
+            .collect::<Vec<_>>();
+        for (item, _) in items {
+            let stolen = player_inventory.take_stacks_where(item, |stack| {
+                stack
+                    .extra(33)
+                    .is_some_and(|extra| matches!(extra.fields.as_slice(), [Field::Form(Some(_))]))
+            });
+            if let Some((_, chest)) = evidence_inventory.as_mut() {
+                if !stolen.stacks().is_empty() && chest.receive(item, stolen).is_err() {
+                    return;
+                }
+            } else if !stolen.stacks().is_empty() {
+                unconfiscated.push((item, stolen));
+            }
+            let count = player_inventory.count(item);
+            if count > 0 {
+                let bundle = player_inventory.take(item, count);
+                if belongings_inventory.receive(item, bundle).is_err() {
+                    return;
+                }
+            }
+        }
+        for (item, bundle) in unconfiscated {
+            if player_inventory.receive(item, bundle).is_err() {
+                return;
+            }
+        }
+
+        // CONTEXT: All inventory clones and receives were prepared before the live state changes.
+        if let Some(state) = self.reference(player) {
+            state.inventory = player_inventory;
+        }
+        if let Some(state) = self.reference(belongings) {
+            state.inventory = belongings_inventory;
+        }
+        if let Some((chest, inventory)) = evidence_inventory {
+            if let Some(state) = self.reference(chest) {
+                state.inventory = inventory;
+            }
+        }
+    }
+
+    /// Return contents of the belongings chest to the player. Evidence chest
+    /// contents remain confiscated.
+    fn restore_jail_property(&mut self, faction: GlobalFormId, player: GlobalFormId) -> bool {
+        let Some(belongings) = self.faction_container(faction, T(b"PLCN")) else {
+            return false;
+        };
+        let Some(player_inventory) = self.reference(player).map(|state| state.inventory.clone())
+        else {
+            return false;
+        };
+        let Some(chest_inventory) = self
+            .reference(belongings)
+            .map(|state| state.inventory.clone())
+        else {
+            return false;
+        };
+        let mut player_inventory = player_inventory;
+        let mut chest_inventory = chest_inventory;
+        let items = chest_inventory
+            .iter()
+            .map(|(item, count)| (*item, count))
+            .collect::<Vec<_>>();
+        for (item, count) in items {
+            let bundle = chest_inventory.take(item, count);
+            if player_inventory.receive(item, bundle).is_err() {
+                return false;
+            }
+        }
+        // CONTEXT: Both inventory clones accepted every transfer before commit.
+        if let Some(state) = self.reference(player) {
+            state.inventory = player_inventory;
+        }
+        if let Some(state) = self.reference(belongings) {
+            state.inventory = chest_inventory;
+        }
+        true
+    }
+
+    fn faction_container(
+        &self,
+        faction: GlobalFormId,
+        field: soe_esm::Tag,
+    ) -> Option<GlobalFormId> {
+        let record = self.record(faction)?;
+        let bytes = record.find(field)?;
+        if bytes.len() != 4 {
+            return None;
+        }
+        self.resolve_from(faction, super::le_u32(bytes)?)
     }
 
     /// Whether any actor has witnessed a crime committed by `actor`.
@@ -338,6 +483,7 @@ pub(crate) fn write_days_in_jail(
     _pool: &mut ArrayPool,
 ) {
     writer.u32(actor.days_in_jail);
+    super::save::write_opt_form_id(writer, actor.jail_faction);
 }
 
 /// Restore the player's jail-day count from the PRG-13 actor section.
@@ -347,5 +493,10 @@ pub(crate) fn read_days_in_jail(
     _table: &ArrayTable,
 ) -> Result<(), VmError> {
     actor.days_in_jail = reader.u32()?;
+    actor.jail_faction = if reader.remaining() > 0 {
+        super::save::read_opt_form_id(reader)?
+    } else {
+        None
+    };
     Ok(())
 }
