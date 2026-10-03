@@ -105,6 +105,8 @@ pub enum Error {
     EquipmentRecord(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
+    #[error("intimidation perk entry point: {0}")]
+    IntimidationPerk(String),
     #[error("condition function {0} has no usable query contract")]
     NoConditionContract(u16),
 }
@@ -3461,11 +3463,11 @@ fn furniture_marker_type(
         .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
 }
 
-/// Approximate the player's intimidation result using Speechcraft and target
-/// Confidence. The perk entry point that supplies the complete formula is
-/// not implemented yet.
+/// Evaluate player Speechcraft against target Confidence and the player's
+/// authored Mod Player Intimidation perk entries.
 pub(crate) fn will_intimidate_succeed(
     world: &mut World,
+    vm: &Vm,
     subject: GlobalFormId,
 ) -> Result<bool, Error> {
     let player = world.player();
@@ -3476,12 +3478,30 @@ pub(crate) fn will_intimidate_succeed(
         .get("speechcraft")
         .current();
     let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
-    if subject_actor.values.contains("confidence") {
-        let confidence = subject_actor.values.get("confidence").current();
-        Ok(speechcraft >= confidence * 25.0)
-    } else {
-        Ok(false)
+    if !subject_actor.values.contains("confidence") {
+        return Ok(false);
     }
+    let confidence = subject_actor.values.get("confidence").current();
+    let invocations = crate::perks::entry_point_invocations(
+        world,
+        vm,
+        player,
+        43,
+        &crate::perks::EntryPointContext {
+            tabs: vec![player, subject],
+            target: Some(subject),
+            quest: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            skill_use: None,
+        },
+    )
+    .map_err(|error| Error::IntimidationPerk(error.to_string()))?;
+    let effective_speechcraft =
+        crate::perks::apply_value_modifiers(world, &invocations, speechcraft)
+            .map_err(|error| Error::IntimidationPerk(error.to_string()))?;
+    Ok(effective_speechcraft >= confidence * 25.0)
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

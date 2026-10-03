@@ -189,6 +189,99 @@ pub fn entry_point_invocations(
     Ok(invocations)
 }
 
+/// Apply numeric functions from ordered value-type invocations.
+///
+/// # Errors
+/// Returns an error for malformed operation data or non-finite results.
+pub(crate) fn apply_value_modifiers(
+    world: &mut World,
+    invocations: &[EntryPointInvocation],
+    mut value: f32,
+) -> Result<f32, DispatchError> {
+    for invocation in invocations {
+        let function = invocation.function;
+        let amount = match function {
+            1..=3 => {
+                if invocation.data_type != Some(1) || invocation.data.len() != 4 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                f32::from_le_bytes(
+                    invocation
+                        .data
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                )
+            }
+            4 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let min = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let max = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !min.is_finite() || !max.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                world.random_float(min, max)
+            }
+            5 | 12..=14 => {
+                if invocation.data_type != Some(2) || invocation.data.len() != 8 {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let raw_index = f32::from_le_bytes(
+                    invocation.data[0..4]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                let coefficient = f32::from_le_bytes(
+                    invocation.data[4..8]
+                        .try_into()
+                        .map_err(|_| DispatchError::Malformed(invocation.perk))?,
+                );
+                if !raw_index.is_finite() || raw_index.fract() != 0.0 || !coefficient.is_finite() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                let index = i32::try_from(raw_index as i64)
+                    .map_err(|_| DispatchError::Malformed(invocation.perk))?;
+                let name = crate::actor_values::actor_value_name(index)
+                    .ok_or(DispatchError::Malformed(invocation.perk))?;
+                world.actor_value(invocation.actor, name) * coefficient
+            }
+            6 | 7 => {
+                if invocation.data_type.is_some() || !invocation.data.is_empty() {
+                    return Err(DispatchError::Malformed(invocation.perk));
+                }
+                0.0
+            }
+            _ => return Err(DispatchError::Unregistered(function)),
+        };
+        if !amount.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+        value = match function {
+            1 | 12 => amount,
+            2 | 4 | 5 => value + amount,
+            3 | 13 => value * amount,
+            6 => value.abs(),
+            7 => -value.abs(),
+            14 => value * (1.0 + amount),
+            _ => value,
+        };
+        if !value.is_finite() {
+            return Err(DispatchError::Malformed(invocation.perk));
+        }
+    }
+    Ok(value)
+}
+
 struct EntrySection {
     complex: bool,
     has_data: bool,
