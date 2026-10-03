@@ -50,6 +50,7 @@ mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod profiling;
 mod race;
 mod saves;
 mod training;
@@ -99,6 +100,9 @@ pub struct PlayerNode {
     /// Maximum exterior vertex and index bytes uploaded by one walking tick.
     #[export]
     exterior_byte_budget: i64,
+    host_frame: soe_trace::FrameSnapshot,
+    host_history: soe_trace::FrameHistory,
+    monitor_names: Vec<StringName>,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -198,6 +202,9 @@ impl INode3D for PlayerNode {
             gamepad_look_speed: 800.0,
             exterior_triangle_budget: 0,
             exterior_byte_budget: 0,
+            host_frame: soe_trace::FrameSnapshot::now(),
+            host_history: soe_trace::FrameHistory::default(),
+            monitor_names: Vec::new(),
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
@@ -280,6 +287,7 @@ impl INode3D for PlayerNode {
     }
 
     fn ready(&mut self) {
+        self.register_system_monitors();
         if let Some(mut window) = self.base().get_window() {
             window.connect("focus_exited", &self.base().callable("input_focus_lost"));
             window.connect("focus_entered", &self.base().callable("input_focus_gained"));
@@ -301,6 +309,7 @@ impl INode3D for PlayerNode {
     }
 
     fn unhandled_input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused || self.menu.is_open() {
             return;
         }
@@ -312,6 +321,7 @@ impl INode3D for PlayerNode {
     }
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return;
         }
@@ -402,6 +412,7 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        let render_scope = soe_trace::SystemScope::new(soe_trace::System::Render);
         if self.menu.title() == Some("Quests") {
             self.refresh_quest_journal();
         }
@@ -428,9 +439,13 @@ impl INode3D for PlayerNode {
         if let Some(view) = self.hud_view.as_mut() {
             view.tick_presentation(delta);
         }
+        drop(render_scope);
+        self.host_history.record(self.host_frame.finish());
+        self.host_frame = soe_trace::FrameSnapshot::now();
     }
 
     fn exit_tree(&mut self) {
+        self.remove_system_monitors();
         let mut server = RenderingServer::singleton();
         for (_, rid) in std::mem::take(&mut self.debug_ref_markers) {
             server.free_rid(rid);
@@ -845,6 +860,7 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Other);
         if !self.menu.is_open()
             && self
                 .game
@@ -875,8 +891,10 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
+        let input_scope = soe_trace::SystemScope::new(soe_trace::System::Input);
         let previous_held = self.held_actions.clone();
         let input = self.gather();
+        drop(input_scope);
         self.route_hand_casts(
             magic::HandCastInput {
                 was_held: previous_held.contains(&Action::LeftAttackBlock),
@@ -904,6 +922,7 @@ impl PlayerNode {
             game.world().actor_is_paralyzed(player)
         });
 
+        let physics_scope = soe_trace::SystemScope::new(soe_trace::System::Physics);
         if let (Some(world), Some(id)) = (self.world.as_mut(), self.character) {
             world.set_crouch(id, intent.crouch);
             let (direction, speed, jump) = player_locomotion(intent, paralyzed);
@@ -914,6 +933,7 @@ impl PlayerNode {
             world.step(delta as f32);
         }
 
+        drop(physics_scope);
         self.advance_footsteps(before, was_grounded, &input);
 
         let crosshair_hit = self.activate_ray();
@@ -1506,6 +1526,7 @@ fn player_locomotion(intent: crate::input::Intent, paralyzed: bool) -> (Vec3, f3
 
 impl PlayerNode {
     fn look_stick(&mut self, delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         let (x, y) = self.devices.look(&self.bindings);
         let scale = self.gamepad_look_speed * delta as f32;
         self.rig.look(x * scale, y * scale);
@@ -1624,6 +1645,7 @@ impl PlayerNode {
 
     /// Read full chords from device state and consume each press once.
     fn gather(&mut self) -> InputState {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Input);
         if !self.input_focused {
             return InputState::default();
         }

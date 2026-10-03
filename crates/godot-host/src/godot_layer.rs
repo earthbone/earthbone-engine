@@ -537,6 +537,7 @@ impl INode3D for CellStreamerNode {
     }
 
     fn process(&mut self, _delta: f64) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(focus) = self.focus.as_ref() else {
             return;
         };
@@ -980,6 +981,7 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &mut soe_game::World) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let stale_tethers: Vec<_> = self
             .tether_endpoints()
             .into_iter()
@@ -1558,6 +1560,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_cell(&mut self, editor_id: GString) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("CellStreamerNode::stream_cell: load_data was not called");
             return -1;
@@ -1676,6 +1679,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_exterior(&mut self, editor_id: GString, radius: i32) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Streaming);
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("CellStreamerNode::stream_exterior: load_data was not called");
             return -1;
@@ -1932,6 +1936,7 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_cell_collision(&mut self, editor_id: GString) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Physics);
         let Some(source) = self.data_source.as_ref() else {
             godot_error!("stream_cell_collision: load_data was not called");
             return -1;
@@ -2486,6 +2491,7 @@ impl CellStreamerNode {
         scenario: Rid,
         totals: &mut StreamTotals,
     ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Render);
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
         if self.cell_occluders {

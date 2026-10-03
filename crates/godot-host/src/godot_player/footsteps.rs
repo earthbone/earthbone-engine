@@ -55,6 +55,7 @@ impl PlayerNode {
         was_grounded: bool,
         input: &InputState,
     ) {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         if self.game.is_none() || self.sound_bank.is_none() {
             return;
         }

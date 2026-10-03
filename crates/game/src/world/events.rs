@@ -898,6 +898,7 @@ impl World {
 
     /// `Sound.Play`: a fresh instance id, never zero.
     pub fn play_sound(&mut self, sound: GlobalFormId, source: GlobalFormId) -> i32 {
+        let _system = soe_trace::SystemScope::new(soe_trace::System::Audio);
         self.next_sound += 1;
         self.sound_instances
             .insert(self.next_sound, (sound, source, 1.0));
