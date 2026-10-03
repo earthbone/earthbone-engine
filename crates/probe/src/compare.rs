@@ -226,6 +226,17 @@ pub fn compare(
                 0.0,
             );
         }
+        let authored_load_order = serde_json::to_value(&probe.load_order)?;
+        for (runtime, load_order) in [("engine", &e.load_order), ("observed", &o.load_order)] {
+            diff(
+                &mut report,
+                e,
+                &format!("{runtime}.authored_load_order"),
+                authored_load_order.clone(),
+                serde_json::to_value(load_order)?,
+                0.0,
+            );
+        }
         for (field, tolerance) in [
             ("real_seconds", probe.tolerances.real_seconds),
             ("game_seconds", probe.tolerances.game_seconds),
