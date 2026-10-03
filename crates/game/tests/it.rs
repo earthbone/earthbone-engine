@@ -1376,6 +1376,8 @@ mod shm_14_cpp_live_bridge;
 mod shm_14_world_contracts;
 #[path = "shm_15_adversarial.rs"]
 mod shm_15_adversarial;
+#[path = "shm_15_cpp_live_world.rs"]
+mod shm_15_cpp_live_world;
 #[path = "shm_15_world_state.rs"]
 mod shm_15_world_state;
 #[path = "shm_16_adversarial.rs"]

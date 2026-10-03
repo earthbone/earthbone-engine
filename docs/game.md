@@ -199,7 +199,10 @@ and the CK `GetCombatTarget` page informed the implemented target predicate.
 - The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
   reanimation effects from this same `World`. Sit and sleep animation state is
   not stored by the runtime, so the adapter reports it as unsupported. Binary
-  address and vtable hooks have no runtime target.
+  address and vtable hooks have no runtime target. SHM-15 exposes this view to
+  C++ through the MIT `RuntimeStateCallbacks` table and `RE::CallbackTES`. The
+  SHM-15 C++ fixture queries a test host that reads each result from the live
+  `World` without keeping a copied state.
 
 `World::commonlib_event_sources` exposes the in-process CommonLib event
 channels for disarm, dragon souls gained, level increase and location
