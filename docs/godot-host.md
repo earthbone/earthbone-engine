@@ -595,10 +595,10 @@ the cell view only after the author enters a valid `Data` directory or launches 
 with `SKYRIM_DATA` set.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
-per update. After a successful streaming update, it records the number of committed
-exterior cell loads in the shared game world. Papyrus exposes this measured count as the
-`Exterior cell loads per update` category through `Utility.GetCurrentBudget`.
-`OverBudget` compares it with the same configured cap.
+per update. It reports the successfully entered cell count to the shared `Game` and
+Papyrus budget usage. Papyrus reads the latest count through
+`Utility.GetCurrentBudget` and compares it with the configured cap through
+`OverBudget`. The counter resets to zero at the start of each host update.
 
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under

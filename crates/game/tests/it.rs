@@ -1282,6 +1282,8 @@ mod scr_50_adversarial;
 mod scr_50_utility_runtime_queries;
 #[path = "scr_51_adversarial.rs"]
 mod scr_51_adversarial;
+#[path = "scr_51_breaker_adversarial.rs"]
+mod scr_51_breaker_adversarial;
 #[path = "scr_51_utility_budgets.rs"]
 mod scr_51_utility_budgets;
 #[path = "scr_52_adversarial.rs"]

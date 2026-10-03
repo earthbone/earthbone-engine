@@ -1279,17 +1279,15 @@ Their CK contracts are described by
 Without available capture data, they return `None` and log that beta capture is
 unavailable. `GetCurrentMemory` requires a memory-tracking provider, which the
 game and host do not have, so it returns `None` and logs an error. The capture
-lifecycle and average query remain available.
-`GetBudgetCount` returns two engine categories, `Papyrus instructions per slice`
-and `Exterior cell loads per update`. `GetBudgetName` returns those names by
-index. `GetCurrentBudget` reads the instruction count returned by the most
-recent VM scheduler slice or the number of exterior cells committed by the
-most recent host streaming update. Before a measurement, each value is zero.
+lifecycle and average query remain available. `GetBudgetCount` returns two
+engine categories, `Papyrus instructions per slice` and `Exterior cell loads
+per update`. `GetBudgetName` returns those names by index. `GetCurrentBudget`
+reads the instruction count from the latest completed VM scheduler run or the
+number of successfully entered exterior cells from the latest host update.
 `OverBudget` compares the measured value with that category's configured cap.
-Invalid indices return zero, false or `None` for integer, boolean and name
-queries. `GetCurrentMemory` remains unavailable and is not needed to read these
-engine-owned counters. The CK Utility page documents the signatures, and
-SKSE's vanilla `Utility.psc` declares them as global natives.
+Before a measurement, each value is zero. Invalid indices return zero, false
+or `None` for integer, boolean and name queries. The CK Utility page documents
+the signatures, and SKSE's vanilla `Utility.psc` declares them as global natives.
 
 The contracts and availability notes come from the local CK
 `Utility_Script.wikitext` and shipped `skse64/scripts/vanilla/Utility.psc`.
