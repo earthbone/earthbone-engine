@@ -193,18 +193,18 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ### Cart and horse host tether
 
-`CellStreamerNode::tether_bodies` creates a Godot pin joint between cart and
-horse body RIDs and keys ownership by both resolved reference IDs, each
-encoded as `(file << 32) | object`. Papyrus queues the two references and the
-CK Havok pivots. The cell host resolves each reference to its resident body,
-maps the pivots into Godot's axis basis and creates the joint. Creating
-another link for either endpoint first frees the old one. `untether_reference`
-frees links for explicit untethering. The player sync path releases a link
-when either endpoint is missing or disabled. Releasing the collision cell,
-calling `clear`, or tearing down the node frees its joints before its bodies.
-The CK page names `HorseSpine2` and describes the chassis and horse connection
-pivots. The host connects whole reference bodies and does not infer that bone
-or build wheel, pole and chassis rig constraints from NIF collision data.
+`ObjectReference.TetherToHorse` queues a cart and horse FormID after applying
+the CK local offset and copying cart placement to the horse. During reference
+sync, the host retains that request until both collision bodies are resident,
+then connects them with a PhysicsServer pin joint. The pivot coordinates use
+the CK cart chassis pivot `(0, 3.5, -0.2)` and horse pivot `(0, 0, -0.5)` in
+Havok axes, mapped to Godot metres. `CellStreamerNode::tether_bodies` also
+accepts caller-supplied body RIDs and pivots for direct host use. Links are
+keyed by both resolved FormIDs. Replacing a link for either endpoint frees the
+old joint. Missing or disabled endpoints release a live link, and `clear`,
+collision-cell release or node teardown frees joints and pending pairs. The
+host does not sample the `HorseSpine2` skeleton bone, build the wheel and pole
+constraints, or reproduce the cart suspension and upright recovery action.
 
 ### Editor forms dock, EDT-02
 
@@ -234,6 +234,25 @@ matches from the winning records, that searching created zero `SoeFormResource` 
 that selecting one row creates one resource. Run it after building the release extension
 with `SOE_GODOT_BIN` set to Godot 4.4 or newer. The runner reads the editor controls without
 rendering pixels, and the plugin exits the editor when the check finishes.
+
+### Drop selected references to host collision, EDT-15
+
+`SoeFormTable.drop_selected_reference_to_ground(space, encoded_id)` casts a vertical ray
+through Godot's direct physics space at the selected REFR's horizontal position. The ray
+starts 100 Skyrim units above the reference and extends 10,000 units below it. A hit is
+converted from Godot metres and axes to Skyrim world coordinates. The editor updates only
+the reference's vertical transform value through `EditorDocument`, preserving horizontal
+position and rotation. The active-plugin edit is undoable through `SoeFormTable.undo()`.
+Malformed selections, unavailable physics spaces and rays without a hit return `false` and
+set `last_error()`. `query_ground_collision` exposes the same host query as a position
+inspection for callers that need to preview a surface hit.
+
+The ray query uses Godot's `PhysicsDirectSpaceState3D.intersect_ray` behavior described in
+local `engine-refs/godot-docs/classes/class_physicsdirectspacestate3d.rst`. REFR `DATA` is
+the six-float position and rotation layout from local xEdit's
+`TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `uesp-modfileformat/REFR.wikitext`.
+`godot/edt_15_drop_to_ground_test.gd` creates a server-side box collider and checks the
+host query hit and Skyrim-space surface height without game data.
 
 `DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
 By default the entries live under the user cache directory
@@ -589,10 +608,30 @@ The viewport camera frames the rendered bounds after selection. The installed-da
 check `godot/edt_03_cell_scene_test.gd` opens two populated interiors in sequence and
 checks that the second selection replaces the first cell's render instances.
 
-This milestone supplies a read-only cell tree and rendered cell preview. It does not edit
-cell records, expose reference selection, or add transform gizmos. The Godot project opens
-the cell view only after the author enters a valid `Data` directory or launches the editor
-with `SKYRIM_DATA` set.
+This milestone supplies a read-only cell tree and rendered cell preview. Reference transform
+editing is provided by the separate `addons/soe_reference_gizmo` dock described below. The
+Godot project opens the cell view only after the author enters a valid `Data` directory or
+launches the editor with `SKYRIM_DATA` set.
+
+### Selected reference transform gizmo, EDT-14
+
+The `addons/soe_reference_gizmo` editor dock opens plugin paths through
+`SoeReferenceTransformEditor`, takes a resolved `file:object` FormID, and adds one
+`SoeReferenceGizmoTarget` proxy Node3D to the edited scene. Godot's registered
+`EditorNode3DGizmoPlugin` attaches a draggable handle to that selected proxy. Its commit
+callback calls `commit_gizmo_transform`, which forwards position and rotation to
+`SoeReferenceTransformEditor::set_reference_transform` and then to
+`EditorDocument::set_reference_transform`. The record remains the source used for plugin
+output. Undo calls the document edit log and reloads the proxy pose from the winning record.
+The Save plugin button writes the active plugin. This creates one proxy node for the selected
+reference only. Ordinary cell rendering remains RID-backed.
+
+Godot's local `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` specify the handle callbacks and restore value
+used by this adapter. `godot/edt_14_gizmo_test.gd` exercises the gizmo callback adapter and
+proxy update in Godot. The editor crate tests verify the record operation, undo, and saved
+`REFR` placement. Reference selection from the cell tree and automatic replacement of the
+streamed cell preview after a placement edit are not implemented by this milestone.
 
 `PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
 per update. After a successful streaming update, it records the number of committed

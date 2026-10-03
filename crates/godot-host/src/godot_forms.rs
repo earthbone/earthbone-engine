@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use godot::classes::RefCounted;
 use godot::prelude::*;
 use soe_editor::EditorDocument;
+use soe_esm::records::refr::Refr;
 use soe_esm::{GlobalFormId, Tag};
+
+use crate::godot_physics::ground_collision_position;
+use crate::units::SkyrimPos;
 
 /// A selected winning form displayed by the Godot inspector.
 #[derive(GodotClass)]
@@ -47,6 +51,76 @@ pub struct SoeFormTable {
 
 #[godot_api]
 impl SoeFormTable {
+    /// Query the first host collision around a Skyrim-space point.
+    #[func]
+    pub fn query_ground_collision(
+        &self,
+        space: Rid,
+        x: f64,
+        y: f64,
+        z: f64,
+        above_units: f64,
+        below_units: f64,
+    ) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        match ground_collision_position(
+            space,
+            SkyrimPos::new(x as f32, y as f32, z as f32),
+            above_units as f32,
+            below_units as f32,
+        ) {
+            Ok(Some(position)) => {
+                result.set("hit", true);
+                result.set("position", Vector3::new(position.x, position.y, position.z));
+            }
+            Ok(None) => result.set("hit", false),
+            Err(error) => {
+                result.set("hit", false);
+                result.set("error", error);
+            }
+        }
+        result
+    }
+
+    /// Read the winning REFR position and Euler rotation for an encoded FormID.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn reference_transform(&self, encoded_id: GString) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(document) = self.document.as_ref() else {
+            return result;
+        };
+        let Some(id) = parse_form_id(&encoded_id.to_string()) else {
+            return result;
+        };
+        let Some(record) = document.load_order().winner(id) else {
+            return result;
+        };
+        let Ok(reference) = Refr::from_record(record) else {
+            return result;
+        };
+        let Some(transform) = reference.transform else {
+            return result;
+        };
+        result.set(
+            "position",
+            Vector3::new(
+                transform.position[0],
+                transform.position[1],
+                transform.position[2],
+            ),
+        );
+        result.set(
+            "rotation",
+            Vector3::new(
+                transform.rotation[0],
+                transform.rotation[1],
+                transform.rotation[2],
+            ),
+        );
+        result
+    }
+
     /// Open the plugin paths in load-order sequence and select the active file.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
@@ -154,6 +228,82 @@ impl SoeFormTable {
         versions
     }
 
+    /// Drop an active-plugin REFR onto the first host collision below it.
+    ///
+    /// The vertical host ray starts 100 Skyrim units above the reference and
+    /// ends 10,000 units below it. The record edit keeps horizontal position
+    /// and rotation, and the document edit log makes it undoable.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn drop_selected_reference_to_ground(&mut self, space: Rid, encoded_id: GString) -> bool {
+        let Some(document) = self.document.as_mut() else {
+            self.last_error = GString::from("no editor document is open");
+            return false;
+        };
+        let Some(id) = parse_form_id(&encoded_id.to_string()) else {
+            self.last_error = GString::from("selected form id is invalid");
+            return false;
+        };
+        let Some(record) = document.load_order().winner(id) else {
+            self.last_error = GString::from("selected reference has no winning record");
+            return false;
+        };
+        let transform = if record.tag == Tag(*b"REFR") {
+            Refr::from_record(record)
+                .ok()
+                .and_then(|refr| refr.transform)
+        } else {
+            None
+        };
+        let Some(transform) = transform else {
+            self.last_error = GString::from("selected form has no valid REFR transform");
+            return false;
+        };
+        let position = transform.position;
+        let collision = ground_collision_position(
+            space,
+            SkyrimPos::new(position[0], position[1], position[2]),
+            100.0,
+            10_000.0,
+        );
+        let hit = match collision {
+            Ok(Some(hit)) => hit,
+            Ok(None) => {
+                self.last_error = GString::from("no host collision below selected reference");
+                return false;
+            }
+            Err(error) => {
+                self.last_error = GString::from(error);
+                return false;
+            }
+        };
+        match apply_ground_height(document, id, hit.z) {
+            Ok(()) => {
+                self.last_error = GString::new();
+                true
+            }
+            Err(error) => {
+                self.last_error = GString::from(error.to_string().as_str());
+                false
+            }
+        }
+    }
+
+    /// Undo the latest editor record edit.
+    #[func]
+    pub fn undo(&mut self) -> bool {
+        let Some(document) = self.document.as_mut() else {
+            return false;
+        };
+        match document.undo() {
+            Ok(undone) => undone,
+            Err(error) => {
+                self.last_error = GString::from(error.to_string().as_str());
+                false
+            }
+        }
+    }
+
     /// Count selected-form Resources created since the last successful open.
     #[func]
     pub fn resources_created(&self) -> i64 {
@@ -179,6 +329,39 @@ fn override_chain_entries(document: &EditorDocument, id: GlobalFormId) -> Vec<Ov
             is_winner: version.is_winner,
         })
         .collect()
+}
+
+fn apply_ground_height(
+    document: &mut EditorDocument,
+    id: GlobalFormId,
+    height: f32,
+) -> Result<(), soe_editor::EditorError> {
+    let record = document
+        .load_order()
+        .winner(id)
+        .ok_or(soe_editor::EditorError::MissingForm(id))?;
+    if record.tag != Tag(*b"REFR") {
+        return Err(soe_editor::EditorError::UnsupportedEdit {
+            form: id,
+            reason: "the selected form is not a placed reference",
+        });
+    }
+    let transform = Refr::from_record(record)
+        .ok()
+        .and_then(|reference| reference.transform)
+        .ok_or(soe_editor::EditorError::UnsupportedEdit {
+            form: id,
+            reason: "the placed reference has no valid transform DATA",
+        })?;
+    let drop =
+        transform
+            .drop_to_ground(height)
+            .ok_or(soe_editor::EditorError::InvalidFieldValue {
+                form: id,
+                field: "REFR.DATA.Z",
+                reason: "collision height must be finite",
+            })?;
+    document.set_reference_transform(id, drop.placed())
 }
 
 fn search_form_ids(
@@ -291,12 +474,20 @@ mod edt_11_override_chain_dock {
 #[cfg(test)]
 mod edt_02_forms_dock {
     use std::fs;
+    use std::path::PathBuf;
 
     use soe_editor::EditorDocument;
     use soe_esm::plugin::{FileHeader, Record};
-    use soe_esm::{Plugin, Tag};
+    use soe_esm::records::refr::Refr;
+    use soe_esm::records::Transform;
+    use soe_esm::{GlobalFormId, Plugin, Tag};
 
-    use super::search_form_ids;
+    use super::{apply_ground_height, search_form_ids};
+
+    const REFERENCE: GlobalFormId = GlobalFormId {
+        file: 1,
+        object: 0x800,
+    };
 
     #[test]
     fn edt_02_dock_filters_paged_form_ids_without_building_resources() {
@@ -324,5 +515,69 @@ mod edt_02_forms_dock {
         assert_eq!(ids, vec!["0:000806", "0:00083C", "0:00083D"]);
         assert_eq!(next_page, vec!["0:00083E", "0:00083F"]);
         assert!(ids.iter().all(|id| id.contains(':')));
+    }
+
+    fn drop_fixture() -> (EditorDocument, tempfile::TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let base_path = directory.path().join("Base.esm");
+        let active_path = directory.path().join("Active.esp");
+        fs::write(&base_path, Plugin::new(FileHeader::default()).to_bytes()).unwrap();
+        let mut active = Plugin::new(FileHeader {
+            masters: vec!["Base.esm".to_string()],
+            ..Default::default()
+        });
+        let transform = Transform {
+            position: [12.0, -8.0, 240.0],
+            rotation: [0.1, 0.2, 0.3],
+        };
+        active.push_top(
+            Record::new(Tag(*b"REFR"), 0x0100_0800)
+                .sub(Tag(*b"NAME"), 0x800u32.to_le_bytes().to_vec())
+                .sub(Tag(*b"DATA"), transform.to_bytes().to_vec()),
+        );
+        fs::write(&active_path, active.to_bytes()).unwrap();
+        let paths: [PathBuf; 2] = [base_path, active_path];
+        let document = EditorDocument::open(&paths, "Active.esp").unwrap();
+        (document, directory)
+    }
+
+    #[test]
+    fn edt_15_collision_drop_edits_selected_reference_record_and_undoes() {
+        let (mut document, _directory) = drop_fixture();
+        let original = document
+            .load_order()
+            .winner(REFERENCE)
+            .and_then(|record| Refr::from_record(record).ok())
+            .and_then(|reference| reference.transform)
+            .unwrap();
+
+        apply_ground_height(&mut document, REFERENCE, -5.5).unwrap();
+
+        let placed = document
+            .load_order()
+            .winner(REFERENCE)
+            .and_then(|record| Refr::from_record(record).ok())
+            .and_then(|reference| reference.transform)
+            .unwrap();
+        assert_eq!(placed.position, [12.0, -8.0, -5.5]);
+        assert_eq!(placed.rotation, original.rotation);
+        assert!(document.undo().unwrap());
+        let undone = document
+            .load_order()
+            .winner(REFERENCE)
+            .and_then(|record| Refr::from_record(record).ok())
+            .and_then(|reference| reference.transform)
+            .unwrap();
+        assert_eq!(undone, original);
+    }
+
+    #[test]
+    fn edt_15_non_finite_host_hit_does_not_edit_reference_record() {
+        let (mut document, _directory) = drop_fixture();
+        let original = document.active_plugin().clone();
+
+        assert!(apply_ground_height(&mut document, REFERENCE, f32::NAN).is_err());
+
+        assert_eq!(document.active_plugin(), &original);
     }
 }
