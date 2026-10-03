@@ -31,6 +31,15 @@ controller pose and load-door cell replacement, and verifies a visible
 dialogue response. It captures the viewport as `window.png` in that fixture
 directory and quits with a failing status if any assertion fails.
 
+## Papyrus log profile routing, TOOL-07
+
+`DataSource` retains the resolved profile INI settings and INI directory.
+`PlayerNode` configures Game's Papyrus file sink from them before scripts start.
+When `[Papyrus] bEnableLogging=1`, the sink writes `Papyrus.0.log` and named
+user logs under `Logs/Script` in that profile directory. Disabled logging does
+not create files. The profile settings control trace lines and debug source
+detail, and existing numbered logs move up one slot on startup.
+
 ## Live detection observations, CMB-32
 
 PlayerNode samples each ordered pair of resident, living actors in the same

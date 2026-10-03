@@ -165,6 +165,14 @@ impl PlayerNode {
             return false;
         };
         let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        if let Some(directory) = source.profile_papyrus_logs().1 {
+            if let Err(error) =
+                game.configure_papyrus_logs(source.profile_papyrus_logs().0, directory)
+            {
+                soe_trace::warn!(target: "host::gameplay", system = "host::gameplay",
+                    error = %error, "PlayerNode: could not configure Papyrus file logs");
+            }
+        }
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             soe_trace::error!(target: "host::gameplay", system = "host::gameplay",

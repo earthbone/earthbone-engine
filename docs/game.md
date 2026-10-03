@@ -740,6 +740,16 @@ when it is absent. `TraceUser(name, text, severity)` appends the formatted text
 to an open named log and the Papyrus log, and returns whether that log was
 open. User logs are runtime diagnostics and are not included in SOEW saves.
 
+TOOL-07 adds profile-controlled file output. A host passes the resolved
+`soe_profile::Settings` and the profile's My Games directory to
+`Game::configure_papyrus_logs`. `[Papyrus] bEnableLogging` enables
+`Logs/Script/Papyrus.0.log` and `Logs/Script/User/<name>.0.log` output.
+`bEnableTrace` controls non-error trace lines, while `bLoadDebugInformation`
+controls source-line detail in VM errors. Existing numbered log files move up
+one slot when logging starts. Lines use the vanilla-style
+`[MM/DD/YYYY - H:MM:SSAM]` timestamp prefix. VM log entries
+continue through `soe-trace`, including when file tracing is disabled.
+
 `Debug.CenterOnCell(name)` resolves a CELL editor id and queues a host request
 to move the player to that cell's origin. `CenterOnCellAndWait(name)` queues
 the same request and suspends its Papyrus thread until the host installs the
