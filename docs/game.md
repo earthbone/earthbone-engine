@@ -423,7 +423,7 @@ Stack profiling uses the current Papyrus thread. A failed file write is added
 to the Papyrus log. `Debug.TakeScreenshot` remains a stub because the game
 native layer has no host frame-capture request path.
 
-**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`; while
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`. While
 enabled, incoming player health damage is ignored by melee, magic and
 `DamageActorValue` paths. Other actors and non-health actor values keep their
 normal damage behavior.
@@ -604,7 +604,7 @@ queues a host move, and suspends the Papyrus thread. The Godot host applies the
 placement and resolves the wait with 0 after destination resources install.
 Missing references log an error and return 0. Failed host installation returns
 -1. `Debug.MoveToCell`
-resolves a CELL editor id and moves the player to the cell origin; an unknown
+resolves a CELL editor id and moves the player to the cell origin. An unknown
 cell logs an error and leaves the player unchanged.
 
 The local `ck-wiki/Debug_Script.wikitext` documents the listed signatures and
@@ -1381,7 +1381,7 @@ Creation Engine frame capture or memory budgets.
   Confidence multiplied by 25. Value functions support Set, Add, Multiply,
   random-range Add, actor-value Add/Set/Multiply and actor-value-scaled
   Multiply. The entry point ID, function encodings and tab order follow UESP
-  `PERK.wikitext`; native name, arguments and result follow CK
+  `PERK.wikitext`. Native name, arguments and result follow CK
   `WillIntimidateSucceed_-_Actor.wikitext`. The native evaluates perk
   conditions with the actor as owner and the subject as target, including
   conditional Papyrus variables from the calling VM.
@@ -1389,7 +1389,7 @@ Creation Engine frame capture or memory budgets.
   with `Survival_ArmorWarm` contribute 54, those with `Survival_ArmorCold`
   contribute 17, and unclassified ARMO records contribute 27. Other equipped
   forms contribute zero. The total and no-argument signature follow CK
-  `Actor_Script.wikitext`; the keyword classifications are read from the
+  `Actor_Script.wikitext`. The keyword classifications are read from the
   winning ARMO and KYWD records.
 - `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
   record and add or remove it from the world's transient active music type list.

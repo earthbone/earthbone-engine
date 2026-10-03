@@ -364,7 +364,7 @@ resolution and rejects unknown CELL editor ids before queuing a request.
 
 `PlayerNode` displays each `Debug.ShowRefPosition` request as a small emissive
 sphere at that reference's current world placement. The sphere mesh and
-material are shared; the host stores one `RenderingServer` instance RID per
+material are shared. The host stores one `RenderingServer` instance RID per
 requested reference and frees the instances when the player node exits.
 `Debug.PlayerMoveToAndWait` requests are applied to the shared World before
 `sync_game_pose`. The latent Papyrus call resolves with 0 after the host has

@@ -11,9 +11,25 @@ use soe_esm::{Plugin, Tag};
 
 #[test]
 fn edt_14_gizmo_bridge_edits_record_undoes_proxy_and_saves_restored_pose() {
-    let godot = PathBuf::from(std::env::var_os("SOE_GODOT_BIN").expect("SOE_GODOT_BIN"));
+    let Some(godot) = std::env::var_os("SOE_GODOT_BIN").map(PathBuf::from) else {
+        eprintln!("skipping: set SOE_GODOT_BIN to Godot 4.4 or newer");
+        return;
+    };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = workspace.join("godot");
+    // CONTEXT: Cargo test does not refresh the release library Godot loads.
+    let build = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args(["build", "-p", "soe-godot-host", "--release", "--target-dir"])
+        .arg(workspace.join("target"))
+        .output()
+        .expect("release extension build starts");
+    assert!(
+        build.status.success(),
+        "release extension build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("Base.esm");
     let patch = fixture.path().join("Patch.esp");
