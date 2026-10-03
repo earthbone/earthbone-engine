@@ -283,6 +283,8 @@ mod ai_71_adversarial;
 mod ai_71_reference_conditions;
 #[path = "ai_72_adversarial.rs"]
 mod ai_72_adversarial;
+#[path = "ai_72_breaker_adversarial.rs"]
+mod ai_72_breaker_adversarial;
 #[path = "ai_72_reference_state_conditions.rs"]
 mod ai_72_reference_state_conditions;
 #[path = "ai_73_breaker_adversarial.rs"]
@@ -335,6 +337,10 @@ mod ai_84_breaker_adversarial;
 mod ai_84_world_conditions;
 #[path = "ai_85_adversarial.rs"]
 mod ai_85_adversarial;
+#[path = "ai_85_breaker_2_adversarial.rs"]
+mod ai_85_breaker_2_adversarial;
+#[path = "ai_85_breaker_adversarial.rs"]
+mod ai_85_breaker_adversarial;
 #[path = "ai_85_conditions_batch_2.rs"]
 mod ai_85_conditions_batch_2;
 #[path = "ai_86_adversarial.rs"]
