@@ -2976,6 +2976,7 @@ fn function_value(
                 .ok_or_else(|| Error::Variable(name.into()))?
         }
         675 => {
+            no_parameter(c)?;
             let name = c.strings[0]
                 .as_deref()
                 .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
