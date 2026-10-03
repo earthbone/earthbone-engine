@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use soe_esm::records::gameplay::Scene;
+use soe_esm::records::gameplay::{Scene, SceneActionData};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
@@ -185,30 +185,36 @@ fn scr_44_vanilla_overlapping_action_ids_remain_scene_scoped() {
         let dg_record = world.record(dg_scene_id).unwrap();
         let worshippers_scene = Scene::from_record(worshippers_record).unwrap();
         let dg_scene = Scene::from_record(dg_record).unwrap();
-        let action_id = worshippers_scene
+        let (slot, action_id) = worshippers_scene
             .actions
             .iter()
-            .filter_map(|action| action.index)
-            .find(|action_id| {
-                dg_scene
-                    .actions
-                    .iter()
-                    .any(|action| action.index == Some(*action_id))
+            .enumerate()
+            .find_map(|(slot, action)| {
+                let action_id = action.index?;
+                (action.start_phase == Some(0)
+                    && !matches!(action.data, SceneActionData::Timer { .. })
+                    && dg_scene
+                        .actions
+                        .iter()
+                        .any(|action| action.index == Some(action_id)))
+                .then_some((slot as u32, action_id))
             })
-            .expect("the UESP documented vanilla scenes share an action number");
-        let slot = worshippers_scene
-            .actions
-            .iter()
-            .position(|action| action.index == Some(action_id))
-            .unwrap() as u32;
+            .expect("vanilla scenes share a non-timer action number active in phase zero");
         (action_id, slot)
     };
 
     game.load_script(&scene_script()).unwrap();
-    game.start();
-    let mut allocate = |_: &str, _: &str| ObjectId(1);
-    assert!(game.world_mut().start_scene(worshippers, &mut allocate));
-    assert!(game.world_mut().start_scene(dg_scene_id, &mut allocate));
+    {
+        let world = game.shared_world();
+        let mut allocate = |name: &str, class: &str| game.vm.create_object_of(name, class);
+        assert!(world.borrow_mut().start_scene(worshippers, &mut allocate));
+        assert!(world.borrow_mut().start_scene(dg_scene_id, &mut allocate));
+    }
+    assert!(!call_action_complete(
+        &mut game,
+        worshippers,
+        action_id as i32
+    ));
     assert!(game
         .world_mut()
         .complete_scene_action(worshippers, worshippers_slot));
