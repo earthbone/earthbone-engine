@@ -14,12 +14,24 @@ use soe_esm::records::Transform;
 use soe_esm::GlobalFormId;
 
 #[derive(GodotClass)]
-#[class(init, base = RefCounted)]
+#[class(base = RefCounted)]
 pub struct SoeReferenceTransformEditor {
     base: Base<RefCounted>,
     document: Option<EditorDocument>,
     active_path: Option<PathBuf>,
     last_error: GString,
+}
+
+#[godot_api]
+impl IRefCounted for SoeReferenceTransformEditor {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self {
+            base,
+            document: None,
+            active_path: None,
+            last_error: GString::new(),
+        }
+    }
 }
 
 #[godot_api]
