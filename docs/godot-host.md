@@ -16,6 +16,16 @@ and work split. This host still presents its native Godot menus. UI-19 converts
 SWF art and retains ActionScript decompilation for reference, but does not
 execute the scripts.
 
+The art converter uses Ruffle `swf` 0.3's `Reader` for typed tags. Its
+`read_tag_list` requires an End tag, while the local
+`SkyUI-Community/source/swf/skyui/icons_item_psychosteve.xml` records complete
+sprites with `hasEndTag=false`. The converter walks sprite envelopes through
+Ruffle's length reader and accepts their declared byte boundary. Static
+one-frame sprites in the same icon movie also omit ShowFrame. Their final
+display list and labels form that frame. Other frame-count mismatches, subtag
+truncation errors and nesting beyond 64 levels remain errors. Synthetic
+fixtures cover both omissions, nested sprites and partial tags.
+
 ## Scripted player input, PLY-01
 
 `PlayerNode.queue_player_input(dictionary)` transports commands to the shared

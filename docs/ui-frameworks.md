@@ -36,7 +36,7 @@ also documents registering a section and page.
 Original dMenu is a standalone ImGui cheat menu. Its published source does
 not document a public API for other plugins. dMenu NG extends it with custom
 settings pages backed by INI values. A settings entry describes controls and
-the file/key they update; dMenu NG handles rendering and persistence. Its
+the file/key they update. dMenu NG handles rendering and persistence. Its
 optional frontend integrations expose those same setting pages through other
 menu frameworks.
 
@@ -123,7 +123,7 @@ for the UI backlog, not claims of implementation.
 ## Sources read
 
 - Local `engine-refs/SexLabpp/lib/ImGui/SKSEMenuFramework.h`, for callback
-  names. The enclosing SexLabpp repository has an Apache-2.0 license; it does
+  names. The enclosing SexLabpp repository has an Apache-2.0 license. It does
 ... (+98 lines) [see remaining: rtk proxy git show ':2:docs/ui-frameworks.md' | tail -n +127]
 ## HTML menu framework research, UI-22
 

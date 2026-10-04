@@ -59,3 +59,86 @@ fn input_and_declared_uncompressed_lengths_over_the_limit_are_rejected() {
     bytes.extend_from_slice(&((128 * 1024 * 1024u32) + 1).to_le_bytes());
     assert!(convert(&bytes).is_err());
 }
+
+#[test]
+fn sprite_without_end_retains_its_frame_and_does_not_consume_parent_tags() {
+    let mut sprite = vec![2, 0, 1, 0];
+    tag(26, &[6, 1, 0, 7, 0, 0], &mut sprite);
+    tag(1, &[], &mut sprite);
+    let mut tags = Vec::new();
+    tag(39, &sprite, &mut tags);
+    tag(1, &[], &mut tags);
+
+    let result = convert(&movie(1, &tags)).unwrap();
+    assert_eq!(result.timelines[&2].frames[0].display_list[0].character, 7);
+    assert_eq!(result.timelines[&0].frames.len(), 1);
+    assert!(result.timelines[&0].frames[0].display_list.is_empty());
+}
+
+#[test]
+fn nested_sprites_accept_end_tags_and_complete_byte_boundaries() {
+    for end in [false, true] {
+        let mut inner = vec![3, 0, 1, 0];
+        tag(1, &[], &mut inner);
+        if end {
+            tag(0, &[], &mut inner);
+        }
+        let mut outer = vec![2, 0, 1, 0];
+        tag(39, &inner, &mut outer);
+        tag(1, &[], &mut outer);
+        if end {
+            tag(0, &[], &mut outer);
+        }
+        let mut tags = Vec::new();
+        tag(39, &outer, &mut tags);
+        tag(1, &[], &mut tags);
+
+        let result = convert(&movie(1, &tags)).unwrap();
+        assert_eq!(result.timelines.len(), 3);
+        assert_eq!(result.timelines[&3].frames.len(), 1);
+    }
+}
+
+#[test]
+fn static_single_frame_sprite_without_showframe_retains_its_display_list() {
+    for end in [false, true] {
+        let mut sprite = vec![2, 0, 1, 0];
+        tag(26, &[6, 1, 0, 7, 0, 0], &mut sprite);
+        tag(43, b"icon\0", &mut sprite);
+        if end {
+            tag(0, &[], &mut sprite);
+        }
+        let mut tags = Vec::new();
+        tag(39, &sprite, &mut tags);
+        tag(1, &[], &mut tags);
+
+        let result = convert(&movie(1, &tags)).unwrap();
+        let frames = &result.timelines[&2].frames;
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].display_list[0].character, 7);
+        assert_eq!(frames[0].labels, ["icon"]);
+    }
+}
+
+#[test]
+fn sprite_byte_boundaries_do_not_accept_partial_headers_or_payloads() {
+    for partial in [&[0x40][..], &[0x84, 0x06, 0], &[0x7f, 0, 1, 2, 3]] {
+        let mut sprite = vec![2, 0, 1, 0];
+        tag(1, &[], &mut sprite);
+        sprite.extend_from_slice(partial);
+        let mut tags = Vec::new();
+        tag(39, &sprite, &mut tags);
+        tag(1, &[], &mut tags);
+        assert!(convert(&movie(1, &tags)).is_err(), "{partial:?}");
+    }
+}
+
+#[test]
+fn sprite_without_end_still_requires_its_declared_frame_count() {
+    let mut sprite = vec![2, 0, 2, 0];
+    tag(1, &[], &mut sprite);
+    let mut tags = Vec::new();
+    tag(39, &sprite, &mut tags);
+    tag(1, &[], &mut tags);
+    assert!(convert(&movie(1, &tags)).is_err());
+}
