@@ -24,7 +24,7 @@ use godot::classes::mesh::{ArrayType, BlendShapeMode, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, QuadMesh,
-    RenderingServer, Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
+    RenderingServer, Shader, ShaderMaterial, SphereMesh, StandardMaterial3D, Texture2D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -1871,6 +1871,51 @@ impl CellStreamerNode {
         self.last_stats.clone()
     }
 
+    /// Inspect uploaded albedo bindings, retaining authored textureless materials.
+    #[func]
+    pub fn material_albedo_stats(&self) -> VarDictionary {
+        let mut bound = 0_i64;
+        let mut intended = 0_i64;
+        let mut missing = 0_i64;
+        let mut checker = 0_i64;
+        for (key, material) in &self.materials.materials {
+            if key.diffuse.is_none() {
+                intended += 1;
+                continue;
+            }
+            let texture = if let Ok(standard) = material.clone().try_cast::<StandardMaterial3D>() {
+                standard.get_texture(TextureParam::ALBEDO)
+            } else if let Ok(shader) = material.clone().try_cast::<ShaderMaterial>() {
+                shader
+                    .get_shader_parameter("albedo_texture")
+                    .try_to::<Gd<Texture2D>>()
+                    .ok()
+            } else {
+                None
+            };
+            if let Some(texture) = texture {
+                bound += 1;
+                if let Some(image) = texture.get_image() {
+                    if image.get_width() == 8
+                        && image.get_height() == 8
+                        && image.get_pixel(0, 0) == Color::from_rgb(1.0, 0.0, 1.0)
+                        && image.get_pixel(2, 0) == Color::BLACK
+                    {
+                        checker += 1;
+                    }
+                }
+            } else {
+                missing += 1;
+            }
+        }
+        let mut result = VarDictionary::new();
+        result.set("bound", bound);
+        result.set("intended", intended);
+        result.set("missing", missing);
+        result.set("checker", checker);
+        result
+    }
+
     /// One dictionary per drawn instance that carries a water plane:
     /// `cell` (the owning cell's form id as text), `rid` (the
     /// RenderingServer instance), `height` (the plane's Godot y in metres),
@@ -3141,10 +3186,8 @@ fn decal_material(
     if desc.decal_depth().is_some() {
         material.set_render_priority(1);
     }
-    if let Some(data) = &textures.diffuse {
-        if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
-            material.set_shader_parameter("albedo_texture", &texture.to_variant());
-        }
+    if let Some(texture) = albedo_texture(cache, desc, textures) {
+        material.set_shader_parameter("albedo_texture", &texture.to_variant());
     }
     if let Some(data) = &textures.normal {
         if let Some(texture) = cached_texture(cache, desc.normal.as_deref(), data) {
@@ -3271,6 +3314,20 @@ fn cached_texture(
     Some(texture)
 }
 
+fn albedo_texture(
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    desc: &MaterialDesc,
+    textures: &SurfaceTextures,
+) -> Option<Gd<ImageTexture>> {
+    let path = desc.diffuse.as_deref();
+    if let Some(data) = &textures.diffuse {
+        if let Some(texture) = cached_texture(cache, path, data) {
+            return Some(texture);
+        }
+    }
+    path.and_then(|path| cached_texture(cache, Some(path), &crate::data_source::checker_albedo()))
+}
+
 /// Builds a `StandardMaterial3D` from a NIF material description and its
 /// decoded textures. `normal_texture` gets only the RGB channels: Skyrim
 /// stores specular strength in the normal map's alpha channel, not a
@@ -3292,10 +3349,8 @@ fn material_with_textures(
 ) -> Gd<StandardMaterial3D> {
     let mut mat = StandardMaterial3D::new_gd();
 
-    if let Some(diffuse) = &textures.diffuse {
-        if let Some(tex) = cached_texture(cache, material.diffuse.as_deref(), diffuse) {
-            mat.set_texture(TextureParam::ALBEDO, &tex);
-        }
+    if let Some(tex) = albedo_texture(cache, material, textures) {
+        mat.set_texture(TextureParam::ALBEDO, &tex);
     }
     if let Some(normal) = &textures.normal {
         if let Some(tex) = cached_texture(cache, material.normal.as_deref(), normal) {

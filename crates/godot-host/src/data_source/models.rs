@@ -9,7 +9,8 @@
 //! nightstands and cupboards that support placed candles.
 //! xEdit's wbRecord(DOOR) uses the generic MODL path and bit 23 marker flag too.
 //! Its NIF reader also identifies `NiObjectNET` names containing `EditorMarker`.
-//! The cell loader removes only shapes below those nodes, retaining ordinary
+//! UESP STAT also assigns bit 23 to static editor markers.
+//! The cell loader removes shapes below those nodes, retaining ordinary
 //! sibling geometry and leaving collision selection unchanged.
 
 //! UESP ACTI and xEdit's wbRecord(ACTI) use the same MODL and marker flag.
@@ -38,6 +39,24 @@ pub(crate) fn model_for(record: &Record) -> Option<String> {
         return None;
     };
     (!model.is_empty()).then_some(model)
+}
+
+/// Visual selection excludes markers without changing collision model selection.
+pub(super) fn render_model_for(record: &Record) -> Option<String> {
+    (record.flags & (1 << 23) == 0)
+        .then(|| model_for(record))
+        .flatten()
+}
+
+/// xEdit's REFR definition identifies occlusion planes and room/portal data.
+pub(super) fn is_editor_reference(record: &Record) -> bool {
+    [b"XOCP", b"XORD", b"XRMR", b"XPOD", b"XPTL"]
+        .iter()
+        .any(|tag| record.find(Tag::new(tag)).is_some())
+        || record
+            .find(Tag::new(b"XPRM"))
+            .and_then(|data| soe_esm::records::refr::Primitive::decode(data).ok())
+            .is_some_and(|primitive| primitive.kind == 3)
 }
 
 #[cfg(test)]
