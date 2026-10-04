@@ -10,8 +10,15 @@ name = "soe_trace"
 path = "src/lib.rs"
 
 [dependencies]
-tracing = { version = "0.1", default-features = false, features = ["std", "release_max_level_info"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "env-filter"] }
+tracing = { version = "0.1", default-features = false, features = [
+    "std",
+    "release_max_level_info",
+] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "registry",
+    "env-filter",
+] }
 thiserror = "2"
 
 [dev-dependencies]
