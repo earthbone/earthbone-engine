@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use swf::extensions::ReadSwfExt;
 use swf::{PlaceObjectAction, Tag};
 
 use crate::bitmap::{self, Bitmap};
@@ -178,11 +179,11 @@ pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
         ));
     }
     let buffer = swf::decompress_swf(bytes).map_err(|e| Error::Swf(e.to_string()))?;
-    let source = swf::parse_swf(&buffer).map_err(|e| Error::Swf(e.to_string()))?;
+    let tags = read_tags(&buffer.data, buffer.header.version(), 0)?;
     let mut movie = Movie {
-        version: source.header.version(),
-        stage: geometry::bounds(*source.header.stage_size()),
-        frame_rate: source.header.frame_rate().to_f64(),
+        version: buffer.header.version(),
+        stage: geometry::bounds(*buffer.header.stage_size()),
+        frame_rate: buffer.header.frame_rate().to_f64(),
         symbols: BTreeMap::new(),
         imports: BTreeMap::new(),
         meshes: BTreeMap::new(),
@@ -195,10 +196,48 @@ pub fn convert(bytes: &[u8]) -> Result<Movie, Error> {
         action_blocks: 0,
         unsupported_tags: vec![],
     };
-    timeline(&source.tags, 0, source.header.num_frames(), &mut movie, 0)?;
+    timeline(&tags, 0, buffer.header.num_frames(), &mut movie, 0)?;
     movie.unsupported_tags.sort_unstable();
     movie.unsupported_tags.dedup();
     Ok(movie)
+}
+
+fn read_tags(mut bytes: &[u8], version: u8, nesting: usize) -> Result<Vec<Tag<'_>>, Error> {
+    if nesting > 64 {
+        return Err(Error::Invalid("sprite nesting exceeds 64".into()));
+    }
+    let mut tags = Vec::new();
+    while !bytes.is_empty() {
+        let mut reader = swf::read::Reader::new(bytes, version);
+        let (code, length) = reader
+            .read_tag_code_and_length()
+            .map_err(|e| Error::Swf(e.to_string()))?;
+        let payload = reader
+            .get_ref()
+            .get(..length)
+            .ok_or_else(|| Error::Swf("truncated tag payload".into()))?;
+        if code == 0 {
+            break;
+        }
+        let tag = if code == 39 {
+            // CONTEXT: Installed SkyUI sprites omit End. Ruffle bounds sprite streams.
+            let mut sprite = swf::read::Reader::new(payload, version);
+            let id = sprite.read_u16().map_err(|e| Error::Swf(e.to_string()))?;
+            let num_frames = sprite.read_u16().map_err(|e| Error::Swf(e.to_string()))?;
+            Tag::DefineSprite(swf::Sprite {
+                id,
+                num_frames,
+                tags: read_tags(sprite.get_ref(), version, nesting + 1)?,
+            })
+        } else {
+            swf::read::Reader::new(bytes, version)
+                .read_tag()
+                .map_err(|e| Error::Swf(e.to_string()))?
+        };
+        tags.push(tag);
+        bytes = &reader.get_ref()[length..];
+    }
+    Ok(tags)
 }
 
 fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
@@ -267,8 +306,7 @@ fn font(source: &swf::Font<'_>, version: u8) -> Result<Font, Error> {
         }
     }
     let mut pixels = atlas.take();
-    let (pixel_chunks, _) = pixels.as_chunks_mut::<4>();
-    for pixel in pixel_chunks {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel[0] = 255;
         pixel[1] = 255;
         pixel[2] = 255;
@@ -434,12 +472,11 @@ fn timeline(
                         filters: vec![],
                     },
                     PlaceObjectAction::Modify | PlaceObjectAction::Replace(_) => {
-                        display.get(&place.depth).cloned().ok_or_else(|| {
-                            Error::Invalid(format!(
-                                "timeline {id} modifies empty depth {}",
-                                place.depth
-                            ))
-                        })?
+                        let Some(previous) = display.get(&place.depth).cloned() else {
+                            // A modifier for an empty depth leaves the display list unchanged.
+                            continue;
+                        };
+                        previous
                     }
                 };
                 if let PlaceObjectAction::Replace(character) = place.action {
@@ -494,6 +531,14 @@ fn timeline(
             Tag::Unknown { tag_code, .. } => movie.unsupported_tags.push(*tag_code),
             _ => {}
         }
+    }
+    if id != 0 && frames.len() + 1 == declared_frames as usize && !display.is_empty() {
+        // CONTEXT: SkyUI icon sprites retain their final display without ShowFrame.
+        frames.push(Frame {
+            index: frames.len(),
+            labels,
+            display_list: display.values().cloned().collect(),
+        });
     }
     if frames.len() != declared_frames as usize {
         return Err(Error::Invalid(format!(

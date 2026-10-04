@@ -108,15 +108,6 @@ fn skyui_winning_interface_movies_convert_from_later_archive() {
             continue;
         };
         let bytes = vfs.read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        let buffer =
-            swf::decompress_swf(bytes.as_slice()).unwrap_or_else(|error| panic!("{path}: {error}"));
-        if swf::parse_swf(&buffer).is_err() {
-            assert!(
-                convert(&bytes).is_err(),
-                "{path}: parser rejected malformed input"
-            );
-            continue;
-        }
         let movie = convert(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
         assert!(!movie.timelines.is_empty(), "{path}: missing timeline");
         converted += 1;

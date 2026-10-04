@@ -81,9 +81,10 @@ impl Decompiler {
                     "start JPEXS FFDec: {e}. Set SOE_FFDEC_JAR or SOE_FFDEC"
                 ))
             })?;
-        if let Some(mut input) = child.stdin.take() {
-            input.write_all(bytes)?;
-        }
+        let write_result = child
+            .stdin
+            .take()
+            .map_or(Ok(()), |mut input| input.write_all(bytes));
         let output = child.wait_with_output()?;
         if !output.status.success() {
             return Err(Error::Decompiler(format!(
@@ -93,6 +94,7 @@ impl Decompiler {
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
+        write_result?;
         let files = collect(directory)?;
         if !files.keys().any(|path| {
             Path::new(path)
@@ -137,21 +139,7 @@ fn hash_part(hash: &mut Sha256, bytes: &[u8]) {
 
 fn is_git_checkout(path: &Path) -> bool {
     let marker = path.join(".git");
-    if marker.is_dir() {
-        marker.join("HEAD").is_file()
-    } else if marker.is_file() {
-        std::fs::read_to_string(marker)
-            .ok()
-            .and_then(|contents| {
-                contents
-                    .strip_prefix("gitdir:")
-                    .map(str::trim)
-                    .map(PathBuf::from)
-            })
-            .is_some_and(|git_dir| git_dir.exists())
-    } else {
-        false
-    }
+    marker.is_file() || marker.join("HEAD").is_file()
 }
 
 fn collect(directory: &Path) -> Result<BTreeMap<String, String>, Error> {
@@ -229,10 +217,9 @@ pub fn build_cache(
     std::fs::create_dir_all(root)?;
     let root = root.canonicalize()?;
     if root.ancestors().any(is_git_checkout) {
-        return Err(Error::Invalid(format!(
-            "interface caches must be outside git checkouts: {}",
-            root.display()
-        )));
+        return Err(Error::Invalid(
+            "interface caches must be outside git checkouts".into(),
+        ));
     }
     let mut hash = Sha256::new();
     hash_part(&mut hash, FORMAT.as_bytes());

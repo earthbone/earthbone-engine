@@ -5,6 +5,9 @@
 //! The editor gizmo edits a proxy Node3D, while this bridge applies its
 //! transform to the active plugin's REFR record through `soe-editor`.
 
+// CONTEXT: gdext's class(init) expansion emits explicit field names.
+#![allow(clippy::redundant_field_names)]
+
 use std::path::PathBuf;
 
 use godot::classes::RefCounted;
