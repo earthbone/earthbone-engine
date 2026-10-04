@@ -70,7 +70,7 @@ follow the repository's PRF-14 contract and local
 setup and diagnostics outside measured intervals. Work counts are transient
 and are not part of world or VM saves. No dependency was added.
 
-# soe-trace: timings and structured logging
+## Structured logging
 
 `Span` collects opt-in scope timings, Chrome trace events and per-name
 statistics. `logging` provides the shared tracing subscriber used by the host.
