@@ -16,6 +16,81 @@ measurements below remain tied to their recorded revisions.
 - NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4, Godot 4.4.1 Forward+
 - Fedora Atomic, release build, the installed Skyrim SE under Steam
 
+## Startup quest candidate index, PRF-33, 2026-10-04
+
+`crates/game/examples/startup_timing.rs` adapts the lead's 2026-10-03 host
+harness from the external `crash-1004-1945/wt2.patch` run log. It times opening
+the five masters and script archives, constructing Game, reading and
+registering PEX, binding,
+each start-game-enabled quest and script settling. It opens the script VFS
+directly so this game-crate example needs no host dependency or rendering
+assets. Its opening time is not a `DataSource::open` measurement.
+
+The comparison ran sequentially in this worktree with the release profile,
+fat LTO and `--trace`, before and after the candidate index change. Both runs
+loaded 14,026 scripts, bound 18,225 attachments and attempted 423 startup
+quests, of which 421 started. The two required-alias failures stayed failures.
+The lead's earlier play-session overlay had 14,302 scripts and recorded
+12.8 to 14.0 seconds starting quests. The table below is this comparison's
+own before and after pair, with times in milliseconds.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Startup quest loop, total | 15,370.476 | 4.423 |
+| Per quest, median | 36.218251 | 0.001993 |
+| Per quest, nearest-rank p99 | 39.872904 | 0.017263 |
+| Per quest, maximum | 42.742893 | 0.373156 |
+| Candidate construction, call count | 423 | 1 |
+| Candidate construction, total | 15,360.197 | 0.366 |
+| FreeformRiften07 | 36.435211 | 0.002184 |
+| PlayerVampireQuest | 37.134945 | 0.000732 |
+| CreatureDialogueHorse | 36.283464 | 0.000962 |
+| DialogueSolitude | 36.351603 | 0.006001 |
+
+Phase spans inside `World::start_quest` identified candidate construction as
+the repeated cost. The old path collected all winning ACHR and REFR records,
+sorted and deduplicated them on every attempt, including quests without a
+searched alias. The replacement skips construction for those quests and
+derives one bounded index from `LoadOrder::winners`, whose identities are
+already unique and sorted. It caches either the complete candidate set or
+the fact that there are more than 4,096 candidates. A partial set is never
+evaluated. Conditions, live eligibility and alias reuse still run at each
+start. The cache adds no saved field.
+
+All World hash fields matched before and after the change, both immediately
+after startup and after `run_until_idle(64)`. This includes alias assignments,
+stages, quest flags and queued events. The quest hash before script settling
+was `12244036582383919460`, and after settling it was
+`16996129545838252704`, equal in the two processes. Script settling took
+280.275 ms before and 94.298 ms after. That phase was not changed, and these
+single-process samples do not establish a script-execution speedup.
+
+`prf_33_installed_startup_quests_finish_within_release_budget` loads scripts
+and binds before timing. Its timed loop includes quest state construction
+and the first candidate lookup. It excludes data opening, script loading,
+binding and script settling. The 1.5 second release limit was fixed before
+the first test run. With tracing off, the release case started the same 421
+quests in 3.604097 ms, with a 1.383 microsecond median and a 301.119 microsecond
+maximum. Debug builds check the startup result without enforcing a release
+timing limit. These measurements cover this machine and installed cohort,
+not frame time or complete quest execution.
+
+The final release rerun passed all seven PRF-33 tests and measured 3.817829 ms
+for the same 423 attempts and 421 starts. Existing quest regressions and 73
+additional alias cases passed. `cargo fmt --all` and
+`cargo clippy -p soe-game --all-targets -- -D warnings` exited zero.
+
+The alias fields and startup-stage flags follow local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/QUST.wikitext`.
+`ck-wiki/Quest_Script.wikitext` supplies the quest state query contracts.
+PRF-33 reuses the existing quest interpreter and load-order winner iterator
+rather than adding another record or alias model.
+
+```text
+SKYRIM_DATA="<Data>" cargo run --release -p soe-game --example startup_timing -- --trace
+SKYRIM_DATA="<Data>" cargo test --release -p soe-game --lib --test it prf_33_ -- --nocapture
+```
+
 ## TST-16 game integration test binary, 2026-10-01
 
 The change recorded 440 `soe-game` integration test executables before

@@ -2,8 +2,11 @@
 
 //! Quests: the run-time state built from a `QUST` record on first use,
 //! start and stop, stages with their fragments, objectives and aliases.
+//! Alias fields follow xEdit wbDefinitionsTES5.pas and UESP QUST. Search
+//! candidates are derived from the immutable load order, never from cached fills.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use soe_commonlib_shim::events::{EventSink, QuestStartStopEvent};
 use soe_esm::GlobalFormId;
@@ -147,22 +150,30 @@ impl World {
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let _start = soe_trace::Span::new("game.start_quest", "game");
+        let state = soe_trace::Span::new("game.quest_start_state", "game");
         if self.quest_state(id).is_none_or(|quest| quest.running) {
             return false;
         }
         let original_aliases = self.quest_state(id).map(|quest| quest.aliases.clone());
+        drop(state);
+        let reference_aliases = soe_trace::Span::new("game.quest_reference_aliases", "game");
         if !self.fill_reference_aliases(id) {
             if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
                 quest.aliases = aliases;
             }
             return false;
         }
+        drop(reference_aliases);
+        let location_aliases = soe_trace::Span::new("game.quest_location_aliases", "game");
         if !self.fill_specific_location_aliases(id) {
             if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
                 quest.aliases = aliases;
             }
             return false;
         }
+        drop(location_aliases);
+        let events = soe_trace::Span::new("game.quest_start_events", "game");
         let Some(q) = self.quest_state(id) else {
             return false;
         };
@@ -195,10 +206,32 @@ impl World {
             }
         }
         self.send_quest_start_stop(id, true);
+        drop(events);
+        let _stage = soe_trace::Span::new("game.quest_start_stage", "game");
         if let Some(stage) = startup {
             self.set_stage(id, stage, alloc);
         }
         true
+    }
+
+    fn quest_alias_candidates(&self) -> Option<Arc<[GlobalFormId]>> {
+        self.quest_alias_candidates
+            .get_or_init(|| {
+                let _build = soe_trace::Span::new("game.quest_alias_candidates", "game");
+                // CONTEXT: winners are unique and sorted across both tags. Keep
+                // the overflow result instead of retaining a partial search set.
+                let candidates: Vec<_> = self
+                    .order
+                    .winners()
+                    .filter_map(|(form, rref)| {
+                        let tag = self.order.record(rref).tag;
+                        (tag == Tag::new(b"ACHR") || tag == Tag::new(b"REFR")).then_some(form)
+                    })
+                    .take(MAX_ALIAS_SEARCH_CANDIDATES + 1)
+                    .collect();
+                (candidates.len() <= MAX_ALIAS_SEARCH_CANDIDATES).then(|| Arc::from(candidates))
+            })
+            .clone()
     }
 
     /// Fill reference aliases with one unambiguous, condition-matching placed reference.
@@ -210,31 +243,24 @@ impl World {
             return false;
         };
         let aliases: Vec<_> = state.def.aliases.clone();
-        let mut candidates: Vec<_> = [Tag::new(b"ACHR"), Tag::new(b"REFR")]
-            .into_iter()
-            .flat_map(|tag| self.order.winners_of(tag).map(|(form, _)| form))
-            .collect();
-        candidates.sort_unstable();
-        candidates.dedup();
-        if candidates.len() > MAX_ALIAS_SEARCH_CANDIDATES {
-            return aliases
-                .iter()
-                .filter(|alias| {
-                    !alias.location
-                        && !alias.creates_reference
-                        && !alias.match_conditions.is_empty()
-                        && alias.forced_ref.is_none()
-                })
-                .all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
+        let mut searched = aliases
+            .iter()
+            .filter(|alias| {
+                !alias.location
+                    && !alias.creates_reference
+                    && alias.forced_ref.is_none()
+                    && !alias.match_conditions.is_empty()
+            })
+            .peekable();
+        if searched.peek().is_none() {
+            return true;
         }
+        let Some(candidates) = self.quest_alias_candidates() else {
+            return searched.all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
+        };
 
         let mut pending = Vec::new();
-        for alias in aliases.iter().filter(|alias| {
-            !alias.location
-                && !alias.creates_reference
-                && alias.forced_ref.is_none()
-                && !alias.match_conditions.is_empty()
-        }) {
+        for alias in searched {
             if alias.flags & alias_flags::CLOSEST != 0 {
                 if alias.flags & alias_flags::OPTIONAL == 0 {
                     return false;
@@ -556,5 +582,33 @@ impl World {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod prf_33_tests {
+    use super::*;
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    #[test]
+    fn prf_33_candidate_cache_is_derived_and_adds_no_saved_state() {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"REFR"), 0x800));
+        let mut order = LoadOrder::new();
+        order.add("PRF33.esp", plugin).unwrap();
+        let world = World::new(order);
+        let saved = world.save_state();
+        let hash = world.state_hash();
+        assert_eq!(world.quest_alias_candidates().unwrap().len(), 1);
+        assert_eq!(
+            world.save_state(),
+            saved,
+            "candidate identities are not saved fields"
+        );
+        assert_eq!(
+            world.state_hash(),
+            hash,
+            "building an input index must not mutate game state"
+        );
     }
 }

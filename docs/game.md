@@ -2657,6 +2657,18 @@ with `ALCO` are excluded from this placed-reference search. Closest search
 remains unsupported because local format sources do not establish the runtime
 distance origin or tie rule.
 
+PRF-33 skips candidate construction when a quest has no searched reference
+aliases. The first search derives a candidate index from the immutable load
+order's sorted winners. The World retains at most 4,096 FormIDs, or an overflow
+marker when the bound is exceeded, and reuses that result on later starts.
+Enabled, dead, destroyed and resident state, conditions and alias reuse are
+evaluated on each start. Runtime-created references remain outside this
+authored search, as before. The index is not saved and adds no save section.
+The implementation reuses `LoadOrder::winners` rather than introducing another
+record database. `prf_33_quest_startup.rs` covers repeated starts, live
+eligibility, winning overrides, search bounds, aliases and startup stages.
+`startup_timing` reports startup phases through optional `soe-trace` spans.
+
 **Specific location aliases, AI-18.** `Quest.Start` resolves a location
 alias's `ALFL` through the quest plugin's load-order namespace and fills it
 only when the winning form is a live `LCTN`. A missing or wrong-type target
