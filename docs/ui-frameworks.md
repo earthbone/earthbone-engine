@@ -124,7 +124,9 @@ for the UI backlog, not claims of implementation.
 
 - Local `engine-refs/SexLabpp/lib/ImGui/SKSEMenuFramework.h`, for callback
   names. The enclosing SexLabpp repository has an Apache-2.0 license. It does
+
 ... (+98 lines) [see remaining: rtk proxy git show ':2:docs/ui-frameworks.md' | tail -n +127]
+
 ## HTML menu framework research, UI-22
 
 This note compares ways to host mod HTML menus and the public PrismaUI
