@@ -818,6 +818,7 @@ pub struct World {
     pub(crate) actor_kill_events: EventSource<ActorKill>,
     pub(crate) critical_hit_events: EventSource<CriticalHit>,
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
+    quest_alias_candidates: std::sync::OnceLock<Option<Arc<[GlobalFormId]>>>,
     pub(crate) dialogue: crate::dialogue::State,
     pub(crate) known_dialogue_topics: BTreeSet<GlobalFormId>,
     /// Source-level CommonLib event channels backed by this live world.
@@ -1330,6 +1331,7 @@ impl World {
             music_types: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
+            quest_alias_candidates: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
             known_dialogue_topics: BTreeSet::new(),
             commonlib_events: soe_commonlib_shim::events::ScriptEventSourceHolder::default(),
