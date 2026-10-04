@@ -1349,6 +1349,15 @@ impl Game {
             world.frame_rate.record_frame(real_seconds);
         }
         let mut game_hours = 0.0;
+        let player_motion = if !menu_mode && self.world.borrow().player_ai_driven {
+            let player = self.player();
+            self.world
+                .borrow()
+                .reference_ref(player)
+                .map(|reference| (player, reference.cell, reference.position))
+        } else {
+            None
+        };
         if !menu_mode {
             self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
@@ -1385,7 +1394,21 @@ impl Game {
         if !menu_mode {
             let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
             for (actor, target) in activations {
-                self.activate(target, actor);
+                let accepted = self.activate(target, actor);
+                crate::ai::finish_activate(&mut self.world.borrow_mut(), actor, accepted);
+            }
+        }
+        if let Some((player, prior_cell, from)) = player_motion {
+            let pose = self
+                .world
+                .borrow()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            if let Some((cell, to)) = pose {
+                if prior_cell != cell {
+                    self.change_cell(cell);
+                }
+                self.update_trigger_actor_position(player, cell, from, to);
             }
         }
         if !menu_mode {

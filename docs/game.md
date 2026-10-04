@@ -404,6 +404,66 @@ the player's path against NAVM surfaces through the existing PLY-02 executor.
 resolve. The current soak does not yet drive the installed city records or
 compare actor heights against exterior terrain.
 
+### AI-driven player routes and workstation commands, PLY-06
+
+`Command::RunPackage` gives the player a priority 100 forced ActorUtil
+override and enables the same AI flag as `Game.SetPlayerAIDriven`. The actor
+driver ticks the player only while that flag is true. `Driver` holds later
+commands until the package tree finishes, then ends the package through the
+normal boundary event path and restores the prior flag and any prior override
+for that package. A positive optional duration bounds endless packages such
+as Sandbox using non-menu seconds. Expiry and explicit `cancel_package`
+return ownership without marking the package complete. Unsupported procedures
+and interrupted handoffs report errors and release ownership. Manual scripted
+actions reject while AI owns the player. Wait remains available. AI movement
+updates the player's cell residency and trigger crossings through Game's
+existing APIs. Sit accepts a target input as used by the vanilla SitTarget
+template, reserves its furniture marker and releases it on completion.
+Successful Activate attempts advance their package branch.
+
+The route queue, deadline and prior ownership are transient Driver state.
+Call `cancel_package` before discarding a driver with a running route.
+Persistent ActorUtil overrides belong to each actor, separate from SPID
+insertion positions. The five ActorUtil package natives add, remove, count,
+clear and remove across actors. Priority is clamped to 0 to 100, and the last
+added override wins a tie. Only the highest override is tested. Its failed
+schedule or conditions fall back to the ordinary package stack. Flags value 1
+bypasses those checks. Completion removes its override. Overrides retain
+addition order and resolved PACK identity in the PLY-06 actor save section
+and participate in the actor state hash. Missing sections leave no overrides.
+
+Forge confirmations call `Game::craft`. Alchemy confirmations supply two
+ingredient forms to `Game::brew_potion`. Both use the shared inventory and
+notification paths. A FURN station's WBDT type 5 accepts alchemy without a
+recipe keyword. Brewing with authored MGEF costs grants Alchemy skill use
+from the sum of floored effect values, then applies the AVIF use multiplier
+through `World::advance_skill`. NoMagnitude and NoDuration select unit value
+factors. The calculation uses the effects the existing two-ingredient brewer
+produces. Definitions without MGEF DATA retain the prior no-experience path.
+Missing components or failed progression leave inventory and notifications
+unchanged.
+
+The installed-data PLY-06 tests execute `WhiterunAdrianneEstablishingScene`,
+`WhiterunAdrianneSandboxForgePackage6x11` and `C06EorlundReforgeWuuthrad`.
+They craft the vanilla iron dagger recipe at Warmaiden's forge and combine
+Blue Mountain Flower with Wheat at Breezehome's enabled alchemy lab. The
+checks verify component removal, output inventory, skill experience and
+engine save/load. Synthetic cases cover cancellation, unsupported procedures,
+priority and eligibility, cell residency, menu pauses and section corruption.
+
+The local CK `Game_Script.wikitext` defines SetPlayerAIDriven's flag, and
+`EvaluatePackage_-_Actor.wikitext` describes reevaluation. The named individual
+SetPlayerAIDriven and Package pages are absent from this corpus. The existing
+PACK reader and procedure tree use local xEdit and UESP PACK definitions.
+`PapyrusUtil/Scripts/Source/ActorUtil.psc` supplies priority and latest-added
+semantics, while `PapyrusUtil/PackageData.cpp` supplies forced eligibility and
+completion removal. The script's 0 priority boundary is retained despite that
+older C++ implementation clamping it to 1. Skyrim address hooks in that source
+cannot run in this Rust engine, so these operations use the existing form-backed
+package interpreter. The per-effect value calculation follows the author's
+[W.H.A.T. technical notes](https://www.nexusmods.com/skyrimspecialedition/articles/11367).
+Local UESP `MGEF.wikitext` supplies the flags and base-cost field.
+
 ### MCM script lifecycle, UI-05
 
 `Game::start` initializes enabled quests without registering MCM scripts.

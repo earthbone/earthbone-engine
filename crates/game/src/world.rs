@@ -59,6 +59,8 @@ mod detection;
 mod dialogue_scene_restore;
 mod doorway;
 mod driver;
+mod package_overrides;
+pub use package_overrides::PackageOverride;
 pub mod effect_shader;
 mod encounter_zones;
 mod events;
@@ -380,6 +382,8 @@ pub struct ActorState {
     /// package list. Persisted with the actor because distribution is not
     /// rerun when SOEW restores an existing actor.
     pub package_overrides: Vec<(usize, GlobalFormId)>,
+    /// ActorUtil overrides in addition order, independent of SPID insertion.
+    pub runtime_package_overrides: Vec<PackageOverride>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
