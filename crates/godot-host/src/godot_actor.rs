@@ -744,6 +744,7 @@ impl SkinnedActorNode {
                     Ok(ragdoll) => self.ragdoll = Some(ragdoll),
                     Err(error) => {
                         soe_trace::error!(target: "host::actor", system = "host::actor", "SkinnedActorNode ragdoll: {error}");
+                        godot_error!("SkinnedActorNode ragdoll: {error}");
                     }
                 }
             }

@@ -951,7 +951,10 @@ impl PlayerNode {
             }
             if let Some(worldspace) = worldspace {
                 let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())
-                    .map_err(|error| soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}"));
+                    .map_err(|error| {
+                        soe_trace::error!(target: "host::gameplay", system = "host::gameplay", "PlayerNode: {error}");
+                        godot_error!("PlayerNode: {error}");
+                    });
                 let Ok(ref mut planner) = planner else {
                     return false;
                 };
