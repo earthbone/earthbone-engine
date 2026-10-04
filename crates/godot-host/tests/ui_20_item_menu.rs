@@ -192,6 +192,10 @@ fn ui_20_skyui_install_supplies_external_converted_art() {
         eprintln!("SOE_TEST_SKYUI unset, skipped");
         return;
     };
+    if std::env::var_os("SOE_FFDEC_JAR").is_none() && std::env::var_os("SOE_FFDEC").is_none() {
+        eprintln!("SOE_FFDEC_JAR or SOE_FFDEC must be set for AS2 export, skipped");
+        return;
+    }
     let root = PathBuf::from(root);
     assert!(root.join("SkyUI_SE.esp").is_file());
     let mut vfs = soe_bsa::Vfs::new();
@@ -211,6 +215,6 @@ fn ui_20_skyui_install_supplies_external_converted_art() {
         .movies
         .keys()
         .any(|path| path.contains("inventorymenu")));
-    assert!(cache.movies.keys().any(|path| path.contains("itemicons")));
+    assert!(cache.movies.keys().any(|path| path.contains("icons_item")));
     run_scene(Some(&cache.directory));
 }

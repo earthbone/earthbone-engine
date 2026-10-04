@@ -48,6 +48,8 @@ fn ui_20_food_flag_selects_food_category_and_food_icon() {
         .unwrap();
     assert_eq!(row.category, "Food");
     assert_eq!(row.icon, "default_food");
+    let card = item_menu::item(&game, id(0x800), 1);
+    assert_eq!((card.category, card.icon), (row.category, row.icon));
 }
 
 #[test]
@@ -136,10 +138,15 @@ func run() -> void:
 
 #[test]
 fn ui_20_skyui_archive_supplies_external_item_icons_to_the_scene() {
-    let root = std::env::var_os("SOE_TEST_SKYUI").map_or_else(
-        || PathBuf::from("/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/mods/SkyUI-5.2SE-6.11"),
-        PathBuf::from,
-    );
+    let Some(root) = std::env::var_os("SOE_TEST_SKYUI") else {
+        eprintln!("SOE_TEST_SKYUI unset, skipped");
+        return;
+    };
+    if std::env::var_os("SOE_FFDEC_JAR").is_none() && std::env::var_os("SOE_FFDEC").is_none() {
+        eprintln!("SOE_FFDEC_JAR or SOE_FFDEC must be set for AS2 export, skipped");
+        return;
+    }
+    let root = PathBuf::from(root);
     let esp = root.join("SkyUI_SE.esp");
     let bsa = root.join("SkyUI_SE.bsa");
     assert!(

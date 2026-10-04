@@ -3321,6 +3321,17 @@ takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
 
+The item card and inventory row share this category reader, including the food
+icon. Its flag follows local xEdit `Core/wbDefinitionsTES5.pas`, and SkyUI's
+`ItemMenus/InventoryDataSetter.as` supplies the food classification behavior.
+SkyUI cache scene checks require `SOE_TEST_SKYUI` and either `SOE_FFDEC_JAR`
+or `SOE_FFDEC`. Without those inputs they report a skip. JPEXS FFDec's local
+CLI help lists `yes`, `ask` and `local` as import options. The converter uses
+`local` alone, leaving both import and prompting disabled, as confirmed by
+the bundled `CommandLineArgumentParser` and `ConsoleUrlResolver` classes.
+The archive survey checks bounded sprite definitions when Ruffle's parser
+rejects SkyUI's omitted sprite End tags.
+
 When activation opens a container, its menu presents the same category buttons
 and lists the container's positive inventory totals. The rows come from its shared
 `RefState::inventory`, including authored `CNTO` entries loaded from the xEdit

@@ -64,7 +64,7 @@ impl Decompiler {
                 "-onerror",
                 "abort",
                 "-importAssets",
-                "no",
+                "local",
                 "-format",
                 "script:as",
                 "-export",

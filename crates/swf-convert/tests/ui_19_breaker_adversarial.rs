@@ -402,21 +402,43 @@ fn skyui_archive_winners_convert_and_keep_source_definitions() {
     for path in winners {
         let bytes = vfs.read(path).expect("read winning SkyUI movie");
         let buffer = swf::decompress_swf(bytes.as_slice()).expect("decompress winning SWF");
-        let Ok(source) = swf::parse_swf(&buffer) else {
-            assert!(
-                convert(&bytes).is_err(),
-                "{path}: a parser-rejected source must return a typed conversion error"
-            );
-            continue;
-        };
         let movie = convert(&bytes)
             .unwrap_or_else(|error| panic!("convert winning SkyUI SWF {path}: {error}"));
-        assert!(!movie.timelines.is_empty(), "{path}: root timeline missing");
         assert_eq!(
             movie.timelines[&0].frames.len(),
-            source.header.num_frames() as usize,
+            buffer.header.num_frames() as usize,
             "{path}: root frames differ from SWF header"
         );
+        let Ok(source) = swf::parse_swf(&buffer) else {
+            // CONTEXT: SkyUI icon sprites omit End, which the bounded converter accepts.
+            let mut reader = swf::read::Reader::new(&buffer.data, buffer.header.version());
+            let mut sprites = 0;
+            while !reader.get_ref().is_empty() {
+                let (code, length) = reader.read_tag_code_and_length().unwrap();
+                let payload = &reader.get_ref()[..length];
+                if code == 39 {
+                    let id = u16::from_le_bytes(payload[..2].try_into().unwrap());
+                    let frames = u16::from_le_bytes(payload[2..4].try_into().unwrap());
+                    assert_eq!(
+                        movie.timelines[&id].declared_frames, frames,
+                        "{path}: sprite {id}"
+                    );
+                    assert_eq!(
+                        movie.timelines[&id].frames.len(),
+                        frames as usize,
+                        "{path}: sprite {id} frames"
+                    );
+                    sprites += 1;
+                }
+                *reader.get_mut() = &reader.get_ref()[length..];
+                if code == 0 {
+                    break;
+                }
+            }
+            assert!(sprites > 0, "{path}: no bounded sprite definitions checked");
+            continue;
+        };
+        assert!(!movie.timelines.is_empty(), "{path}: root timeline missing");
         let expected_symbols: BTreeSet<_> = source
             .tags
             .iter()

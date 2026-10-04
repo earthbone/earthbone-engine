@@ -140,7 +140,7 @@ pub fn toggle_equip(game: &mut Game, item: GlobalFormId) -> bool {
     }
 }
 
-fn category_for(record: Option<&Record>) -> Category {
+pub(crate) fn category_for(record: Option<&Record>) -> Category {
     let Some(record) = record else {
         return Category::Misc;
     };

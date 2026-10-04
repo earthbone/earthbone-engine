@@ -60,21 +60,16 @@ pub fn item(game: &Game, form: GlobalFormId, count: i32) -> Row {
     let player = game.world_mut().player();
     let world = game.world();
     let record = world.record(form);
-    let category = record.map_or("Misc", |record| match record.tag.as_bytes() {
-        b"WEAP" | b"AMMO" => "Weapons",
-        b"ARMO" => "Apparel",
-        b"ALCH" => "Potions",
-        b"INGR" => "Ingredients",
-        b"BOOK" => "Books",
-        b"KEYM" => "Keys",
-        b"SCRL" => "Scrolls",
-        b"SPEL" => "Spells",
-        _ => "Misc",
-    });
+    let category = if record.is_some_and(|record| record.tag == Tag(*b"SPEL")) {
+        "Spells"
+    } else {
+        inventory_menu::category_for(record).label()
+    };
     let icon = match category {
         "Weapons" => "default_weapon",
         "Apparel" => "default_armor",
         "Potions" => "default_potion",
+        "Food" => "default_food",
         "Ingredients" => "default_ingredient",
         "Books" => "default_book",
         "Keys" => "default_key",
