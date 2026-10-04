@@ -32,6 +32,7 @@ fn loadout(language: &str, roots: Vec<std::path::PathBuf>, archives: Vec<Archive
         data_roots: roots,
         load_order: LoadOrder::default(),
         settings,
+        ini_dir: None,
         archives,
     }
 }

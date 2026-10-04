@@ -1,0 +1,409 @@
+name = "anm_56"
+load_order = [
+    "Skyrim.esm",
+    "Update.esm",
+    "Dawnguard.esm",
+    "HearthFires.esm",
+    "Dragonborn.esm",
+    "ccBGSSSE001-Fish.esm",
+    "ccBGSSSE025-AdvDSGS.esm",
+    "SoeProbe.esp",
+]
+timescale = 20.0
+tick_seconds = 0.01
+timeout_seconds = 90.0
+startup_wait_seconds = 3.0
+
+[forms.anchor_update]
+plugin = "Update.esm"
+object = 0x002ece
+kind = "form"
+
+[forms.anchor_dawnguard]
+plugin = "Dawnguard.esm"
+object = 0x00298c
+kind = "form"
+
+[forms.anchor_hearthfires]
+plugin = "HearthFires.esm"
+object = 0x008bd4
+kind = "form"
+
+[forms.anchor_dragonborn]
+plugin = "Dragonborn.esm"
+object = 0x01e2bb
+kind = "form"
+
+[forms.anchor_fish]
+plugin = "ccBGSSSE001-Fish.esm"
+object = 0x000f21
+kind = "form"
+
+[forms.anchor_saints]
+plugin = "ccBGSSSE025-AdvDSGS.esm"
+object = 0x21bd64
+kind = "form"
+
+[tolerances]
+real_seconds = 3.0
+game_seconds = 60.0
+timescale = 0.0
+
+[forms.player]
+plugin = "Skyrim.esm"
+object = 0x14
+kind = "player"
+
+[forms.sword]
+plugin = "Skyrim.esm"
+object = 0x12eb7
+kind = "form"
+
+[[steps]]
+id = "third_person"
+op = "third_person"
+
+[[steps]]
+id = "equip_sword"
+op = "equip_item"
+actor = "player"
+item = "sword"
+
+[[steps]]
+id = "draw_sword"
+op = "animation_events"
+actor = "player"
+events = ["WeapEquip"]
+
+[[steps]]
+id = "draw_settle"
+op = "wait_real"
+seconds = 1.0
+
+[[steps]]
+id = "freeze_attack_clips"
+op = "animation_float"
+actor = "player"
+variable = "weaponSpeedMult"
+set = 0.0
+
+[[steps]]
+id = "ready_precondition"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "trigger_setup"
+op = "animation_events"
+actor = "player"
+events = ["attackStart"]
+
+[[steps]]
+id = "trigger_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "trigger_before_enter"
+op = "animation_events"
+actor = "player"
+events = ["AttackWinEnd", "AttackWinEndLeft", "blockStart"]
+
+[[steps]]
+id = "trigger_before_enter_settle"
+op = "wait_real"
+seconds = 0.1
+
+[[steps]]
+id = "trigger_before_enter_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "trigger_at_enter"
+op = "animation_events"
+actor = "player"
+events = ["AttackWinStart", "blockStart"]
+
+[[steps]]
+id = "trigger_at_enter_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "trigger_at_enter_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "trigger_exit_reset"
+op = "animation_events"
+actor = "player"
+events = ["blockStopInstant", "attackStart"]
+
+[[steps]]
+id = "trigger_exit_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "trigger_at_exit"
+op = "animation_events"
+actor = "player"
+events = ["AttackWinStart", "AttackWinEnd", "AttackWinEndLeft", "blockStart"]
+
+[[steps]]
+id = "trigger_at_exit_settle"
+op = "wait_real"
+seconds = 0.1
+
+[[steps]]
+id = "trigger_at_exit_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "initiate_setup"
+op = "animation_events"
+actor = "player"
+events = ["attackStop", "blockStart"]
+
+[[steps]]
+id = "initiate_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "timeout_guard"
+op = "animation_int"
+actor = "player"
+variable = "iBlockState"
+set = 1
+
+[[steps]]
+id = "timeout_request"
+set_int = { iBlockState = 1 }
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinEnd", "blockStop"]
+
+[[steps]]
+id = "timeout_1"
+op = "wait_real"
+seconds = 1.0
+
+[[steps]]
+id = "timeout_1_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "timeout_5"
+op = "wait_real"
+seconds = 4.0
+
+[[steps]]
+id = "timeout_5_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "timeout_30"
+op = "wait_real"
+seconds = 25.0
+
+[[steps]]
+id = "timeout_30_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "timeout_60"
+op = "wait_real"
+seconds = 30.0
+
+[[steps]]
+id = "timeout_60_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "initiate_at_enter"
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinBegin"]
+
+[[steps]]
+id = "initiate_at_enter_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "initiate_at_enter_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "reset_setup"
+op = "animation_events"
+actor = "player"
+events = ["blockStart"]
+
+[[steps]]
+id = "reset_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "reset_guard"
+op = "animation_int"
+actor = "player"
+variable = "iBlockState"
+set = 1
+
+[[steps]]
+id = "reset_pending"
+set_int = { iBlockState = 1 }
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinEnd", "attackStart", "blockStopInstant"]
+
+[[steps]]
+id = "reset_pending_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "reset_open"
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinBegin"]
+
+[[steps]]
+id = "reset_open_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "reset_cancels_pending_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "recheck_setup"
+op = "animation_events"
+actor = "player"
+events = ["blockStart"]
+
+[[steps]]
+id = "recheck_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "recheck_admission_guard"
+op = "animation_int"
+actor = "player"
+variable = "iBlockState"
+set = 1
+
+[[steps]]
+id = "recheck_request"
+set_int = { iBlockState = 1 }
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinEnd", "blockStop"]
+
+[[steps]]
+id = "recheck_changed_guard"
+op = "animation_int"
+actor = "player"
+variable = "iBlockState"
+set = 0
+
+[[steps]]
+id = "recheck_open"
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinBegin"]
+
+[[steps]]
+id = "recheck_open_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "recheck_latched_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "same_event_setup"
+op = "animation_events"
+actor = "player"
+events = ["blockStart"]
+
+[[steps]]
+id = "same_event_setup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "same_event_guard"
+op = "animation_int"
+actor = "player"
+variable = "iBlockState"
+set = 1
+
+[[steps]]
+id = "same_event_bounds"
+set_int = { iBlockState = 1 }
+op = "animation_events"
+actor = "player"
+events = ["InitiateWinEnd", "attackPowerStartForwardH2HRightHand", "InitiateWinBegin"]
+
+[[steps]]
+id = "same_event_bounds_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "same_event_bounds_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"
+
+[[steps]]
+id = "cleanup"
+op = "animation_events"
+actor = "player"
+events = ["blockStopInstant"]
+
+[[steps]]
+id = "cleanup_settle"
+op = "wait_real"
+seconds = 0.25
+
+[[steps]]
+id = "restore_attack_speed"
+op = "animation_float"
+actor = "player"
+variable = "weaponSpeedMult"
+set = 1.0
+
+[[steps]]
+id = "finished_state"
+op = "animation_int"
+actor = "player"
+variable = "i1HMState"

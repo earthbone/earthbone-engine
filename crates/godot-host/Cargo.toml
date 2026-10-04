@@ -44,6 +44,7 @@ float_cmp = "allow"
 format_push_string = "allow"
 used_underscore_binding = "allow"
 unused_self = "allow"
+assert_is_empty = "allow"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

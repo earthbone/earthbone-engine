@@ -277,14 +277,11 @@ pub fn resolve_vendor_service(
             .inventory
             .clone();
         let mut resolved_stock = Inventory::default();
-        let mut listed_from_leveled = BTreeSet::new();
+        let listed_from_leveled = listed_leveled_items(world, &items)?;
         for (item, count) in stock.iter() {
             if world.tag_of(*item) == Some(T(b"LVLI")) {
                 let rolled =
                     world.roll_leveled_inventory(*item, world.player_level.max(1), count)?;
-                if items.contains(item) {
-                    listed_from_leveled.extend(rolled.iter().map(|(form, _)| *form));
-                }
                 merge_inventory(&mut resolved_stock, &rolled)?;
             } else if world.is_inventory_base(*item) {
                 copy_item(&mut resolved_stock, &stock, *item)?;
@@ -326,6 +323,36 @@ pub fn resolve_vendor_service(
         merchandise,
         gold,
     }))
+}
+
+fn listed_leveled_items(
+    world: &mut World,
+    forms: &[GlobalFormId],
+) -> Result<BTreeSet<GlobalFormId>, VendorError> {
+    let mut pending: Vec<_> = forms
+        .iter()
+        .copied()
+        .filter(|form| world.tag_of(*form) == Some(T(b"LVLI")))
+        .collect();
+    let mut visited = BTreeSet::new();
+    let mut leaves = BTreeSet::new();
+    while let Some(form) = pending.pop() {
+        if !visited.insert(form) {
+            continue;
+        }
+        if visited.len() > 4096 {
+            return Err(VendorError::Invalid("excessive vendor list graph"));
+        }
+        if world.tag_of(form) == Some(T(b"LVLI")) {
+            let list = world
+                .leveled_list(form)
+                .ok_or(VendorError::Invalid("missing vendor leveled list"))?;
+            pending.extend(list.entries.iter().map(|entry| entry.form));
+        } else {
+            leaves.insert(form);
+        }
+    }
+    Ok(leaves)
 }
 
 fn vendor_location_met(

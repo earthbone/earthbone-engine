@@ -822,6 +822,36 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
 
+ANM-56 adds an engine expectation file and a capture-gated replay in
+`tests/anm_56.rs`. It selects the installed `1hm_behavior.hkx` machine named
+`1HM_Behavior`, preserves its transitions and descendants, sets player word
+inputs and replays the authored TOOL-04 sequence. A separate TOOL-04
+quest-stage query obtains canonical runtime form identities through Game.
+The clip library is empty,
+so clip annotations do not drive the replay. Equipment and draw calls are
+setup outside this isolated machine. The `i1HMState` observation reads
+`Interpreter::current_state` directly, rather than the unsupported
+`currentStateId` output binding. Expected states are ready 0, block 1 and
+attack 10. The sequence observes trigger event entry and exit, same-event
+initiate bounds, a delayed request at four points through 60 seconds, reset
+with a distinct delayed target and a guard changed after admission. Synthetic
+tests retain half-open fixed-time edges, zero-exit infinity, skipped windows,
+event precedence, latched admission and deactivation cancellation as the
+current engine baseline. They do not establish original-runtime parity.
+The Skyrim animation-archive survey checks 202 enabled local and wildcard
+intervals across 428 graphs for finite time bounds. The available vanilla windows do not supply a finite-time
+boundary probe. Sources are the local hkxcmd transition/interval declarations,
+CommonLib `hkbStateMachine.h`, CK graph-variable pages and the Havok declaration
+linked above, whose delay comment gives no timeout threshold. No Havok
+implementation was copied or runtime binary inspected. `SOE_PROBE_CAPTURE`
+selects a directory containing the user's `Papyrus.0.log`. With that variable
+unset, the capture comparison skips. With it set, `SKYRIM_DATA` supplies the
+installed graph and the replay checks the frozen expectation file before
+comparing the capture. ANM-56 remains partial until an original capture is
+compared and finite time edges are observed. No runtime or saved-state fields
+change. The new test dependencies are the existing soe-probe bridge and
+serde_json, with no new production dependency.
+
 ### BSTweenerModifier (ANM-38)
 
 `BSTweenerModifier` is decoded from its class-table fields and runs inside a
@@ -1535,3 +1565,26 @@ updates do not repeat either lifecycle edge. Synthetic `anm_33` tests cover
 the decoded children, activation, stable repeated updates and deactivation.
 The available class metadata defines layout and fields, but does not establish
 more detailed behavior from an original-runtime capture.
+
+### Transition tie probe preparation, ANM-54
+
+A state-machine binding to `currentStateId` now publishes the entered state
+ID after each graph update, including while its transition effect plays.
+The source is serde-hkx's `hkbStateMachine` declaration and the Havok
+state-machine declaration linked above. The `anm_54` tests cover this readback,
+local-before-wildcard candidate ties, equal-priority active interruption,
+authored-first same-event delayed candidates and last-request replacement in
+both delayed event orders. Those tie rules remain provisional.
+
+The installed test executes `probe/probes/anm_54.toml` through the probe's
+Papyrus runner and an unmodified vanilla `1hm_behavior.hkx` root with its
+readable clips and skeleton. The checked predictions observe `i1HMState`
+values 10 for the local/wildcard tie and 8 for equal-priority interruption.
+Both delayed cases remain in state 1 while pending. Releasing the window
+selects state 10 when `attackStart` was last and state 0 when `blockStop`
+was last. The test checks resets to state 0 between cases. The capture test
+compares these cases to `SOE_PROBE_CAPTURE/Papyrus.0.log` when both
+`SOE_PROBE_CAPTURE` and `SKYRIM_DATA` are set. Without either variable it
+skips. The probe does not import Skyrim's master-graph state, character
+inputs or contacts. No original-runtime capture has established these rules.
+See [probe.md](probe.md#transition-tie-capture-anm-54) for capture instructions.

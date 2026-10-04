@@ -129,3 +129,10 @@ nine texture archives, the Creation Club archives and the resource pack, plus th
 loose marketplace archive. The VFS test answered every vanilla path case
 insensitively. Both tests passed in 12.2 seconds with no failures and no code
 change was needed.
+
+## Shared logging, TOOL-06
+
+`Archive::open` emits a debug event with the archive path and system through
+`soe-trace`. Release builds remove the event and its argument evaluation.
+Subscribers, filter directives, rate limiting and output are described in
+[trace.md](trace.md). The archive reader does not install a subscriber.

@@ -256,7 +256,7 @@ impl TextureCache {
                 None
             }
             Err(e) => {
-                eprintln!("stream_cell: texture {path}: {e}");
+                soe_trace::warn!(target: "host::textures", system = "host::textures", "stream_cell: texture {path}: {e}");
                 self.failures.fetch_add(1, Ordering::Relaxed);
                 None
             }

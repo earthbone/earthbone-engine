@@ -2,7 +2,7 @@
 
 //! Native generation entry points on the host's shared Game.
 
-use super::{godot_error, PlayerNode};
+use super::PlayerNode;
 use godot::classes::ProjectSettings;
 use godot::prelude::*;
 use soe_game::save_generations::{
@@ -77,7 +77,7 @@ impl PlayerNode {
             .globalize_path(&directory)
             .to_string();
         if let Err(error) = std::fs::create_dir_all(&path) {
-            godot_error!("PlayerNode: could not create {kind} save directory: {error}");
+            soe_trace::error!(target: "host::saves", system = "host::saves", "PlayerNode: could not create {kind} save directory: {error}");
             return;
         }
         let result = self.save_game_generation(directory, 3);
@@ -90,7 +90,7 @@ impl PlayerNode {
                 .get("error")
                 .and_then(|value| value.try_to::<GString>().ok())
                 .unwrap_or_else(|| "unknown save error".into());
-            godot_error!("PlayerNode: {kind} save request failed: {error}");
+            soe_trace::error!(target: "host::saves", system = "host::saves", "PlayerNode: {kind} save request failed: {error}");
         }
     }
 
@@ -186,7 +186,10 @@ impl PlayerNode {
             return failed("cell streamer data has not been shared");
         }
 
-        let mut game = soe_game::Game::from_shared_order(source.shared_order());
+        let mut game = match source.localized_game() {
+            Ok(game) => game,
+            Err(error) => return failed(&error.to_string()),
+        };
         let scripts = game.load_scripts_from_vfs(source.vfs());
         if !scripts.scripts_failed.is_empty() {
             return failed(&format!(
