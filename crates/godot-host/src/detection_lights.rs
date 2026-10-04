@@ -109,7 +109,7 @@ fn read_light(world: &World, id: GlobalFormId) -> Option<Light> {
     let runtime = world.reference_ref(id);
     let record = world.record(id);
     let base = if let Some(runtime) = runtime {
-        if !runtime.enabled || runtime.deleted {
+        if !runtime.enabled || runtime.deleted || runtime.destroyed {
             return None;
         }
         runtime.base?

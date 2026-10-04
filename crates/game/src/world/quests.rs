@@ -259,31 +259,61 @@ impl World {
             return searched.all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
         };
 
+        let player = self.player();
+        let player_position = self
+            .reference(player)
+            .map(|reference| reference.position)
+            .unwrap_or([0.0; 3]);
         let mut pending = Vec::new();
         for alias in searched {
-            if alias.flags & alias_flags::CLOSEST != 0 {
+            if alias.flags & alias_flags::CLOSEST != 0
+                && alias.flags & alias_flags::IN_LOADED_AREA == 0
+            {
                 if alias.flags & alias_flags::OPTIONAL == 0 {
                     return false;
                 }
                 continue;
             }
-            let matching: Vec<_> = candidates
-                .iter()
-                .copied()
-                .filter(|candidate| {
-                    self.alias_candidate_allowed(alias.flags, *candidate)
-                        && self.alias_conditions_match(id, *candidate, &alias.match_conditions)
-                        && !aliases.iter().any(|other| {
-                            other.id != alias.id
-                                && (self.alias_ref(id, other.id) == Some(*candidate)
-                                    || pending.contains(&(other.id, *candidate)))
-                                && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
-                                    || other.flags & alias_flags::RESERVES_REFERENCE != 0
-                                        && alias.flags & alias_flags::ALLOW_RESERVED == 0)
-                        })
-                })
-                .collect();
-            let [candidate] = matching.as_slice() else {
+            let mut matching = Vec::new();
+            for candidate in candidates.iter().copied() {
+                if !self.alias_candidate_allowed(alias.flags, candidate)
+                    || !self.alias_conditions_match(id, candidate, &alias.match_conditions)
+                    || aliases.iter().any(|other| {
+                        other.id != alias.id
+                            && (self.alias_ref(id, other.id) == Some(candidate)
+                                || pending.contains(&(other.id, candidate)))
+                            && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
+                                || other.flags & alias_flags::RESERVES_REFERENCE != 0
+                                    && alias.flags & alias_flags::ALLOW_RESERVED == 0)
+                    })
+                {
+                    continue;
+                }
+                let distance = self
+                    .reference(candidate)
+                    .map_or(f32::INFINITY, |reference| {
+                        reference
+                            .position
+                            .iter()
+                            .zip(player_position)
+                            .map(|(position, origin)| (position - origin).powi(2))
+                            .sum::<f32>()
+                    });
+                matching.push((candidate, distance));
+            }
+            let candidate = if alias.flags & alias_flags::CLOSEST != 0 {
+                matching.sort_by(|(left_id, left_distance), (right_id, right_distance)| {
+                    left_distance
+                        .total_cmp(right_distance)
+                        .then_with(|| left_id.cmp(right_id))
+                });
+                matching.first().map(|(candidate, _)| candidate)
+            } else if matching.len() == 1 {
+                matching.first().map(|(candidate, _)| candidate)
+            } else {
+                None
+            };
+            let Some(candidate) = candidate else {
                 if alias.flags & alias_flags::OPTIONAL == 0 {
                     return false;
                 }

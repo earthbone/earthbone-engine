@@ -1059,10 +1059,12 @@ mod prg_16_data_length_adversarial;
 #[path = "prg_16_purchase_data_semantics.rs"]
 mod prg_16_purchase_data_semantics;
 
-#[path = "prf_33_quest_startup.rs"]
-mod prf_33_quest_startup;
 #[path = "prf_33_adversarial.rs"]
 mod prf_33_adversarial;
+#[path = "prf_33_breaker_adversarial.rs"]
+mod prf_33_breaker_adversarial;
+#[path = "prf_33_quest_startup.rs"]
+mod prf_33_quest_startup;
 #[path = "prg_17_adversarial.rs"]
 mod prg_17_adversarial;
 #[path = "prg_17_breaker_adversarial.rs"]

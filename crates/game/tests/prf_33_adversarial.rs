@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use soe_esm::{
-    plugin::{flags, FileHeader}, GlobalFormId, LoadOrder, Plugin, Record, Tag,
+    plugin::{flags, FileHeader},
+    GlobalFormId, LoadOrder, Plugin, Record, Tag,
 };
 use soe_game::{quest, Game};
 
@@ -120,7 +121,13 @@ fn prf_33_installed_startup_quests_meet_release_budget() {
         return;
     };
     let mut order = LoadOrder::new();
-    for name in ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"] {
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
         let plugin = Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap();
         order.add(name, plugin).unwrap();
     }

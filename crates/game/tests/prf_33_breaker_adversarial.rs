@@ -43,8 +43,7 @@ fn prf_33_closest_loaded_reference_alias_selects_nearest_matching_reference() {
             .zsub(Tag(*b"ALID"), "Target")
             .sub(
                 Tag(*b"FNAM"),
-                (quest::alias_flags::CLOSEST | quest::alias_flags::IN_LOADED_AREA)
-                    .to_le_bytes(),
+                (quest::alias_flags::CLOSEST | quest::alias_flags::IN_LOADED_AREA).to_le_bytes(),
             )
             .sub(Tag(*b"CTDA"), condition)
             .sub(Tag(*b"ALED"), Vec::new()),
@@ -76,11 +75,14 @@ fn prf_33_installed_startup_quests_meet_release_budget() {
     assert!(scripts.scripts_failed.is_empty(), "{scripts:?}");
     let bound = game.bind();
     assert!(bound.scripts_attached > 18_000, "{bound:?}");
-    let startup: Vec<_> = game
+    let quest_forms: Vec<_> = game
         .world()
         .order()
         .winners_of(Tag(*b"QUST"))
         .map(|(form, _)| form)
+        .collect();
+    let startup: Vec<_> = quest_forms
+        .into_iter()
         .filter(|form| {
             game.world_mut()
                 .quest_state(*form)

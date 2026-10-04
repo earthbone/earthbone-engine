@@ -96,7 +96,9 @@ fn prf_31_spatial_pairs_include_exact_range_and_negative_bucket_boundary() {
     assert!(!pairs
         .iter()
         .any(|pair| pair.observer == id(10) && pair.target == id(12)));
-    assert!(!pairs.iter().any(|pair| pair.observer == id(10) && pair.target == id(13)));
+    assert!(!pairs
+        .iter()
+        .any(|pair| pair.observer == id(10) && pair.target == id(13)));
 }
 
 #[test]
