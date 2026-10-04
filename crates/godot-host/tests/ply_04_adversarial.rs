@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
 use std::process::{Command, Output};
 use std::sync::Mutex;
 

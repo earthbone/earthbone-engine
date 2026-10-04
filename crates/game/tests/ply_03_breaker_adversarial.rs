@@ -27,8 +27,14 @@ fn ply_03_replay_must_reach_the_next_main_quest_checkpoint() {
 
     let mut expected = play::load_world_checkpoint(&data, &target).unwrap();
     let quest_name = "MQ101";
-    let actual_stage = replay.world().form(quest_name).and_then(|id| replay.world().quest(id).map(|q| q.highest));
-    let expected_stage = expected.world().form(quest_name).and_then(|id| expected.world().quest(id).map(|q| q.highest));
+    let actual_stage = replay
+        .world()
+        .form(quest_name)
+        .and_then(|id| replay.world().quest(id).map(|q| q.highest));
+    let expected_stage = expected
+        .world()
+        .form(quest_name)
+        .and_then(|id| expected.world().quest(id).map(|q| q.highest));
     assert_ne!(source_save.change_forms.len(), 0);
     assert_ne!(target_save.change_forms.len(), 0);
     let actual_flags = replay.world().form(quest_name).and_then(|id| {
@@ -59,10 +65,14 @@ fn ply_03_replay_must_reach_the_next_main_quest_checkpoint() {
         .clone();
     let mut differences = Vec::new();
     if actual_stage != expected_stage {
-        differences.push(format!("MQ101.highest: {actual_stage:?} != {expected_stage:?}"));
+        differences.push(format!(
+            "MQ101.highest: {actual_stage:?} != {expected_stage:?}"
+        ));
     }
     if actual_flags != expected_flags {
-        differences.push(format!("MQ101.quest_flags: {actual_flags:?} != {expected_flags:?}"));
+        differences.push(format!(
+            "MQ101.quest_flags: {actual_flags:?} != {expected_flags:?}"
+        ));
     }
     if actual_inventory != expected_inventory {
         differences.push("player.inventory differs".to_owned());

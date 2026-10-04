@@ -40,7 +40,9 @@ fn ply_06_remove_all_override_clears_each_actor_once_and_preserves_other_package
     let package = game.form("WhiterunAdrianneEstablishingScene").unwrap();
     let other = game.form("C06EorlundReforgeWuuthrad").unwrap();
     for actor in &actors {
-        assert!(game.world_mut().add_package_override(*actor, package, 40, 0));
+        assert!(game
+            .world_mut()
+            .add_package_override(*actor, package, 40, 0));
         assert!(game.world_mut().add_package_override(*actor, other, 30, 0));
     }
 
@@ -70,9 +72,18 @@ fn ply_06_failed_vanilla_brew_leaves_all_components_and_experience_unchanged() {
         return;
     };
     let player = game.player();
-    let bench = GlobalFormId { file: 0, object: 0x000e4c31 };
-    let flower = GlobalFormId { file: 0, object: 0x00077e1c };
-    let wheat = GlobalFormId { file: 0, object: 0x0004b0ba };
+    let bench = GlobalFormId {
+        file: 0,
+        object: 0x000e4c31,
+    };
+    let flower = GlobalFormId {
+        file: 0,
+        object: 0x00077e1c,
+    };
+    let wheat = GlobalFormId {
+        file: 0,
+        object: 0x0004b0ba,
+    };
     {
         let mut world = game.world_mut();
         world.actor(player).unwrap();
@@ -81,14 +92,20 @@ fn ply_06_failed_vanilla_brew_leaves_all_components_and_experience_unchanged() {
         lab.deleted = false;
         world.add_item(player, flower, 2);
     }
-    let before = game.world().reference_ref(player).unwrap().inventory.clone();
+    let before = game
+        .world()
+        .reference_ref(player)
+        .unwrap()
+        .inventory
+        .clone();
     let experience = game.world().skill_experience(player, "alchemy");
     let notifications = game.world().pending.len();
 
-    assert!(game
-        .brew_potion(player, bench, &[flower, wheat])
-        .is_err());
-    assert_eq!(game.world().reference_ref(player).unwrap().inventory, before);
+    assert!(game.brew_potion(player, bench, &[flower, wheat]).is_err());
+    assert_eq!(
+        game.world().reference_ref(player).unwrap().inventory,
+        before
+    );
     assert_eq!(game.world().skill_experience(player, "alchemy"), experience);
     assert_eq!(game.world().pending.len(), notifications);
 }
@@ -105,9 +122,18 @@ fn ply_06_repeated_vanilla_brews_consume_each_pair_and_persist_progression() {
         return;
     };
     let player = game.player();
-    let bench = GlobalFormId { file: 0, object: 0x000e4c31 };
-    let flower = GlobalFormId { file: 0, object: 0x00077e1c };
-    let wheat = GlobalFormId { file: 0, object: 0x0004b0ba };
+    let bench = GlobalFormId {
+        file: 0,
+        object: 0x000e4c31,
+    };
+    let flower = GlobalFormId {
+        file: 0,
+        object: 0x00077e1c,
+    };
+    let wheat = GlobalFormId {
+        file: 0,
+        object: 0x0004b0ba,
+    };
     {
         let mut world = game.world_mut();
         let lab = world.reference(bench).unwrap();
@@ -128,5 +154,8 @@ fn ply_06_repeated_vanilla_brews_consume_each_pair_and_persist_progression() {
     assert!(second_xp > first_xp);
     let saved = game.save_state().unwrap();
     game.load_state(&saved).unwrap();
-    assert_eq!(game.world().skill_experience(player, "alchemy"), Some(second_xp));
+    assert_eq!(
+        game.world().skill_experience(player, "alchemy"),
+        Some(second_xp)
+    );
 }
