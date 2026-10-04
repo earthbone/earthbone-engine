@@ -263,27 +263,23 @@ impl PlayerNode {
         let recipe_rows: Vec<_> = entries
             .into_iter()
             .map(|entry| {
-                let output = game
-                    .world()
-                    .name_of(entry.output)
-                    .unwrap_or_else(|| format!("{}", entry.output));
+                let output = entry.name.clone();
                 (entry, output)
             })
             .collect();
-        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+        let Some(mut content) = self
+            .menu_view
+            .as_ref()
+            .map(|view| view.content.clone().upcast::<Control>())
+        else {
             return false;
         };
+        let mut rows = self.item_menu_rows(
+            &mut content,
+            recipe_rows.first().map(|(entry, _)| entry.output),
+        );
         let base = self.base().clone();
         let _guard = self.base_mut();
-        for mut child in content.get_children().iter_shared() {
-            content.remove_child(&child);
-            child.queue_free();
-        }
-        let mut scroll = ScrollContainer::new_alloc();
-        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
-        let mut rows = VBoxContainer::new_alloc();
-        scroll.add_child(&rows);
-        content.add_child(&scroll);
         let mut first_available: Option<Gd<Button>> = None;
         if recipe_rows.is_empty() {
             let mut empty = Label::new_alloc();
@@ -292,7 +288,7 @@ impl PlayerNode {
         }
         for (entry, output) in recipe_rows {
             let mut button = Button::new_alloc();
-            button.set_text(&format!("{} → {} x{}", entry.name, output, entry.count));
+            button.set_text(&format!("{} x{}", output, entry.count));
             button.set_disabled(!entry.available);
             let callback = base.callable("confirm_crafting_recipe").bindv(&varray![
                 i64::from(bench.file),
@@ -300,6 +296,7 @@ impl PlayerNode {
                 i64::from(entry.recipe.file),
                 i64::from(entry.recipe.object),
             ]);
+            super::item_card::connect_preview(&base, &mut button, entry.output);
             button.connect("pressed", &callback);
             rows.add_child(&button);
             if entry.available && first_available.is_none() {
@@ -461,6 +458,7 @@ impl PlayerNode {
         self.container_menu = None;
         self.barter_menu = None;
         self.crafting_bench = None;
+        self.item_card_view = None;
         let previous_focus = self
             .base()
             .get_viewport()
@@ -507,6 +505,7 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        self.item_card_view = None;
         self.crafting_bench = None;
         self.lockpick_target = None;
         self.lockpick_status = None;

@@ -933,6 +933,8 @@ pub struct World {
     pub animation_completions: Vec<AnimationCompletion>,
     /// Open Papyrus user logs and the lines written to each during this run.
     pub user_logs: BTreeMap<String, Vec<String>>,
+    /// User log writes awaiting delivery to the file logger.
+    pub(crate) pending_user_log_writes: Vec<(String, String)>,
     /// One-shot requests for the host, which owns process and cell streaming.
     pub debug_host_requests: Vec<DebugHostRequest>,
     /// Enabled states for movement, fighting, camera, looking, sneaking, menu,
@@ -1274,6 +1276,7 @@ impl World {
             animation_host_notices: Vec::new(),
             animation_completions: Vec::new(),
             user_logs: BTreeMap::new(),
+            pending_user_log_writes: Vec::new(),
             debug_host_requests: Vec::new(),
             player_control_flags: [true; 8],
             player_control_pov_type: 0,

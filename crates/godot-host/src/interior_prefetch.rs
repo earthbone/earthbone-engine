@@ -130,7 +130,7 @@ impl InteriorPrefetch {
                 let source = source.speculative_view();
                 let location = source.load_location(destination, [0.0; 3], 0)?;
                 if !admitted(&location) {
-                    eprintln!(
+                    soe_trace::warn!(target: "host::interior_prefetch", system = "host::interior_prefetch",
                         "interior_prefetch: rejected {destination} payload={} primitives={}",
                         payload_bytes(&location),
                         location.collision.stats.primitives

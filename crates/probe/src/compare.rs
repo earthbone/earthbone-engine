@@ -193,6 +193,53 @@ pub fn compare(
         observed_version,
         differences: Vec::new(),
     };
+    let authored_forms = probe.all_forms();
+    for (source, observations) in [("engine", engine), ("observed", observed)] {
+        for boundary in observations {
+            diff(
+                &mut report,
+                boundary,
+                &format!("{source}.authored.load_order"),
+                serde_json::to_value(&probe.load_order)?,
+                serde_json::to_value(&boundary.load_order)?,
+                0.0,
+            );
+            diff(
+                &mut report,
+                boundary,
+                &format!("{source}.authored.form_aliases"),
+                serde_json::to_value(authored_forms.keys().collect::<Vec<_>>())?,
+                serde_json::to_value(boundary.forms.keys().collect::<Vec<_>>())?,
+                0.0,
+            );
+            diff(
+                &mut report,
+                boundary,
+                &format!("{source}.authored.skse_version"),
+                serde_json::Value::Null,
+                serde_json::to_value(&boundary.skse_version)?,
+                0.0,
+            );
+            for (alias, form) in &authored_forms {
+                if let Some(id) = boundary.forms.get(alias) {
+                    let raw = *id as u32;
+                    let object = if raw >> 24 == 0xfe {
+                        raw & 0xfff
+                    } else {
+                        raw & 0xffffff
+                    };
+                    diff(
+                        &mut report,
+                        boundary,
+                        &format!("{source}.authored.forms.{alias}.object"),
+                        form.object.into(),
+                        object.into(),
+                        0.0,
+                    );
+                }
+            }
+        }
+    }
     for (index, e) in engine.iter().enumerate() {
         let Some(o) = observed.get(index) else {
             diff(
@@ -290,7 +337,7 @@ pub fn compare(
 fn kind_matches(kind: FormKind, tag: Tag) -> bool {
     match kind {
         FormKind::Quest => tag == Tag(*b"QUST"),
-        FormKind::Actor => tag == Tag(*b"ACHR"),
+        FormKind::Actor | FormKind::Player => tag == Tag(*b"ACHR"),
         FormKind::ObjectReference => [Tag(*b"REFR"), Tag(*b"ACHR")].contains(&tag),
         FormKind::Spell => tag == Tag(*b"SPEL"),
         FormKind::MagicEffect => tag == Tag(*b"MGEF"),
@@ -305,7 +352,20 @@ fn kind_matches(kind: FormKind, tag: Tag) -> bool {
 ///
 /// # Errors
 /// Rejects a different load order, missing/mistyped forms, VM faults or unfinished runs.
-pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Error> {
+pub fn run(probe: &Probe, order: LoadOrder) -> Result<Vec<Observation>, Error> {
+    if probe.animation_graph.is_some() {
+        return Err(Error::Execution(
+            "animation comparison requires installed assets".into(),
+        ));
+    }
+    run_with_assets(probe, order, None)
+}
+
+fn run_with_assets(
+    probe: &Probe,
+    mut order: LoadOrder,
+    assets: Option<&crate::animation::Assets>,
+) -> Result<Vec<Observation>, Error> {
     probe.validate()?;
     if !order.files().iter().map(|file| file.name.as_str()).eq(probe
         .load_order
@@ -321,28 +381,42 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         .add("SoeProbe.esp", crate::plugin(probe)?)
         .map_err(|e| Error::Execution(e.to_string()))?;
     let mut game = Game::new(order);
+    let mut resolved = BTreeMap::new();
     for (name, form) in probe.all_forms() {
-        if name == "player" && form.kind == FormKind::Actor {
-            game.world_mut().player();
-            continue;
-        }
-        let id = game
-            .world()
-            .form_from_file(form.object, &form.plugin)
-            .ok_or_else(|| Error::Execution(format!("missing form {name}")))?;
-        if !game
-            .world()
-            .tag_of(id)
-            .is_some_and(|tag| kind_matches(form.kind, tag))
+        let player_alias = name == "player" && form.kind == FormKind::Actor;
+        let id = if form.kind == FormKind::Player || player_alias {
+            game.world_mut().player()
+        } else {
+            game.world()
+                .form_from_file(form.object, &form.plugin)
+                .ok_or_else(|| Error::Execution(format!("missing form {name}")))?
+        };
+        if form.kind != FormKind::Player
+            && !player_alias
+            && !game
+                .world()
+                .tag_of(id)
+                .is_some_and(|tag| kind_matches(form.kind, tag))
         {
             return Err(Error::Execution(format!("mistyped form {name}")));
         }
+        resolved.insert(name, id);
     }
     let timescale = game
         .world()
         .form_from_file(0x3a, "Skyrim.esm")
         .ok_or_else(|| Error::Execution("missing TimeScale".into()))?;
     game.world_mut().set_global(timescale, probe.timescale);
+    let mut animation = match (&probe.animation_graph, assets) {
+        (Some(config), Some(assets)) => {
+            let actor = resolved[&config.actor];
+            Some(crate::animation::Host::new(assets, actor))
+        }
+        _ => None,
+    };
+    if let Some(host) = &mut animation {
+        host.update(&mut game, 0.0)?;
+    }
     let version = format!("soe-game/{}", env!("CARGO_PKG_VERSION"));
     if !game.vm.natives.register_global(
         "Debug",
@@ -412,6 +486,11 @@ pub fn run(probe: &Probe, mut order: LoadOrder) -> Result<Vec<Observation>, Erro
         if dt <= 0.0 {
             return Err(Error::Execution("clock made no progress".into()));
         }
+        if !paused {
+            if let Some(host) = &mut animation {
+                host.update(&mut game, dt as f32)?;
+            }
+        }
         game.tick_menu_mode(dt, paused);
         elapsed += dt;
     }
@@ -439,5 +518,6 @@ pub(crate) fn installed_order(probe: &Probe, data: &Path) -> Result<LoadOrder, E
 /// Reports missing plugins, malformed records or execution errors.
 pub fn run_installed(probe: &Probe, data: &Path) -> Result<Vec<Observation>, Error> {
     probe.validate()?;
-    run(probe, installed_order(probe, data)?)
+    let assets = crate::animation::Assets::load(probe, data)?;
+    run_with_assets(probe, installed_order(probe, data)?, assets.as_ref())
 }

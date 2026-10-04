@@ -95,7 +95,7 @@ impl PlayerNode {
         match self.melee_contact.begin(game, player, hand) {
             Ok(()) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", actor = %player, "PlayerNode: {error}");
                 false
             }
         }
@@ -258,7 +258,7 @@ impl PlayerNode {
         match world.equip_hand_weapon(player, hand, item) {
             Ok(()) => true,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
                 false
             }
         }
@@ -277,7 +277,7 @@ impl PlayerNode {
         let Some(game) = &mut self.game else { return };
         if let Err(error) = Self::arm_melee_swing_from_input(game, &mut self.melee_contact, pressed)
         {
-            godot_error!("PlayerNode: {error}");
+            soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
         }
     }
 
@@ -379,7 +379,7 @@ impl PlayerNode {
             Ok(Some(_)) => true,
             Ok(None) => false,
             Err(error) => {
-                godot_error!("PlayerNode: {error}");
+                soe_trace::error!(target: "host::melee", system = "host::melee", "PlayerNode: {error}");
                 false
             }
         }

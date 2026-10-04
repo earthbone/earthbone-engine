@@ -128,7 +128,7 @@ fn ui_20_vanilla_records_supply_inventory_cards() {
     order
         .add(
             "Skyrim.esm",
-            soe_esm::read_plugin(&PathBuf::from(data).join("Skyrim.esm"))
+            soe_esm::read_plugin(PathBuf::from(data).join("Skyrim.esm"))
                 .unwrap()
                 .unwrap(),
         )

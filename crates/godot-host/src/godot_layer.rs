@@ -604,7 +604,7 @@ impl CellStreamerNode {
             let loaded = match source.stream_destruction_model(*reference, &model) {
                 Ok(loaded) => loaded,
                 Err(error) => {
-                    godot_error!("destruction model {model} for {reference}: {error}");
+                    soe_trace::error!(target: "host::layer", system = "host::layer", "destruction model {model} for {reference}: {error}");
                     continue;
                 }
             };
@@ -1491,7 +1491,7 @@ impl CellStreamerNode {
         match CellStreamer::new(config) {
             Ok(s) => self.streamer = Some(s),
             Err(e) => {
-                godot_error!("CellStreamer: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamer: {e}");
                 self.streamer = None;
             }
         }
@@ -1558,7 +1558,7 @@ impl CellStreamerNode {
     /// Load race menu head part models and chargen morph files into the host cache.
     pub fn precache_chargen(&mut self, game: &soe_game::Game) -> bool {
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("CellStreamer: chargen cache requires loaded game data");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamer: chargen cache requires loaded game data");
             return false;
         };
         match crate::data_source::ChargenCache::load(source, game) {
@@ -1567,7 +1567,7 @@ impl CellStreamerNode {
                 true
             }
             Err(error) => {
-                godot_error!("CellStreamer: precaching chargen data failed: {error}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamer: precaching chargen data failed: {error}");
                 false
             }
         }
@@ -1618,7 +1618,7 @@ impl CellStreamerNode {
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
         if self.data_load.is_some() {
-            godot_error!("CellStreamerNode::load_data: a background load is pending");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::load_data: a background load is pending");
             return false;
         }
         match DataSource::open(Path::new(&path.to_string())) {
@@ -1627,7 +1627,7 @@ impl CellStreamerNode {
                 true
             }
             Err(e) => {
-                godot_error!("CellStreamerNode::load_data: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::load_data: {e}");
                 self.data_source = None;
                 false
             }
@@ -1653,7 +1653,7 @@ impl CellStreamerNode {
                 true
             }
             Err(e) => {
-                godot_error!("CellStreamerNode::begin_load_data: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::begin_load_data: {e}");
                 false
             }
         }
@@ -1677,11 +1677,11 @@ impl CellStreamerNode {
                 1
             }
             Ok(Err(e)) => {
-                godot_error!("CellStreamerNode::poll_load_data: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::poll_load_data: {e}");
                 -1
             }
             Err(_) => {
-                godot_error!("CellStreamerNode::poll_load_data: worker panicked");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::poll_load_data: worker panicked");
                 -1
             }
         }
@@ -1698,7 +1698,7 @@ impl CellStreamerNode {
     #[func]
     pub fn stream_cell(&mut self, editor_id: GString) -> i32 {
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("CellStreamerNode::stream_cell: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_cell: load_data was not called");
             return -1;
         };
         let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
@@ -1707,7 +1707,7 @@ impl CellStreamerNode {
         let loaded = match source.stream_cell_id(cell_id) {
             Ok(loaded) => loaded,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_cell: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_cell: {e}");
                 return -1;
             }
         };
@@ -1744,7 +1744,7 @@ impl CellStreamerNode {
     #[func]
     pub fn open_cell_id(&mut self, cell_form_id: GString) -> i32 {
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("CellStreamerNode::open_cell_id: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::open_cell_id: load_data was not called");
             return -1;
         };
         let Some((file, object)) =
@@ -1771,7 +1771,7 @@ impl CellStreamerNode {
         let loaded = match source.stream_cell_id(cell_id) {
             Ok(loaded) => loaded,
             Err(e) => {
-                godot_error!("CellStreamerNode::open_cell_id: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::open_cell_id: {e}");
                 return -1;
             }
         };
@@ -1816,13 +1816,13 @@ impl CellStreamerNode {
     #[func]
     pub fn stream_exterior(&mut self, editor_id: GString, radius: i32) -> i32 {
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("CellStreamerNode::stream_exterior: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: load_data was not called");
             return -1;
         };
         let block = match source.resolve_exterior_block(&editor_id.to_string(), radius) {
             Ok(block) => block,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_exterior: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: {e}");
                 return -1;
             }
         };
@@ -1845,7 +1845,7 @@ impl CellStreamerNode {
             self.add_cell(cell.id, &loaded_cell, scenario, &mut totals);
         });
         if let Err(e) = result {
-            godot_error!("CellStreamerNode::stream_exterior: {e}");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_exterior: {e}");
             return -1;
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
@@ -2078,17 +2078,17 @@ impl CellStreamerNode {
     #[func]
     pub fn stream_cell_collision(&mut self, editor_id: GString) -> i32 {
         let Some(source) = self.data_source.as_ref() else {
-            godot_error!("stream_cell_collision: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: load_data was not called");
             return -1;
         };
         let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
-            godot_error!("stream_cell_collision: no cell named {editor_id}");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: no cell named {editor_id}");
             return -1;
         };
         let (colliders, read) = match source.placed_cell_colliders(cell_id) {
             Ok(pair) => pair,
             Err(e) => {
-                godot_error!("stream_cell_collision: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: {e}");
                 return -1;
             }
         };
@@ -2098,7 +2098,7 @@ impl CellStreamerNode {
             .map(|w| w.get_space())
             .filter(|s| s.is_valid())
         else {
-            godot_error!("stream_cell_collision: the node is outside a 3D world");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "stream_cell_collision: the node is outside a 3D world");
             return -1;
         };
         self.defer_tethers_for_collision_reset();
@@ -2291,22 +2291,22 @@ impl CellStreamerNode {
     ) -> i32 {
         self.clear_terrain_lod();
         let Some(source) = self.data_source.clone() else {
-            godot_error!("CellStreamerNode::stream_terrain_lod: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_terrain_lod: load_data was not called");
             return -1;
         };
         let Ok(budget_bytes) = u64::try_from(budget_bytes) else {
-            godot_error!("CellStreamerNode::stream_terrain_lod: budget {budget_bytes} is negative");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_terrain_lod: budget {budget_bytes} is negative");
             return -1;
         };
         let Some((world, world_editor_id)) = source.resolve_world(&world_editor_id.to_string())
         else {
-            godot_error!("CellStreamerNode::stream_terrain_lod: no worldspace {world_editor_id}");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_terrain_lod: no worldspace {world_editor_id}");
             return -1;
         };
         let settings = match source.lod_settings(&world_editor_id) {
             Ok(settings) => settings,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_terrain_lod: {e}");
                 return -1;
             }
         };
@@ -2323,7 +2323,7 @@ impl CellStreamerNode {
         let streamer = match TerrainLodStreamer::with_anchor(config, anchor) {
             Ok(streamer) => streamer,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_terrain_lod: {e}");
                 return -1;
             }
         };
@@ -2362,22 +2362,22 @@ impl CellStreamerNode {
     ) -> i32 {
         self.clear_object_lod();
         let Some(source) = self.data_source.clone() else {
-            godot_error!("CellStreamerNode::stream_object_lod: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_object_lod: load_data was not called");
             return -1;
         };
         let Ok(budget_bytes) = u64::try_from(budget_bytes) else {
-            godot_error!("CellStreamerNode::stream_object_lod: budget {budget_bytes} is negative");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_object_lod: budget {budget_bytes} is negative");
             return -1;
         };
         let Some((world, world_editor_id)) = source.resolve_world(&world_editor_id.to_string())
         else {
-            godot_error!("CellStreamerNode::stream_object_lod: no worldspace {world_editor_id}");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_object_lod: no worldspace {world_editor_id}");
             return -1;
         };
         let settings = match source.lod_settings(&world_editor_id) {
             Ok(settings) => settings,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_object_lod: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_object_lod: {e}");
                 return -1;
             }
         };
@@ -2394,7 +2394,7 @@ impl CellStreamerNode {
         let streamer = match TerrainLodStreamer::with_anchor(config, anchor) {
             Ok(streamer) => streamer,
             Err(e) => {
-                godot_error!("CellStreamerNode::stream_object_lod: {e}");
+                soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::stream_object_lod: {e}");
                 return -1;
             }
         };
@@ -2835,7 +2835,7 @@ impl CellStreamerNode {
         object_lod: bool,
     ) -> Option<usize> {
         let Some(source) = self.data_source.clone() else {
-            godot_error!("CellStreamerNode::{caller}: load_data was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::{caller}: load_data was not called");
             return None;
         };
         if (object_lod && self.object_lod.is_none()) || (!object_lod && self.terrain_lod.is_none())
@@ -2845,7 +2845,7 @@ impl CellStreamerNode {
             } else {
                 "stream_terrain_lod"
             };
-            godot_error!("CellStreamerNode::{caller}: {start} was not called");
+            soe_trace::error!(target: "host::layer", system = "host::layer", "CellStreamerNode::{caller}: {start} was not called");
             return None;
         }
         let scenario = self.scenario()?;
@@ -2880,7 +2880,7 @@ impl CellStreamerNode {
             }
         }
         for (block, e) in &step.failed {
-            godot_error!(
+            soe_trace::error!(target: "host::layer", system = "host::layer",
                 "CellStreamerNode::{caller}: LOD block {} {} {}: {e}",
                 block.level.cells(),
                 block.x,

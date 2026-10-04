@@ -7,6 +7,9 @@
 //! ID, following Godot's EditorPlugin and EditorInspectorPlugin APIs.
 
 // CONTEXT: gdext's class(init) expansion emits explicit field names.
+// gdext's `init` derive writes `base: base` in the impl it generates, which
+// clippy 1.99 reports at the struct field. An attribute on the struct does not
+// reach that impl.
 #![allow(clippy::redundant_field_names)]
 
 use std::path::PathBuf;
@@ -22,7 +25,7 @@ use crate::units::SkyrimPos;
 
 /// A selected winning form displayed by the Godot inspector.
 #[derive(GodotClass)]
-#[class(init, base = Resource)]
+#[class(base = Resource)]
 pub struct SoeFormResource {
     base: Base<Resource>,
     /// Stable load-order file index for this form.
@@ -44,12 +47,38 @@ pub struct SoeFormResource {
 
 /// Load-order-backed form queries for the editor plugin.
 #[derive(GodotClass)]
-#[class(init, base = RefCounted)]
+#[class(base = RefCounted)]
 pub struct SoeFormTable {
     base: Base<RefCounted>,
     document: Option<EditorDocument>,
     last_error: GString,
     resources_created: i64,
+}
+
+#[godot_api]
+impl IResource for SoeFormResource {
+    fn init(base: Base<Resource>) -> Self {
+        Self {
+            base,
+            file_index: 0,
+            object_id: 0,
+            signature: GString::new(),
+            editor_id: GString::new(),
+            winning_plugin: GString::new(),
+        }
+    }
+}
+
+#[godot_api]
+impl IRefCounted for SoeFormTable {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self {
+            base,
+            document: None,
+            last_error: GString::new(),
+            resources_created: 0,
+        }
+    }
 }
 
 #[godot_api]

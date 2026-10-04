@@ -184,7 +184,7 @@ impl DataSource {
                     );
                 }
                 Err(e) => {
-                    eprintln!("collide_cell: {model}: {e}");
+                    soe_trace::warn!(target: "host::collision", system = "host::collision", "collide_cell: {model}: {e}");
                     stats.failed += 1;
                 }
             }
