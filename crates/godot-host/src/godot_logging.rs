@@ -50,8 +50,12 @@ pub(crate) fn flush(all: bool) {
 fn route(line: &LogLine) {
     let text = line.to_string();
     match line.level {
-        Level::ERROR => godot_error!("{text}"),
-        Level::WARN => godot_warn!("{text}"),
+        Level::ERROR => {
+            godot_error!("{text}");
+        }
+        Level::WARN => {
+            godot_warn!("{text}");
+        }
         _ => {
             // CONTEXT: Log data is literal text, never user-supplied BBCode.
             let text = text.replace('[', "[lb]");
