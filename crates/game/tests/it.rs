@@ -1704,7 +1704,9 @@ mod prf_12_frame;
 
 #[path = "prf_14_work.rs"]
 mod prf_14_work;
-#[path = "prf_17_workers.rs"]
-mod prf_17_workers;
 #[path = "prf_17_adversarial.rs"]
 mod prf_17_adversarial;
+#[path = "prf_17_breaker_adversarial.rs"]
+mod prf_17_breaker_adversarial;
+#[path = "prf_17_workers.rs"]
+mod prf_17_workers;
